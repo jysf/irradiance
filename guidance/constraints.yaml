@@ -1,0 +1,97 @@
+# guidance/constraints.yaml
+# Repo-level rules that all agents (and humans) working in this repo
+# must follow. Maps to ContextCore agentGuidance.constraints.
+#
+# Every constraint MUST have:
+#   - id: stable kebab-case identifier
+#   - rule: one sentence
+#   - severity: blocking | warning | advisory
+#   - paths: glob list (use ["**"] for repo-wide)
+#   - added_by: human | claude | <agent-id>
+#   - added_at: YYYY-MM-DD
+#   - rationale: why (link to DEC-XXX preferred)
+#
+# Severity is about ENFORCEMENT, not planning priority. If a plan rates a
+# constraint critical/high/medium/low, map it to a severity here:
+#   critical, high -> blocking   (a violation fails the gate; must not merge)
+#   medium         -> warning    (flagged; should fix, does not block)
+#   low            -> advisory   (opt-in / nice-to-have)
+
+constraints:
+  - id: no-secrets-in-code
+    rule: "Never commit API keys, tokens, passwords, or credentials. Use environment variables referenced via .env.example."
+    severity: blocking
+    paths: ["**"]
+    added_by: human
+    added_at: 2026-04-19
+    rationale: "Baseline security hygiene."
+
+  - id: no-panics-on-untrusted-input
+    rule: "RAW is attacker-influenced binary input. Every offset, length and index read must be bounds-checked and return a typed error. No unwrap()/expect()/panic!()/indexing that can panic on any parse or decode path. Recursion and chaining are depth- and cycle-guarded."
+    severity: blocking
+    rationale: "This is the most hostile input class in imaging — vendor-supplied offsets, tile tables, Huffman tables. A panic in a library is a denial of service in every consumer, and consumers include servers accepting uploads from strangers."
+    enforcement: "fuzz targets from STAGE-001 onward; clippy; review"
+
+  - id: provenance-recorded-per-algorithm
+    rule: "Every algorithm and decoder gets a row in docs/provenance-ledger.md naming its source and that source's licence. Reading a copyleft implementation is NOT permitted for anything in the default build."
+    severity: blocking
+    rationale: "A crate's DECLARED licence and its code's PROVENANCE are different things, and cargo-deny only sees the former — `demosaic` 0.3.0 ships MIT/Apache while one file self-describes as a port of LGPL LibRaw code. The ledger is what makes this library's permissive claim defensible rather than asserted."
+    enforcement: "review; docs/provenance-ledger.md"
+
+  - id: no-copyleft-dependencies
+    rule: "Dependencies must be permissive (MIT / Apache-2.0 / BSD / Zlib / 0BSD / Unicode-3.0). No GPL, LGPL or AGPL — including dev-dependencies — without a recorded decision. dnglab is used as a TOOL (run, never linked), which imposes nothing."
+    severity: blocking
+    rationale: "Permissive IS the differentiator. Every mature RAW decoder in every language is copyleft or C++; a permissive one is the entire reason this library exists. rawler/rawloader/zenraw/quickraw/imagepipe are all out."
+    enforcement: "cargo deny check licenses in CI"
+
+  - id: library-not-application
+    rule: "irradiance takes bytes and returns pixels plus metadata. No I/O, no CLI, no `image` crate dependency, no async runtime. The `irr` binary is an internal dev/oracle tool only and is never a shipped product surface."
+    severity: blocking
+    rationale: "The API boundary is what makes this adoptable by consumers who share none of crustyimg's assumptions. A library named after its consumer accumulates that consumer's types; this one must not."
+    enforcement: "review; the public API surface"
+
+  - id: oracle-must-be-shown-red
+    rule: "Every oracle ships with a deliberate-fault test proving it FAILS on a broken input. A verification claim without a demonstrated red is not a verification claim."
+    severity: blocking
+    rationale: "A green oracle that cannot fail manufactures confidence. This is the single discipline the whole project's credibility rests on."
+    enforcement: "each oracle spec's failing-test set"
+
+  - id: test-before-implementation
+    rule: "Failing tests are written as part of the spec during design. Implementation makes those tests pass. Do not skip this order."
+    severity: blocking
+    paths: ["**"]
+    added_by: human
+    added_at: 2026-04-19
+    rationale: "TDD discipline; provides automatic verification of acceptance criteria."
+
+  - id: no-new-top-level-deps-without-decision
+    rule: "Do not add a new top-level RUNTIME dependency (package.json, pyproject.toml, etc.) without first emitting a DEC-XXX file justifying the choice. Exception (DEC-004 rule 4): a build cycle MAY add a clearly-trivial DEV-only dependency (types packages, test utilities — never a runtime dep) AND author its DEC in the same pass, with no stop-and-ask, so a non-interactive sub-agent isn't driven to a workaround."
+    severity: warning
+    paths: ["package.json", "pyproject.toml", "Cargo.toml", "go.mod"]
+    added_by: claude
+    added_at: 2026-04-19
+    rationale: "Dependencies are forever — force deliberation on runtime choices. But a hard stop-and-ask on a trivial dev/types dep drives a non-interactive build sub-agent to a workaround review must undo (DEC-004 rule 4, e.g. the @types/node stub). Sanctioning the dev-only + DEC-in-one-pass path keeps the constraint's teeth for real (runtime) deps while unblocking delegated build."
+
+  - id: one-spec-per-pr
+    rule: "Each PR must reference exactly one SPEC-XXX in its description. Bundled changes are rejected."
+    severity: blocking
+    paths: ["**"]
+    added_by: human
+    added_at: 2026-04-19
+    rationale: "Keeps review loop tractable and traceable."
+
+  - id: cost-captured-per-cycle
+    rule: "Every shipped spec must record a real `tokens_total` on its metered cycles (build, verify) in `cost.sessions` — the orchestrator fills it from the Agent result's subagent_tokens (or `/cost`) at ship. Only un-metered main-loop cycles (design, ship) may be null-with-note. Enforced by `just cost-audit` (CI job `cost-data`)."
+    severity: warning
+    paths: ["projects/**/specs/**"]
+    added_by: claude
+    added_at: 2026-06-17
+    rationale: "Cost tracking is structurally present but silently goes empty when documentation alone asks for it (all-null numerics). A check makes it stick — the same pattern as wiring a license policy into CI. See AGENTS.md §4 and docs/cost-tracking.md."
+
+  - id: license-policy
+    rule: "If this project pulls in third-party dependencies, define an allowed-license policy (typically permissive-only: MIT / Apache-2.0 / BSD / ISC / Zlib) and enforce it in CI with your ecosystem's tool — cargo-deny (Rust), pip-licenses / pip-audit (Python), license-checker (Node), go-licenses (Go). Any dependency outside the policy fails the build unless explicitly excepted."
+    severity: advisory
+    paths: ["**"]
+    added_by: claude
+    added_at: 2026-06-17
+    rationale: "A copyleft (GPL/AGPL) dependency can silently relicense a statically-linked binary, and license drift is invisible until an audit. Make the policy mechanical. The tool is per-language — see docs/license-policy.md (includes a Rust cargo-deny worked example)."
