@@ -110,6 +110,18 @@ Registered BEFORE any code, so the spike cannot quietly redefine success.
 9. Confirm the P1100 shoots `.NRW`, 12-bit, uncompressed.
 10. Can `dnglab makedng` build a tier-A fixture with an analytically known answer?
 11. Measured LOC per module, replacing the estimates in the stage files.
+12. **Does the plane path compile for `wasm32-unknown-unknown`?** And what does `no_std` +
+    `alloc` cost in error ergonomics across the public API? *(DEC-002 — proposed, not accepted;
+    these measurements accept or reject it.)*
+13. **What is single-image develop latency WITHOUT in-library parallelism?** If it is bad enough
+    that a caller would rather have inner rayon than the browser target, DEC-002 is wrong and
+    should be reopened before STAGE-002, not after.
+14. **Can `dnglab makedng` build a fixture whose correct output is known by ARITHMETIC** — known
+    levels, a known linearization curve — so at least one oracle does not descend from rawler?
+    *(See the single-source caveat in STAGE-003.)*
+15. **Is a second native-DNG source available cheaply** (a Pixel phone, a borrowed Ricoh GR)?
+    PROJ-001 currently validates against one camera, one firmware, one frame — a second source
+    is cheap insurance against baking in Leica-specific assumptions.
 
 ## What's out of bounds
 
@@ -126,6 +138,8 @@ The durable artifacts are **the corpus and the oracle, not the code**:
 
 - A standing two-tier corpus with its manifest (`docs/conformance-matrix.md`)
 - A working three-layer oracle harness, **demonstrated red** on injected faults
+- At least one oracle that does NOT descend from rawler (question 14)
+- DEC-002 either accepted or reopened, on measurements rather than argument
 - Answers to the open questions above, measured and cited
 - DECs for anything load-bearing
 - Measured LOC replacing the stage-file estimates

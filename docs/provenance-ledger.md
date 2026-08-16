@@ -46,3 +46,13 @@ honestly.
 - **Patents:** the 20-year term puts MHC (2004) and AHD (2005) at or past expiry,
   VNG (1999) long expired, and the Bayer CFA patent (1976) expired ~1993. The DNG
   container carries an explicit grant. Confirm before relying on any of this.
+
+## This library's own licence
+
+**`MIT OR Apache-2.0`** — the Rust ecosystem's dual-licence convention, and
+crustyimg's. Apache-2.0 alone would be more restrictive than the norm and would
+undercut the entire pitch: permissive *is* the differentiator, and the whole
+reason this library exists is that every mature alternative in every language is
+copyleft or C++.
+
+`LICENSE-MIT` and `LICENSE-APACHE` both live at the repo root.

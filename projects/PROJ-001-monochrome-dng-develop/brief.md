@@ -39,6 +39,8 @@ value:
     - "`WarpRectilinear` proves harder or more visible than estimated, and Phase 1 output matches no reference render"
     - "Peak memory for a 47 MP develop breaches a sane budget and forces a tiling redesign mid-project"
     - "Estimates here are derived from crustyimg's cost data on a mature repo; greenfield may differ in either direction"
+    - "The oracle is single-sourced — dnglab's plane checksum AND reference render both come from rawler, so a tolerance test could pass while both are wrong together. Analytic makedng fixtures mitigate it; the only fully independent check (ColorChecker ΔE) is PROJ-002"
+    - "PROJ-001 validates against one camera, one firmware, one frame — Leica-specific assumptions could hide until a second DNG source arrives"
 
 value_realized:
   thesis_held: null

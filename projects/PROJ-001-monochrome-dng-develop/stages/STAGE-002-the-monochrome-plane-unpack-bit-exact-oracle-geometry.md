@@ -112,6 +112,12 @@ little-endian, with 14-bit values zero-extended. Decode → hash → compare one
 string; crop afterwards. Full contract and the three wrong guesses that preceded
 it are in `docs/oracle-contract.md`.
 
+**What bit-exact does and does not prove.** It proves we match rawler. Because decompression is
+deterministic and rawler is the de facto reference, that IS the goal at this layer — but say so
+rather than letting "bit-exact" imply more than it does. The layer-0 packing arithmetic
+(`w x h x 14 / 8 == StripByteCounts`) is the one check here that is independent of any other
+implementation; keep it even though the checksum subsumes it in practice.
+
 Memory is a live design constraint, not a footnote: 47.4 MP at f32 is ~190 MB per
 plane before anything else exists.
 

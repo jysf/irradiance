@@ -18,6 +18,22 @@ out of scope, here is the row."
 | Canon CR3 | Bayer | 14 | CRX wavelet | none | — | no | **declared-empty** — 2,653 lines in rawler; demand-gated |
 | Nikon Z-series HE/HE* | Bayer | 14 | TicoRAW | none | **rawler rejects it outright** (`nef.rs:205`) | no | **declared-empty — CLOSED, not expensive** |
 
+## ⚠ PROJ-001 validates against ONE camera
+
+One body, one firmware, one frame. Everything in `docs/measured-q2m-dng.md` could carry a
+Leica-specific assumption nobody notices until a second DNG arrives. A **second native-DNG
+source** is cheap insurance and worth adding before STAGE-002 finishes:
+
+| Candidate | Why | Cost |
+|---|---|---|
+| **Pixel phone** | Google Camera writes clean mosaic Bayer DNG | free if anyone nearby has one |
+| **Ricoh GR III/IIIx** | native DNG, common used, same shooting culture | borrowable |
+| Sigma fp | native DNG | rarer |
+| iPhone ProRAW | ⚠ typically *Linear* DNG — already demosaiced. Verify before relying on it | free |
+
+It is Bayer, so it cannot ship in PROJ-001's develop path — but it can prove the **container
+reader** is not Leica-shaped, which is STAGE-001's job. That is the cheap half of the value.
+
 ## Gotchas already found
 
 - **The P1100 is a Coolpix, so it shoots `.NRW`, not `.NEF`.** rawler's `nrw.rs`

@@ -58,6 +58,26 @@ When a comparison fails, `--raw-pixel | tail -c +20 | dd conv=swab` hands you th
 reference bytes to diff, and the PGM header gives you width and height to convert
 a byte offset into a pixel coordinate.
 
+## ⚠ This oracle is single-sourced
+
+`--raw-checksum` and `--srgb` both come from **rawler**. Bit-exact agreement proves we match
+rawler, not that we are correct.
+
+- **Sensor plane — acceptable.** Decompression is deterministic and rawler is the de facto
+  reference; matching it exactly *is* the goal. The layer-0 packing arithmetic is independent
+  and should be kept for that reason.
+- **Developed output — weak.** Matching rawler's tone and rendering choices is not being right,
+  and a tolerance test can pass while both are wrong together.
+
+Two mitigations, in order of availability:
+
+1. **Analytic fixtures via `dnglab makedng`** — known levels, known curves, known matrices, so
+   correctness is arithmetic. An arithmetic check cannot inherit rawler's bugs. Available now.
+2. **ColorChecker ΔE** against published patch values — the only fully independent check, and
+   the only one that is absolute rather than comparative. PROJ-002, and it needs a colour camera.
+
+Never describe this oracle as proving correctness without naming which layer is meant.
+
 ## Every oracle must be shown to go red
 
 A green oracle that cannot fail is worse than no oracle. Each layer ships with a

@@ -27,6 +27,7 @@ value_contribution:
     - "DNG opcode execution: FixBadPixelsConstant and WarpRectilinear"
     - "A tone curve and the three output modes"
     - "A perceptual develop oracle with a stated tolerance"
+    - "An analytic oracle whose correct answer is arithmetic, not another implementation's output"
   explicitly_does_not:
     - "Colour — there is none to manage in a Monochrom file"
     - "LUT / film response curves — valuable, but the next wave"
@@ -74,6 +75,8 @@ is what stops colour work in the next project becoming an unbounded tuning loop.
 ## Success Criteria
 
 - Output scores within a stated SSIMULACRA2 tolerance of `dnglab analyze --srgb`
+- **An independent, non-rawler check passes**: at least one `dnglab makedng` fixture with an
+  analytically known answer verifies the tone/level math without reference to any other implementation
 - The develop oracle goes **red** on a wrong-black-level render
 - `WarpRectilinear` is applied and its geometric effect is asserted, not eyeballed
 - The tone curve is table-driven — no `powf` — and output is byte-identical on macOS and Linux
@@ -104,7 +107,7 @@ Run `just frame-stage STAGE-003` to promote these outlines into real specs.
 - [ ] (not yet written) [M] Table-driven tone curve and the three output modes, with the cross-platform byte-identity test
 - [ ] (not yet written) [M] Develop oracle: SSIMULACRA2 vs `dnglab analyze --srgb`, stated tolerance, red-on-broken proof
 
-**Count:** 0 shipped / 0 active / 4 pending
+**Count:** 0 shipped / 0 active / 5 pending
 
 ## Design Notes
 
@@ -117,6 +120,18 @@ Determinism is a design constraint from this stage on, because crustyimg's
 (libm differs across platforms), pinned reduction order, no runtime SIMD dispatch.
 The `develop_version` process-version field is introduced in STAGE-004 and this
 stage's output is version 1.
+
+⚠ **The dnglab oracle is single-sourced.** `--raw-checksum` and `--srgb` both come from rawler,
+so bit-exact agreement proves we match *rawler*, not that we are *correct*. For decompression
+that is fine — the transform is deterministic and matching the de facto reference is the goal.
+For **developed output it is much weaker**: matching rawler's tone and rendering choices is not
+the same as being right, and a tolerance test can pass while both are wrong together.
+
+The mitigation is the analytic oracle above. `dnglab makedng` builds fixtures with *known*
+levels, curves and matrices, so correctness becomes arithmetic rather than comparison — and an
+arithmetic check cannot inherit rawler's bugs. The fully independent check is the ColorChecker
+ΔE, which is PROJ-002; until then the analytic fixture is what stops this stage from being
+circular.
 
 **Stopping point C — the minimum lovable version.**
 

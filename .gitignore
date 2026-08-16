@@ -35,3 +35,27 @@ coverage/
 tmp/
 temp/
 *.tmp
+
+# Rust
+target/
+Cargo.lock            # a library: consumers pick their own versions
+**/*.rs.bk
+
+# RAW corpus — tier B is NEVER committed (docs/conformance-matrix.md).
+# Real camera files are 30-60 MB and copyrighted by whoever shot them.
+tests/corpus/tier-b/
+*.DNG
+*.dng
+*.NEF
+*.nef
+*.NRW
+*.nrw
+*.RAF
+*.raf
+*.CR2
+*.cr2
+*.ARW
+*.arw
+
+# Private commercial / positioning notes (crustyimg's `business/` precedent)
+business/
