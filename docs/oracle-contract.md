@@ -19,7 +19,7 @@ dev-dependency, without its own decision.
 | Metadata | `dnglab analyze --meta --json` (or `--yaml`) | exact, machine-diffable |
 | File structure | `dnglab analyze --structure` | validates the IFD walk |
 | **Sensor plane** | `dnglab analyze --raw-checksum` | **bit-exact** |
-| Developed output | `dnglab analyze --srgb` → 16-bit sRGB TIFF | SSIMULACRA2, tolerance |
+| Developed output | `dnglab analyze --srgb` → **16-bit PNM, not a TIFF** ⚠ | SSIMULACRA2 **≥ 85** (DEC-005) |
 
 There is also a **layer 0** that costs nothing: the packing arithmetic must
 reproduce `StripByteCounts` exactly. See `measured-q2m-dng.md`.
@@ -97,6 +97,37 @@ Two mitigations, in order of availability:
    the only one that is absolute rather than comparative. PROJ-002, and it needs a colour camera.
 
 Never describe this oracle as proving correctness without naming which layer is meant.
+
+
+## ⚠ Layer 3 is not what this document originally said — measured 2026-08-18
+
+`dnglab analyze --srgb` is documented by its own `--help` as "16-bit sRGB TIFF".
+**It is not a TIFF.** It writes a PNM — and on a *monochrome* file it writes a
+**`P6` (RGB) header over a `P5` (grayscale) payload**: exactly `w*h*2` bytes where
+the header declares `w*h*3*2`. One third of the promised data. Reproduced twice
+at byte-identical size (93,453,843 = 19-byte header + 8368x5584x2).
+
+A conforming PNM reader errors or reads garbage. The workaround (DEC-005) is to
+**assert the payload length is `w*h*2`, then rewrite the header** as
+`P5 <w> <h> 65535`; the payload is then a valid 16-bit grayscale image, verified
+to decode as a real photograph. The length assertion is not optional — if a future
+dnglab emits a correct `P6`, blindly forcing `P5` would silently halve the image.
+
+```bash
+{ printf 'P5 8368 5584 65535\n'; dnglab analyze --srgb F.DNG | tail -c +20; } > ref.pgm
+```
+
+## ⚠ What the layers do NOT cover — measured 2026-08-18
+
+**Neither the plane layer nor the develop layer catches a levels error.** The
+plane layer is blind by construction (it hashes with no black subtraction). The
+develop layer is blind because SSIMULACRA2 is *perceptual* and a levels error is
+nearly an affine tone change: a `BlackLevel` wrong by **+256 — half the true
+black level — still scores 87.5**, passing the ≥85 bar.
+
+**Levels, crop and orientation are therefore verified analytically (DEC-004), not
+by any oracle in this document.** Do not add a perceptual check for them; that is
+a category error, and it was very nearly shipped as one.
 
 ## Every oracle must be shown to go red
 

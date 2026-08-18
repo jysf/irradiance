@@ -103,9 +103,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 Run `just frame-stage STAGE-003` to promote these outlines into real specs.
 
 - [ ] (not yet written) [S] `OpcodeList1: FixBadPixelsConstant`, with a test asserting the branch was HIT
-- [ ] (not yet written) [L] `OpcodeList3: WarpRectilinear` — radial polynomial geometric correction
+- [ ] (not yet written) [L] `OpcodeList3: WarpRectilinear` — radial polynomial geometric correction. ⚠ **NOT DEFERRABLE** — SPIKE-001 measured the real coefficients: pure radial, f(1)=0.8998, **~504 px inward at the corner (6% of image width)**. Skipping it produces a visibly wrong image, and a missing warp scores −68 on the develop oracle.
 - [ ] (not yet written) [M] Table-driven tone curve and the three output modes, with the cross-platform byte-identity test
-- [ ] (not yet written) [M] Develop oracle: SSIMULACRA2 vs `dnglab analyze --srgb`, stated tolerance, red-on-broken proof
+- [ ] (not yet written) [M] Develop oracle: SSIMULACRA2 vs `dnglab analyze --srgb`, **tolerance ≥ 85 pre-registered (DEC-005)**, red-on-broken proof. ⚠ `--srgb` is a PNM, not a TIFF, and on mono files writes a P6 header over a P5 payload — assert payload length then rewrite the header. Scope: geometry and gross tone ONLY; levels belong to DEC-004.
 
 **Count:** 0 shipped / 0 active / 5 pending
 

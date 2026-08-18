@@ -101,8 +101,9 @@ Run `just frame-stage STAGE-002` to promote these outlines into real specs.
 - [ ] (not yet written) [M] Strip location and packed 14-bit → u16 unpack, with the StripByteCounts assertion
 - [ ] (not yet written) [S] Bit-exact plane oracle against `dnglab analyze --raw-checksum`, plus a red-on-injected-fault test
 - [ ] (not yet written) [M] Black/white level normalization, ActiveArea → DefaultCrop, and orientation
+- [ ] (not yet written) [S] **Analytic levels/geometry oracle (DEC-004)** — assert normalization maps BlackLevel→0 and WhiteLevel→1 on tags READ FROM THE FILE, plus crop dimensions and orientation on both a rotated and an unrotated frame. ⚠ SPIKE-001 proved the plane checksum is structurally blind to a levels error and the develop oracle misses one up to +256 (50%). Without this spec, levels ship with NO oracle coverage.
 
-**Count:** 0 shipped / 0 active / 3 pending
+**Count:** 0 shipped / 0 active / 4 pending
 
 ## Design Notes
 
