@@ -18,6 +18,13 @@
 # is not a provenance record. This is the one field with no second chance.
 # ─────────────────────────────────────────────────────────────────────────────
 #
+# ⚠ NO READER YET, and that is a scheduled debt, not an oversight. Nothing on
+#   this machine parses TOML (python 3.9 — no tomllib, no `toml`; no taplo/tomlq/
+#   yq). The real reader is Rust's `toml` crate and it arrives with the first
+#   Cargo.toml, in STAGE-001's corpus spec — which MUST read this file rather
+#   than hardcode paths, or the manifest becomes the unread field AGENTS.md §11
+#   warns about. Until then the only check is structural (required keys present).
+#
 # tier   = "b"                  tier A (committed) is a separate, CC0-only lane
 # licence: an SPDX id, a CC id, "own-work", or "personal-evaluation-only"
 #          ⚠ tier A admits ONLY CC0 or own-work. Anything with attribution,
@@ -53,6 +60,70 @@ selection must key on SubfileType + Linear Raw, never on largest dimensions.
   pgm_bytes     = 94887955                             # 19-byte header + 8424*5632*2
   strip_bytes   = 83026944                             # == StripByteCounts, layer-0 oracle
 
+[[file]]
+path            = "LEICA-Q2-MONO/L1026016.DNG"
+tier            = "b"
+make            = "LEICA CAMERA AG"
+model           = "LEICA Q2 MONO"
+body_serial     = "5597430"
+shot_at         = "2026-08-07"
+iso             = 1600
+orientation     = "Rotate 90 CW"
+bytes           = 85078016
+sha256          = "b5ab1e57faa04f01df246dfd7837f660f6f7cda212d7eb62f3546ffd5afe86c2"
+licence         = "own-work"
+source          = "maintainer's own camera"
+provenance      = "Shot by the maintainer. Full rights held."
+notes           = """
+THE ROTATED FRAME. Orientation `Rotate 90 CW`, against `Horizontal (normal)` on
+L1021223 and L1026192 — the pair that makes the per-frame orientation bug
+testable rather than theoretical. Structure verified 2026-08-18: identical to the
+reference in every structural tag.
+"""
+
+  [file.oracle]
+  raw_checksum  = "3f1851259f3119c0a2fa98d84065f2af"   # dnglab 0.7.2
+  pgm_bytes     = 94887955
+  strip_bytes   = 83026944
+
+[[file]]
+path            = "LEICA-Q2-MONO/L1026192.DNG"
+tier            = "b"
+make            = "LEICA CAMERA AG"
+model           = "LEICA Q2 MONO"
+body_serial     = "5597430"
+shot_at         = "2026-08-11"
+iso             = 1600
+orientation     = "Horizontal (normal)"
+bytes           = 84637696
+sha256          = "dacd7b6160ed0ebcd890c331b07fd05f58506aa1f3f78a2b2612f9771e5cbbfc"
+licence         = "own-work"
+source          = "maintainer's own camera"
+provenance      = "Shot by the maintainer. Full rights held."
+notes           = """
+Structure verified 2026-08-18: identical to the reference in every structural tag.
+"""
+
+  [file.oracle]
+  raw_checksum  = "c7348179f042d9597be7829d03fa5d8a"   # dnglab 0.7.2
+  pgm_bytes     = 94887955
+  strip_bytes   = 83026944
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STRUCTURE CONFIRMED ACROSS 4 FRAMES (2026-08-18)
+#
+# L1025901 (planning session), L1021223, L1026016, L1026192 — every structural
+# tag identical: SubIFD Linear Raw / SamplesPerPixel 1 / 14-bit / Uncompressed,
+# 8424x5632, single strip, StripByteCounts 83026944, levels 512/16383,
+# ActiveArea 0 0 5632 8392, DefaultCrop 12 24 / 8368 5584, both opcode lists.
+#
+# What VARIES frame to frame: Orientation, and total FILE size
+# (85,796,864 / 85,078,016 / 84,637,696) — while StripByteCounts is constant.
+# The variation is entirely in the embedded previews, never in the sensor plane.
+# A decoder must therefore locate the strip by offset, never by arithmetic on
+# file length.
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ─────────────────────────────────────────────────────────────────────────────
 # WANTED — declared before the file exists, so the gap is visible rather than
 # forgotten. A declared-empty row is fine; a forgotten one is the failure mode.
@@ -62,12 +133,15 @@ selection must key on SubfileType + Linear Raw, never on largest dimensions.
 [[wanted]]
 what     = "More Leica Q2 Monochrom frames from the maintainer's own body"
 why      = """
-PROJ-001's only BLOCKING corpus need. One frame cannot catch per-frame variation —
-Orientation already proved that. Want: a rotated frame (Orientation != Horizontal),
-a high-ISO frame, a clipped/blown frame, and a near-black frame.
+PARTLY SATISFIED 2026-08-18 — L1026016 (Rotate 90 CW) and L1026192 landed, so the
+rotated frame is held and the orientation bug is now testable. No longer blocking.
+Still wanted, in descending value:
+  - a CLIPPED/blown-highlight frame (exercises WhiteLevel 16383 saturation)
+  - a NEAR-BLACK frame (exercises BlackLevel 512 and the normalization floor)
+  - a BASE-ISO frame — all three held frames are ISO 1600
 """
 licence  = "own-work"
-priority = "blocking"
+priority = "medium"
 
 [[wanted]]
 what     = "Leica Q2 Monochrom frame from a DIFFERENT body"
