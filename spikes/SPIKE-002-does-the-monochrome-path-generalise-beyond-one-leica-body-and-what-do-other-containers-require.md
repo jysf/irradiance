@@ -18,7 +18,7 @@ task:
   id: SPIKE-002
   type: spike                      # epic | story | task | bug | chore | patch | spike
   cycle: spike                     # spike | land  (collapsed from a spec's 5)
-  blocked: true                    # PREREQUISITES UNMET — see ## Blocked on
+  blocked: true                    # 1 prerequisite left (the git-lfs pull) — see ## Blocked on
   priority: medium
 
 spike:
@@ -102,12 +102,13 @@ on blocked questions.
 or a network, not an agent, and running the spike without them burns the timebox
 on questions that cannot be answered.
 
-- [ ] **Resolve licences for the raw.pixls.us samples.** The `data.lfs` clone at
-      `../data.lfs` carries **no licence metadata at all** — no LICENSE file,
-      nothing per-file. Licences live in the raw.pixls.us *web* database. Under
-      `DEC-003` a file with no recorded licence cannot enter the manifest, so this
-      blocks every third-party sample. Look up the three monochrome candidates
-      and record `CC0` vs `CC-BY-*` vs `CC-BY-NC-SA` per file.
+- [x] ~~**Resolve licences for the raw.pixls.us samples.**~~ **DONE 2026-08-18.**
+      All three monochrome candidates are **CC0**, confirmed two independent ways:
+      absent from the site's `?noncc0` list (all 111 entries read), and
+      `License: CC0` in the full 2016-row table. The site's sha256 matches the
+      git-lfs pointer in `../data.lfs` exactly for all four files. Recorded as
+      `[[available]]` rows in `tests/corpus/manifest.toml`.
+      ⭐ Bonus: the **M Monochrom (Typ 246) is 12-bit** — see below.
 - [ ] **Pull the files that come back usable.** They are LFS *pointers* today
       (133 bytes each), which is why the clone is only 9 MB:
       `git -C ../data.lfs lfs pull --include="Leica/M Monochrom/*"`.
@@ -116,12 +117,16 @@ on questions that cannot be answered.
 - [ ] **Add each pulled file to `tests/corpus/manifest.toml`** with its licence,
       source URL, sha256 (the LFS pointer already states it — no download needed
       to record it) and its `dnglab analyze --raw-checksum`.
-- [ ] **A 12-bit source.** Nikon P1100 `.NRW` is the target (`conformance-matrix.md`
-      calls it the easiest Bayer source owned, and 12-bit against the Leica's
-      14-bit catches hardcoded bit-depth assumptions). Either shoot one, or find
-      a CC0 12-bit sample. **Not held today.**
-- [ ] **A Fuji RAF and a Nikon D750 NEF** for sub-question 3. **Not held today.**
-      The maintainer has offered to ask people with these bodies.
+- [x] ~~**A 12-bit source.**~~ **RESOLVED 2026-08-18 — and better than planned.**
+      The Leica **M Monochrom (Typ 246) is 12-bit AND monochrome**, CC0. That
+      tests the bit-depth assumption *without* dragging in Bayer/CFA, which
+      PROJ-001 has no code for — strictly better than the Nikon P1100 NRW
+      originally wanted, and it needs no camera purchase or favour. Still needs
+      pulling (below).
+- [ ] **A Fuji RAF and a Nikon D750 NEF** for sub-question 3 only. **Not held
+      today**, and the only items left that need a camera or a favour. Note this
+      blocks *sub-question 3 alone* — sub-questions 1 and 2 are fully unblocked
+      once the CC0 files are pulled, so the spike can run usefully without these.
 
 ## Explicitly NOT in this spike
 

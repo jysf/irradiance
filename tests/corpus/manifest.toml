@@ -154,14 +154,71 @@ ShareAlike ⇒ tier B only, never committed. Attribution must be recorded here.
 licence  = "CC-BY-SA-4.0"
 priority = "high"
 
-[[wanted]]
-what     = "A non-Q2M monochrome DNG (M Monochrom / M11 Monochrom)"
-why      = "Proves the mono path is not Q2M-specific. The only other PROJ-001-relevant third-party target."
-licence  = "prefer CC0"
+# ─────────────────────────────────────────────────────────────────────────────
+# CLEARED FOR ACQUISITION — licences verified 2026-08-18 on raw.pixls.us, two
+# independent ways: absent from the `?noncc0` list (111 entries, all read), AND
+# License column reads CC0 in the full 2016-row table. sha256 below is from the
+# site's own DB and MATCHES the git-lfs pointer in ../data.lfs exactly.
+#
+# CC0 => these are the only third-party files that could ever be promoted to
+# TIER A (committed). Everything else surveyed is CC-BY-SA or CC-BY-NC-SA.
+#
+# NOT YET DOWNLOADED. They are LFS pointers today. To fetch:
+#   git -C ../data.lfs lfs pull --include="Leica/M Monochrom/*"
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[available]]
+what     = "Leica M Monochrom — 16bit (3:2)"
+lfs_path = "Leica/M Monochrom/L1000622.DNG"
+licence  = "CC0-1.0"
+source   = "https://raw.pixls.us/ (submitted 2017-01-25)"
+bytes    = 36433408
+sha256   = "149d5b3fbd5cd40d51c1f56d5e392a81870d129e047a6c8a596447590e7a0e4f"
+why      = "A monochrome DNG from a different Leica body AND a different sensor generation. Proves the mono path is not Q2M-specific."
+priority = "high"
+
+[[available]]
+what     = "Leica M Monochrom (Typ 246) — 12bit (3:2)"
+lfs_path = "Leica/M Monochrom (Typ 246)/M2462362.DNG"
+licence  = "CC0-1.0"
+source   = "https://raw.pixls.us/ (submitted 2017-02-11)"
+bytes    = 21700096
+sha256   = "3fb74d1fc402daaa48a9c3f1d6279d7e85fb58dfdaf816f036927d49ab228977"
+why      = """
+⭐ THE 12-BIT SOURCE, and it is monochrome — so it tests bit-depth WITHOUT
+dragging in Bayer/CFA, which PROJ-001 has no code for. SPIKE-001's unpacker takes
+`bits` as a parameter but has never run with any value but 14. This is the
+cheapest possible test of a hardcoded bit-depth assumption, and it removes the
+"buy/borrow a Nikon P1100" prerequisite entirely.
+"""
+priority = "high"
+
+[[available]]
+what     = "Pentax K-3 Mark III Monochrome — 14bit, DNG *and* PEF of the same scene"
+lfs_path = "PENTAX/K-3 Mark III Monochrome/K3III.DNG  +  K3III.PEF"
+licence  = "CC0-1.0"
+source   = "https://raw.pixls.us/ (submitted 2023-12-04)"
+bytes    = 37669430
+sha256   = "1afc1071451a3a3737c29ae319e1411551b6893d0e6a34db29903318266b0066"
+sha256_pef = "2d47df9825d1f0fa14321b589f2934678b19dcb28d74210b86bf8a0efc7d514a"
+why      = "A monochrome sensor from a different MAKE. Ships DNG and native PEF of the same scene — a free cross-container comparison later."
 priority = "medium"
 
 [[wanted]]
-what     = "Nikon P1100 NRW (12-bit), D750 NEF, D3200 NEF, Fujifilm RAF"
-why      = "PROJ-002/PROJ-003, not PROJ-001. See docs/conformance-matrix.md. raw.pixls.us has per-file licences and a CC0 filter."
+what     = "A monochrome DNG from a third make (M11 Monochrom, Phase One achromatic)"
+why      = "Nice-to-have once the three CC0 files above are exercised."
 licence  = "prefer CC0"
-priority = "later"
+priority = "low"
+
+[[wanted]]
+what     = "Fujifilm RAF and Nikon D750 NEF"
+why      = """
+The ONLY remaining files nobody can get without a camera or a favour. Needed for
+SPIKE-002 sub-question 3: does `dnglab convert -c uncompressed` preserve an
+X-Trans 6x6 mosaic, and does it work on a D750 NEF. The maintainer has offered to
+ask people who own these bodies.
+NOTE the 12-bit requirement is NO LONGER blocked on a Nikon P1100 — the M
+Monochrom (Typ 246) above is 12-bit and CC0.
+"""
+licence  = "any (tier B is never redistributed)"
+priority = "medium"
