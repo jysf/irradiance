@@ -52,7 +52,7 @@ ActiveArea 0 0 5632 8392, DefaultCrop 12 24 / 8368 5584, both opcode lists prese
 Orientation is `Horizontal (normal)` on THIS frame — it is per-frame, not a camera
 constant. SubIFD2 is a FULL-RESOLUTION JPEG preview (8368x5584), so raw-IFD
 selection must key on SubfileType + Linear Raw, never on largest dimensions.
-⚠ Currently still at ~/Pictures/L1021223.DNG — move it under IRRADIANCE_CORPUS_DIR.
+In place under IRRADIANCE_CORPUS_DIR and verified byte-identical 2026-08-18.
 """
 
   [file.oracle]
