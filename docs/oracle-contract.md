@@ -54,6 +54,26 @@ Reproduce the checksum from the PGM stream:
 dnglab analyze --raw-pixel F.DNG | tail -c +20 | dd conv=swab 2>/dev/null | md5
 ```
 
+### Re-verified 2026-08-16 on a SECOND frame
+
+The contract above was established on `L1025901.DNG`. It was re-run end to end on
+an independent frame, `L1021223.DNG` (86 MB, `LEICA Q2 MONO`), with dnglab 0.7.2:
+
+| Check | Result |
+|---|---|
+| PGM header | `P5 8424 5632 65535\n` — **19 bytes**, exactly as documented |
+| Stream size | **94,887,955** = 19 + 8424×5632×2, to the byte |
+| `--raw-checksum` | `cb653b5bec24d166eef2fd258ee61ac4` |
+| `--raw-pixel \| tail -c +20 \| dd conv=swab \| md5` | `cb653b5bec24d166eef2fd258ee61ac4` — **identical** |
+
+So the contract is no longer one-file evidence. Two frames, same camera and
+firmware — which raises confidence in the *representation* claim (uncropped, native
+LE, zero-extended) considerably, and says nothing yet about other cameras.
+
+The endianness proof reproduces too: this frame's first payload bytes are
+`02 EA`, big-endian **746** — just above `BlackLevel` 512. Read little-endian
+they would be 59906, far beyond `WhiteLevel` 16383, which is impossible.
+
 When a comparison fails, `--raw-pixel | tail -c +20 | dd conv=swab` hands you the
 reference bytes to diff, and the PGM header gives you width and height to convert
 a byte offset into a pixel coordinate.
@@ -90,9 +110,46 @@ oracle is not wired to what it claims to check.
 `dnglab makedng` builds DNGs with **analytically known** answers — `--matrix1/2/3`,
 `--illuminant1/2/3`, `--linearization` (named curves or custom), `--wb`,
 `--white-xy`, `--dng-backward-version 1.0–1.6`, and `--map 0:raw 0:preview
-0:thumbnail 0:exif 0:xmp`. That is how tier A gets populated without shipping
-60 MB camera files, and how the dual-illuminant interpolation and
+0:thumbnail 0:exif 0:xmp`. That is how the dual-illuminant interpolation and
 linearization-table paths get tested without owning the camera.
+
+### ⚠ But makedng CANNOT build a monochrome fixture — measured 2026-08-16
+
+This is a real limit on tier A, and it lands squarely on PROJ-001's critical path.
+Measured against dnglab 0.7.2 by running it:
+
+- **It accepts PPM only.** TIFF, PGM, PNG and JPEG are each rejected with
+  `Error: Input format is not supported`. PPM is RGB by definition, and **PGM —
+  the one grayscale format — is refused.**
+- **What it emits**, in the full-resolution SubIFD, from a 16-bit PPM:
+
+  | Tag | makedng output | A real Q2M |
+  |---|---|---|
+  | `SamplesPerPixel` | **3** | **1** |
+  | `BitsPerSample` | **16 16 16** | **14** |
+  | `Compression` | **JPEG** | **Uncompressed** |
+  | `PhotometricInterpretation` | Linear Raw | Linear Raw ✔ |
+
+- `--linearization` changes none of those three.
+- `dnglab analyze --raw-checksum` *does* run on the result, so the oracle
+  plumbing can be exercised against a synthesized file.
+
+**Consequences, and they are load-bearing:**
+
+1. Tier A can exercise the **metadata** oracle (STAGE-001) and the oracle harness
+   itself. It **cannot** exercise STAGE-002's 14-bit packed monochrome unpack —
+   there is no makedng path to a 1-sample plane.
+2. Worse, makedng's output is **JPEG-compressed**, so decoding a tier-A fixture's
+   plane would require **lossless JPEG SOF-3** — the one decoder PROJ-001
+   explicitly declares out of scope. A tier-A fixture is therefore not merely a
+   weaker substitute for the pixel path; for that path it is unreachable.
+3. The route to a monochrome fixture is the **hand-built header** option that
+   `conformance-matrix.md` also lists. That option is now load-bearing rather than
+   a nice-to-have, and STAGE-001's corpus spec should be shaped around it.
+
+Not yet tested: whether `dnglab convert -c uncompressed` on an existing mono RAW
+produces a usable 1-sample fixture. That needs an input camera file, so it belongs
+in SPIKE-001 rather than here.
 
 `dnglab convert -c uncompressed` has **no `--linear` option**, so it preserves the
 mosaic by construction — unlike Adobe's converter. ⚠ `--embed-raw` defaults

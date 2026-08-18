@@ -148,6 +148,61 @@ The durable artifacts are **the corpus and the oracle, not the code**:
 
 *(no conventions here — it's yours)*
 
+### 2026-08-16 — pre-spike measurements. THE TIMEBOX HAS NOT STARTED.
+
+Everything below was measured while answering "should we start this spike yet?"
+It is recorded here so the answers are not re-derived, but **none of the 3-session
+timebox has been consumed** — the budget is intact. No spike branch exists and no
+decoder code was written.
+
+**Corpus — found, contrary to an earlier conclusion in the same session.**
+`~/Pictures/L1021223.DNG`, 86 MB, `LEICA Q2 MONO`. An earlier search reported
+"zero RAW files on this machine"; that was **wrong** — one `find` had a syntax
+error silenced by `2>/dev/null`, and a second timed out inside the Photos library
+before reaching `~/Pictures`. Cited as a live example of DEC-004 rule 1: a
+self-report, including this session's own, is a claim to verify rather than trust.
+⚠ `~/Pictures/Photos Library.photoslibrary` is **TCC-protected** (`Operation not
+permitted` to `ls`/`find`), so "no further files found" is never a safe conclusion
+about that path — more frames may exist and must be exported by the maintainer.
+
+**Q10 — `dnglab makedng` tier-A fixture: ANSWERED, with a caveat that changes
+STAGE-001.** Yes, a fixture can be built with zero camera files — but **PPM input
+only** (TIFF/PGM/PNG/JPEG all rejected), and the output's full-res SubIFD is
+`SamplesPerPixel: 3`, `BitsPerSample: 16 16 16`, `Compression: JPEG`.
+`--linearization` changes none of it. **There is no makedng path to a 1-sample
+monochrome plane**, and its JPEG compression would require lossless JPEG SOF-3 —
+out of scope for this project. Tier A can therefore serve the metadata oracle but
+not STAGE-002's unpack; hand-built headers become load-bearing. Full write-up in
+`docs/oracle-contract.md`.
+
+**Plane contract — re-verified on a second frame.** Not one of the open questions
+(it was already marked answered-before-the-repo-existed), but it was cheap and it
+is the project's central claim, so it was re-run rather than trusted:
+
+- PGM header `P5 8424 5632 65535\n` = **19 bytes**; stream = **94,887,955** bytes
+  = 19 + 8424x5632x2, exactly.
+- `--raw-checksum` = `cb653b5bec24d166eef2fd258ee61ac4`, and
+  `--raw-pixel | tail -c +20 | dd conv=swab | md5` = **the same string**.
+
+So the contract now rests on two frames rather than one. Still one camera, one
+firmware.
+
+**`docs/measured-q2m-dng.md` — one correction.** Every structural value reproduced
+on the second frame **except `Orientation`**, which was `Rotate 90 CW` on the first
+file and `Horizontal (normal)` on this one. It is a **per-frame** property, not a
+camera constant, and listing it as one was a category error. Also newly observed:
+`SubIFD2` is a *full-resolution* JPEG preview (8368 x 5584), so raw-IFD selection
+must key on `SubfileType` + `Linear Raw`, never on largest dimensions — the margin
+is 8424 vs 8368.
+
+**Tooling confirmed present** for the questions that need it: `ssimulacra2` (Q5),
+`docker` (Q7 cross-platform byte-identity), `magick` (PPM authoring), `dnglab`
+0.7.2, `exiftool` 13.55.
+
+**Still blocked on files not held:** Q8 (needs a Fuji RAF and a D750 NEF) and Q9
+(needs a P1100 NRW). Q1/Q2/Q3/Q4/Q6/Q11 need decoder code and are the spike's
+actual work.
+
 ## Land
 
 *Fill at land. Set `spike.outcome`. Emit DECs for load-bearing choices.*
