@@ -39,6 +39,9 @@ formalize each.]
 
 ## References
 
-- Data model: `./data-model.md`
-- API contract: `./api-contract.md`
+- Oracle contract: `./oracle-contract.md`
+- Measured Q2M structure: `./measured-q2m-dng.md`
+- Provenance ledger: `./provenance-ledger.md`
+- (`data-model.md` / `api-contract.md` were deleted 2026-08-16 — this library has
+  no persistent data and no external API. See DEC-000.)
 - Decisions: `/decisions/`
