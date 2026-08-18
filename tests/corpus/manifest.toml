@@ -1,0 +1,93 @@
+# tests/corpus/manifest.toml
+#
+# The tier-B corpus index. THE FILES ARE NOT COMMITTED — this manifest is.
+# See DEC-003 for why, and docs/conformance-matrix.md for the two-tier policy.
+#
+# Paths are RELATIVE to $IRRADIANCE_CORPUS_DIR. Never write an absolute
+# machine-local path here (portability + hygiene).
+#
+#   export IRRADIANCE_CORPUS_DIR=~/PSeven/experiments/crustimg_redo_plus/images
+#
+# Tests skip LOUDLY when a file is absent, naming it. A silent skip reports green
+# for work it never did — the same defect class as an oracle that cannot go red.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# EVERY entry MUST carry `licence` and `source`. Fill them AT THE MOMENT THE FILE
+# ARRIVES. Licence provenance cannot be reconstructed later — a file of unknown
+# origin is a file that can never be used or shared, and "I think it was fine"
+# is not a provenance record. This is the one field with no second chance.
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# tier   = "b"                  tier A (committed) is a separate, CC0-only lane
+# licence: an SPDX id, a CC id, "own-work", or "personal-evaluation-only"
+#          ⚠ tier A admits ONLY CC0 or own-work. Anything with attribution,
+#            ShareAlike or NonCommercial terms is tier B forever.
+# oracle.raw_checksum = `dnglab analyze --raw-checksum <file>` — pins BOTH the
+#          file and the oracle. If dnglab changes its answer, we find out.
+
+[[file]]
+path            = "LEICA-Q2-MONO/L1021223.DNG"
+tier            = "b"
+make            = "LEICA CAMERA AG"
+model           = "LEICA Q2 MONO"
+body_serial     = "5597430"
+shot_at         = "2025-12-30"
+bytes           = 85796864
+sha256          = "5957a4ca64b87b81309a4b77cb86a595e150f169125016f3803f08b9f893b14d"
+licence         = "own-work"
+source          = "maintainer's own camera"
+provenance      = "Shot by the maintainer. Full rights held; may be relicensed or committed if ever wanted."
+notes           = """
+The reference frame for PROJ-001. Structure verified 2026-08-16 against
+docs/measured-q2m-dng.md: LinearRaw, SamplesPerPixel 1, 14-bit, Uncompressed,
+8424x5632, single strip, StripByteCounts 83026944, levels 512/16383,
+ActiveArea 0 0 5632 8392, DefaultCrop 12 24 / 8368 5584, both opcode lists present.
+Orientation is `Horizontal (normal)` on THIS frame — it is per-frame, not a camera
+constant. SubIFD2 is a FULL-RESOLUTION JPEG preview (8368x5584), so raw-IFD
+selection must key on SubfileType + Linear Raw, never on largest dimensions.
+⚠ Currently still at ~/Pictures/L1021223.DNG — move it under IRRADIANCE_CORPUS_DIR.
+"""
+
+  [file.oracle]
+  raw_checksum  = "cb653b5bec24d166eef2fd258ee61ac4"   # dnglab 0.7.2
+  pgm_bytes     = 94887955                             # 19-byte header + 8424*5632*2
+  strip_bytes   = 83026944                             # == StripByteCounts, layer-0 oracle
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WANTED — declared before the file exists, so the gap is visible rather than
+# forgotten. A declared-empty row is fine; a forgotten one is the failure mode.
+# (Same discipline as docs/conformance-matrix.md's `coverage` column.)
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[wanted]]
+what     = "More Leica Q2 Monochrom frames from the maintainer's own body"
+why      = """
+PROJ-001's only BLOCKING corpus need. One frame cannot catch per-frame variation —
+Orientation already proved that. Want: a rotated frame (Orientation != Horizontal),
+a high-ISO frame, a clipped/blown frame, and a near-black frame.
+"""
+licence  = "own-work"
+priority = "blocking"
+
+[[wanted]]
+what     = "Leica Q2 Monochrom frame from a DIFFERENT body"
+why      = """
+Closes the 'one camera, one firmware, one frame' caveat repeated across our docs.
+Candidate found 2026-08-16: L1000463.dng, 86.7 MB, CC BY-SA 4.0, at
+https://discuss.pixls.us/t/dng-file-from-leica-q2-monochrom-winter-hollow-way/34619
+ShareAlike ⇒ tier B only, never committed. Attribution must be recorded here.
+"""
+licence  = "CC-BY-SA-4.0"
+priority = "high"
+
+[[wanted]]
+what     = "A non-Q2M monochrome DNG (M Monochrom / M11 Monochrom)"
+why      = "Proves the mono path is not Q2M-specific. The only other PROJ-001-relevant third-party target."
+licence  = "prefer CC0"
+priority = "medium"
+
+[[wanted]]
+what     = "Nikon P1100 NRW (12-bit), D750 NEF, D3200 NEF, Fujifilm RAF"
+why      = "PROJ-002/PROJ-003, not PROJ-001. See docs/conformance-matrix.md. raw.pixls.us has per-file licences and a CC0 filter."
+licence  = "prefer CC0"
+priority = "later"

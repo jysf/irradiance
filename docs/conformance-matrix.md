@@ -64,9 +64,23 @@ so they cannot be committed. The maintainer's own photographs are the clean answ
 truncated and malformed fixtures for the hostile-input path. Kept small enough
 that git history stays sane.
 
+> ⚠ **Measured 2026-08-16: `makedng` cannot produce a monochrome fixture.** It
+> takes PPM input only and emits a 3-sample, 16-bit, **JPEG-compressed** full-res
+> SubIFD — so tier A can serve the *metadata* oracle but not STAGE-002's 14-bit
+> packed mono unpack, and a tier-A plane would need lossless JPEG SOF-3, which
+> PROJ-001 puts out of scope. **Hand-built headers are the route to a mono fixture,
+> not `makedng`** — which makes that option load-bearing rather than optional, and
+> should shape STAGE-001's corpus spec. Details in `oracle-contract.md`.
+
 **Tier B — local or fetched, never committed.** Full-size real camera files.
 Referenced by a manifest carrying path, expected hash, provenance and licence.
 Tests **skip with a clear message** when absent and **run** where the corpus
 exists — a skip must be visible, never silent.
 
-Decide storage (git-lfs vs fetch-on-demand) before the first fixture lands.
+**Storage decided 2026-08-16 — `DEC-003`.** Neither git-lfs nor (yet)
+fetch-on-demand: real files live outside the repo at `$IRRADIANCE_CORPUS_DIR`
+and are **never committed**; `tests/corpus/manifest.toml` is committed and carries
+each file's path, hash, **licence**, source and **pinned oracle answers**. Tier A
+admits only CC0 or own-work. ⚠ Consequence to keep in view: **CI cannot verify
+bit-exactness** — tier B is absent on a runner, so a green CI badge does not mean
+the decoder is bit-exact.
