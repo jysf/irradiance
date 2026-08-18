@@ -101,14 +101,55 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 Run `just frame-stage STAGE-001` to promote these outlines into real specs.
 
-- [ ] (not yet written) [M] Two-tier corpus layout, manifest schema, and the skip-when-absent fixture harness
-- [ ] (not yet written) [L] TIFF/IFD reader — bounded, panic-free, cycle-guarded, SubIFD recursion — plus its fuzz target
-- [ ] (not yet written) [M] DNG tag model and typed metadata extraction
-- [ ] (not yet written) [S] Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red
+- [ ] SPEC-001 (frame) [S] Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI
+- [ ] SPEC-002 (frame) [S] Corpus manifest reader and skip-when-absent harness
+- [ ] SPEC-003 (frame) [L] TIFF/IFD reader — bounded, panic-free, cycle-guarded, SubIFD recursion — plus its fuzz target
+- [ ] SPEC-004 (frame) [M] DNG tag model and typed metadata extraction
+- [ ] SPEC-005 (frame) [S] Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red
 
-**Count:** 0 shipped / 0 active / 4 pending
+**Count:** 0 shipped / 5 active / 0 pending
 
 ## Design Notes
+
+### Per-spec context (the detail deliberately kept OUT of the backlog titles)
+
+`just frame-stage` derives each spec's **filename** from its backlog summary, so
+summaries stay short. The constraints that shape each one live here.
+
+**Crate scaffold** — nothing else in this stage can exist without it (AGENTS.md
+§5). It must land, in one change: `edition = "2021"`; a `rust-version` **measured
+from the real dependency set, never guessed** (a design-time probe, §12); the
+panic-free clippy set (`unwrap_used`, `expect_used`, `indexing_slicing`, `panic`,
+`arithmetic_side_effects`), allowed inside `#[cfg(test)]` and `src/bin/irr.rs`;
+`#![forbid(unsafe_code)]`; and the Rust CI jobs — `fmt --check`, `clippy -D
+warnings`, `test`, `cargo deny check licenses`. ⚠ Per DEC-003, CI **cannot** run
+tier-B tests, so a green badge must not be read as "bit-exact".
+
+**Corpus manifest reader** — storage and schema are already settled by DEC-003
+and `tests/corpus/manifest.toml` ships seeded with three pinned frames. This spec
+builds the thing that *reads* it: resolve `$IRRADIANCE_CORPUS_DIR`, verify
+`sha256`, and **skip loudly, naming the missing file**, when a tier-B entry is
+absent. Without this the manifest is exactly the unread field AGENTS.md §11
+warns about — and that debt is already recorded in the manifest's own header.
+
+**TIFF/IFD reader** — SPIKE-001 measured a working version at ~117 code lines
+with zero dependencies, but that version is **discarded and must not be
+consulted as an implementation** (see `spikes/done/SPIKE-001-*.md`); re-derive it
+test-first. The guards it needs are known: depth limit, cycle detection on
+visited offsets, bounds-checked payload ranges. Select the sensor IFD on
+`NewSubfileType == 0 && PhotometricInterpretation == 34892 && SamplesPerPixel == 1`
+— **never on largest dimensions**, because `SubIFD2` is a full-resolution JPEG
+preview only 56 px narrower than the plane.
+
+**DNG tag model** — the tag set is enumerated in `docs/measured-q2m-dng.md`.
+⚠ `Orientation` is **per-frame, not a camera constant** (proved across our three
+frames); read it from the file every time.
+
+**Metadata oracle** — `dnglab analyze --meta --json` plus `exiftool`. Ships with
+its red-proof (constraint `oracle-must-be-shown-red`): a corrupted tag must turn
+it red. ⚠ Do **not** extend this layer to cover levels — DEC-004 settles that
+levels are verified analytically, and SPIKE-001 measured why a comparison-based
+check cannot do it.
 
 **Implement from the Adobe DNG Specification, not from anyone's code.** The
 spec is public and carries a patent grant for compliant implementations. Every

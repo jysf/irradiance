@@ -333,6 +333,72 @@ drops the false positive entirely.
 
 ---
 
+## 10. `frame-stage` slugifies the whole summary, so a long outline line kills it
+
+**Measured.** A backlog outline whose summary ran ~290 characters produced:
+
+```
+cp: .../SPEC-001-not-yet-written-crate-scaffold-cargo-toml-edition-2021-a-measured
+-msrv-the-panic-free-clippy-lint-set-forbid-unsafe-code-and-the-rust-ci-jobs-...md:
+File name too long
+error: recipe `frame-stage` failed on line 118 with exit code 1
+```
+
+`scripts/frame-stage.sh:73` computes `SLUGS+=("$(slugify "$sm")")` over the
+entire summary with no length cap, and every filesystem in common use caps a path
+component at 255 bytes.
+
+**Credit where due: the failure was atomic.** Nothing was written — no partial
+specs, no half-edited stage file — so a retry after shortening the line worked
+cleanly. That is better behaviour than most tools manage.
+
+**Why it bites.** The stage template invites detail on the backlog line, and the
+detail is genuinely useful at framing time — that is where scope and constraints
+belong. Nothing warns that the line doubles as a filename. The workaround is to
+keep summaries short and move detail into `## Design Notes`, which is arguably
+better practice anyway, but it is discovered by crashing into it.
+
+**Fix.** Truncate the slug (say 60 chars) before building the path. One `cut`.
+The ID is the identity; the slug is a human hint and does not need to be lossless.
+
+---
+
+## 11. `frame-stage` leaves `(not yet written)` in every filename it creates
+
+**Measured.** Framing five outlines produced ten files all carrying the
+placeholder:
+
+```
+SPEC-001-not-yet-written-crate-scaffold-cargo-toml-measured-msrv-panic-free-lints-rust-ci.md
+SPEC-001-not-yet-written-crate-scaffold-...-timeline.md
+```
+
+…and the same string in each spec's H1 (`# SPEC-001: (not yet written) Crate
+scaffold: …`).
+
+**The tell that it is a bug, not a convention:** the *backlog lines the same run
+rewrites* come out clean —
+
+```
+- [ ] SPEC-001 (frame) [S] Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI
+```
+
+So the placeholder is stripped for the rewritten bullet but not before the slug
+and title are derived. One code path strips it, the other doesn't.
+
+**Why it matters more than cosmetics.** These filenames are permanent and get
+cited in commits, PRs and handoffs for the life of the project. Every spec in
+every instance is born asserting it has not been written — including, confusingly,
+after it ships. Renaming afterwards works (verified: `just validate`,
+`just status` and `just ready` all resolve specs by `SPEC-NNN` and were unaffected)
+but every instance has to discover and do it.
+
+**Fix.** Strip `(not yet written)` in `parse_bullet` alongside the `[S]`
+complexity marker at `scripts/frame-stage.sh:60`, so slug, title and bullet all
+derive from the same cleaned summary.
+
+---
+
 ## Priority (this instance's assessment)
 
 | # | Finding | Severity | Fix cost |
@@ -345,6 +411,8 @@ drops the false positive entirely.
 | 2 | no `just new-project` | medium — the value-thesis artifact is untooled | low |
 | 5 | app-shaped seed constraints | low — obvious on read | trivial |
 | 9 | `affected_scope` warns on correct root-level globs | low — but it trains people to ignore the audit | trivial |
+| 10 | `frame-stage` slugs uncapped → ENAMETOOLONG | medium — hard stop mid-framing (but atomic) | trivial |
+| 11 | `frame-stage` bakes `(not yet written)` into every filename | medium — permanent, cited for the project's life | trivial |
 | 6 | **spike lane beat the external design** | **win** — capture, don't promote (N=1) | n/a |
 
 Findings 1, 4, 7, 8 and 9 are all the *same shape*: the template knows the right
