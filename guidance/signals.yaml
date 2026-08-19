@@ -42,71 +42,64 @@
 #
 # Browse with `just dash signals` (open count surfaces in `just dash`'s flags).
 #
-# The entries below are illustrative seeds (drawn from real dogfooding). Replace
-# them with your own, or delete them and start empty.
+# The template's five illustrative seed entries (all citing `bragfile` and
+# SPEC-026/028/029 — a DIFFERENT project) were deleted 2026-08-18. They were
+# scaffold examples, not this repo's signals, and `just status`/`just dash`
+# counted them as though they were ours. Same class as the seeded example DEC and
+# the app-shaped constraints; see feedback/2026-08-15-irradiance-scaffold.md.
+#
+# What follows is irradiance's own ledger, and it starts from what this repo has
+# actually generated.
 
 signals:
-  # --- lesson: at its bar, queued to codify at the owning stage's close -------
-  - id: flag-default-explicitness
+  # --- golden-path: the ONE type that records something that WORKED ----------
+  - id: pre-register-the-tolerance
+    type: golden-path
+    summary: "State a numeric acceptance threshold — and its falsifier — in writing BEFORE measuring anything."
+    evidence: "SPIKE-001 Q5: >=85 and 'a missing warp must land far below 85' were both written down before the first score was computed; both survived. N=1."
+    bar: "N=3"
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-08-18
+    last_touched: 2026-08-18
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote — signals.yaml's own rule is that a wrong paved road
+      is worse than no road, and this is N=1. What made it work: the falsifier was
+      registered alongside the threshold, so the metric had to prove it could FAIL
+      before it was allowed to certify anything. Watch for N=2 in STAGE-003.
+
+  # --- lesson: planning docs written without running the code -----------------
+  - id: unrun-docs-carry-errors
     type: lesson
-    summary: "Specs name a flag's accepted values but not its default, so build guesses."
-    evidence: "SPEC-026/028/029 (--format default left unstated) — N=3 same-outcome"
+    summary: "Docs written by a session that could not execute the code contain errors that only running finds."
+    evidence: "N=2 — oracle-contract.md called `--srgb` a TIFF (it is a malformed PNM); measured-q2m-dng.md listed Orientation as a camera constant (it is per-frame)."
     bar: "N=3 same-outcome"
     status: watch
     disposition_at: stage-close
-    first_flagged: 2026-05-20
-    last_touched: 2026-06-12
+    first_flagged: 2026-08-18
+    last_touched: 2026-08-18
     raised_by: claude
-    notes: "At bar (N=3). Codify at the owning stage's close — spec template / Prompt 2b should require each flag's default, not just its accepted values. Do NOT codify mid-stage."
+    notes: |
+      Both errors were load-bearing: the first breaks STAGE-003's develop oracle,
+      the second makes any orientation test pass on one frame and fail on the next.
+      Neither was careless — both were reasonable inferences from documentation.
+      At N=3, codify: a planning doc's claims get a `verified:` / `inferred:` marker
+      so a later session knows which ones have been executed.
 
-  # --- process-debt: THE lever — re-flagged twice, still un-adopted -----------
-  - id: lightweight-verify-lane
-    type: process-debt
-    summary: "A bounded lightweight-verify lane for chore/XS specs (no separate verify session)."
-    evidence: "bragfile feedback round 1 (#2) + round 2 (§C) — re-flagged twice, un-adopted"
-    bar: null
-    status: open
-    disposition_at: project-close
-    first_flagged: 2026-04-20
-    last_touched: 2026-06-12
-    raised_by: claude
-    notes: "Strict boundary if accepted: no constraint-touching code, no new command, no new storage method. Accept-and-schedule or reject-with-reason at project close — do not silently carry a third time."
-
-  # --- process-debt: smaller, also un-adopted ---------------------------------
-  - id: collapse-build-completion-and-reflection
-    type: process-debt
-    summary: "Build Completion and the build-phase reflection overlap; collapse into one section."
-    evidence: "bragfile feedback round 1 (#5) + round 2 (§C) — still two overlapping sections"
-    bar: null
-    status: open
-    disposition_at: project-close
-    first_flagged: 2026-04-20
-    last_touched: 2026-06-12
-    raised_by: claude
-    notes: null
-
-  # --- product: usage signal that should shape the NEXT project's framing ------
-  - id: context-coldread-cost
-    type: product
-    summary: "Cold-read context cost grows with corpus size (AGENTS.md 300+ lines, large specs)."
-    evidence: "bragfile feedback round 1 (friction #6) + round 2 (§B2 — extract another sub-template)"
-    bar: null
-    status: open
-    disposition_at: project-close
-    first_flagged: 2026-04-20
-    last_touched: 2026-06-12
-    raised_by: claude
-    notes: "Feed the next project's frame: budget a sub-template extraction / a stack gotchas-checklist companion to relieve cold-read cost."
-
-  # --- risk: tracked, revisited each close, no auto-action ---------------------
-  - id: solo-discipline-erosion
+  # --- risk: the CI gap DEC-003 knowingly accepted ----------------------------
+  - id: ci-cannot-prove-bit-exactness
     type: risk
-    summary: "Self-imposed discipline erodes silently under solo claude-only use (no team pressure)."
-    evidence: "bragfile feedback round 1 + round 2 meta-observation"
+    summary: "CI cannot run tier-B tests, so a green badge does not mean the decoder is correct."
+    evidence: "DEC-003 — real camera files are never committed, so the bit-exact oracle runs only on a machine holding the corpus."
     bar: null
     status: watch
     disposition_at: project-close
-    first_flagged: 2026-04-20
-    last_touched: 2026-06-12
+    first_flagged: 2026-08-18
+    last_touched: 2026-08-18
     raised_by: claude
-    notes: "No auto-action. Revisit at each project close: are the fresh-session, verify, and one-PR-per-spec habits still holding?"
+    notes: |
+      Accepted deliberately, not overlooked — the alternative was unlicensed
+      redistribution. Revisit at each close: has a real regression reached main
+      because CI could not see it? If yes, the fix is a self-hosted or scheduled
+      runner with the corpus mounted, NOT committing files.

@@ -6,7 +6,7 @@
 task:
   id: SPEC-001
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -98,55 +98,121 @@ a green badge as "bit-exact".
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- `AGENTS.md` §5 (measured toolchain), §11 (error handling), §12 (testing bars), §13 (git/PR)
+- `guidance/toolchain-brief.md` — **inject this into the build prompt** (DEC-004 rule 5)
+- `guidance/constraints.yaml` — `no-panics-on-untrusted-input`, `no-copyleft-dependencies`, `library-not-application`
+- `DEC-002` (**`proposed`**, 0.72) — target surface is OPEN
+- `DEC-003` — CI cannot run tier-B tests
+- `.github/workflows/ci.yml` — currently language-agnostic gates only
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- `Cargo.toml` — `edition = "2021"`, `rust-version`, `[lib]` + `[[bin]] irr`, `MIT OR Apache-2.0`
+- `src/lib.rs` — crate root carrying the lint policy and a typed `Error` skeleton
+- `src/bin/irr.rs` — the internal dev/oracle binary, minimal
+- `deny.toml` — permissive-only allow-list
+- `.github/workflows/ci.yml` — Rust jobs added alongside the existing gates
+- `app.just` — `build` / `test` / `lint` / `typecheck` filled in, replacing the TODO stubs
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+1. `cargo build`, `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
+   and `cargo fmt --check` all pass from a clean checkout.
+2. `Cargo.toml` declares `edition = "2021"` and `rust-version = "1.90"`, and CI has a job
+   that checks against **exactly that toolchain** — the number is only meaningful if it is tested.
+3. `#![forbid(unsafe_code)]` on the library.
+4. The five panic-free lints are `deny`-level on the library, and **allowed** inside
+   `#[cfg(test)]` and in `src/bin/irr.rs`.
+5. **The lint policy is shown RED** — a CI step compiles a deliberately violating snippet
+   and asserts the build FAILS. A lint policy that has never rejected anything is not a policy.
+   (This is `oracle-must-be-shown-red` applied to a gate rather than an oracle.)
+6. `cargo deny check licenses` passes with a permissive-only allow-list, and is a CI job.
+7. `irr` builds as a bin target and is **absent from the library's public API**.
+8. `app.just` recipes run; AGENTS.md §6's command block matches them.
+9. CI does **not** claim bit-exactness. Per DEC-003 tier-B is absent on a runner — if the
+   README or CI names a badge, it must not imply the decoder is verified.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+Written at design, red today because no crate exists. Each must go green by build.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+**Gate-level (these ARE the tests for a scaffold spec — all currently fail):**
+```bash
+cargo build                                              # no Cargo.toml -> fails
+cargo clippy --all-targets --all-features -- -D warnings # fails
+cargo fmt --check                                        # fails
+cargo deny check licenses                                # fails
+~/.cargo/bin/cargo +1.90.0 check                         # the declared MSRV -> fails
+```
+
+**The red-proof for the lint policy** — this must FAIL to compile, and CI asserts that it does:
+```rust
+// tests/lint_policy_red.rs.disabled — compiled by CI on purpose, expected to FAIL
+pub fn violates(v: &[u8], n: u8) -> u8 { v[0] + n }   // indexing_slicing + arithmetic_side_effects
+pub fn also(v: &[u8]) -> u8 { *v.first().unwrap() }   // unwrap_used
+```
+
+**One real unit test**, so `cargo test` is not vacuously green:
+```rust
+#[test]
+fn error_type_is_public_and_non_exhaustive() {
+    // Error is constructible from within the crate and Debug-printable.
+    let e = crate::Error::Truncated { at: 0, len: 0 };
+    assert!(format!("{e:?}").contains("Truncated"));
+}
+```
 
 ## Non-Goals
 
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
-
-- ...
+- **No decoding of any kind.** No TIFF walk, no tag model, no unpack — those are SPEC-003/004.
+- **No dependencies.** SPIKE-001 showed the container reader and unpacker need none.
+  Adding one here needs a DEC and is almost certainly premature.
+- **No `no_std` commitment.** `DEC-002` proposes it and is still `proposed`, gated on
+  measurement. Do not decide it in this spec; leave the door open by not depending on `std`
+  gratuitously, but do not add the feature machinery yet.
+- **No `rayon`, no SIMD dispatch** — same reason.
+- **No crates.io publish** — STAGE-004 puts it out of scope for PROJ-001.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+### Two things were measured at design. Do not re-derive them.
 
----
+**1. The lint policy rejects the obvious byte-reading idiom.** Verified on clippy 0.1.97
+*and* 1.90.0. This pattern — bounds-check with `.get()`, then index — **fails**:
+
+```rust
+let s = buf.get(at..end).ok_or(..)?;
+Ok(u16::from_le_bytes([s[0], s[1]]))   // error: indexing may panic  (x2)
+```
+
+This one is clean:
+
+```rust
+let s: [u8; 2] = buf.get(at..end).and_then(|s| s.try_into().ok()).ok_or(..)?;
+Ok(u16::from_le_bytes(s))
+```
+
+⚠ **SPIKE-001's decoder used the failing pattern throughout.** Its measured "229 lines,
+zero dependencies" is therefore an *underestimate* of the lint-clean version. Expect the
+real reader to be somewhat larger, and do not treat the spike's line count as a target.
+
+**2. MSRV — measured, deliberately conservative, and honest about it.**
+`1.90.0` (the oldest toolchain installed here) compiles the intended crate root, including
+`#![no_std]` + `alloc` and the full lint set. **The true floor is lower but UNMEASURED** —
+nothing older is installed, and declaring a number we have not compiled would be exactly
+the guess AGENTS.md §12 forbids. So: declare `1.90`, test `1.90` in CI, and treat lowering
+it as a later change that requires `rustup toolchain install` and a real measurement.
+
+### The toolchain trap that will cost you a loop
+
+`cargo` on `PATH` is **Homebrew's**, not a rustup shim, so `cargo +1.90.0` fails with
+`no such command`. Use the shim explicitly: `~/.cargo/bin/cargo +1.90.0 check`.
+Full detail in `guidance/toolchain-brief.md`.
+
+### Scope discipline
+
+If this spec starts wanting to decode anything, stop — that is SPEC-003. The value here is
+that every later spec inherits a crate where a panic on untrusted input **cannot compile**.
 
 ## Reflection
 
