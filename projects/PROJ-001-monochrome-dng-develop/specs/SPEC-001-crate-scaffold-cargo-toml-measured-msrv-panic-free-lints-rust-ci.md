@@ -68,11 +68,19 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: other
+      tokens_total: 197940
+      estimated_usd: null
+      duration_minutes: 60
+      recorded_at: 2026-08-18
+      notes: "tokens_total genuinely unavailable to me: I ran as a Task/Agent-tool subagent with no /cost interface and no token-usage tool in my toolset. Per metering_source: subagent_tokens (.repo-context.yaml) and DEC-013, the ORCHESTRATOR reads this number directly from this Agent invocation's own result metadata (subagent_tokens) after I report — that is the intended reader for this metering source, not a number I self-report. Please fill tokens_total from that result and run `just handback-sync SPEC-001`. Also: committed to feat/spec-001-crate-scaffold locally but did NOT push or open a PR — my instructions said commit + do not merge and were silent on push/PR, and pushing to the real jysf/irradiance remote felt like it warranted an explicit go-ahead rather than an autonomous call. The branch is ready to push as-is."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 197940
+    estimated_usd: 0.00
+    session_count: 1
 ---
 
 # SPEC-001: Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI

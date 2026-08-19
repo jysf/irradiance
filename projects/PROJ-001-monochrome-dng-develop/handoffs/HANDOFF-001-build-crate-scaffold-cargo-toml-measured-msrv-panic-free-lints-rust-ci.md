@@ -58,7 +58,7 @@ handback:
   pr: null                         # committed only, not pushed/opened — see notes
   completed_at: 2026-08-18
   notes: "tokens_total genuinely unavailable to me: I ran as a Task/Agent-tool subagent with no /cost interface and no token-usage tool in my toolset. Per metering_source: subagent_tokens (.repo-context.yaml) and DEC-013, the ORCHESTRATOR reads this number directly from this Agent invocation's own result metadata (subagent_tokens) after I report — that is the intended reader for this metering source, not a number I self-report. Please fill tokens_total from that result and run `just handback-sync SPEC-001`. Also: committed to feat/spec-001-crate-scaffold locally but did NOT push or open a PR — my instructions said commit + do not merge and were silent on push/PR, and pushing to the real jysf/irradiance remote felt like it warranted an explicit go-ahead rather than an autonomous call. The branch is ready to push as-is."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-08-18
 ---
 
 # HANDOFF-001: Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI
