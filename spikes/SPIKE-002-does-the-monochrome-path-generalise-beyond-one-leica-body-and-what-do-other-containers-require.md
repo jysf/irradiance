@@ -18,7 +18,7 @@ task:
   id: SPIKE-002
   type: spike                      # epic | story | task | bug | chore | patch | spike
   cycle: spike                     # spike | land  (collapsed from a spec's 5)
-  blocked: true                    # 1 prerequisite left (the git-lfs pull) — see ## Blocked on
+  blocked: false                   # sub-questions 1+2 UNBLOCKED; only sub-question 3 waits on files
   priority: medium
 
 spike:
@@ -109,20 +109,24 @@ on questions that cannot be answered.
       git-lfs pointer in `../data.lfs` exactly for all four files. Recorded as
       `[[available]]` rows in `tests/corpus/manifest.toml`.
       ⭐ Bonus: the **M Monochrom (Typ 246) is 12-bit** — see below.
-- [ ] **Pull the files that come back usable.** They are LFS *pointers* today
-      (133 bytes each), which is why the clone is only 9 MB:
-      `git -C ../data.lfs lfs pull --include="Leica/M Monochrom/*"`.
-      Sizes are already known from the pointers — M Monochrom 36.4 MB,
-      M Monochrom Typ 246 21.7 MB, Pentax K-3 III Mono 37.7 MB DNG + 37.4 MB PEF.
-- [ ] **Add each pulled file to `tests/corpus/manifest.toml`** with its licence,
-      source URL, sha256 (the LFS pointer already states it — no download needed
-      to record it) and its `dnglab analyze --raw-checksum`.
-- [x] ~~**A 12-bit source.**~~ **RESOLVED 2026-08-18 — and better than planned.**
-      The Leica **M Monochrom (Typ 246) is 12-bit AND monochrome**, CC0. That
-      tests the bit-depth assumption *without* dragging in Bayer/CFA, which
-      PROJ-001 has no code for — strictly better than the Nikon P1100 NRW
-      originally wanted, and it needs no camera purchase or favour. Still needs
-      pulling (below).
+- [x] ~~**Pull the files.**~~ **DONE 2026-08-18.** `git-lfs` is not installed, so
+      they came over plain HTTPS instead — raw.pixls.us serves direct URLs at
+      `getfile.php/<id>/nice/<name>`. All four verified against the sha256
+      recorded *before* download; the manifest pinning worked end to end.
+- [x] ~~**Add each pulled file to the manifest.**~~ **DONE 2026-08-18** — all four,
+      with licence, source URL, sha256 and `raw_checksum`. Corpus is now 7 files.
+- [x] **A different bit depth — RESOLVED, but NOT by the file first claimed.**
+      ⚠ **Correction.** The Typ 246 is 12-bit and CC0 as hoped, but it is **JPEG
+      compressed** (5984*4000*12/8 = 35,904,000 vs a declared 21,311,750), so
+      PROJ-001 cannot read it — that needs lossless JPEG SOF-3, explicitly out of
+      scope. Same for the Pentax K-3 III DNG. Three of the four downloads are
+      compressed.
+      **What actually resolves it: the original Leica M Monochrom — 16-bit,
+      genuinely UNCOMPRESSED**, arithmetic closing exactly at 36,219,904. It is a
+      third bit depth (16 vs 14), BlackLevel 220 not 512, **ActiveArea with a
+      non-zero origin (2,2)** where every Q2M frame is (0,0) — so the ActiveArea
+      crop gets exercised for the first time — and it carries **no opcode lists**
+      at all. It is the single most useful third-party file we hold.
 - [ ] **A Fuji RAF and a Nikon D750 NEF** for sub-question 3 only. **Not held
       today**, and the only items left that need a camera or a favour. Note this
       blocks *sub-question 3 alone* — sub-questions 1 and 2 are fully unblocked

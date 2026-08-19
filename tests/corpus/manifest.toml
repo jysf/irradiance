@@ -154,8 +154,101 @@ ShareAlike ⇒ tier B only, never committed. Attribution must be recorded here.
 licence  = "CC-BY-SA-4.0"
 priority = "high"
 
+[[file]]
+path            = "LEICA-M-MONOCHROM/L1000622.DNG"
+tier            = "b"
+make            = "Leica Camera AG"
+model           = "M Monochrom"
+bits            = 16
+bytes           = 36433408
+sha256          = "149d5b3fbd5cd40d51c1f56d5e392a81870d129e047a6c8a596447590e7a0e4f"
+licence         = "CC0-1.0"
+source          = "https://raw.pixls.us/ getfile.php/974 (submitted 2017-01-25)"
+provenance      = "Public domain dedication. CC0 => the ONLY class of third-party file that could ever be promoted to tier A."
+notes           = """
+⭐ THE ONE THAT ACTUALLY DECODES TODAY. 16-bit, SamplesPerPixel 1, Linear Raw,
+**Uncompressed**, 5216x3472, single strip (RowsPerStrip 3472 = full height).
+Layer-0 arithmetic closes EXACTLY: 5216*3472*16/8 = 36,219,904 == StripByteCounts.
+
+Why it is the most valuable third-party file we have:
+  - a THIRD bit depth (16, vs the Q2M's 14) — the first real exercise of the
+    unpacker's `bits` parameter, which has only ever run with 14
+  - BlackLevel 220, not 512 — catches a hardcoded level
+  - ActiveArea 2 2 5212 3468 — a NON-ZERO origin, where every Q2M frame is
+    0 0 5632 8392. The ActiveArea crop has never actually moved anything.
+  - NO OpcodeList tags at all — exercises the no-opcodes path
+"""
+
+  [file.oracle]
+  raw_checksum  = "b0f602b90db91f981bbd6802fd0e6edf"   # dnglab 0.7.2
+  strip_bytes   = 36219904
+
+[[file]]
+path            = "LEICA-M-MONOCHROM-TYP246/M2462362.DNG"
+tier            = "b"
+make            = "Leica Camera AG"
+model           = "LEICA M MONOCHROM (Typ 246)"
+bits            = 12
+bytes           = 21700096
+sha256          = "3fb74d1fc402daaa48a9c3f1d6279d7e85fb58dfdaf816f036927d49ab228977"
+licence         = "CC0-1.0"
+source          = "https://raw.pixls.us/ getfile.php/1087 (submitted 2017-02-11)"
+notes           = """
+⚠ NOT DECODABLE BY PROJ-001. 12-bit and monochrome as hoped, but **JPEG
+compressed**: 5984*4000*12/8 = 35,904,000 against a declared StripByteCounts of
+21,311,750 — a 1.68x ratio. Reading it needs lossless JPEG SOF-3, which PROJ-001
+explicitly places out of scope. BlackLevel 0, WhiteLevel 3750 (not 16383).
+Keep it: it is the natural first target the day SOF-3 lands (PROJ-003), and its
+levels are unlike anything else held.
+"""
+
+  [file.oracle]
+  raw_checksum  = "c72e7d9579e2adaef9c6247841b8ac1d"
+
+[[file]]
+path            = "PENTAX-K3III-MONO/K3III.DNG"
+tier            = "b"
+make            = "RICOH IMAGING COMPANY, LTD."
+model           = "PENTAX K-3 Mark III Monochrome"
+bits            = 14
+bytes           = 37669430
+sha256          = "1afc1071451a3a3737c29ae319e1411551b6893d0e6a34db29903318266b0066"
+licence         = "CC0-1.0"
+source          = "https://raw.pixls.us/ getfile.php/7081 (submitted 2023-12-04)"
+notes           = """
+⚠ NOT DECODABLE BY PROJ-001 — also JPEG compressed (6304*4224*14/8 = 46,599,168
+vs declared 31,047,287, a 1.50x ratio). A monochrome sensor from a different MAKE,
+so it stays valuable for PROJ-003.
+⚡ HOSTILE-INPUT DATAPOINT, free: dnglab warns on this file —
+"File has BlackLevelRepeatDim tag but with invalid length: 1". A real
+shipping camera writes a malformed tag that a mature decoder tolerates. Our
+reader must not panic on it. Worth a tier-A regression fixture.
+"""
+
+  [file.oracle]
+  raw_checksum  = "98bae1339c25eb6e04fbac6b5f643189"
+
+[[file]]
+path            = "PENTAX-K3III-MONO/K3III.PEF"
+tier            = "b"
+make            = "RICOH IMAGING COMPANY, LTD."
+model           = "PENTAX K-3 Mark III Monochrome"
+bits            = 14
+bytes           = 37441124
+sha256          = "2d47df9825d1f0fa14321b589f2934678b19dcb28d74210b86bf8a0efc7d514a"
+licence         = "CC0-1.0"
+source          = "https://raw.pixls.us/ getfile.php/7082 (submitted 2023-12-04)"
+notes           = """
+Native Pentax PEF of the SAME SCENE as K3III.DNG — a free cross-container
+comparison whenever a vendor container is attempted. "Pentax PEF Compressed",
+so out of scope for PROJ-001; dnglab decodes it.
+"""
+
+  [file.oracle]
+  raw_checksum  = "c92898a1cd5acc52644c857097e1827c"
+
 # ─────────────────────────────────────────────────────────────────────────────
-# CLEARED FOR ACQUISITION — licences verified 2026-08-18 on raw.pixls.us, two
+# ACQUIRED 2026-08-18 (entries above). Licences verified two
 # independent ways: absent from the `?noncc0` list (111 entries, all read), AND
 # License column reads CC0 in the full 2016-row table. sha256 below is from the
 # site's own DB and MATCHES the git-lfs pointer in ../data.lfs exactly.
@@ -163,8 +256,9 @@ priority = "high"
 # CC0 => these are the only third-party files that could ever be promoted to
 # TIER A (committed). Everything else surveyed is CC-BY-SA or CC-BY-NC-SA.
 #
-# NOT YET DOWNLOADED. They are LFS pointers today. To fetch:
-#   git -C ../data.lfs lfs pull --include="Leica/M Monochrom/*"
+# DOWNLOADED over plain HTTPS (git-lfs is NOT installed; raw.pixls.us serves
+# direct URLs at getfile.php/<id>/nice/<name>). All four verified against the
+# sha256 recorded BEFORE download — the pinning worked end to end.
 # ─────────────────────────────────────────────────────────────────────────────
 
 [[available]]
