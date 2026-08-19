@@ -167,6 +167,90 @@ on questions that cannot be answered.
 
 *(no conventions here — it's yours)*
 
+### 2026-08-18 — sub-questions 1 and 2 answered. ONE REAL BUG FOUND.
+
+Ran SPIKE-001's decoder (from its unmerged branch, in a throwaway worktree)
+against the four CC0 samples. Sub-question 3 still waits on a Fuji RAF / D750 NEF.
+
+**SUB-Q1 — does the container reader generalise? YES, comprehensively.**
+
+On the Leica M Monochrom — a different body, a different sensor generation, a
+different bit depth — the IFD walk, SubIFD recursion, tag model, sensor-plane
+selection, strip location and layer-0 arithmetic **all worked unmodified**:
+
+```
+ifds found     2 -> SubIFD(20 tags), IFD(34 tags)
+dimensions     5216 x 3472      bits 16      samples/pixel 1
+strip          offset 213504  bytes 36219904  rows/strip 3472
+levels         black 220  white 16383
+activeArea     []                       <- NO ActiveArea tag at all
+defaultCrop    origin [2, 2] size [5212, 3468]
+opcodes        list1 false list3 false  <- no opcode lists at all
+5216 x 3472 x 16 / 8 = 36219904 == StripByteCounts  ✓
+```
+
+Every one of those differs from the Q2M and none of it needed a code change.
+Notably it has **no `ActiveArea`** and **no opcode lists**, so the "tag absent"
+paths were exercised for the first time.
+
+**🔴 THE BUG — the unpacker's bit-order assumption does not generalise.**
+
+The plane came out wrong, and **the free sanity check caught it**:
+
+```
+first 8   [39186, 61201, 3602, 2833, 48657, 7953, 18, 48656]
+min/max   1 / 65343   (black 220 white 16383)
+⚠ max exceeds WhiteLevel — impossible; unpack or endianness is wrong
+```
+
+Cause, confirmed three ways:
+
+1. `md5(our plane)` = `563ecf2b…`, but `md5(our plane byte-swapped)` =
+   **`b0f602b90db91f981bbd6802fd0e6edf` = exactly `dnglab --raw-checksum`.**
+2. Reading the raw strip head `99 12 ef 11 0e 12 0b 11` as big-endian u16 gives
+   `[39186, 61201, 3602, 2833]` — impossible against WhiteLevel 16383. As
+   little-endian it gives `[4761, 4591, 4622, 4363]` — all plausible.
+3. The file's header is `II` (little-endian).
+
+**The rule the unpacker got wrong:** *sub-byte* samples (14-bit) are a **MSB-first
+bit stream**, but *byte-aligned* samples (16-bit) are plain **u16 in the file's
+byte order**. SPIKE-001's unpacker treated everything as an MSB-first bit stream,
+which is right for 14-bit and wrong for 16-bit. It had only ever run against
+14-bit data, so the two cases were indistinguishable until now.
+
+This would have shipped silently. **STAGE-002's unpack spec must branch on
+`bits % 8 == 0`** and honour the TIFF byte order for the byte-aligned case.
+
+**SUB-Q2 — do other bit depths hold? PARTIALLY, and mostly not testable yet.**
+
+Only one of the four downloads is uncompressed. The other two DNGs are JPEG
+compressed and both were **rejected safely — no panic, clear message, exit 0**:
+
+| File | Bits | Result |
+|---|---|---|
+| Leica M Monochrom | 16 | decodes; bit-exact after the byte-order fix |
+| Leica M Monochrom (Typ 246) | 12 | JPEG — rejected cleanly |
+| Pentax K-3 III Monochrome | 14 | JPEG — rejected cleanly |
+
+**A second generalisation win, unplanned: the Typ 246 is BIG-ENDIAN (`MM`).**
+Every Q2M frame is `II`. The `Order` abstraction had never been exercised — and it
+worked, walking 2 IFDs and 19+39 tags correctly before rejecting on compression.
+
+**No panic on malformed input, for free.** The Pentax DNG carries a tag dnglab
+itself warns about (*"BlackLevelRepeatDim tag but with invalid length: 1"*). Our
+reader walked all 3 IFDs and 74 tags without incident. A real shipping camera
+writes a malformed tag; that belongs in the tier-A fixture set.
+
+**Diagnostics defect worth carrying to SPEC-003/004.** Both compressed files
+report `no full-resolution LinearRaw single-sample IFD found`. That is misleading —
+the IFD *was* found and then rejected for `Compression != 1`. The real message
+should name the reason. A user debugging an unsupported file would be sent looking
+in the wrong place.
+
+**Still open:** sub-question 3 (`dnglab convert` on Fuji RAF / D750 NEF) — blocked
+on files not held.
+
+
 ## Land
 
 *Fill at land. Set `spike.outcome`. Emit DECs for load-bearing choices.*
