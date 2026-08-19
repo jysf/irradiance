@@ -17,7 +17,7 @@
 task:
   id: SPIKE-002
   type: spike                      # epic | story | task | bug | chore | patch | spike
-  cycle: spike                     # spike | land  (collapsed from a spec's 5)
+  cycle: land                     # spike | land  (collapsed from a spec's 5)
   blocked: false                   # sub-questions 1+2 UNBLOCKED; only sub-question 3 waits on files
   priority: medium
 
@@ -32,12 +32,12 @@ spike:
                                    # REQUIRED. Exceeded means STOP and land it as
                                    # `inconclusive` — not extend. Extending twice
                                    # means it isn't a spike, it's an unframed project.
-  outcome: null                    # set at LAND. Never leave null on a landed spike —
+  outcome: answered                    # set at LAND. Never leave null on a landed spike —
                                    #   answered     — the question got an answer
                                    #   inconclusive — timebox hit, no answer (a real result)
                                    #   graduated    — the code becomes real work (see below)
                                    #   discarded    — the code is thrown away (also a win)
-  landed_at: null                  # YYYY-MM-DD, stamped at land
+  landed_at: 2026-08-18                  # YYYY-MM-DD, stamped at land
 
 project:
   id: null               # OPTIONAL (null) — a spike may PRECEDE any project
@@ -51,7 +51,7 @@ agents:
   created_at: 2026-08-18
 
 references:
-  decisions: []                    # DECs EMITTED AT LAND (not during — that's the point)
+  decisions: [DEC-008]                    # DECs EMITTED AT LAND (not during — that's the point)
 
 # Cost is ADVISORY for spikes — `just cost-audit` does NOT gate them (DEC-012 v1).
 # A spike is often pre-project and deliberately cheap; a cost gate on exploration
@@ -60,7 +60,7 @@ cost:
   sessions: []
   totals:
     tokens_total: 0
-    estimated_usd: 0
+    estimated_usd: 0.00
     session_count: 0
 ---
 
@@ -253,9 +253,67 @@ on files not held.
 
 ## Land
 
-*Fill at land. Set `spike.outcome`. Emit DECs for load-bearing choices.*
+**Outcome: `answered`.** Sub-questions 1 and 2 are answered. Sub-question 3 is
+**not**, and is carried out rather than papered over — see below.
 
-```
-just advance-cycle SPIKE-002 land
-just archive-spike SPIKE-002
-```
+**Does the monochrome path generalise beyond one Leica body? The CONTAINER does,
+completely. The UNPACKER did not.**
+
+Against a Leica M Monochrom — different body, different sensor generation,
+16-bit instead of 14, `BlackLevel` 220 instead of 512, **no `ActiveArea` tag**,
+**no opcode lists at all** — the IFD walk, SubIFD recursion, tag model,
+sensor-plane selection, strip location and layer-0 arithmetic **all worked
+unmodified**. The tag-absent paths were exercised for the first time. A second,
+unplanned generalisation also held: the M Monochrom (Typ 246) is **big-endian
+(`MM`)** where every Q2M frame is `II`, and the byte-order abstraction — which had
+never once run — walked it correctly.
+
+The unpacker produced a byte-swapped plane, caught immediately by a free
+one-line assertion (*max must not exceed `WhiteLevel`*). Root cause and the rule
+that replaces it are recorded in **`DEC-008`**: sub-byte samples are a MSB-first
+bit stream; byte-aligned samples are plain integers in the file's byte order.
+SPIKE-001's unpacker took `bits` as a parameter but had only ever run with 14,
+so the two cases were indistinguishable until a 16-bit file existed.
+
+**This is the bug the spike existed to find.** It would have shipped: the plane
+is the right size, from a file that parsed cleanly, differing from truth only in
+per-sample byte order.
+
+### DEC emitted
+
+- **`DEC-008`** — sample unpacking branches on `bits % 8 == 0`, not on bit depth.
+  Reshapes STAGE-002's unpack spec before it is written, with a real file and a
+  known-correct checksum for each branch.
+
+### Also established
+
+- **3 of 4 downloaded CC0 samples are compressed** (two JPEG, one native PEF) and
+  every one was **rejected safely** — no panic, clear message. Only the M
+  Monochrom is uncompressed, which is why it is the most valuable third-party
+  file held.
+- **No panic on genuinely malformed input, for free.** The Pentax K-3 III DNG
+  carries a tag dnglab itself warns about (*"BlackLevelRepeatDim tag but with
+  invalid length: 1"*). Our reader walked all 3 IFDs and 74 tags without
+  incident. It belongs in the tier-A fixture set as a regression case.
+- **A diagnostics defect for SPEC-003/004:** rejecting on compression reports
+  `no full-resolution LinearRaw single-sample IFD found`. The IFD *was* found and
+  then rejected for `Compression != 1`; the message sends someone debugging an
+  unsupported file to the wrong place.
+
+### The code's fate: DISCARDED
+
+Same as SPIKE-001 — the decoder used here is SPIKE-001's, on its unmerged branch,
+and neither is merged. What lands is `DEC-008`, the corpus rows, and these
+answers.
+
+### ⚠ Sub-question 3 is UNANSWERED, and closing this spike does not close it
+
+*Does `dnglab convert -c uncompressed` preserve an X-Trans 6×6 mosaic, and does it
+work on a D750 NEF?* Still blocked on a Fuji RAF and a Nikon D750 NEF, neither
+held. That question decides whether corpus-widening for PROJ-002 is cheap or
+expensive, so it should be **reopened as its own spike when the files arrive** —
+not treated as covered because this one landed. Recorded in
+`docs/conformance-matrix.md` so the gap stays visible.
+
+**Timebox: 1 of 2 sessions used.** Landing early rather than holding the lane open
+for a question that cannot be worked.

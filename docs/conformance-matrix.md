@@ -34,6 +34,20 @@ source** is cheap insurance and worth adding before STAGE-002 finishes:
 It is Bayer, so it cannot ship in PROJ-001's develop path — but it can prove the **container
 reader** is not Leica-shaped, which is STAGE-001's job. That is the cheap half of the value.
 
+## ⚠ Open question carried out of SPIKE-002 (2026-08-18)
+
+**Does `dnglab convert -c uncompressed` preserve an X-Trans 6×6 mosaic
+(`CFARepeatPatternDim: 6 6`), and does it work on a D750 NEF?** Unanswered —
+blocked on a Fuji RAF and a Nikon D750 NEF, neither held. SPIKE-002 landed
+`answered` on its other two sub-questions; **this one is not covered by that
+landing.** It decides whether corpus-widening for PROJ-002 is cheap or expensive,
+so reopen it as its own spike when the files arrive.
+
+Also from SPIKE-002, worth a row's worth of attention: the **Pentax K-3 Mark III
+Monochrome** DNG carries a tag `dnglab` itself warns about — *"BlackLevelRepeatDim
+tag but with invalid length: 1"*. A shipping camera writing a malformed tag that a
+mature decoder tolerates is a tier-A regression fixture, not a curiosity.
+
 ## Gotchas already found
 
 - **The P1100 is a Coolpix, so it shoots `.NRW`, not `.NEF`.** rawler's `nrw.rs`

@@ -4,8 +4,8 @@
 
 project:
   id: PROJ-001
-  status: proposed
-  activity: requirements
+  status: active
+  activity: build
   priority: high
   target_ship: null
 
