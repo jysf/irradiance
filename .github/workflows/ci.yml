@@ -1,9 +1,14 @@
 name: CI
 
-# Language-agnostic spec-driven gates. The cost-capture audit runs on every
-# push/PR (AGENTS.md §4 / docs/cost-tracking.md). Your app's build/test/lint
-# jobs are project-specific — add them here per your stack. A license-policy
-# job is optional and per-language; see docs/license-policy.md to wire one in.
+# Language-agnostic spec-driven gates (cost-data, decisions-index) plus this
+# repo's Rust jobs, added by SPEC-001. The panic-free lint policy
+# (`no-panics-on-untrusted-input`) is enforced mechanically here, not by
+# review — see AGENTS.md §12 and guidance/constraints.yaml.
+#
+# ⚠ Per DEC-003, CI cannot run tier-B (real-camera) tests — the corpus lives
+# outside the repo and is never committed. Nothing below implies the decoder
+# is bit-exact; that claim is scoped to `docs/conformance-matrix.md`, not to
+# a green badge here.
 on:
   push:
   pull_request:
@@ -25,3 +30,70 @@ jobs:
       # decorative one.
       - name: decisions-index is not stale
         run: ./scripts/decisions-index.sh --check
+
+  fmt:
+    name: rust / fmt --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+
+  clippy:
+    name: rust / clippy -D warnings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test:
+    name: rust / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --all-features
+
+  licenses:
+    name: rust / license policy (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+
+  msrv:
+    name: rust / MSRV (1.90.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rust-version = "1.90" in Cargo.toml is only meaningful if CI compiles
+      # against EXACTLY that toolchain (SPEC-001 acceptance criterion 2).
+      # Measured, not guessed — see guidance/toolchain-brief.md. Do not swap
+      # this for `stable` and do not bump the pin without re-measuring on an
+      # actually-older toolchain first.
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - run: cargo check --all-targets --all-features
+
+  lint-policy-red-proof:
+    name: rust / lint policy red-proof (must fail red)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      # Constraint `oracle-must-be-shown-red` applied to a gate rather than an
+      # oracle (SPEC-001 acceptance criterion 5): this step PASSES iff the
+      # deliberately-violating snippet in tests/lint_policy_red.rs.disabled
+      # FAILS to compile. scripts/lint-red-proof.sh itself asserts that
+      # failure and exits non-zero (failing this job) if clippy did NOT
+      # reject the snippet — a lint policy that has never rejected anything
+      # is not a policy.
+      - run: ./scripts/lint-red-proof.sh

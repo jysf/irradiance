@@ -38,7 +38,12 @@ temp/
 
 # Rust
 target/
-Cargo.lock            # a library: consumers pick their own versions
+# A library: consumers pick their own versions. (Inline comments are NOT
+# stripped by gitignore — a trailing "# ..." here would become part of the
+# literal pattern and silently fail to match. Verified 2026-08-18 while
+# building SPEC-001: the previous same-line comment left Cargo.lock untracked
+# instead of ignored, the first time this repo ever generated one.)
+Cargo.lock
 **/*.rs.bk
 
 # RAW corpus — tier B is NEVER committed (docs/conformance-matrix.md).

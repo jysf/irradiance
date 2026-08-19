@@ -6,7 +6,7 @@
 task:
   id: SPEC-001
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,12 +27,17 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-sonnet-5         # HANDOFF-001, cycle: build (DEC-005 tier_map.build)
+  created_at: 2026-08-18
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
+  decisions: [DEC-006]             # [DEC-NNN, DEC-MMM] — DEC-006 emitted during build (this repo's namespace)
+  constraints:                     # [constraint-id-1, constraint-id-2]
+    - no-panics-on-untrusted-input
+    - no-copyleft-dependencies
+    - library-not-application
+    - oracle-must-be-shown-red
+    - no-new-top-level-deps-without-decision
   related_specs: []                # [SPEC-NNN]
 
 # Blocking dependencies: specs that must SHIP before this one can start.

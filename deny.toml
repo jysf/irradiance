@@ -1,0 +1,40 @@
+# cargo-deny — license policy enforcement.
+#
+# This crate is distributed under a permissive license, so the binary stays
+# widely embeddable, including in closed-source/commercial products. To keep that
+# promise, every dependency must carry a permissive (or an explicitly excepted)
+# license. Any GPL/AGPL — or any license not in `allow` and not excepted — fails
+# `cargo deny check licenses` (and the CI `licenses` job). Run locally: `just deny`.
+#
+# Worked example transcribed from docs/license-policy.md; kept in sync with the
+# constraint `no-copyleft-dependencies` (guidance/constraints.yaml). SPEC-001
+# ships this with zero dependencies declared in Cargo.toml — the gate exists so
+# the FIRST dependency this crate ever adds is checked automatically, not so it
+# is checking anything today.
+
+[graph]
+# Evaluate the FULL feature graph so a copyleft dependency cannot slip in behind
+# an off-by-default feature flag unnoticed.
+all-features = true
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "0BSD",
+    "Unicode-3.0",
+]
+
+# Per-crate exceptions: a license OUTSIDE `allow`, knowingly accepted for ONE
+# named crate. Everything else still fails — including any NEW GPL/AGPL/LGPL dep.
+# Document why each exception is safe.
+exceptions = [
+    # { name = "some-crate", allow = ["LGPL-3.0-or-later"] },
+]
+
+# Require high confidence when matching a license file's text to an SPDX id.
+confidence-threshold = 0.9

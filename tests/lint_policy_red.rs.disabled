@@ -1,0 +1,38 @@
+// tests/lint_policy_red.rs.disabled — compiled by `scripts/lint-red-proof.sh`
+// on purpose. Expected to FAIL. Do not rename this to `.rs` and leave it —
+// it must never be part of a normal `cargo test`/`cargo clippy` run.
+//
+// SPEC-001 acceptance criterion 5 / constraint `oracle-must-be-shown-red`:
+// a lint policy that has never rejected anything is not a policy. This is
+// the deliberate fault. See scripts/lint-red-proof.sh for how it is compiled
+// and how the FAIL is asserted.
+//
+// `#![deny(...)]` is repeated here (not inherited from src/lib.rs) because
+// each file under tests/ is its own crate root — measured during SPEC-001's
+// build, not assumed.
+#![deny(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::arithmetic_side_effects
+)]
+
+// indexing_slicing + arithmetic_side_effects: `v[0]` can panic; `+` can
+// overflow in release.
+pub fn violates(v: &[u8], n: u8) -> u8 {
+    v[0] + n
+}
+
+// unwrap_used: `.unwrap()` panics on `None`.
+pub fn also(v: &[u8]) -> u8 {
+    *v.first().unwrap()
+}
+
+#[test]
+fn never_runs() {
+    // This test body is unreachable — the file is expected to fail to
+    // COMPILE before any test in it can run.
+    assert_eq!(violates(&[1, 2, 3], 4), 5);
+    assert_eq!(also(&[9]), 9);
+}

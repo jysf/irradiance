@@ -203,11 +203,13 @@ borrowed band as soon as it has one.
   (`STAGE-004`, out of scope: publishing waits for a second camera).
   crustyimg consumes it as a **path dependency** behind a `raw-develop`
   cargo feature until then.
-- **CI:** GitHub Actions, `.github/workflows/ci.yml`. Today it carries only the
-  language-agnostic `cost-data` + `decisions-index` gates. The Rust jobs
-  (`fmt --check`, `clippy -D warnings`, `test`, `deny check licenses`, and a
-  short fuzz smoke run) are **not yet wired** — they land with the first spec
-  that creates `Cargo.toml`.
+- **CI:** GitHub Actions, `.github/workflows/ci.yml`. Carries the
+  language-agnostic `cost-data` + `decisions-index` gates plus the Rust jobs
+  `SPEC-001` wired: `fmt --check`, `clippy -D warnings`, `test`,
+  `deny check licenses`, an MSRV (1.90.0) check, and the lint-policy red-proof
+  (`oracle-must-be-shown-red` applied to the gate — `DEC-006`). A short fuzz
+  smoke run is **not yet wired** — per §12 bar 2 it lands with the first
+  parser spec (`SPEC-003`), not retrofitted.
 
 ### Measured toolchain — 2026-08-15/16, this machine only
 
@@ -236,19 +238,18 @@ real cargo, not a rustup shim, so it does not understand `+nightly`.
 ~/.cargo/bin/cargo +nightly fuzz run <target>
 ```
 
-**No `Cargo.toml` and no `src/` exist yet** (verified 2026-08-15). The first
-spec of STAGE-001 creates them and must, in the same change: declare
-`edition = "2021"`, declare an MSRV (`rust-version`) — measure the real floor
-from the actual dependency set rather than guessing it — and add the Rust CI
-jobs above.
+**`Cargo.toml` and `src/` now exist** (`SPEC-001`, 2026-08-18): `edition =
+"2021"`, `rust-version = "1.90"` (measured, not guessed — still the oldest
+toolchain installed; the true floor remains unmeasured), and the Rust CI jobs
+above are wired.
 
 ---
 
 ## 6. Commands (exact)
 
-⚠ **These do not run yet.** There is no `Cargo.toml`, so `app.just` still holds
-its `TODO` stubs. The spec that creates the crate fills `app.just` in the same
-change; until then, this section states what those recipes must become.
+**These run.** `SPEC-001` (2026-08-18) filled `app.just`'s stubs to match the
+block below — `just build` / `just test` / `just lint` / `just typecheck` /
+`just deny` / `just lint-red-proof`, plus `just install` / `just dev`.
 
 App commands belong in **`app.just`** (project-owned, imported by the
 template-managed root `justfile`) so a template update never clobbers them. For
@@ -294,8 +295,9 @@ dnglab analyze --raw-checksum <file>.DNG
 
 ## 7. Directory Structure
 
-Actual layout as of 2026-08-15. `src/`, `tests/`, `fuzz/` and `Cargo.toml` are
-**planned, not present** — marked below.
+Actual layout as of 2026-08-15, updated 2026-08-18 for `SPEC-001` (`Cargo.toml`,
+`src/`, `tests/lint_policy_red.rs.disabled`). `fuzz/` and the `tests/corpus/`
+tier subdirectories remain **planned, not present** — marked below.
 
 ```
 /
@@ -309,7 +311,7 @@ Actual layout as of 2026-08-15. `src/`, `tests/`, `fuzz/` and `Cargo.toml` are
 ├── .variant                           # "claude-plus-agents"
 ├── VERSION                            # TEMPLATE provenance (0.6.38), NOT the app version
 ├── justfile                           # Template-managed: just status, new-spec, … (imports app.just)
-├── app.just                           # Project-owned: just build/test/lint (stubs — see §6)
+├── app.just                           # Project-owned: just build/test/lint/deny — see §6
 ├── scripts/                           # Shell scripts powering justfile
 ├── docs/
 │   ├── oracle-contract.md             # ⚑ The three oracle layers + the VERIFIED plane contract
@@ -337,14 +339,17 @@ Actual layout as of 2026-08-15. `src/`, `tests/`, `fuzz/` and `Cargo.toml` are
 │       ├── specs/                     # (none yet — STAGE-001 is unframed by design)
 │       │   └── done/
 │       └── handoffs/
-├── Cargo.toml                         # ← PLANNED (STAGE-001 spec 1)
-├── src/                               # ← PLANNED
-│   ├── lib.rs                         #   the public API — bytes in, pixels + metadata out
+├── Cargo.toml                         # edition 2021, rust-version 1.90, [lib] + [[bin]] irr
+├── deny.toml                          # cargo-deny permissive-only allow-list
+├── src/
+│   ├── lib.rs                         #   the public API — bytes in, pixels + metadata out (no decode yet)
 │   └── bin/irr.rs                     #   internal dev/oracle binary; NOT a product surface
-├── tests/                             # ← PLANNED
+├── tests/
+│   ├── lint_policy_red.rs.disabled    #   the lint-policy red-proof snippet — see DEC-006
 │   └── corpus/
-│       ├── tier-a/                    #   committed, licence-clean, runs in CI
-│       └── tier-b/                    #   NEVER committed — .gitignore'd; skip loudly when absent
+│       ├── manifest.toml
+│       ├── tier-a/                    #   ← PLANNED — committed, licence-clean, runs in CI
+│       └── tier-b/                    #   ← PLANNED — NEVER committed — .gitignore'd; skip loudly when absent
 └── fuzz/                              # ← PLANNED — one target per parser, from the first parser spec
 ```
 
