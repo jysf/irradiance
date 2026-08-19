@@ -17,11 +17,22 @@
 //! neither of which is a library path.
 //!
 //! That claim is itself checked. `scripts/lint-red-proof.sh` (CI job
-//! `lint-policy-red-proof`, `DEC-007`) injects an unchecked index, unchecked
-//! arithmetic and an `unwrap()` into a temp-dir copy of *this file* and
-//! requires the `#![deny(...)]` block below to reject them. Delete or weaken
-//! that block and the proof fails — which is the only reason the sentence
-//! above is allowed to say "mechanically".
+//! `lint-policy-red-proof`, `DEC-009`) runs clippy over a temp-dir copy of
+//! this crate three times: once **unmutated**, which must pass; once with one
+//! violation per lint injected after the attribute prologue, which must fail
+//! with all five lints firing *at the injected lines*; and once more without
+//! CI's blanket `-D warnings`, which must also fail — that last run is what
+//! pins the block below at `deny` rather than `warn`.
+//!
+//! The unmutated run is the **control**, and it is the load-bearing part: it
+//! is what makes a failure of the mutated run attributable to the injection
+//! rather than to a syntax error, a broken copy, or a toolchain fault. Delete
+//! the block below, weaken it to `allow`, downgrade it to `warn`, or drop a
+//! single lint from it, and the proof fails — which is the only reason the
+//! sentence above is allowed to say "mechanically".
+//!
+//! What the proof does **not** establish: that code in a module carrying its
+//! own `#[allow(...)]` is covered. It pins the policy at the crate root.
 //!
 //! See constraint `no-panics-on-untrusted-input` in `guidance/constraints.yaml`
 //! and AGENTS.md §11/§12.

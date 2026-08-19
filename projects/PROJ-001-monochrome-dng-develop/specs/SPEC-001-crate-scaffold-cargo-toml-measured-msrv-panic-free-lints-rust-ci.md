@@ -6,7 +6,7 @@
 task:
   id: SPEC-001
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -31,7 +31,10 @@ handoff:
   created_at: 2026-08-18
 
 references:
-  decisions: [DEC-006]             # [DEC-NNN, DEC-MMM] — DEC-006 emitted during build (this repo's namespace)
+  decisions: [DEC-006, DEC-007, DEC-009]   # this repo's namespace (AGENTS.md §10). The lint
+                                   # red-proof's mechanism: DEC-006 -> DEC-007 -> DEC-009, one per
+                                   # build round. Superseded records are listed too — a reader of
+                                   # this spec needs the chain, not just the survivor.
   constraints:                     # [constraint-id-1, constraint-id-2]
     - no-panics-on-untrusted-input
     - no-copyleft-dependencies
@@ -85,10 +88,34 @@ cost:
       duration_minutes: 13
       recorded_at: 2026-08-18
       notes: "Verdict: PUNCH LIST (6 items, 2 of them P1) at 29515ab — sent back to build via `just advance-cycle SPEC-001 build --verdict punch-list`. tokens_total is REAL but not from `/cost`: `/cost` is a client-side slash command I cannot execute as the assistant, so I summed the `usage` objects in this session's own transcript (~/.claude/projects/-Users-...-verify-spec-001/14bd8f1c-....jsonl) — the same data `/cost` derives from. Composition: input 98 + output 48,357 + cache-write 124,577 + cache-read 5,069,919. It is a FLOOR: written before the session ends, so it excludes these final turns. ⚠ NOT comparable to the build's 197,940, which came from an Agent-result `subagent_tokens` figure of unknown cache composition — do not put them in the same rollup without resolving that (process-debt signal)."
+    - cycle: build
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 15379660
+      estimated_usd: null
+      duration_minutes: 13
+      recorded_at: 2026-08-19
+      notes: "Second build cycle (punch-list round) on SPEC-001. All six punch-list items closed; both red-proof directions demonstrated and pasted in the handback — (a) policy present + injection -> clippy 101 with all three lint names and the level resolving to src/lib.rs:34/36/38; (b) policy REMOVED + injection -> clippy 0, proof exits 1. Two further attacks also pasted: clippy-unavailable (PL-2) and a partial policy weakening (assertion 3's teeth). All seven gates green on the tree as committed. tokens_total is REAL but not from `/cost`: `/cost` is a client-side slash command the assistant cannot execute, so I summed the `usage` objects in this session's own transcript (~/.claude/projects/-Users-...-verify-spec-001/bc36989d-....jsonl) — the same data `/cost` derives from. Composition: input 248 + output 95,602 + cache-write 284,829 + cache-read 14,998,981. It is a FLOOR: written before the session ends. ⚠ NOT comparable to the first build's 197,940 (an Agent-result subagent_tokens figure of unknown cache composition); it IS comparable in kind to verify's 5,242,951. Third data point on the process-debt signal the verifier filed."
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 8003149
+      estimated_usd: null
+      duration_minutes: 14
+      recorded_at: 2026-08-19
+      notes: "Verdict: PUNCH LIST (7 items, 2 of them P1) at c10f8e6 — sent back to build via `just advance-cycle SPEC-001 build --verdict punch-list`. The DEC-007 mechanism is right and the headline attack is genuinely caught (I ran it: BUILD 0 CLIPPY 0 FMT 0 TEST 0 MSRV 0 DENY 0 REDPROOF 1). Both P1s are gaps in its IMPLEMENTATION, each measured to a seven-green-gates false green with a shipped panic: (P1-1) assertion 3 greps the whole clippy log, and rustc renders the `#![deny(...)]` source span in ANY diagnostic pointing at it, so a mis-landed injection satisfies all three assertions — one legal `//` comment in lib.rs's prologue reproduces it; (P1-2) the policy has five lints, the injection exercises three, so `clippy::panic` and `clippy::expect_used` can be deleted and `panic!()`/`.expect()` shipped with everything green. tokens_total is REAL but not from `/cost`: `/cost` is a client-side slash command the assistant cannot execute, so I summed the `usage` objects in this session's own transcript (~/.claude/projects/-Users-...-verify-spec-001/cb3a5e92-....jsonl) — the same data `/cost` derives from. Composition: input 154 + output 79,223 + cache-write 282,861 + cache-read 7,640,911 (95.5% cache-read). It is a FLOOR: written before the session ends. Comparable in KIND to verify-1's 5,242,951 and build-2's 15,379,660 (same method); NOT to build-1's 197,940 (Agent-result subagent_tokens, unknown composition) — fourth data point on the `token-counts-not-comparable` signal. ⚠ build-2's 15,379,660 is still un-synced into the spec: HANDOFF-003 has `synced_at: null` and cost.totals reads 5,440,891, missing the largest cycle."
+    - cycle: build
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 12193717
+      estimated_usd: null
+      duration_minutes: 35
+      recorded_at: 2026-08-19
+      notes: "DEC-009 transcribed, not redesigned: negative control + five lints + hardened prologue parser + no INJECT_AT=1 crash, plus a severity run that closes PL-3. All four DEC-009 Validation cases and PL-2/PL-3/PL-5 demonstrated with pasted output; before/after on the round-2 `//`-comment bypass measured at the same mutated tree (old script: seven green gates; new script: REDPROOF 1). Seven gates green on the honest tree. ⚠ ONE RESIDUAL STATED, NOT FIXED: the proof pins the policy at the CRATE ROOT only — a future module carrying its own `#![allow(...)]`/`#[allow]` is not covered. Harmless today (crate is lib.rs + bin), live from SPEC-003. Per the handoff I am reporting it rather than inventing a sixth mechanism. tokens_total is REAL but not from `/cost`: `/cost` is a client-side slash command the assistant cannot execute, so I summed this session's own transcript usage objects (~/.claude/projects/-Users-...-verify-spec-001/1851b505-....jsonl) — the same data `/cost` derives from. Composition: input 178 + output 129,380 + cache-write 247,536 + cache-read 11,816,613 (96.9% cache-read). It is a FLOOR: written before the session ends. Same method as build-2 (15,379,660) and verify-1/verify-2 — comparable to those three, NOT to build-1's 197,940 (`token-counts-not-comparable`). ⚠ Running `just handback-sync` exposed a data-corruption bug in `scripts/_lib.sh:301`: it truncates a quoted handback note at the first `#`, which wrote an unterminated YAML scalar and made this spec's front matter unparseable. Fixed (2 lines, one caller) and both affected sessions re-transcribed by the tool; details in the handback."
   totals:
-    tokens_total: 5440891
+    tokens_total: 41017417
     estimated_usd: 0.00
-    session_count: 2
+    session_count: 5
 ---
 
 # SPEC-001: Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI

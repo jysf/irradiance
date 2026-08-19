@@ -90,13 +90,29 @@ jobs:
         with:
           components: clippy
       # Constraint `oracle-must-be-shown-red` applied to a gate rather than an
-      # oracle (SPEC-001 acceptance criterion 5), mechanism per DEC-007: the
-      # script copies the crate to a temp dir, injects violating functions into
-      # the COPIED src/lib.rs, and requires the LIBRARY's own #![deny(...)] to
-      # reject them. It asserts clippy actually ran, that it exited non-zero,
-      # and that all three expected lint names appear — a non-zero exit alone
-      # would also be produced by an unrelated compile error or by clippy not
-      # being installed at all. Delete or weaken the policy in src/lib.rs and
-      # this job goes red; that is the entire point. A lint policy that has
-      # never rejected anything is not a policy.
+      # oracle (SPEC-001 acceptance criterion 5), mechanism per DEC-009 (which
+      # supersedes DEC-007): the script copies the crate to a temp dir and runs
+      # the SAME clippy invocation on it twice — once UNMUTATED, which must
+      # exit 0, and once with one violation per policy lint injected into the
+      # COPIED src/lib.rs, which must exit non-zero.
+      #
+      # The unmutated run is a NEGATIVE CONTROL and it is the load-bearing
+      # assertion. Without it, a red proves only "clippy failed", not "the
+      # policy rejected the injection" — round 2 of this spec measured a false
+      # green where a mis-landed injection made clippy fail with every expected
+      # lint NAME in the log and not one lint firing, because rustc renders the
+      # #![deny(...)] source span in any diagnostic that points at it. With the
+      # control clean, a red is attributable to the injection by construction.
+      #
+      # It further asserts: clippy was actually available; all five policy
+      # lints fired (matched on clippy's index.html#<lint> help line, emitted
+      # only when a lint FIRES, never by a rendered span); the diagnostics are
+      # located inside the injected line range; and the injection is still
+      # rejected WITHOUT this workflow's blanket `-D warnings`, which is what
+      # pins the policy at `deny` rather than `warn`.
+      #
+      # Delete the policy in src/lib.rs, weaken it to allow, downgrade it to
+      # warn, or drop one lint from it, and this job goes red; that is the
+      # entire point. A lint policy that has never rejected anything is not a
+      # policy.
       - run: ./scripts/lint-red-proof.sh

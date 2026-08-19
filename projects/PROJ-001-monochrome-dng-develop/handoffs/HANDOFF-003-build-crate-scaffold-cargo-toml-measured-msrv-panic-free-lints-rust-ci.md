@@ -59,7 +59,7 @@ handback:
   pr: null                         # committed locally; not pushed, not merged, per the return criteria
   completed_at: 2026-08-18         # YYYY-MM-DD
   notes: "Second build cycle (punch-list round) on SPEC-001. All six punch-list items closed; both red-proof directions demonstrated and pasted in the handback — (a) policy present + injection -> clippy 101 with all three lint names and the level resolving to src/lib.rs:34/36/38; (b) policy REMOVED + injection -> clippy 0, proof exits 1. Two further attacks also pasted: clippy-unavailable (PL-2) and a partial policy weakening (assertion 3's teeth). All seven gates green on the tree as committed. tokens_total is REAL but not from `/cost`: `/cost` is a client-side slash command the assistant cannot execute, so I summed the `usage` objects in this session's own transcript (~/.claude/projects/-Users-...-verify-spec-001/bc36989d-....jsonl) — the same data `/cost` derives from. Composition: input 248 + output 95,602 + cache-write 284,829 + cache-read 14,998,981. It is a FLOOR: written before the session ends. ⚠ NOT comparable to the first build's 197,940 (an Agent-result subagent_tokens figure of unknown cache composition); it IS comparable in kind to verify's 5,242,951. Third data point on the process-debt signal the verifier filed."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-08-19
 ---
 
 # HANDOFF-003: <Task Title — same as the spec's title>

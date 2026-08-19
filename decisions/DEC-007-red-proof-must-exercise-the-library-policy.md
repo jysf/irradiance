@@ -132,6 +132,10 @@ rejection with the policy, and failure of the proof without it.
 
 Revisit if `lib.rs`'s prologue grows a shape the injection heuristic mishandles —
 the symptom will be a loud missing-lint failure, not a silent pass.
+⚠ **THIS SENTENCE IS ALSO FALSE — see `DEC-009`.** The trigger fired (the shape
+was one `//` comment line) and the symptom was a *silent pass*, not a loud
+failure, for the reason recorded under *Consequences* above. Measured
+2026-08-18; closed 2026-08-19 by `DEC-009`'s negative control.
 
 ## References
 

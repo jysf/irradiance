@@ -30,7 +30,7 @@ constraints:
     rule: "RAW is attacker-influenced binary input. Every offset, length and index read must be bounds-checked and return a typed error. No unwrap()/expect()/panic!()/indexing that can panic on any parse or decode path. Recursion and chaining are depth- and cycle-guarded."
     severity: blocking
     rationale: "This is the most hostile input class in imaging — vendor-supplied offsets, tile tables, Huffman tables. A panic in a library is a denial of service in every consumer, and consumers include servers accepting uploads from strangers."
-    enforcement: "fuzz targets from STAGE-001 onward; clippy; review"
+    enforcement: "scripts/lint-red-proof.sh (CI job `lint-policy-red-proof`) — the ONLY mechanical enforcement today, and load-bearing: it pins the five-lint #![deny(...)] policy on the crate root by mutation test with a negative control (DEC-009), and fails if the block is deleted, weakened to allow, downgraded to warn, or loses a single lint. Do not delete that script or its CI job without replacing the guarantee. Plus: clippy (which IS that policy); review; fuzz targets from SPEC-003 onward (not yet present — AGENTS.md §12 bar 2)."
 
   - id: provenance-recorded-per-algorithm
     rule: "Every algorithm and decoder gets a row in docs/provenance-ledger.md naming its source and that source's licence. Reading a copyleft implementation is NOT permitted for anything in the default build."

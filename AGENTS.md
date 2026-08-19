@@ -207,8 +207,8 @@ borrowed band as soon as it has one.
   language-agnostic `cost-data` + `decisions-index` gates plus the Rust jobs
   `SPEC-001` wired: `fmt --check`, `clippy -D warnings`, `test`,
   `deny check licenses`, an MSRV (1.90.0) check, and the lint-policy red-proof
-  (`oracle-must-be-shown-red` applied to the gate — `DEC-007`, which supersedes
-  `DEC-006`). A short fuzz
+  (`oracle-must-be-shown-red` applied to the gate — `DEC-009`, which supersedes
+  `DEC-007`, which superseded `DEC-006`). A short fuzz
   smoke run is **not yet wired** — per §12 bar 2 it lands with the first
   parser spec (`SPEC-003`), not retrofitted.
 
@@ -277,7 +277,8 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 
 # lint-red-proof — proves the panic-free lint policy actually rejects a
-#              violating function injected into a copy of src/lib.rs (DEC-007)
+#              violating function injected into a copy of src/lib.rs, with the
+#              UNMUTATED copy run first as a negative control (DEC-009)
 ./scripts/lint-red-proof.sh
 
 # typecheck  — Rust has no separate typecheck; `check` is the fast path
@@ -308,7 +309,7 @@ Actual layout as of 2026-08-15, updated 2026-08-18 for `SPEC-001` (`Cargo.toml`,
 `src/`). `fuzz/` and the `tests/corpus/` tier subdirectories remain **planned,
 not present** — marked below. `tests/` holds no `.rs` file: the lint-policy
 red-proof injects into a temp-dir copy of `src/lib.rs` rather than shipping a
-snippet (`DEC-007`).
+snippet (`DEC-009`).
 
 ```
 /

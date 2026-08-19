@@ -25,6 +25,12 @@ deciders: [jysf, claude]
 affected_scope:
   - scripts/lint-red-proof.sh
   - .github/workflows/ci.yml
+  # src/lib.rs carries the prose that describes this mechanism to readers of
+  # the library, and it is the file the proof mutates. DEC-007 listed it for
+  # the same reason (verify round 1, PL-3); dropping it here would have made
+  # `just decisions-audit --changed` silent on the change that implements this
+  # decision. Added during build round 3.
+  - src/lib.rs
 
 tags:
   - oracle
