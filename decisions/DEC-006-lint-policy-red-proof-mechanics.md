@@ -18,8 +18,8 @@ repo:
 
 created_at: 2026-08-18
 supersedes: null
-superseded_by: null
-status: accepted
+superseded_by: DEC-007
+status: superseded
 deciders: [claude]
 
 affected_scope:

@@ -103,3 +103,27 @@ signals:
       redistribution. Revisit at each close: has a real regression reached main
       because CI could not see it? If yes, the fix is a self-hosted or scheduled
       runner with the corpus mounted, NOT committing files.
+
+  # --- process-debt: two metered cycles produced non-comparable numbers -------
+  - id: token-counts-not-comparable
+    type: process-debt
+    summary: "Cost figures from different execution modes are not comparable, but `just calibration` averages them anyway."
+    evidence: "SPEC-001 — build reported 197,940 (Agent-result subagent_tokens, unknown cache composition); verify reported 5,242,951 (summed from its own transcript, ~97% cache-read). A 26x spread that says nothing about effort."
+    bar: null
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-08-18
+    last_touched: 2026-08-18
+    raised_by: claude
+    notes: |
+      Raised by the SPEC-001 reviewer, who flagged it about its OWN number rather
+      than quietly filing it — the right instinct. cost.sessions has an
+      `interface:` field but nothing records cache composition or how the figure
+      was obtained, so a cache-heavy session and a cold one are indistinguishable
+      downstream. `just calibration` will average them into a meaningless band the
+      moment two specs have shipped.
+      Options at project close: record a `basis:` per session
+      (agent-result | transcript-sum | slash-cost) and have calibration group by
+      it; or narrow calibration to a single interface; or state plainly that the
+      numbers are spend-tracking, not effort-estimation, and stop pretending
+      otherwise. Decide before enough specs ship to make the band look credible.
