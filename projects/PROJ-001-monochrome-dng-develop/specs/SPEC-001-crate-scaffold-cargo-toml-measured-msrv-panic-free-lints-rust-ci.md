@@ -6,14 +6,14 @@
 task:
   id: SPEC-001
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -77,10 +77,18 @@ cost:
       duration_minutes: 60
       recorded_at: 2026-08-18
       notes: "tokens_total genuinely unavailable to me: I ran as a Task/Agent-tool subagent with no /cost interface and no token-usage tool in my toolset. Per metering_source: subagent_tokens (.repo-context.yaml) and DEC-013, the ORCHESTRATOR reads this number directly from this Agent invocation's own result metadata (subagent_tokens) after I report — that is the intended reader for this metering source, not a number I self-report. Please fill tokens_total from that result and run `just handback-sync SPEC-001`. Also: committed to feat/spec-001-crate-scaffold locally but did NOT push or open a PR — my instructions said commit + do not merge and were silent on push/PR, and pushing to the real jysf/irradiance remote felt like it warranted an explicit go-ahead rather than an autonomous call. The branch is ready to push as-is."
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 5242951
+      estimated_usd: null
+      duration_minutes: 13
+      recorded_at: 2026-08-18
+      notes: "Verdict: PUNCH LIST (6 items, 2 of them P1) at 29515ab — sent back to build via `just advance-cycle SPEC-001 build --verdict punch-list`. tokens_total is REAL but not from `/cost`: `/cost` is a client-side slash command I cannot execute as the assistant, so I summed the `usage` objects in this session's own transcript (~/.claude/projects/-Users-...-verify-spec-001/14bd8f1c-....jsonl) — the same data `/cost` derives from. Composition: input 98 + output 48,357 + cache-write 124,577 + cache-read 5,069,919. It is a FLOOR: written before the session ends, so it excludes these final turns. ⚠ NOT comparable to the build's 197,940, which came from an Agent-result `subagent_tokens` figure of unknown cache composition — do not put them in the same rollup without resolving that (process-debt signal)."
   totals:
-    tokens_total: 197940
+    tokens_total: 5440891
     estimated_usd: 0.00
-    session_count: 1
+    session_count: 2
 ---
 
 # SPEC-001: Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI
