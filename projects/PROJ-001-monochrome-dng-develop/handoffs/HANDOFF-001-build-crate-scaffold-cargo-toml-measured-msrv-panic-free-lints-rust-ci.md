@@ -43,7 +43,15 @@ repo:
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
   status: completed                # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
+  tokens_total: 197940             # REAL combined count — what cost-audit reads
+                                   # FILLED BY THE ORCHESTRATOR 2026-08-18 from this
+                                   # Agent invocation's own result metadata
+                                   # (subagent_tokens=197940, 120 tool uses, 917s).
+                                   # The implementer was RIGHT to leave this null and
+                                   # say why: .repo-context metering_source is
+                                   # `subagent_tokens`, so the orchestrator is the only
+                                   # party that can see the number (DEC-013). Refusing
+                                   # to invent one is the behaviour the rule wants.
   estimated_usd: null              # tokens_total × your rate, or your harness's number
   duration_minutes: 60             # rough wall-clock estimate; not precisely timed — see notes
   branch: feat/spec-001-crate-scaffold
