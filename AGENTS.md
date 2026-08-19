@@ -207,7 +207,8 @@ borrowed band as soon as it has one.
   language-agnostic `cost-data` + `decisions-index` gates plus the Rust jobs
   `SPEC-001` wired: `fmt --check`, `clippy -D warnings`, `test`,
   `deny check licenses`, an MSRV (1.90.0) check, and the lint-policy red-proof
-  (`oracle-must-be-shown-red` applied to the gate — `DEC-006`). A short fuzz
+  (`oracle-must-be-shown-red` applied to the gate — `DEC-007`, which supersedes
+  `DEC-006`). A short fuzz
   smoke run is **not yet wired** — per §12 bar 2 it lands with the first
   parser spec (`SPEC-003`), not retrofitted.
 
@@ -249,7 +250,10 @@ above are wired.
 
 **These run.** `SPEC-001` (2026-08-18) filled `app.just`'s stubs to match the
 block below — `just build` / `just test` / `just lint` / `just typecheck` /
-`just deny` / `just lint-red-proof`, plus `just install` / `just dev`.
+`just deny` / `just lint-red-proof`, plus `just install` / `just dev`. Every
+recipe's commands appear in the block below and nothing in the block is
+unrunnable: that correspondence is acceptance criterion 8, so a recipe that
+gains a command gains a line here in the same change.
 
 App commands belong in **`app.just`** (project-owned, imported by the
 template-managed root `justfile`) so a template update never clobbers them. For
@@ -268,8 +272,13 @@ cargo test --all-features
 # test one   — a single test by name
 cargo test --all-features <test_name> -- --exact --nocapture
 
-# lint
+# lint       — BOTH halves; `just lint` runs them in this order
 cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --check
+
+# lint-red-proof — proves the panic-free lint policy actually rejects a
+#              violating function injected into a copy of src/lib.rs (DEC-007)
+./scripts/lint-red-proof.sh
 
 # typecheck  — Rust has no separate typecheck; `check` is the fast path
 cargo check --all-targets --all-features
@@ -296,8 +305,10 @@ dnglab analyze --raw-checksum <file>.DNG
 ## 7. Directory Structure
 
 Actual layout as of 2026-08-15, updated 2026-08-18 for `SPEC-001` (`Cargo.toml`,
-`src/`, `tests/lint_policy_red.rs.disabled`). `fuzz/` and the `tests/corpus/`
-tier subdirectories remain **planned, not present** — marked below.
+`src/`). `fuzz/` and the `tests/corpus/` tier subdirectories remain **planned,
+not present** — marked below. `tests/` holds no `.rs` file: the lint-policy
+red-proof injects into a temp-dir copy of `src/lib.rs` rather than shipping a
+snippet (`DEC-007`).
 
 ```
 /
@@ -336,7 +347,7 @@ tier subdirectories remain **planned, not present** — marked below.
 │   └── PROJ-001-monochrome-dng-develop/
 │       ├── brief.md
 │       ├── stages/                    # STAGE-001 … STAGE-004
-│       ├── specs/                     # (none yet — STAGE-001 is unframed by design)
+│       ├── specs/                     # SPEC-001 … SPEC-005 (STAGE-001, framed)
 │       │   └── done/
 │       └── handoffs/
 ├── Cargo.toml                         # edition 2021, rust-version 1.90, [lib] + [[bin]] irr
@@ -345,7 +356,6 @@ tier subdirectories remain **planned, not present** — marked below.
 │   ├── lib.rs                         #   the public API — bytes in, pixels + metadata out (no decode yet)
 │   └── bin/irr.rs                     #   internal dev/oracle binary; NOT a product surface
 ├── tests/
-│   ├── lint_policy_red.rs.disabled    #   the lint-policy red-proof snippet — see DEC-006
 │   └── corpus/
 │       ├── manifest.toml
 │       ├── tier-a/                    #   ← PLANNED — committed, licence-clean, runs in CI

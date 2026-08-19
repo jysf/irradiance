@@ -42,8 +42,10 @@ typecheck:
 deny:
     cargo deny check licenses
 
-# Prove the panic-free lint policy actually rejects a violating snippet
-# (constraint oracle-must-be-shown-red applied to a gate; SPEC-001 acceptance
-# criterion 5). See scripts/lint-red-proof.sh.
+# Prove the LIBRARY's panic-free lint policy actually rejects a violating
+# function — injected into a temp-dir copy of src/lib.rs, so src/lib.rs's own
+# #![deny(...)] is what must reject it (constraint oracle-must-be-shown-red
+# applied to a gate; SPEC-001 acceptance criterion 5; DEC-007).
+# See scripts/lint-red-proof.sh.
 lint-red-proof:
     ./scripts/lint-red-proof.sh

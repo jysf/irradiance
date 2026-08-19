@@ -90,10 +90,13 @@ jobs:
         with:
           components: clippy
       # Constraint `oracle-must-be-shown-red` applied to a gate rather than an
-      # oracle (SPEC-001 acceptance criterion 5): this step PASSES iff the
-      # deliberately-violating snippet in tests/lint_policy_red.rs.disabled
-      # FAILS to compile. scripts/lint-red-proof.sh itself asserts that
-      # failure and exits non-zero (failing this job) if clippy did NOT
-      # reject the snippet — a lint policy that has never rejected anything
-      # is not a policy.
+      # oracle (SPEC-001 acceptance criterion 5), mechanism per DEC-007: the
+      # script copies the crate to a temp dir, injects violating functions into
+      # the COPIED src/lib.rs, and requires the LIBRARY's own #![deny(...)] to
+      # reject them. It asserts clippy actually ran, that it exited non-zero,
+      # and that all three expected lint names appear — a non-zero exit alone
+      # would also be produced by an unrelated compile error or by clippy not
+      # being installed at all. Delete or weaken the policy in src/lib.rs and
+      # this job goes red; that is the entire point. A lint policy that has
+      # never rejected anything is not a policy.
       - run: ./scripts/lint-red-proof.sh

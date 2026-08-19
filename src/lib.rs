@@ -16,6 +16,13 @@
 //! here and are only relaxed in `#[cfg(test)]` and in `src/bin/irr.rs`,
 //! neither of which is a library path.
 //!
+//! That claim is itself checked. `scripts/lint-red-proof.sh` (CI job
+//! `lint-policy-red-proof`, `DEC-007`) injects an unchecked index, unchecked
+//! arithmetic and an `unwrap()` into a temp-dir copy of *this file* and
+//! requires the `#![deny(...)]` block below to reject them. Delete or weaken
+//! that block and the proof fails — which is the only reason the sentence
+//! above is allowed to say "mechanically".
+//!
 //! See constraint `no-panics-on-untrusted-input` in `guidance/constraints.yaml`
 //! and AGENTS.md §11/§12.
 //!
@@ -31,7 +38,7 @@
     clippy::arithmetic_side_effects
 )]
 
-use std::fmt;
+use core::fmt;
 
 /// Errors produced while reading or developing a RAW file.
 ///
@@ -65,7 +72,7 @@ impl fmt::Display for Error {
     }
 }
 
-impl std::error::Error for Error {}
+impl core::error::Error for Error {}
 
 #[cfg(test)]
 #[allow(
