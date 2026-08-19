@@ -18,8 +18,8 @@ repo:
 
 created_at: 2026-08-18
 supersedes: DEC-006
-superseded_by: null
-status: accepted
+superseded_by: DEC-009
+status: superseded
 deciders: [jysf, claude]
 
 affected_scope:
@@ -114,9 +114,10 @@ nothing.** Verified by putting a stub `cargo` on `PATH`.
 - **Negative.** The injection point is found by parsing the attribute prologue
   (blank lines, `//!` docs, `#![...]` blocks, tracking bracket depth). That is
   text surgery and it can break if `lib.rs`'s prologue takes an unusual shape.
-  Mitigated by the third assertion: if injection lands somewhere the lints don't
-  apply, the expected lint names will be **absent** and the proof fails loudly
-  rather than passing. A naive `max()` over `)]` lines was tried first and landed
+  ⚠ **THIS MITIGATION IS FALSE — see `DEC-009`.** The lint names can appear in
+  clippy's output from the *rendered source span* of the attribute block itself,
+  with no lint firing at all. A `//` comment in the prologue reaches exactly this
+  state and passes every assertion. Measured 2026-08-18. A naive `max()` over `)]` lines was tried first and landed
   inside the test module's `#[allow(...)]`, which suppressed two of the three
   lints — caught only because the names were checked.
 - **Neutral.** DEC-006 is superseded, not deleted. Its Validation section — which

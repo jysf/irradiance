@@ -41,7 +41,11 @@ spec:
     default_model: claude-opus-5      # stamped into new specs/patches' agents.*
     tier_map:                         # which model runs which cycle (pluggable)
       design: claude-opus-5
-      build: claude-sonnet-5
+      # Corrected 2026-08-18 (also on main): build cycles are dispatched to a CLI
+      # session here, which runs opus — not a sonnet sub-agent. handback-sync
+      # copies to_agent into the cost session, so a stale value mis-books the
+      # spend (DEC-004 rule 3).
+      build: claude-opus-5
       verify: claude-opus-5
   cost:
     # How a real tokens_total is obtained. `just cost-audit` honors this:

@@ -127,3 +127,24 @@ signals:
       it; or narrow calibration to a single interface; or state plainly that the
       numbers are spend-tracking, not effort-estimation, and stop pretending
       otherwise. Decide before enough specs ship to make the band look credible.
+
+  # --- lesson: at its bar already, on a single spec ---------------------------
+  - id: attribute-text-inside-doc-comments
+    type: lesson
+    summary: "Tooling that pattern-matches Rust attributes must exclude doc comments and plain // comments — three separate false results on one spec."
+    evidence: "SPEC-001, N=3 — (1) orchestrator's attack hit `#[cfg(test)]` inside a doc comment; (2) orchestrator's attack hit the second `#![deny(` which lives in the module doc, deleting 14 chars of prose and reporting a false negative; (3) the red-proof's own prologue parser skips `//!` but not `//`, which is PL-1: a silent false green with a panic shipped."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-08-18
+    last_touched: 2026-08-18
+    raised_by: claude
+    notes: |
+      AT BAR (N=3) on one spec, and every instance produced a WRONG ANSWER rather
+      than an error — twice a false negative, once a false green that shipped a
+      panic past seven gates. Both the reviewer and the orchestrator walked into it.
+      Codify at stage close: any tooling that greps for Rust attributes must
+      anchor to column 0 AND exclude `//`/`//!`/`/* */`, and must assert its
+      match count rather than taking the first hit. The general form is the one
+      worth writing down: `index()` on source text finds documentation about the
+      code as readily as the code.
