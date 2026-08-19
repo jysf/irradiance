@@ -171,7 +171,7 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `feat/spec-001-crate-scaffold` — committed locally, **not
+- **Branch / PR:** `feat/spec-001-crate-scaffold` @ `261706e` — committed locally, **not
   pushed, not merged** (return criterion 4). No PR.
 - **Completed at:** 2026-08-19
 - **All acceptance criteria met?** **Yes**, with one limit stated rather than
