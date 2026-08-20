@@ -1,9 +1,14 @@
 name: CI
 
-# Language-agnostic spec-driven gates. The cost-capture audit runs on every
-# push/PR (AGENTS.md §4 / docs/cost-tracking.md). Your app's build/test/lint
-# jobs are project-specific — add them here per your stack. A license-policy
-# job is optional and per-language; see docs/license-policy.md to wire one in.
+# Language-agnostic spec-driven gates (cost-data, decisions-index) plus this
+# repo's Rust jobs, added by SPEC-001. The panic-free lint policy
+# (`no-panics-on-untrusted-input`) is enforced mechanically here, not by
+# review — see AGENTS.md §12 and guidance/constraints.yaml.
+#
+# ⚠ Per DEC-003, CI cannot run tier-B (real-camera) tests — the corpus lives
+# outside the repo and is never committed. Nothing below implies the decoder
+# is bit-exact; that claim is scoped to `docs/conformance-matrix.md`, not to
+# a green badge here.
 on:
   push:
   pull_request:
@@ -25,3 +30,89 @@ jobs:
       # decorative one.
       - name: decisions-index is not stale
         run: ./scripts/decisions-index.sh --check
+
+  fmt:
+    name: rust / fmt --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+
+  clippy:
+    name: rust / clippy -D warnings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test:
+    name: rust / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --all-features
+
+  licenses:
+    name: rust / license policy (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+
+  msrv:
+    name: rust / MSRV (1.90.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rust-version = "1.90" in Cargo.toml is only meaningful if CI compiles
+      # against EXACTLY that toolchain (SPEC-001 acceptance criterion 2).
+      # Measured, not guessed — see guidance/toolchain-brief.md. Do not swap
+      # this for `stable` and do not bump the pin without re-measuring on an
+      # actually-older toolchain first.
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - run: cargo check --all-targets --all-features
+
+  lint-policy-red-proof:
+    name: rust / lint policy red-proof (must fail red)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      # Constraint `oracle-must-be-shown-red` applied to a gate rather than an
+      # oracle (SPEC-001 acceptance criterion 5), mechanism per DEC-009 (which
+      # supersedes DEC-007): the script copies the crate to a temp dir and runs
+      # the SAME clippy invocation on it twice — once UNMUTATED, which must
+      # exit 0, and once with one violation per policy lint injected into the
+      # COPIED src/lib.rs, which must exit non-zero.
+      #
+      # The unmutated run is a NEGATIVE CONTROL and it is the load-bearing
+      # assertion. Without it, a red proves only "clippy failed", not "the
+      # policy rejected the injection" — round 2 of this spec measured a false
+      # green where a mis-landed injection made clippy fail with every expected
+      # lint NAME in the log and not one lint firing, because rustc renders the
+      # #![deny(...)] source span in any diagnostic that points at it. With the
+      # control clean, a red is attributable to the injection by construction.
+      #
+      # It further asserts: clippy was actually available; all five policy
+      # lints fired (matched on clippy's index.html#<lint> help line, emitted
+      # only when a lint FIRES, never by a rendered span); the diagnostics are
+      # located inside the injected line range; and the injection is still
+      # rejected WITHOUT this workflow's blanket `-D warnings`, which is what
+      # pins the policy at `deny` rather than `warn`.
+      #
+      # Delete the policy in src/lib.rs, weaken it to allow, downgrade it to
+      # warn, or drop one lint from it, and this job goes red; that is the
+      # entire point. A lint policy that has never rejected anything is not a
+      # policy.
+      - run: ./scripts/lint-red-proof.sh

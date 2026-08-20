@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-08-18
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-001
@@ -42,18 +42,26 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
+  status: completed                # completed | blocked | rejected
+  tokens_total: 197940             # REAL combined count — what cost-audit reads
+                                   # FILLED BY THE ORCHESTRATOR 2026-08-18 from this
+                                   # Agent invocation's own result metadata
+                                   # (subagent_tokens=197940, 120 tool uses, 917s).
+                                   # The implementer was RIGHT to leave this null and
+                                   # say why: .repo-context metering_source is
+                                   # `subagent_tokens`, so the orchestrator is the only
+                                   # party that can see the number (DEC-013). Refusing
+                                   # to invent one is the behaviour the rule wants.
   estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  duration_minutes: 60             # rough wall-clock estimate; not precisely timed — see notes
+  branch: feat/spec-001-crate-scaffold
+  pr: null                         # committed only, not pushed/opened — see notes
+  completed_at: 2026-08-18
+  notes: "tokens_total genuinely unavailable to me: I ran as a Task/Agent-tool subagent with no /cost interface and no token-usage tool in my toolset. Per metering_source: subagent_tokens (.repo-context.yaml) and DEC-013, the ORCHESTRATOR reads this number directly from this Agent invocation's own result metadata (subagent_tokens) after I report — that is the intended reader for this metering source, not a number I self-report. Please fill tokens_total from that result and run `just handback-sync SPEC-001`. Also: committed to feat/spec-001-crate-scaffold locally but did NOT push or open a PR — my instructions said commit + do not merge and were silent on push/PR, and pushing to the real jysf/irradiance remote felt like it warranted an explicit go-ahead rather than an autonomous call. The branch is ready to push as-is."
+  synced_at: 2026-08-18
 ---
 
-# HANDOFF-001: <Task Title — same as the spec's title>
+# HANDOFF-001: Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI
 
 ## Delegation Summary
 
@@ -178,38 +186,103 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `feat/spec-001-crate-scaffold`, committed locally in the
+  isolated build worktree. **No PR opened, branch not pushed** — my task
+  instructions said "commit... do not merge" and were silent on push/PR, and
+  pushing to the real `jysf/irradiance` remote (confirmed configured, `gh`
+  authenticated) seemed like it warranted an explicit go-ahead rather than an
+  autonomous call by a build sub-agent. The branch is otherwise ready: `git
+  push -u origin feat/spec-001-crate-scaffold && gh pr create` is all that's
+  left. See `git log feat/spec-001-crate-scaffold` for the actual commit(s).
+- **Completed at:** 2026-08-18
+- **All acceptance criteria met?** yes — see the per-criterion gate output
+  pasted in the build report. One nuance on #2: `rustup toolchain list` now
+  also shows `1.95.0-aarch64-apple-darwin` installed (not present when the
+  toolchain brief was measured 2026-08-15/16) — I kept the declared MSRV at
+  1.90.0 per the handoff's explicit instruction not to lower it without a
+  fresh measurement against something older, which 1.95.0 is not.
+- **For `verify`:** N/A — this is the `build` handback.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** null — genuinely unavailable to me. I ran as a
+  Task/Agent-tool subagent with no `/cost` slash command and no
+  token-usage-reporting tool anywhere in my available toolset.
+- **Estimated USD:** null (depends on the token count above).
+- **Duration (minutes):** ~60, a rough wall-clock estimate from the shape of
+  the session (not precisely timed — I did not capture a start timestamp).
+- **Source of the number:** none available to me directly. Per
+  `.repo-context.yaml` `spec.agent.cost.metering_source: subagent_tokens` and
+  `docs/decisions/DEC-013-delegated-cost-handback.md`, this metering source
+  means **the orchestrator reads `tokens_total` straight out of this Agent
+  invocation's own result** (the harness attaches it there) — that is the
+  intended reader for this metering source, not a number the sub-agent
+  self-reports. Please fill `handback.tokens_total` above from that result
+  and then run `just handback-sync SPEC-001`; as filed (`null`, non-`none`
+  metering source) that command will correctly report this handoff as
+  *pending*, not silently sync a fabricated number.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-006` — The lint-policy red-proof is a `.disabled` integration-test
+    file with its own `#![deny(...)]`, swapped in by a script
+    (`decisions/DEC-006-lint-policy-red-proof-mechanics.md`). Written because
+    the literal snippet in the spec's `## Failing Tests` — dropped into
+    `tests/` with no lint attribute of its own — measurably does NOT fail
+    clippy (each `tests/*.rs` file is its own crate root and does not inherit
+    `src/lib.rs`'s crate-level `#![deny(...)]`; verified empirically in a
+    scratch reproduction during this build, not assumed).
 - **Deviations from spec:**
-  - [list]
+  - Fixed a pre-existing bug in `.gitignore`: the `Cargo.lock` line carried a
+    trailing inline `# comment`, which gitignore does not strip — the pattern
+    that was supposed to match was, byte-for-byte, `Cargo.lock            #
+    a library: consumers pick their own versions`, which matches nothing.
+    `Cargo.lock` was therefore untracked (`git status` showed `?? Cargo.lock`)
+    rather than ignored. This repo never had a `Cargo.toml` before this spec,
+    so the line was dead until now. Not requested by the spec, but directly
+    in-scope: this is the first change that ever generates a `Cargo.lock`,
+    and AGENTS.md §13 is explicit that a library should not commit one.
+    Fixed by moving the comment to its own line above the pattern.
+  - Added two `app.just` recipes beyond the four the spec names (`build` /
+    `test` / `lint` / `typecheck`): `deny` (the licence gate,
+    `cargo deny check licenses`) and `lint-red-proof`
+    (`scripts/lint-red-proof.sh`). Both are already-required commands from
+    AGENTS.md §6's command block / acceptance criterion 5 that had no runnable
+    recipe otherwise; adding them keeps `app.just` and §6 in sync rather than
+    leaving two documented commands with no `just` entry point.
+  - `Error` implements `std::fmt::Display` and `std::error::Error` in addition
+    to the `#[non_exhaustive]` `Debug` enum the spec's failing test needs —
+    a small elaboration of "typed Error skeleton," not a scope change.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - None beyond what STAGE-001's existing spec breakdown already covers
+    (SPEC-002 onward). `guidance/questions.yaml` was not touched — nothing
+    was ambiguous enough to need a stop-and-ask.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Not unclear so much as *absent*: the handoff didn't exist yet on this
+   worktree's branch when I started (it landed on `main` at a commit one
+   ahead of where this worktree's branch was rooted). I resolved it by
+   re-basing this worktree onto that `main` commit and branching
+   `feat/spec-001-crate-scaffold` from there — worth checking for on any
+   future delegated build in this repo, since a worktree cut before the
+   architect's handoff-authoring commit lands will hit the same gap.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The handoff/spec didn't flag that integration test files under `tests/`
+   are separate crate roots that don't inherit `src/lib.rs`'s `#![deny(...)]`
+   — which is exactly the fact acceptance criterion 5's red-proof mechanism
+   turns on. I don't think this needed to be pre-listed (it's a build-time
+   implementation detail, not a project-level constraint), but it's now
+   captured in `DEC-006` for the next spec that writes a red-proof.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing structurally — probing the red-proof snippet in a scratch crate
+   *before* wiring it into CI (rather than trusting the spec's snippet to
+   fail as shown) is exactly the "design-time probe / measure-before-build"
+   discipline AGENTS.md §12 asks for, and it caught a real false-green before
+   it shipped. I'd do that probe again, and earlier — I wrote the CI job
+   skeleton first and only then verified the snippet's failure mode, which
+   worked out but was backwards.

@@ -1,0 +1,31 @@
+[package]
+name = "irradiance"
+version = "0.1.0"
+edition = "2021"
+# Measured, not guessed — see guidance/toolchain-brief.md and
+# projects/PROJ-001-monochrome-dng-develop/specs/SPEC-001-*.md. 1.90.0 is the
+# oldest toolchain installed on the machine that measured this; the true floor
+# is lower but unmeasured. Do not lower this without compiling against an
+# actually-older toolchain.
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+description = "A permissively-licensed, pure-Rust library that reads camera RAW files and develops them into images."
+repository = "https://github.com/jysf/irradiance"
+publish = false # STAGE-004 excludes crates.io publish from PROJ-001
+
+[lib]
+name = "irradiance"
+path = "src/lib.rs"
+
+# `irr` is an internal dev/oracle binary, never a shipped product surface
+# (constraint `library-not-application`). It is deliberately absent from the
+# library's public API.
+[[bin]]
+name = "irr"
+path = "src/bin/irr.rs"
+
+# Zero dependencies by design (SPIKE-001; this spec's handoff). Adding one
+# needs a DEC — see guidance/constraints.yaml `no-new-top-level-deps-without-decision`.
+[dependencies]
+
+[dev-dependencies]

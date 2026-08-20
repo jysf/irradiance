@@ -203,11 +203,14 @@ borrowed band as soon as it has one.
   (`STAGE-004`, out of scope: publishing waits for a second camera).
   crustyimg consumes it as a **path dependency** behind a `raw-develop`
   cargo feature until then.
-- **CI:** GitHub Actions, `.github/workflows/ci.yml`. Today it carries only the
-  language-agnostic `cost-data` + `decisions-index` gates. The Rust jobs
-  (`fmt --check`, `clippy -D warnings`, `test`, `deny check licenses`, and a
-  short fuzz smoke run) are **not yet wired** — they land with the first spec
-  that creates `Cargo.toml`.
+- **CI:** GitHub Actions, `.github/workflows/ci.yml`. Carries the
+  language-agnostic `cost-data` + `decisions-index` gates plus the Rust jobs
+  `SPEC-001` wired: `fmt --check`, `clippy -D warnings`, `test`,
+  `deny check licenses`, an MSRV (1.90.0) check, and the lint-policy red-proof
+  (`oracle-must-be-shown-red` applied to the gate — `DEC-009`, which supersedes
+  `DEC-007`, which superseded `DEC-006`). A short fuzz
+  smoke run is **not yet wired** — per §12 bar 2 it lands with the first
+  parser spec (`SPEC-003`), not retrofitted.
 
 ### Measured toolchain — 2026-08-15/16, this machine only
 
@@ -236,19 +239,21 @@ real cargo, not a rustup shim, so it does not understand `+nightly`.
 ~/.cargo/bin/cargo +nightly fuzz run <target>
 ```
 
-**No `Cargo.toml` and no `src/` exist yet** (verified 2026-08-15). The first
-spec of STAGE-001 creates them and must, in the same change: declare
-`edition = "2021"`, declare an MSRV (`rust-version`) — measure the real floor
-from the actual dependency set rather than guessing it — and add the Rust CI
-jobs above.
+**`Cargo.toml` and `src/` now exist** (`SPEC-001`, 2026-08-18): `edition =
+"2021"`, `rust-version = "1.90"` (measured, not guessed — still the oldest
+toolchain installed; the true floor remains unmeasured), and the Rust CI jobs
+above are wired.
 
 ---
 
 ## 6. Commands (exact)
 
-⚠ **These do not run yet.** There is no `Cargo.toml`, so `app.just` still holds
-its `TODO` stubs. The spec that creates the crate fills `app.just` in the same
-change; until then, this section states what those recipes must become.
+**These run.** `SPEC-001` (2026-08-18) filled `app.just`'s stubs to match the
+block below — `just build` / `just test` / `just lint` / `just typecheck` /
+`just deny` / `just lint-red-proof`, plus `just install` / `just dev`. Every
+recipe's commands appear in the block below and nothing in the block is
+unrunnable: that correspondence is acceptance criterion 8, so a recipe that
+gains a command gains a line here in the same change.
 
 App commands belong in **`app.just`** (project-owned, imported by the
 template-managed root `justfile`) so a template update never clobbers them. For
@@ -267,8 +272,14 @@ cargo test --all-features
 # test one   — a single test by name
 cargo test --all-features <test_name> -- --exact --nocapture
 
-# lint
+# lint       — BOTH halves; `just lint` runs them in this order
 cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --check
+
+# lint-red-proof — proves the panic-free lint policy actually rejects a
+#              violating function injected into a copy of src/lib.rs, with the
+#              UNMUTATED copy run first as a negative control (DEC-009)
+./scripts/lint-red-proof.sh
 
 # typecheck  — Rust has no separate typecheck; `check` is the fast path
 cargo check --all-targets --all-features
@@ -294,8 +305,11 @@ dnglab analyze --raw-checksum <file>.DNG
 
 ## 7. Directory Structure
 
-Actual layout as of 2026-08-15. `src/`, `tests/`, `fuzz/` and `Cargo.toml` are
-**planned, not present** — marked below.
+Actual layout as of 2026-08-15, updated 2026-08-18 for `SPEC-001` (`Cargo.toml`,
+`src/`). `fuzz/` and the `tests/corpus/` tier subdirectories remain **planned,
+not present** — marked below. `tests/` holds no `.rs` file: the lint-policy
+red-proof injects into a temp-dir copy of `src/lib.rs` rather than shipping a
+snippet (`DEC-009`).
 
 ```
 /
@@ -309,7 +323,7 @@ Actual layout as of 2026-08-15. `src/`, `tests/`, `fuzz/` and `Cargo.toml` are
 ├── .variant                           # "claude-plus-agents"
 ├── VERSION                            # TEMPLATE provenance (0.6.38), NOT the app version
 ├── justfile                           # Template-managed: just status, new-spec, … (imports app.just)
-├── app.just                           # Project-owned: just build/test/lint (stubs — see §6)
+├── app.just                           # Project-owned: just build/test/lint/deny — see §6
 ├── scripts/                           # Shell scripts powering justfile
 ├── docs/
 │   ├── oracle-contract.md             # ⚑ The three oracle layers + the VERIFIED plane contract
@@ -334,17 +348,19 @@ Actual layout as of 2026-08-15. `src/`, `tests/`, `fuzz/` and `Cargo.toml` are
 │   └── PROJ-001-monochrome-dng-develop/
 │       ├── brief.md
 │       ├── stages/                    # STAGE-001 … STAGE-004
-│       ├── specs/                     # (none yet — STAGE-001 is unframed by design)
+│       ├── specs/                     # SPEC-001 … SPEC-005 (STAGE-001, framed)
 │       │   └── done/
 │       └── handoffs/
-├── Cargo.toml                         # ← PLANNED (STAGE-001 spec 1)
-├── src/                               # ← PLANNED
-│   ├── lib.rs                         #   the public API — bytes in, pixels + metadata out
+├── Cargo.toml                         # edition 2021, rust-version 1.90, [lib] + [[bin]] irr
+├── deny.toml                          # cargo-deny permissive-only allow-list
+├── src/
+│   ├── lib.rs                         #   the public API — bytes in, pixels + metadata out (no decode yet)
 │   └── bin/irr.rs                     #   internal dev/oracle binary; NOT a product surface
-├── tests/                             # ← PLANNED
+├── tests/
 │   └── corpus/
-│       ├── tier-a/                    #   committed, licence-clean, runs in CI
-│       └── tier-b/                    #   NEVER committed — .gitignore'd; skip loudly when absent
+│       ├── manifest.toml
+│       ├── tier-a/                    #   ← PLANNED — committed, licence-clean, runs in CI
+│       └── tier-b/                    #   ← PLANNED — NEVER committed — .gitignore'd; skip loudly when absent
 └── fuzz/                              # ← PLANNED — one target per parser, from the first parser spec
 ```
 

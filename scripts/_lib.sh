@@ -307,7 +307,16 @@ get_handback_field() {
         ins && /^[^[:space:]]/ { ins = 0 }
         ins && $0 ~ ("^[[:space:]]+" k ":") {
             sub("^[[:space:]]+" k ":[[:space:]]*", "")
-            sub("[[:space:]]*#.*$", "")
+            # Strip a trailing YAML comment ONLY from an unquoted scalar. The
+            # handback template puts `# completed | blocked | rejected` after
+            # most fields, so the strip is needed — but `notes:` is a QUOTED
+            # free-text string that may legitimately contain a `#` (e.g. a
+            # `#![deny(...)]` in a Rust handback). Stripping there truncates the
+            # value mid-quote, and handback-sync then writes an unterminated
+            # scalar into the spec, making its whole front matter unparseable
+            # YAML. Measured on SPEC-001 build round 3, where two of five cost
+            # sessions landed broken.
+            if ($0 !~ /^"/ && $0 !~ /^\x27/) sub("[[:space:]]*#.*$", "")
             print; exit
         }
     ' "$file"
