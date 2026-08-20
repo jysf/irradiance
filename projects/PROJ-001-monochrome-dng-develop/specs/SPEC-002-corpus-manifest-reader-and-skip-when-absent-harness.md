@@ -141,6 +141,24 @@ expand this one.
 
 ## Notes for the Implementer
 
+⚠ **This spec creates the crate's first module, and carries an obligation SPEC-001
+could not close.** Verified at SPEC-001 ship: a single
+`#[allow(clippy::panic, clippy::expect_used)]` on a `pub fn` passes **all seven
+gates** while shipping two panics on the public API — **no module required, live
+today**. DEC-009's red-proof pins the policy at the crate *root*, and no
+`#![deny]` mutation test can observe an `#[allow]` below it.
+
+Close it here, in whichever form fits the module layout you create. The likely
+answer is a gate on `allow(` outside `#[cfg(test)]` and `src/bin/`. ⚠ If you take
+that route, heed the `attribute-text-inside-doc-comments` lesson signal (**N=5**):
+anchor at column 0, exclude `//`, `//!` and `/* */`, and assert the match count
+rather than taking the first hit. Every one of those five instances produced a
+wrong *answer* rather than an error.
+
+Also soften `guidance/constraints.yaml:33` in the same change — it currently
+reads as a stronger guarantee than holds until this lands.
+
+
 Gotchas, style preferences, reuse opportunities. Keep short — the full
 context graph lives in the handoff file.
 

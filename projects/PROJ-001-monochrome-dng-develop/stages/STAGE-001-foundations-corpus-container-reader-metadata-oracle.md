@@ -101,13 +101,13 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 Run `just frame-stage STAGE-001` to promote these outlines into real specs.
 
-- [ ] SPEC-001 (frame) [S] Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI
+- [x] SPEC-001 (shipped on 2026-08-20) [S] Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI
 - [ ] SPEC-002 (frame) [S] Corpus manifest reader and skip-when-absent harness
 - [ ] SPEC-003 (frame) [L] TIFF/IFD reader — bounded, panic-free, cycle-guarded, SubIFD recursion — plus its fuzz target
 - [ ] SPEC-004 (frame) [M] DNG tag model and typed metadata extraction
 - [ ] SPEC-005 (frame) [S] Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red
 
-**Count:** 0 shipped / 5 active / 0 pending
+**Count:** 1 shipped / 4 active / 0 pending
 
 ## Design Notes
 

@@ -140,7 +140,10 @@ signals:
     last_touched: 2026-08-18
     raised_by: claude
     notes: |
-      AT BAR (N=3) on one spec, and every instance produced a WRONG ANSWER rather
+      N=5 as of SPEC-001 ship (F-6 corrected the recorded N=3 — verify round 3 hit
+      it again on `#[cfg(test)]` in the module doc at src/lib.rs:16, and the
+      orchestrator's stale hazard example in HANDOFF-006 was a sixth near-miss).
+      WELL PAST BAR on one spec, and every instance produced a WRONG ANSWER rather
       than an error — twice a false negative, once a false green that shipped a
       panic past seven gates. Both the reviewer and the orchestrator walked into it.
       Codify at stage close: any tooling that greps for Rust attributes must
@@ -148,3 +151,26 @@ signals:
       match count rather than taking the first hit. The general form is the one
       worth writing down: `index()` on source text finds documentation about the
       code as readily as the code.
+
+  # --- process-debt: a live hole the red-proof structurally cannot close ------
+  - id: allow-attribute-exits-the-panic-policy
+    type: process-debt
+    summary: "One #[allow(clippy::panic, clippy::expect_used)] on a pub fn passes all seven gates while shipping panics on the public API."
+    evidence: "SPEC-001 verify round 3, F-2 — reproduced independently by the orchestrator: no module needed, seven green gates, two panics on the public API."
+    bar: null
+    status: accepted
+    disposition_at: project-close
+    first_flagged: 2026-08-18
+    last_touched: 2026-08-18
+    raised_by: claude
+    notes: |
+      ACCEPTED AND SCHEDULED, not merely noted. DEC-009's red-proof pins the
+      policy at the crate ROOT; no #![deny] mutation test can observe an #[allow]
+      anywhere below it, so this needs a different mechanism (most likely a gate
+      on `allow(` outside #[cfg(test)] and src/bin/ — which must heed
+      [[attribute-text-inside-doc-comments]], now at N=5).
+      The orchestrator originally attached this to SPEC-003 believing it went live
+      with the first module. Wrong twice: it is live TODAY with no module at all,
+      and the first module lands in SPEC-002. Re-attached to SPEC-002 at ship.
+      constraints.yaml:33 currently reads as a stronger guarantee than holds (F-4)
+      and should be softened in the same change.

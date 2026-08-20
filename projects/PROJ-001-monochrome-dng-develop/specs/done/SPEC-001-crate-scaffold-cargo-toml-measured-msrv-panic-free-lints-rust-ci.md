@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: XL          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -124,6 +124,7 @@ cost:
     tokens_total: 51979929
     estimated_usd: 0.00
     session_count: 6
+shipped_at: 2026-08-20
 ---
 
 # SPEC-001: Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI
@@ -271,6 +272,46 @@ If this spec starts wanting to decode anything, stop — that is SPEC-003. The v
 that every later spec inherits a crate where a panic on untrusted input **cannot compile**.
 
 ## Reflection
+
+**1. What would I do differently next time?**
+
+Design the red-proof with a **negative control from the start.** Three build
+rounds and three independent reviews went into one gate on a scaffold spec, and
+every round added assertions about the *mutated* run while none established the
+*unmutated* run was healthy. That single omission is what let each fix look
+complete and be bypassable. The general form is worth carrying: a test whose
+value is "X failed for reason Y" is not a test until something proves X passes
+without Y.
+
+I would also stop writing mitigations I have not executed. `DEC-007` claimed the
+missing-lint-names assertion would catch a mis-landed injection; verify round 2
+falsified it in one attack. The claim cost more than the gap it papered over,
+because it made the next author trust a guarantee that did not exist.
+
+**2. Does any template, constraint, or decision need updating?**
+
+Yes, and most of it is already filed:
+- `constraints.yaml`'s `enforcement:` for `no-panics-on-untrusted-input` now names
+  the red-proof — but F-4 is right that it reads as a stronger guarantee than it
+  is, because **one `#[allow]` on a `pub fn` exits it**. That wording needs a
+  second pass.
+- Template bug 12 (`_lib.sh` truncating quoted YAML containing `#`, with
+  `cost-audit` green on the corrupted file) is the most damaging finding this repo
+  has produced for the template, and is written up in `feedback/`.
+- The `attribute-text-inside-doc-comments` lesson is at N=5, not the N=3 recorded
+  (F-6). Updated at ship.
+
+**3. Is there a follow-up spec to write now?**
+
+Yes — **one, and it is not optional.** F-2 is live *today*: a single
+`#[allow(clippy::panic, clippy::expect_used)]` on a `pub fn`, with no module
+involved, passes all seven gates while shipping two panics on the public API.
+Verified independently by the orchestrator. The red-proof cannot close it — no
+`#![deny]` mutation test can see an `#[allow]` — so it needs a different
+mechanism and therefore its own spec. I had attached this obligation to SPEC-003
+on the reasoning that it went live with the first module; that reasoning was
+wrong on both counts, and the correction is recorded below.
+
 
 *Appended during **ship**. Three questions, short answers.*
 

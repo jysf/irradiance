@@ -144,8 +144,11 @@ expand this one.
 
 ## Notes for the Implementer
 
-⚠ **This spec creates the crate's first module, and inherits an obligation with
-it.** SPEC-001's red-proof (`DEC-009`) pins the panic-free policy at the **crate
+⚠ **CORRECTED AT SPEC-001 SHIP — this obligation moved to `SPEC-002`,** which is
+where the first module actually lands, and the hole is live *today* with no
+module at all. Left here as a pointer only.
+
+**Original note (timing was wrong):** SPEC-001's red-proof (`DEC-009`) pins the panic-free policy at the **crate
 root only**. A module carrying its own `#![allow(...)]` is **not covered** — today
 that is harmless because the crate is `lib.rs` plus `src/bin/irr.rs`, but it goes
 live the moment this spec adds `src/tiff.rs` or similar.
