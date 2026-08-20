@@ -399,6 +399,57 @@ derive from the same cleaned summary.
 
 ---
 
+## 12. `_lib.sh` truncates any quoted YAML value containing `#`, and the gate stays green
+
+**The most damaging template bug found so far**, because the artifact it corrupts
+is the one the process depends on and the check that should catch it reports ✓.
+
+`scripts/_lib.sh:301` stripped a trailing YAML comment unconditionally:
+
+```awk
+sub("[[:space:]]*#.*$", "")
+```
+
+The strip is *needed* — the handoff template puts `# completed | blocked | rejected`
+after most fields. But `notes:` is a **quoted free-text string** that may
+legitimately contain a `#`. In this repo it routinely does, because the notes
+discuss Rust attributes:
+
+```
+notes: "summed from transcript; 96.9% cache-read # not from /cost"
+   ->  notes: "summed from transcript; 96.9% cache-read          <- unterminated
+```
+
+`just handback-sync` then writes that unterminated scalar into the spec, and the
+spec's **entire front matter stops parsing as YAML**.
+
+**What makes it a P1 rather than a papercut:** `just cost-audit` continued to
+report `✓` against the broken file. Two of five cost sessions were mangled and
+`cost.totals` understated the spec's spend by **87%** (5,440,891 against a true
+41,017,417) with every gate green. A tool silently corrupted the record, and the
+tool that audits that record could not tell.
+
+**Fix** (applied here, worth upstreaming) — strip only from unquoted scalars:
+
+```awk
+if ($0 !~ /^"/ && $0 !~ /^\x27/) sub("[[:space:]]*#.*$", "")
+```
+
+⚠ **`get_handoff_field()` (`_lib.sh:283`) and `get_spike_field()` (`_lib.sh:327`)
+carry the same bug.** They are not fixed here because no live path passes them
+free text — but that is a property of current callers, not of the functions.
+
+**Two general lessons for the template:**
+
+1. A **writer** that can corrupt an artifact needs a **reader** that validates it.
+   `handback-sync` writes YAML and never parses the result. One `yaml.safe_load`
+   (or the shell equivalent) after writing would have caught this immediately.
+2. `cost-audit` reporting green on an unparseable spec is the "green oracle that
+   cannot fail" pattern in the template's own tooling — the same thing this repo's
+   `oracle-must-be-shown-red` constraint exists to prevent in its product code.
+
+---
+
 ## Priority (this instance's assessment)
 
 | # | Finding | Severity | Fix cost |
@@ -413,6 +464,7 @@ derive from the same cleaned summary.
 | 9 | `affected_scope` warns on correct root-level globs | low — but it trains people to ignore the audit | trivial |
 | 10 | `frame-stage` slugs uncapped → ENAMETOOLONG | medium — hard stop mid-framing (but atomic) | trivial |
 | 11 | `frame-stage` bakes `(not yet written)` into every filename | medium — permanent, cited for the project's life | trivial |
+| 12 | `_lib.sh` truncates quoted YAML containing `#`; cost-audit still green | **high** — silent record corruption, 87% understated, gate blind | trivial |
 | 6 | **spike lane beat the external design** | **win** — capture, don't promote (N=1) | n/a |
 
 Findings 1, 4, 7, 8 and 9 are all the *same shape*: the template knows the right

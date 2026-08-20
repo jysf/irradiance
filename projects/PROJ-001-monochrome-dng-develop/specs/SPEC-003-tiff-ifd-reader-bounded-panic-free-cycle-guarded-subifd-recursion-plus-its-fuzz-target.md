@@ -144,6 +144,21 @@ expand this one.
 
 ## Notes for the Implementer
 
+⚠ **This spec creates the crate's first module, and inherits an obligation with
+it.** SPEC-001's red-proof (`DEC-009`) pins the panic-free policy at the **crate
+root only**. A module carrying its own `#![allow(...)]` is **not covered** — today
+that is harmless because the crate is `lib.rs` plus `src/bin/irr.rs`, but it goes
+live the moment this spec adds `src/tiff.rs` or similar.
+
+Disclosed by SPEC-001's build round 3 rather than silently fixed, which was the
+right call: it is a decision about the crate's shape, not about that script.
+Settle it here, in whichever form fits the module layout you actually create —
+extending the red-proof to inject per-module, or a gate on `allow(` outside
+`#[cfg(test)]` and `src/bin/`. ⚠ If you choose the gate, heed the
+`attribute-text-inside-doc-comments` lesson signal (N=3 on SPEC-001): anchor at
+column 0 and exclude `//`, `//!` and `/* */`, or it will match prose.
+
+
 Gotchas, style preferences, reuse opportunities. Keep short — the full
 context graph lives in the handoff file.
 
