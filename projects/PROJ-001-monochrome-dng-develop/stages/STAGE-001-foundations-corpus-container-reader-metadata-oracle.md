@@ -105,6 +105,7 @@ Run `just frame-stage STAGE-001` to promote these outlines into real specs.
 - [ ] SPEC-002 (frame) [S] Corpus manifest reader and skip-when-absent harness
 - [ ] SPEC-003 (frame) [L] TIFF/IFD reader — bounded, panic-free, cycle-guarded, SubIFD recursion — plus its fuzz target
 - [ ] SPEC-004 (frame) [M] DNG tag model and typed metadata extraction
+- [ ] SPEC-006 (frame) [S] Close the allow-attribute bypass in the panic-free gate — split from SPEC-002 at SPEC-001 ship; depends only on SPEC-001
 - [ ] SPEC-005 (frame) [S] Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red
 
 **Count:** 1 shipped / 4 active / 0 pending

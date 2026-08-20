@@ -4,9 +4,9 @@
 # implementer lives in handoffs/HANDOFF-*.md, not in the spec itself.
 
 task:
-  id: SPEC-002
+  id: SPEC-006
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: frame                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -38,7 +38,7 @@ references:
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
 # (`just ready`) and safe fan-out. Optional; [] = no blockers.
-depends_on: [SPEC-001]                # blocking order, declared at frame
+depends_on: [SPEC-001]                     # e.g. [SPEC-002]
 
 # Fan-out lease — who/what holds this spec now (`just claim` / `just unclaim`).
 # Advisory; null = free. The hard lock for parallel agents is the worktree/branch.
@@ -47,7 +47,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-001's <capability>". Optional; null is acceptable.
-value_link: "infrastructure enabling every corpus-dependent test"
+value_link: "makes the panic-free constraint true rather than nearly-true"
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -70,29 +70,41 @@ cost:
     session_count: 0
 ---
 
-# SPEC-002: Corpus manifest reader and skip-when-absent harness
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-002]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
+# SPEC-006: Close the allow-attribute bypass in the panic-free gate
 
 ## Context
 
-DEC-003 settled corpus storage and `tests/corpus/manifest.toml` already ships
-seeded with three pinned Q2 Monochrom frames — path, size, sha256, licence,
-source, and the pinned `dnglab --raw-checksum`. **Nothing reads it.** Its own
-header records that as a scheduled debt owned by this spec.
+SPEC-001 shipped a panic-free lint policy enforced by a red-proof that is itself
+proven red (`DEC-009`). Its verify round 3 found — and the orchestrator
+independently reproduced — that **the policy is exited by a single attribute**:
+
+```rust
+#[allow(clippy::panic, clippy::expect_used)]
+pub fn boom(v: &[u8]) -> u8 { if v.is_empty() { panic!("empty") } *v.first().expect("x") }
+```
+
+`BUILD 0 · CLIPPY 0 · FMT 0 · TEST 0 · MSRV 0 · DENY 0 · REDPROOF 0` — **seven
+green gates, two panics on the public API, no module involved.**
+
+`DEC-009`'s red-proof **structurally cannot** close this: it mutates the crate
+root and asserts the root's `#![deny(...)]` rejects the injection. No `#![deny]`
+mutation test can observe an `#[allow]` beneath it. That is why this is a separate
+spec rather than another round on that script — a fourth iteration of the same
+mechanism was explicitly rejected in `DEC-009`.
+
+Split out of SPEC-002 at SPEC-001's ship: the two share **no files** (that spec
+touches `tests/**`; this one touches `scripts/`, `.github/workflows/` and
+`guidance/`), and this hole is live *today* with no module, so it never depended
+on SPEC-002's work.
 
 ## Goal
 
-The reader. Resolve `$IRRADIANCE_CORPUS_DIR` (defaulting to the gitignored
-`tests/corpus/tier-b/`), verify each entry's `sha256`, and **skip loudly —
-naming the missing file** — when a tier-B entry is absent.
+Make `no-panics-on-untrusted-input` mechanically true rather than nearly-true: an
+`#[allow]` of any policy lint, anywhere outside the sanctioned exceptions
+(`#[cfg(test)]` modules and `src/bin/`), must fail CI.
 
-A silent skip reports green for work it never did, which is the same defect
-class as an oracle that cannot go red. Nothing else in this stage may hardcode
-a corpus path.
+Then correct `guidance/constraints.yaml:33`, whose `enforcement:` field currently
+reads as a stronger guarantee than holds (verify round 3, F-4).
 
 ## Inputs
 
@@ -115,12 +127,18 @@ What the implementer will produce.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+1. An `#[allow]` (or `#![allow]`) of any of the five policy lints outside
+   `#[cfg(test)]` and `src/bin/` **fails CI**.
+2. The sanctioned exceptions still pass — test modules and `src/bin/irr.rs` keep
+   their existing allows without special-casing each one by hand.
+3. **The gate is shown RED**, per `oracle-must-be-shown-red`: adding a violating
+   `#[allow]` turns it red, and that proof ships with it.
+4. **The gate is shown GREEN on the honest tree** — a negative control, the lesson
+   `DEC-009` paid three rounds to learn. Without it, "fails on X" cannot be
+   distinguished from "fails on everything".
+5. `guidance/constraints.yaml:33`'s `enforcement:` states what is now actually
+   enforced — no more, no less.
+6. All existing gates stay green.
 
 ## Failing Tests
 
@@ -141,17 +159,24 @@ expand this one.
 
 ## Notes for the Implementer
 
-The manifest ships seeded with **7 files** — 3 own-work Q2 Monochrom frames and 4
-CC0 samples — each carrying a pinned `sha256` and `raw_checksum`. Read them; do
-not hardcode paths.
+⚠ **If you reach for a text search — and you probably will — heed the
+`attribute-text-inside-doc-comments` lesson signal, now at N=5 on SPEC-001
+alone.** Every one of those five produced a wrong *answer* rather than an error:
+two false negatives, one false green that shipped a panic past seven gates.
 
-⚠ Nothing on disk parses TOML today (python 3.9, no `tomllib`; no `taplo`). The
-real reader is Rust's `toml` crate, and this spec is where it arrives — see the
-manifest's own header, which records that as a scheduled debt owned by this spec.
+The rules that came out of it: **anchor at column 0**, exclude `//`, `//!` and
+`/* */`, and **assert the match count** rather than taking the first hit.
+`src/lib.rs` contains attribute text inside its own module documentation — that is
+not an edge case here, it is the normal state of this file.
 
-**The `#[allow]` bypass that was briefly attached here moved to `SPEC-006`** at
-SPEC-001's ship. The two share no files, and that hole is live today with no
-module, so it never depended on this work.
+Consider whether a text search is the right tool at all. Alternatives worth a
+moment: `cargo clippy` with the lints forced at the command line (which overrides
+inner attributes but **not** `#[allow]` on an item), or a small AST pass. If a
+text gate is chosen, its own red-proof (criterion 3) is what keeps it honest.
+
+**Scope discipline:** this spec closes one hole and corrects one sentence. It is
+not a licence to redesign `DEC-009`'s red-proof, which is sound for what it
+pins.
 
 ## Reflection
 
