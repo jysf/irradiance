@@ -6,14 +6,14 @@
 task:
   id: SPEC-001
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -112,10 +112,18 @@ cost:
       duration_minutes: 35
       recorded_at: 2026-08-19
       notes: "DEC-009 transcribed, not redesigned: negative control + five lints + hardened prologue parser + no INJECT_AT=1 crash, plus a severity run that closes PL-3. All four DEC-009 Validation cases and PL-2/PL-3/PL-5 demonstrated with pasted output; before/after on the round-2 `//`-comment bypass measured at the same mutated tree (old script: seven green gates; new script: REDPROOF 1). Seven gates green on the honest tree. ⚠ ONE RESIDUAL STATED, NOT FIXED: the proof pins the policy at the CRATE ROOT only — a future module carrying its own `#![allow(...)]`/`#[allow]` is not covered. Harmless today (crate is lib.rs + bin), live from SPEC-003. Per the handoff I am reporting it rather than inventing a sixth mechanism. tokens_total is REAL but not from `/cost`: `/cost` is a client-side slash command the assistant cannot execute, so I summed this session's own transcript usage objects (~/.claude/projects/-Users-...-verify-spec-001/1851b505-....jsonl) — the same data `/cost` derives from. Composition: input 178 + output 129,380 + cache-write 247,536 + cache-read 11,816,613 (96.9% cache-read). It is a FLOOR: written before the session ends. Same method as build-2 (15,379,660) and verify-1/verify-2 — comparable to those three, NOT to build-1's 197,940 (`token-counts-not-comparable`). ⚠ Running `just handback-sync` exposed a data-corruption bug in `scripts/_lib.sh:301`: it truncates a quoted handback note at the first `#`, which wrote an unterminated YAML scalar and made this spec's front matter unparseable. Fixed (2 lines, one caller) and both affected sessions re-transcribed by the tool; details in the handback."
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 10962512
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-08-20
+      notes: "APPROVED at b88d1ec (implementation 261706e). Ran the policy-removal attack myself (AGENTS.md §15 check 9) plus seven more: policy deleted + panicking public fn → six gates green, REDPROOF 1 with the control-clean attribution; round-2's `//`-comment bypass verbatim → REDPROOF 1; deny→warn → caught by the severity run ALONE (assertions 2/3/4 all pass); crate-root `#![allow]` after the deny → caught by the index.html#<lint> assertion; `/* */` prologue header → fails loudly and accurately. Tried and failed to build a control-passes-but-mutation-meaningless state: strongest construction (policy deleted + innocent decoy fns colliding with all four injected names → E0428 at 4 spans inside the injected range) passes the control, assertion 2 and assertion 4, and dies on assertion 3. Eight follow-ups, ZERO ship-blocking. Most material: (F-1) the severity run accepts a MIXED policy — deny(panic) + warn(other four) gives seven green gates, because one surviving deny carries the non-zero exit and warn-level lints still emit their help lines; CI's -D warnings still blocks any actual violation, so no panic ships. (F-2) the crate-root-only limit is live in src/lib.rs TODAY, not 'from SPEC-003' — one `#[allow(clippy::panic, clippy::expect_used)]` on a public fn, no module involved, gives seven green gates with two panics on the public API. (F-3) the obligation HANDOFF-006 says was attached to SPEC-003 is not in the tree, and the first module lands in SPEC-002. (F-5) the reason recorded for leaving _lib.sh's siblings unfixed is wrong — validate.sh:234 does read free-text spike.question; the conclusion still holds because no caller writes those values back to a file. tokens_total is REAL but not from `/cost` (a client-side slash command the assistant cannot execute): summed 96 usage objects in this session's own transcript (~/.claude/projects/-Users-...-verify-spec-001/e17489a8-....jsonl). Composition: input 192 + output 76,548 + cache-write 245,120 + cache-read 10,640,652 (97.1% cache-read). FLOOR — written before the session ends. Same method as verify-1/verify-2/build-2/build-3; NOT comparable to build-1's 197,940 (`token-counts-not-comparable`)."
   totals:
-    tokens_total: 41017417
+    tokens_total: 51979929
     estimated_usd: 0.00
-    session_count: 5
+    session_count: 6
 ---
 
 # SPEC-001: Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI
