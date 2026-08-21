@@ -6,7 +6,7 @@
 task:
   id: SPEC-004
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -79,19 +79,23 @@ cost:
 
 ## Context
 
-The tag set the develop pipeline needs is enumerated in
-`docs/measured-q2m-dng.md`, verified across four frames.
+SPEC-003 shipped the container reader and a `Sensor` struct carrying the tags
+needed to *locate and size* the plane: dimensions, bits, samples, photometric,
+compression, and the strip table. It stops exactly where geometry begins.
+
+Everything downstream — STAGE-002's levels and crop, STAGE-003's opcodes — reads
+tags this spec has not yet extracted. It also inherits two obligations SPEC-003
+deliberately deferred rather than make a `src/` edit in a records-only round.
 
 ## Goal
 
-Typed extraction of the DNG tags STAGE-002 and STAGE-003 consume: dimensions,
-bit depth, black/white levels, `ActiveArea`, `DefaultCropOrigin`/`Size`,
-`Orientation`, and the presence of both opcode lists.
+Typed extraction of the remaining tags the develop pipeline consumes:
+`BlackLevel`, `WhiteLevel`, `ActiveArea`, `DefaultCropOrigin`, `DefaultCropSize`,
+`Orientation`, and the **presence** of `OpcodeList1`/`OpcodeList3` (presence only —
+executing them is STAGE-003).
 
-⚠ `Orientation` is **per-frame, not a camera constant** — proved across our
-three held frames, where one reads `Rotate 90 CW` and two read `Horizontal`.
-Read it from the file every time; a test that hardcodes it passes on one frame
-and fails on the next.
+And close the two inherited obligations, which are really one question: **when a
+tag is malformed, what does it cost?**
 
 ## Inputs
 
@@ -114,21 +118,44 @@ What the implementer will produce.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+1. The tags above are extracted with types that make illegal states hard to
+   build — `ActiveArea` as a rectangle, not a bare `Vec<u32>` the caller must
+   remember is `[top, left, bottom, right]`.
+2. **`Orientation` is read from the file, every time.** Measured across our
+   corpus it varies frame to frame on one body; a hardcoded value passes on one
+   frame and fails on the next.
+3. **Absent optional tags are absent, not defaulted silently.** `ActiveArea` is
+   missing entirely on the M Monochrom, and `NewSubfileType` is missing on
+   `K3III.PEF` — where TIFF's absent-means-0 default is what finds the plane at
+   all. The type must distinguish "absent" from "present and zero".
+4. **`DEC-012` implemented** — a malformedness that changes *what exists* is
+   fatal; one that changes only *what a known-optional field says* costs that
+   field alone.
+5. **FU-11 closed.** `is_sensor_ifd` currently `?`-propagates `scalar()` errors
+   and runs over **every** IFD, so a malformed tag on a *thumbnail* fails the whole
+   container — which contradicts DEC-012's own rule. ⚠ **The obvious fix is
+   wrong:** silently treating a malformed scalar as "not a sensor IFD" would hide
+   a real plane behind a bad tag. A malformed candidate must be **skipped and
+   recorded**, and if no candidate is then found, the error must say *why* rather
+   than a bare `NoSensorIfd`.
+6. Extracted values match `exiftool` on all 7 corpus files, pinned as an expected
+   table so it runs every commit.
+7. The fuzz target covers the new extraction paths; all ten gates green.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+```bash
+cargo test --all-features tag_model_matches_exiftool     # all 7 files
+cargo test --all-features orientation_is_per_frame       # rotated + unrotated
+cargo test --all-features absent_tag_is_absent_not_zero  # M Monochrom ActiveArea
+cargo test --all-features malformed_tag_costs_only_that_tag   # DEC-012
+cargo test --all-features malformed_on_thumbnail_does_not_lose_the_plane  # FU-11
+```
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+The last two are the spec. Build them as **hand-constructed TIFFs** via
+`tests/support/tiff.rs` (SPEC-003 shipped it) — a malformed tag on a *non-sensor*
+IFD, and a malformed tag on the *sensor* IFD, must have different outcomes and
+both must be asserted.
 
 ## Non-Goals
 
@@ -140,24 +167,41 @@ expand this one.
 
 ## Notes for the Implementer
 
-⚠ **This spec owns two deferred obligations.**
+### The two inherited obligations are one question
 
-1. **`DEC-012`** ("strict on structure, tolerant on shape") was written during
-   SPEC-003's fix round and **deferred its own implementation here**, to avoid a
-   `src/` edit in a records-only round.
-2. **FU-11, measured at SPEC-003's verify:** `scalar()` errors propagate out of
-   `is_sensor_ifd`, and all three selection paths call it over **every** IFD — so a
-   malformed tag on a *thumbnail* can cost the *plane*. `DEC-012`'s own one-question
-   rule predicts "that call only", so **the decision and the code disagree today**.
-   This spec widens `uints()`, which is what `scalar()` calls, so it is the
-   cheapest place to close the gap. Closing it is in scope; leaving it is not.
+`DEC-012` states the rule; FU-11 is the place the code contradicts it. Read the
+DEC first — it was written during SPEC-003's fix round precisely so this spec
+would not have to re-derive it.
 
+**Measured at design:** `is_sensor_ifd` (`src/ifd.rs:836`) calls `self.scalar(...)?`
+three times, and `sensor_candidates`, `sensor_ifd` and `sensor` each call it over
+every IFD. So the failure is latent today only because no corpus file carries a
+malformed tag *on that path* — the Pentax's malformed `BlackLevelRepeatDim`
+(tag 50713) is not one of the three. Do not conclude from a green corpus that the
+path is sound.
 
+**The subtlety worth getting right:** "skip the malformed candidate" is correct for
+a thumbnail and wrong for the plane. If the *sensor* IFD's `Photometric` is
+malformed, skipping it silently converts a readable file into `NoSensorIfd` with no
+explanation. Record what was skipped and why, and surface it — the same discipline
+as the corpus reader's loud skip.
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+### Corpus facts, re-measured 2026-08-20 — use these, not the older numbers
 
----
+- **6 `II`, 1 `MM`** across 7 files.
+- **4 uncompressed, 2 JPEG (code 7), 1 vendor-private (65535)**.
+- `K3III.PEF` has **no SubIFD and no `NewSubfileType`**; its plane is in `IFD0` and
+  it is the only file with a real IFD *chain*.
+- The M Monochrom has **no `ActiveArea`** and **no opcode lists**.
+
+Three earlier claims in this project's specs were wrong on exactly these points.
+Re-measure anything you are about to assert.
+
+### Scope
+
+Tags only. **No levels arithmetic, no cropping, no orientation transform** — those
+are STAGE-002 and `DEC-008`'s territory. Extracting `BlackLevel` is in scope;
+subtracting it is not.
 
 ## Reflection
 
