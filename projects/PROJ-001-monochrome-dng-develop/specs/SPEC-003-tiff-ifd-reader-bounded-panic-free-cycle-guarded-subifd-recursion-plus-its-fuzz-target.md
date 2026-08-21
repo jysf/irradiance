@@ -6,7 +6,7 @@
 task:
   id: SPEC-003
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -118,21 +118,40 @@ What the implementer will produce.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+1. A TIFF/IFD reader walks IFD0's chain and recurses `SubIFDs` (tag 330), reading
+   entry tags, types, counts and payloads.
+2. **Every** offset and length read is bounds-checked and returns a **typed
+   error** — no `unwrap`, no indexing, no unchecked arithmetic on any parse path
+   (constraint `no-panics-on-untrusted-input`; the lint policy makes this
+   mechanical, so it should be a compile-time property, not a review one).
+3. **Depth-guarded and cycle-guarded.** A SubIFD chain that points at itself, or
+   nests arbitrarily, terminates with an error rather than recursing forever.
+4. **A fuzz target ships in this change** (§12 bar 2 — not retrofitted), seeded
+   from tier-A fixtures including truncated and malformed inputs.
+5. **The fuzz target is shown to WORK**, not merely to exist: a deliberately
+   unchecked index, planted temporarily, must be found by libFuzzer and produce a
+   crash artifact. Paste that. A fuzz target that has never caught anything is
+   the "green oracle that cannot fail" in another costume.
+6. On the real corpus, the reader reaches the full-resolution SubIFD and reports
+   dimensions, bit depth, compression, levels, `ActiveArea`, `DefaultCrop`,
+   `Orientation` and opcode-list presence, matching `exiftool` on all 7 files.
+7. All nine gates stay green.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+```bash
+# reader reaches the sensor IFD on every corpus file that is present
+cargo test --all-features ifd_reaches_sensor_plane
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+# hostile input: truncated header, cyclic SubIFD, absurd offsets/counts
+cargo test --all-features ifd_rejects_hostile_input
+
+# the fuzz target exists, builds, and runs
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ifd -- -max_total_time=60
+```
+
+**The red-proof for criterion 5** — plant an unchecked index, run the target, and
+libFuzzer must produce a crash artifact under `fuzz/artifacts/`.
 
 ## Non-Goals
 
@@ -144,28 +163,58 @@ expand this one.
 
 ## Notes for the Implementer
 
-⚠ **CORRECTED AT SPEC-001 SHIP — this obligation moved to `SPEC-002`,** which is
-where the first module actually lands, and the hole is live *today* with no
-module at all. Left here as a pointer only.
+### ⚠ `cargo fuzz` DOES NOT WORK with the default PATH — measured at design
 
-**Original note (timing was wrong):** SPEC-001's red-proof (`DEC-009`) pins the panic-free policy at the **crate
-root only**. A module carrying its own `#![allow(...)]` is **not covered** — today
-that is harmless because the crate is `lib.rs` plus `src/bin/irr.rs`, but it goes
-live the moment this spec adds `src/tiff.rs` or similar.
+This is a hard blocker and it is not obvious. `cargo fuzz` shells out to a bare
+`"cargo" "build"`, and that inner `cargo` resolves to **Homebrew's stable cargo**,
+which rejects `-Zsanitizer=address`:
 
-Disclosed by SPEC-001's build round 3 rather than silently fixed, which was the
-right call: it is a decision about the crate's shape, not about that script.
-Settle it here, in whichever form fits the module layout you actually create —
-extending the red-proof to inject per-module, or a gate on `allow(` outside
-`#[cfg(test)]` and `src/bin/`. ⚠ If you choose the gate, heed the
-`attribute-text-inside-doc-comments` lesson signal (N=3 on SPEC-001): anchor at
-column 0 and exclude `//`, `//!` and `/* */`, or it will match prose.
+```
+error: 1 nightly option were parsed
+Error: failed to build fuzz script
+```
 
+Even `~/.cargo/bin/cargo +nightly fuzz run` fails, because the *inner* invocation
+is what breaks. **The fix is to put the rustup shim first on PATH:**
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+```bash
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run <target>
+```
 
----
+Verified end to end at design: `cargo fuzz init` works; a target then built and ran
+**32.9 M executions in 16 s**; and a deliberately unchecked index was **found**,
+producing `Error: Fuzz target exited with exit status: 77` and a crash artifact.
+So criteria 4 and 5 are both known-achievable — the mechanism is proven before you
+start.
+
+### What SPIKE-001 established — as facts, not as code to copy
+
+Its decoder is **discarded on an unmerged branch and must not be consulted as an
+implementation** (`test-before-implementation`); re-derive test-first. What it
+*measured* is reusable:
+
+- Selection: `NewSubfileType == 0 && Photometric == 34892 (LinearRaw) &&
+  SamplesPerPixel == 1` — **never by largest dimensions**; `SubIFD2` is a
+  full-resolution JPEG preview only 56 px narrower than the plane.
+- The guards needed: depth limit, cycle detection on visited offsets,
+  bounds-checked payload ranges.
+- ⚠ Its version used **bounds-check-then-index** (`buf.get(..)?` then `s[0]`),
+  which the lint policy **rejects**. Use `try_into` on the slice. Its measured
+  "229 lines" is therefore an underestimate; do not treat it as a target.
+
+### Corpus facts that shape the tests
+
+Seven files, `tests/corpus/manifest.toml`, read via the SPEC-002 reader — **do not
+hardcode paths**. Two are big-endian (`MM`) where five are `II`. Three are
+JPEG-compressed and must be **rejected cleanly**, not decoded. One (Pentax) carries
+a `BlackLevelRepeatDim` tag that dnglab itself warns is malformed — a natural
+regression fixture, and the reader must not panic on it.
+
+### Scope
+
+Container only. **No pixel decode, no unpack** — that is STAGE-002, where
+`DEC-008`'s two-path (`bits % 8`) rule lands. Reading `StripOffsets`/
+`StripByteCounts` as *tags* is in scope; reading the strip is not.
 
 ## Reflection
 

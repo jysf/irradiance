@@ -41,6 +41,28 @@ This costs a loop every single time it is rediscovered. `cargo fuzz` needs
 nightly, and fuzz targets ship with the first parser spec (AGENTS.md §12), so
 this will come up early and often.
 
+## ⚠ The SECOND `+toolchain` trap: `cargo fuzz`
+
+The PATH fix above is not enough for fuzzing. `cargo fuzz` **shells out to a bare
+`"cargo" "build"`**, and that inner call resolves to Homebrew's stable cargo,
+which rejects the sanitizer flags:
+
+```
+error: 1 nightly option were parsed
+Error: failed to build fuzz script
+```
+
+Even `~/.cargo/bin/cargo +nightly fuzz run` fails — the *outer* command is fine,
+the *inner* one is not. Put the rustup shim first on PATH so both resolve:
+
+```bash
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run <target>
+```
+
+Measured 2026-08-18: with this, `cargo fuzz init` works, a target ran **32.9 M
+executions in 16 s**, and a deliberately unchecked index was caught — exit status
+77 plus a crash artifact under `fuzz/artifacts/`.
+
 ## Package manager
 
 `cargo`. **There is no `Cargo.toml` and no `src/` yet** — the first spec of
