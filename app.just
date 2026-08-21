@@ -52,3 +52,22 @@ deny:
 # See scripts/lint-red-proof.sh.
 lint-red-proof:
     ./scripts/lint-red-proof.sh
+
+# Close the #[allow] escape hatch on the LIBRARY (SPEC-006).
+#
+# `just lint-red-proof` pins the crate-root #![deny(...)] policy; it cannot see
+# an #[allow] BENEATH that root, and one such attribute on a pub fn shipped two
+# panics past seven green gates. `-F` is `--forbid`: a forbidden lint cannot be
+# re-allowed in source, and attempting it is compiler error E0453 — so this
+# fires on the escape hatch itself, whether or not the code beneath it panics.
+# No text matching, which is the point (attribute text lives inside src/lib.rs's
+# own module docs).
+#
+# Scope is `--lib` deliberately: it excludes #[cfg(test)] modules (not compiled
+# without cfg(test)) and src/bin/irr.rs (a different target), so the sanctioned
+# exceptions need no per-site special-casing. `--all-targets` here exits 101 on
+# the honest tree, because the test module legitimately allows.
+lint-no-allow:
+    cargo clippy --lib --quiet -- \
+        -F clippy::unwrap_used -F clippy::expect_used -F clippy::indexing_slicing \
+        -F clippy::panic -F clippy::arithmetic_side_effects

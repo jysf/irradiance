@@ -116,3 +116,50 @@ jobs:
       # entire point. A lint policy that has never rejected anything is not a
       # policy.
       - run: ./scripts/lint-red-proof.sh
+
+  lint-policy-no-allow:
+    name: "rust / panic-free policy — no #[allow] escape (--lib)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      # SPEC-006. The job above (`lint-policy-red-proof`, DEC-009) pins the
+      # crate-root #![deny(...)] policy by mutation test. It structurally
+      # cannot see an #[allow] BENEATH that root: no #![deny] mutation can
+      # observe an attribute that overrules it further down. Measured on the
+      # shipped crate — one attribute on a pub fn shipped two panics on the
+      # public API past seven green gates:
+      #
+      #   #[allow(clippy::panic, clippy::expect_used)]
+      #   pub fn boom(v: &[u8]) -> u8 { if v.is_empty() { panic!("e") } *v.first().expect("x") }
+      #
+      # `-F` is `--forbid`: a forbidden lint cannot be re-allowed in source,
+      # and attempting it is compiler error E0453 — not a clippy warning that
+      # some later attribute can silence. So this fires on the ESCAPE HATCH
+      # itself, whether or not the code beneath it actually panics. Measured:
+      # planted attribute -> exit 101 with two E0453s; honest tree -> exit 0.
+      #
+      # It does NO text matching, and that is most of why it was chosen:
+      # src/lib.rs carries attribute text inside its own module docs, and five
+      # separate grep-shaped attempts on SPEC-001 each produced a wrong ANSWER
+      # rather than an error (signal `attribute-text-inside-doc-comments`).
+      # `--force-warn` is the other near-miss: it does override #[allow], but
+      # `-D warnings` cannot promote a force-warn diagnostic to an error, so
+      # the exit code stays 0.
+      #
+      # Scope is `--lib` deliberately, and the claim is scoped to it: --lib
+      # excludes #[cfg(test)] modules (not compiled without cfg(test)) and
+      # src/bin/irr.rs (a different target), so the sanctioned exceptions pass
+      # untouched with no per-site special-casing. Running this with
+      # --all-targets exits 101 on the honest tree, because the test module
+      # legitimately allows all five lints.
+      #
+      # CI runs the cargo invocation directly rather than `just lint-no-allow`
+      # — `just` is not on the runner, and every other job here inlines its
+      # command the same way. `app.just` mirrors it (AGENTS.md §6).
+      - run: |
+          cargo clippy --lib --quiet -- \
+            -F clippy::unwrap_used -F clippy::expect_used -F clippy::indexing_slicing \
+            -F clippy::panic -F clippy::arithmetic_side_effects

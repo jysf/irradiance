@@ -250,10 +250,11 @@ above are wired.
 
 **These run.** `SPEC-001` (2026-08-18) filled `app.just`'s stubs to match the
 block below — `just build` / `just test` / `just lint` / `just typecheck` /
-`just deny` / `just lint-red-proof`, plus `just install` / `just dev`. Every
-recipe's commands appear in the block below and nothing in the block is
-unrunnable: that correspondence is acceptance criterion 8, so a recipe that
-gains a command gains a line here in the same change.
+`just deny` / `just lint-red-proof`, plus `just install` / `just dev`;
+`SPEC-006` added `just lint-no-allow`. Every recipe's commands appear in the
+block below and nothing in the block is unrunnable: that correspondence is
+acceptance criterion 8, so a recipe that gains a command gains a line here in
+the same change.
 
 App commands belong in **`app.just`** (project-owned, imported by the
 template-managed root `justfile`) so a template update never clobbers them. For
@@ -280,6 +281,16 @@ cargo fmt --check
 #              violating function injected into a copy of src/lib.rs, with the
 #              UNMUTATED copy run first as a negative control (DEC-009)
 ./scripts/lint-red-proof.sh
+
+# lint-no-allow  — closes what the red-proof structurally cannot see: an
+#              #[allow] of a policy lint BENEATH the crate root. `-F` is
+#              `--forbid`, so re-allowing one is compiler error E0453 rather
+#              than a silenceable warning. Scope is `--lib` on purpose — it
+#              excludes #[cfg(test)] and src/bin/irr.rs, the sanctioned
+#              exceptions (SPEC-006).
+cargo clippy --lib --quiet -- \
+    -F clippy::unwrap_used -F clippy::expect_used -F clippy::indexing_slicing \
+    -F clippy::panic -F clippy::arithmetic_side_effects
 
 # typecheck  — Rust has no separate typecheck; `check` is the fast path
 cargo check --all-targets --all-features
