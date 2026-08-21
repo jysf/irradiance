@@ -6,7 +6,7 @@
 task:
   id: SPEC-002
   type: story                      # epic | story | task | bug | chore
-  cycle: design                     # frame | design | build | verify | ship
+  cycle: verify                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,13 +27,21 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # HANDOFF-008, build cycle
+  created_at: 2026-08-20
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  # Namespace matters (AGENTS.md §10): DEC-003 and DEC-010 are repo decisions
+  # in /decisions/; DEC-004 rule 4 is the TEMPLATE's decision in /docs/decisions/.
+  decisions: [DEC-003, DEC-010, docs/DEC-004]
+  constraints:
+    - no-new-top-level-deps-without-decision
+    - no-copyleft-dependencies
+    - provenance-recorded-per-algorithm
+    - library-not-application
+    - oracle-must-be-shown-red
+    - test-before-implementation
+  related_specs: [SPEC-001, SPEC-003, SPEC-004, SPEC-005]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -63,11 +71,19 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 9498150
+      estimated_usd: null
+      duration_minutes: 30
+      recorded_at: 2026-08-20
+      notes: "Build cycle for SPEC-002 (HANDOFF-008). Reader + visible skip shipped; all seven gates green and pasted in the handback, including the criterion `just test 2>&1 | grep SKIP` demonstrated in three corpus states (0/7, 6/7, 7/7 present) plus an adversarial mutation that takes it to 0 lines. One dev-dependency added (toml, DEC-010); [dependencies] still empty. SHA-256 written from FIPS 180-4 rather than taken as a second dep, with a provenance-ledger row. tokens_total is REAL but not from /cost, which is a client-side slash command the assistant cannot execute; I summed the usage objects in this session's own transcript (~/.claude/projects/-Users-...-irradiance/dbdeb6a8-....jsonl). Composition: input 150 + output 65,303 + cache-write 159,959 + cache-read 9,272,738 (97.6% cache-read). FLOOR - written before the session ends. IMPORTANT, and it breaks comparability with every SPEC-001 figure: this number is DEDUPED BY message.id. A transcript writes one jsonl line per content block and repeats the same usage object on each, so the raw sum every SPEC-001 session used double-counts multi-block messages - measured 1.7x on SPEC-001's own verify-4 transcript (116 raw objects, 67 distinct ids, raw 14,177,812 vs deduped 8,053,949, recorded 10,962,512). Signal token-counts-not-comparable updated with the measurement; SPEC-001's cost.totals of 51,979,929 should be re-summed with dedup rather than left standing."
   totals:
-    tokens_total: 0
+    tokens_total: 9498150
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-002: Corpus manifest reader and skip-when-absent harness
@@ -96,22 +112,42 @@ a corpus path.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `tests/corpus/manifest.toml` — the thing being read, 7
+  `[[file]]` entries; `decisions/DEC-003-corpus-storage-and-manifest.md` — why
+  tier B is external and why the skip must be loud;
+  `guidance/toolchain-brief.md` — the `+toolchain` trap and the installed set.
+- **External APIs:** none. `toml` 0.8 (`docs.rs/toml/0.8.23`) as a
+  dev-dependency; no auth, no network, nothing at runtime.
+- **Related code paths:** `src/lib.rs` (untouched — the reader cannot live
+  there; see DEC-010), `app.just`, `.github/workflows/ci.yml`.
 
 ## Outputs
 
-What the implementer will produce.
+*Filled in at build with what was actually produced.*
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files created:**
+  - `tests/support/corpus.rs` — the reader + SHA-256. Shared by the test binary
+    and the example via `#[path]`; not part of the library.
+  - `examples/corpus-status.rs` — the **visible** surface. One line per entry.
+  - `tests/corpus_manifest.rs` — the spec's failing tests, plus the red-proof.
+  - `decisions/DEC-010-toml-as-a-dev-only-dependency.md`.
+- **Files modified:**
+  - `Cargo.toml` — `[dev-dependencies] toml` with the measured feature set.
+    `[dependencies]` stays empty.
+  - `app.just` — `test:` runs `corpus-status` **before** `cargo test`.
+  - `.github/workflows/ci.yml` — same ordering in the `rust / test` job, so the
+    skip is in CI logs too.
+  - `tests/corpus/manifest.toml` — header debt closed; records what the reader
+    now requires of an entry.
+  - `docs/provenance-ledger.md` — the SHA-256 row (class 1, FIPS 180-4).
+- **New functions / types:** `Manifest::{load, parse, get}`,
+  `CorpusRoot::{resolve, at, origin}`,
+  `CorpusFile::{resolve, status, require, verify}`, `Status::{Present, Missing}`,
+  `Oracle`, and `sha256::{Sha256, hash, hash_file, to_hex}`.
+- **New flags / options:** `$IRRADIANCE_CORPUS_DIR` — any directory path.
+  **Default when unset or empty: `<crate root>/tests/corpus/tier-b`**, resolved
+  from `CARGO_MANIFEST_DIR` so the working directory cannot change the answer.
+- **Database changes:** none.
 
 ## Acceptance Criteria
 
@@ -155,7 +191,14 @@ Explicit scope limits. If the implementer thinks any of these need to
 happen, they should create a new spec (in this stage's backlog), not
 expand this one.
 
-- ...
+- **Any decoding.** No TIFF walk, no tag model, no unpack — SPEC-003 onward.
+- **The `#[allow]` bypass in the panic-free gate.** That is SPEC-006; it shares
+  no files with this spec.
+- **Re-opening DEC-003's storage or schema decisions.** The manifest's shape is
+  settled; this spec reads it.
+- **A runtime (non-dev) dependency of any kind.** See DEC-010.
+- **Reading `[[wanted]]` / `[[available]]`.** They are a human-facing backlog.
+  The reader parses `[[file]]` only, and the manifest header now says so.
 
 ## Notes for the Implementer
 

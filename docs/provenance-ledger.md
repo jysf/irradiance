@@ -37,6 +37,7 @@ honestly.
 | Module / algorithm | Source | Source licence | Provenance class | Notes |
 |---|---|---|---|---|
 | *(first entry lands with STAGE-001's IFD reader)* | Adobe DNG Specification | public spec + patent grant | 1 — specification | Implement from the **spec**, not the DNG SDK: the SDK's terms are ambiguous and its patent licence reportedly does not cover it |
+| `tests/support/corpus.rs::sha256` — SHA-256 | FIPS PUB 180-4 §§4.2.2, 5.1.1, 5.3.3, 6.2.2 | public standard (US Government work, no licence restriction) | 1 — specification | **Dev-only test support; not in the library.** Written from the published standard, not from any implementation. Verifying corpus files against the `sha256` DEC-003 pins. Proven against the published NIST vectors (`""`, `"abc"`, the 448-bit vector, 10⁶ × `'a'`) in `tests/corpus_manifest.rs`, and cross-checked against all 7 real corpus files whose digests were recorded independently (raw.pixls.us' own DB and `shasum`). A file-integrity check, not a security boundary. See DEC-010 for why this is not a dependency |
 
 ## Standing decisions
 

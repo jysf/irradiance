@@ -57,6 +57,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # Mirrors `just test` (app.just). Tier B is ABSENT on a CI runner by
+      # construction (DEC-003 — RAW files are never committed), so every
+      # corpus test skips here. This step is what puts that in the CI log:
+      # `eprintln!` inside a passing test is captured, so a skip announced
+      # from inside the harness leaves CI looking uniformly green for work it
+      # never did. Keep this ahead of `cargo test`, and do NOT replace it by
+      # adding `--nocapture` below (SPEC-002).
+      - run: cargo run --quiet --all-features --example corpus-status
       - run: cargo test --all-features
 
   licenses:

@@ -25,8 +25,22 @@ dev:
 build:
     cargo build --release
 
-# Run the app's test suite (tier-B tests skip loudly when the corpus is absent)
+# Run the app's test suite.
+#
+# `corpus-status` runs FIRST and prints one line per manifest entry — present,
+# or SKIP + the path it looked at. That is the whole point of the ordering:
+# measured at SPEC-002 design, an `eprintln!` inside a PASSING test is captured
+# (`cargo test` -> 0 SKIP lines; `cargo test -- --nocapture` -> all of them), so
+# a skip announced from inside the harness is silent in exactly the case it
+# exists for. A silent skip reports green for work it never did — the same
+# defect class as an oracle that cannot go red (DEC-003, AGENTS.md §12 bar 4).
+#
+# Do NOT "fix" this by adding `-- --nocapture` below. That buries the corpus
+# signal in full test output instead of surfacing it, and this recipe's
+# contract is that `just test 2>&1 | grep SKIP` names any absent file with no
+# extra flags.
 test:
+    cargo run --quiet --all-features --example corpus-status
     cargo test --all-features
 
 # Lint / format check

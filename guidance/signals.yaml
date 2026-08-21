@@ -113,9 +113,28 @@ signals:
     status: open
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-18
+    last_touched: 2026-08-20
     raised_by: claude
     notes: |
+      ⚠ MEASURED 2026-08-20 (SPEC-002 build), and it is worse than "not
+      comparable" — the transcript-sum figures are WRONG, roughly 1.7x too high.
+      A Claude Code transcript writes ONE jsonl line PER CONTENT BLOCK, and every
+      line of a multi-block assistant message repeats the SAME `usage` object.
+      Summing usage objects therefore double-counts most messages. Measured on
+      SPEC-001's own verify-4 transcript (e17489a8): 116 raw usage objects but
+      only 67 distinct `message.id`s, 47 of them duplicated —
+        raw sum      14,177,812
+        deduped sum   8,053,949
+      and that session RECORDED 10,962,512 (a partial raw sum, taken before the
+      session ended). Every transcript-sum figure in SPEC-001's cost.sessions is
+      inflated the same way, so cost.totals 51,979,929 is not a real number.
+      The fix is one line in the summing loop: key by `message.id` and keep one
+      usage object per id. SPEC-002's build session reports a DEDUPED figure and
+      says so, which means it is not comparable to ANY SPEC-001 session — the
+      spread is now a method artifact on top of an execution-mode artifact.
+      Whoever dispositions this should re-sum SPEC-001's four transcript-based
+      sessions with dedup rather than leaving the recorded numbers standing.
+
       Raised by the SPEC-001 reviewer, who flagged it about its OWN number rather
       than quietly filing it — the right instinct. cost.sessions has an
       `interface:` field but nothing records cache composition or how the figure
