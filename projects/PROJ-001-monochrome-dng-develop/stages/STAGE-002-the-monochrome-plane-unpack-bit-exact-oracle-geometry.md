@@ -81,7 +81,7 @@ depends on the plane being right, so any ambiguity here is worth paying for now.
 ## Scope
 
 ### In scope
-- Locating the full-resolution SubIFD's strip and reading it
+- Locating the full-resolution sensor IFD (⚠ *not necessarily a SubIFD* — `K3III.PEF` carries its plane in `IFD0`)'s strip and reading it
 - Packed 14-bit → u16 unpack (zero-extended, NOT scaled to full 16-bit range)
 - Bit-exact plane oracle harness
 - BlackLevel subtraction and WhiteLevel normalization

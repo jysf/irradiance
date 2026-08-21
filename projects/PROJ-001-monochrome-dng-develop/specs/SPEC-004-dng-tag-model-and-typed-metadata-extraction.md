@@ -31,7 +31,7 @@ handoff:
   created_at: null
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-008, DEC-012]                    # [DEC-NNN, DEC-MMM]
   constraints: []                  # [constraint-id-1, constraint-id-2]
   related_specs: []                # [SPEC-NNN]
 
@@ -139,6 +139,20 @@ expand this one.
 - ...
 
 ## Notes for the Implementer
+
+⚠ **This spec owns two deferred obligations.**
+
+1. **`DEC-012`** ("strict on structure, tolerant on shape") was written during
+   SPEC-003's fix round and **deferred its own implementation here**, to avoid a
+   `src/` edit in a records-only round.
+2. **FU-11, measured at SPEC-003's verify:** `scalar()` errors propagate out of
+   `is_sensor_ifd`, and all three selection paths call it over **every** IFD — so a
+   malformed tag on a *thumbnail* can cost the *plane*. `DEC-012`'s own one-question
+   rule predicts "that call only", so **the decision and the code disagree today**.
+   This spec widens `uints()`, which is what `scalar()` calls, so it is the
+   cheapest place to close the gap. Closing it is in scope; leaving it is not.
+
+
 
 Gotchas, style preferences, reuse opportunities. Keep short — the full
 context graph lives in the handoff file.

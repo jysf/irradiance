@@ -39,6 +39,31 @@ honestly.
 | `src/ifd.rs` — TIFF/IFD container walk, SubIFD recursion, sensor-IFD selection | TIFF 6.0 (1992) §2 "Image File Header" + §2 "Image File Directory"; Adobe DNG Specification 1.7.1.0 (DNG-private tags 50713/50714/50717/50719/50720/50829/51008/51009/51022, `PhotometricInterpretation = LinearRaw` 34892) | public specifications; DNG carries a patent grant for compliant implementations | 1 — specification | **SPEC-003.** Written from the specs, not from any implementation. `dnglab`/`rawler` (LGPL-2.1) were **run as tools** to produce the ground truth this reader is checked against, and their source was not read — running imposes nothing, reading would be a `provenance-recorded-per-algorithm` violation. `SPIKE-001`'s decoder was discarded unmerged and deliberately not consulted (`test-before-implementation`). Tag numbers and field types were re-derived by reading the real files' bytes; the expected values are cross-checked against `exiftool 13.55` on all 7 corpus files in `tests/ifd_reader.rs`. Implement from the **spec**, not the DNG SDK: the SDK's terms are ambiguous and its patent licence reportedly does not cover it |
 | `tests/support/corpus.rs::sha256` — SHA-256 | FIPS PUB 180-4 §§4.2.2, 5.1.1, 5.3.3, 6.2.2 | public standard (US Government work, no licence restriction) | 1 — specification | **Dev-only test support; not in the library.** Written from the published standard, not from any implementation. Verifying corpus files against the `sha256` DEC-003 pins. Proven against the published NIST vectors (`""`, `"abc"`, the 448-bit vector, 10⁶ × `'a'`) in `tests/corpus_manifest.rs`, and cross-checked against all 7 real corpus files whose digests were recorded independently (raw.pixls.us' own DB and `shasum`). A file-integrity check, not a security boundary. See DEC-010 for why this is not a dependency |
 
+## ⚠ The distinction runs BOTH ways — measured 2026-08-20
+
+The motivating example above is a crate that **declares better than it carries**
+(`demosaic` ships MIT/Apache over a self-described LGPL port). `libfuzzer-sys`
+runs the **inverse**, and the ledger's framing assumed that could not happen:
+
+| | declares | actually carries |
+|---|---|---|
+| `demosaic` 0.3.0 | `MIT OR Apache-2.0` | a port of LGPL LibRaw code |
+| `libfuzzer-sys` 0.4.13 | `(MIT OR Apache-2.0) AND NCSA` | **`Apache-2.0 WITH LLVM-exception`, in all 55 vendored files** |
+
+Counted, not sampled: 49 files at the vendored top level, 55 including
+`afl/` and `+dataflow/`, **every one** carrying the LLVM Apache header, and
+**0 of 56** mentioning NCSA anywhere. The crate's SPDX expression *and* its own
+README are both stale against its code.
+
+Nothing is wrong here — everything involved is permissive, and `deny.toml` enforces
+the **stricter** declared reading via a named per-crate exception rather than
+widening `allow`. But it means the ledger's question is not "is the declaration too
+generous?" It is **"does the declaration match the code, in either direction?"**
+A stricter-than-reality declaration is harmless for compliance and still a fact the
+ledger should carry, because the next reader will otherwise re-derive it.
+
+Reached only by `just deny-fuzz`; `libfuzzer-sys` is not in the library's graph.
+
 ## Standing decisions
 
 - **`demosaic` is a dev-time oracle only, never a dependency** — see above.

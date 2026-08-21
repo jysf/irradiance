@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved         # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -104,9 +104,10 @@ cost:
       recorded_at: 2026-08-21
       notes: "Second VERIFY cycle for SPEC-003 (HANDOFF-014), reviewing d284ff3 on feat/spec-003-ifd-reader, not merged. VERDICT: APPROVED at d284ff3 - seven follow-ups, NO ship-blockers. SB-1 is closed and the gate that closed it has teeth. src/ byte-identical to b79c7ef: empty diff AND sha256 9c965c4842e82450... on src/ifd.rs, which is the SAME digest HANDOFF-012's verify cycle recorded when it restored its own planted fault, so two verify cycles a build round apart have independently hashed the reader and agree it has not moved. TEN GATES re-run by me, all green: fmt, clippy, test (48 - 31 lib + 9 corpus + 8 ifd_reader), just msrv (1.90.0 via the shim), just deny, just lint-red-proof (control 0 -> injection 101, all five lints at 4 distinct injected lines, still red without CI's -D warnings), just lint-no-allow, cost-audit, decisions-index --check, just deny-fuzz. DENY-FUZZ RED-PROOFED THREE DIRECTIONS, each with the mutation ASSERTED to have changed the file first - the exceptions=[...] ARRAY trap that silently no-opped the orchestrator's first attempt. RED 1 exception removed -> exit 4, error[rejected] naming '(MIT OR Apache-2.0) AND NCSA'. RED 2 fuzz/Cargo.toml license field removed -> exit 4, error[unlicensed]. RED 3 (MINE, and the one nobody had run) exception re-pointed at a crate absent from the graph -> exit 4: the first direct evidence that the NAMED-exception-over-widened-allow reasoning in deny.toml:59-67 has teeth, because it makes a behavioural claim ('a second crate arriving with NCSA fails loudly') that was until now only reasoned. Library just deny stayed exit 0 under all three. Control and restore both 0, deny.toml byte-identical. CI PARITY also measured, because a green local recipe says nothing about the job: the licenses-fuzz job passes manifest-path with no --config, and cargo-deny resolves the ROOT deny.toml for a manifest one directory down even from a foreign cwd (verified from /tmp, exit 0, diagnostics pointing at the repo-root deny.toml). FUZZ RED-PROOF at a THIRD distinct site - build used Container::payload, verify round 1 used Container::read_ifd, I used Container::walk_chain. Negative control FIRST and iterated: my first two faults (odd next; odd next inside a SubIFD chain) were both caught by ifd_survives_single_byte_corruption, which is a fact about the strength of the deterministic sweep, so I widened the trigger to require TWO odd offsets - beyond any single-byte flip. With the panic live: just lint exit 0, just lint-no-allow exit 0, cargo test --all-features exit 0 with 48 passed - the fuzzer the only thing that can see it. libFuzzer found it in ~3,600 execs past INITED from a FRESH empty corpus dir plus the 22 committed seeds, synthesising MM / version 42 / IFD0 at ODD offset 5 / a chain next that is ALSO odd; 'mid > len', crash-e794e4ea, EXIT=1. Direction 2 restored byte-identical (sha256 matches, grep DELIBERATE FAULT = 0) and ran 13,053,759 runs in 61 s on the red run's OWN corpus WITH the crash reproducer added back, zero artifacts, git status clean. CORPUS FACTS RE-MEASURED BY ME, not transcribed, because two prior rounds got them wrong: raw magic bytes of all seven give 6 II / 1 MM (M2462362.DNG the only 4d4d), and irr ifd gives 4 uncompressed (code 1) + 2 JPEG (code 7) + 1 vendor-private (65535). Both corrections confirmed. PENTAX TIER RECLASSIFICATION CORRECT: manifest says tier = b, the file measures 37,669,430 bytes, and the replacement claim checks out - the tier-A synthetic a_malformed_fixed_length_tag_costs_the_tag_not_the_file at src/ifd.rs:1374 is a LIB UNIT TEST, so it is inside the 31 that run on a bare CI runner with no corpus. A tier-A claim about an uncommitted 37 MB file was a claim that CI covered something it has never seen. SCOPE WIDENING RIGHT: three matrix rows rather than the one named, because conformance-matrix.md:3's own rule ('every camera gets a row the day it is known') was violated identically three times and fixing one would have left the defect twice; additive, disclosed, and src/ did not move a byte, which is what distinguishes this from scope creep. DEC-012 SOUND and its deferral MEASURED rather than taken on trust: I appended a newline to src/ifd.rs and just decisions-audit --changed named DEC-008 and DEC-012, then restored. affected_scope: src/ifd.rs is load-bearing - anyone editing the reader is told before committing, which is broader coverage than the doc comment the round was forbidden to write. Its narrowing of FU-5 verified against the code: array() at :810 carries a bare ? on uints(), so it tolerates a wrong COUNT and nothing else; tag 330 at :673 routes through uints() and :623 propagates with ?, so it is fatal to the container. PROVENANCE CLAIM RE-COUNTED AND EXTENDED: 49 top-level vendored .cpp/.h/.def (the round's number, correct), 55 including libfuzzer/afl and libfuzzer/dataflow, all 55 carrying the post-2019 LLVM Apache-2.0-with-exception header, and 0 of the 56 files under libfuzzer/ mentioning NCSA or the University of Illinois anywhere. SEVEN FOLLOW-UPS, none ship-blocking. FU-9: docs/provenance-ledger.md:42-49 needs a Standing-decisions bullet for the declared-vs-carried case - it is recorded in DEC-011:128-142 and constraints.yaml:45 but not in the document whose opening paragraph states that exact distinction as its reason to exist; and it runs the INVERSE direction from the ledger's own motivating example (demosaic declares permissive and carries copyleft; libfuzzer-sys declares stricter than it carries), which the ledger's framing quietly assumes cannot happen. FU-10: docs/conformance-matrix.md:24-48's new 'four bodies, seven files' claim omits that all seven manifest entries are tier b and ZERO are tier a, so none of that coverage runs in CI - the same defect the same edit corrected twenty lines below at :79-86, and in scope by the build's own widening rule. FU-11: DEC-012's one-question rule does not predict its widest-blast-radius case. is_sensor_ifd (src/ifd.rs:836-841) propagates scalar() errors with ?, and sensor_candidates :848-856, sensor_ifd :859-866 and sensor :873-880 all call it over EVERY IFD, so a malformed NewSubfileType, PhotometricInterpretation or SamplesPerPixel on a thumbnail or any unrelated chain link is fatal to sensor selection for the whole file. By the DEC's stated test that is interpret-phase and should cost 'that call only'; the outcome is much closer to costing the file. Matters now because SPEC-004 widens uints(), which is what scalar() calls - the exact inheritance DEC-012 exists to pre-decide. FU-12: SPEC-004's references.decisions is [] while DEC-012:126-131 aims its deferral at SPEC-004's first edit; AGENTS.md 15 build step 3 sends the agent to that empty list, and decisions-audit --changed is advisory, manual, not in CI and only fires on uncommitted changes. One line adds DEC-012 and DEC-008. FU-13: cost.totals.tokens_total is 10967269, exactly the FIRST build session, where three sessions sum to 29737373; introduced at d867403, inherited not caused by this round, harmless while unshipped (calibration lists only shipped specs; every shipped spec has totals == sum) but a wrong-but-plausible number is the exact failure mode this round was about. With this cycle: 37,494,894. FU-14: oracle-must-be-shown-red (constraints.yaml:52-56) says 'every ORACLE', but three GATES are now red-proofed (lint-red-proof, the fuzz target, deny-fuzz) and HANDOFF-013's own reflection asked for the rule to widen; right now that lives only in a handback, the least durable place in this repo, and no signal covers it. FU-15: the full-resolution-SubIFD phrasing FU-3 corrected in AC6 and STAGE-001:58 survives at STAGE-002:84 - defensible as scoped, but the identical wording and reachable by the same rule the build used to widen the matrix. MINOR, measured: just deny on the library graph now permanently emits warning[license-exception-not-encountered] for the libfuzzer-sys exception - one policy file, two graphs, so each reports the other's entries as unmatched; no effect on exit status, but that warning class can no longer carry signal on the library graph. tokens_total is a transcript sum DEDUPED BY message.id and says so: 120 usage objects, 54 distinct ids, raw 17,065,674 vs deduped 7,757,521 = 2.20x, 97.0% cache-read. It is a FLOOR - computed before the session closed. This is the SEVENTH measured factor and the band is now 1.61x / 1.76x / 1.82x / 1.86x / 1.95x / 2.20x / 2.25x - a 1.4x spread over seven observations, tracking how block-heavy a session is rather than how large it is, so NO fixed correction is valid on any raw figure. SPEC-001's cost.totals of 51,979,929 is still a raw double-counted sum and must be RE-SUMMED with dedup from its own transcript, not divided by anything. DID NOT run handback-sync on this spec, per the handoff; HANDOFF-014's synced_at is hand-stamped with the reason inline, matching the precedent set at 93dcae0 for HANDOFF-011/012/013."
   totals:
-    tokens_total: 10967269
-    estimated_usd: 0
-    session_count: 1
+    tokens_total: 37494894
+    estimated_usd: 0.00
+    session_count: 4
+shipped_at: 2026-08-21
 ---
 
 # SPEC-003: TIFF/IFD reader — bounded, panic-free, cycle-guarded, SubIFD recursion — plus its fuzz target
@@ -327,6 +328,59 @@ Container only. **No pixel decode, no unpack** — that is STAGE-002, where
 `StripByteCounts` as *tags* is in scope; reading the strip is not.
 
 ## Reflection
+
+**1. What would I do differently next time?**
+
+**Measure the corpus before writing the spec.** Three facts in one paragraph of
+mine were wrong — byte order (I wrote "two big-endian"; it is six `II` / one `MM`),
+`K3III.PEF`'s structure (I said it had a SubIFD; it has none, and its plane is in
+`IFD0`), and compression (I wrote "three JPEG"; two are code 7, the PEF is 65535
+vendor-private). Every one was a `find`/`exiftool` away. The build caught two, the
+first verify caught the third, and a fourth copy of the byte-order error was still
+sitting in `CHANGELOG.md`.
+
+The pattern is the one already recorded as `measurement-over-generalised`, in a
+second form: there I over-generalised something I *had* measured; here I asserted
+things I never measured at all, in a spec whose entire job is to describe seven
+files sitting on disk.
+
+**Also: assert a mutation applied before drawing a conclusion from it.** Three
+times this session I ran a fault-injection that silently did nothing — twice on
+`#![deny(` text that turned out to be prose, once on a `deny.toml` exception
+expressed as an array rather than the block form I assumed. The last one nearly
+produced a false "the gate has no teeth" finding. Both reviewers were warned and
+neither repeated it; the second went further and iterated its fault when the
+existing tests caught the first two versions.
+
+**2. Does any template, constraint, or decision need updating?**
+
+Fixed at ship: the provenance ledger's declared-vs-carried framing (**FU-9** —
+`libfuzzer-sys` runs the *inverse* of the ledger's motivating example, declaring
+*stricter* than it carries, which the framing assumed impossible); the conformance
+matrix's silence about all seven entries being tier B with **zero** tier A
+(**FU-10**); `oracle-must-be-shown-red`'s wording, which said "oracle" while three
+*gates* are now red-proofed (**FU-14**); SPEC-004's empty `references.decisions`
+(**FU-12**); and STAGE-002's surviving "full-resolution SubIFD" phrasing
+(**FU-15**).
+
+`cost.totals` was **10,967,269 — exactly the first build session** — while four
+sessions sum to **37,494,894** (**FU-13**). Inherited and never recomputed, and
+`cost-audit` passed throughout because it checks presence, not arithmetic. Fixed.
+
+**3. Is there a follow-up spec to write now?**
+
+No new spec. **FU-11 attaches to SPEC-004**, which is the right owner: `scalar()`
+errors propagate out of `is_sensor_ifd`, and all three selection paths call it over
+every IFD — so a malformed tag on a *thumbnail* can cost the *plane*. `DEC-012`'s
+own one-question rule predicts "that call only", so the decision and the code
+disagree today. SPEC-004 widens `uints()`, which is what `scalar()` calls, so it is
+the natural and cheapest place to close it.
+
+Worth recording plainly: **the reader shipped byte-identical to its first build.**
+Two verify cycles a build round apart independently hashed `src/ifd.rs` to
+`9c965c48…` and agree. Everything after round 1 was records and config — which is
+what a punch list *should* look like when the code is right.
+
 
 *Appended during **ship**. Three questions, short answers.*
 

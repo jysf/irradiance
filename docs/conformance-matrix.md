@@ -104,6 +104,20 @@ them — the tier-B file cannot gate anything.
 `dnglab cameras --md` emits a markdown coverage baseline worth capturing
 periodically and diffing against our own support.
 
+## ⚠ What the corpus does NOT cover (2026-08-20)
+
+Four bodies and seven files sound like coverage. They are **all tier B**:
+
+- **7 of 7** manifest entries are `tier = "b"` — never committed, absent on any CI
+  runner.
+- **0** are tier A.
+
+So **none of the corpus runs in CI.** What runs there are the hand-built synthetic
+fixtures inside the test modules (e.g. `src/ifd.rs`'s tier-A unit fixture). Real-file
+coverage is a property of *this machine*, not of the project — the same conflation
+this document corrected twenty lines below for a single fixture, stated here for
+the whole corpus.
+
 ## Corpus policy — two tiers
 
 Real RAW files are 30–60 MB and copyrighted by whoever shot them. Review-site

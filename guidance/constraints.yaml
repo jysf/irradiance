@@ -51,7 +51,7 @@ constraints:
     enforcement: "review; the public API surface"
 
   - id: oracle-must-be-shown-red
-    rule: "Every oracle ships with a deliberate-fault test proving it FAILS on a broken input. A verification claim without a demonstrated red is not a verification claim."
+    rule: "Every oracle AND every GATE ships with a deliberate-fault test proving it FAILS on a broken input, and a matching negative control proving it PASSES on an honest tree. A verification claim without a demonstrated red is not a verification claim; a red without a control cannot tell 'failed for my reason' from 'failed for any reason'."
     severity: blocking
     rationale: "A green oracle that cannot fail manufactures confidence. This is the single discipline the whole project's credibility rests on."
     enforcement: "each oracle spec's failing-test set"
