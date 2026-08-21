@@ -6,7 +6,7 @@
 task:
   id: SPEC-002
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -115,21 +115,39 @@ What the implementer will produce.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+1. A reader parses `tests/corpus/manifest.toml` and exposes each entry's path,
+   `sha256`, and `oracle.raw_checksum`. **No test in this repo hardcodes a corpus
+   path from here on.**
+2. `$IRRADIANCE_CORPUS_DIR` resolves the root, defaulting to the gitignored
+   `tests/corpus/tier-b/`.
+3. Each present file's `sha256` is **verified**, and a mismatch fails loudly and
+   names the file (a re-download or truncation must not pass silently).
+4. **A missing tier-B file skips — and the skip is VISIBLE under plain
+   `cargo test`.** ⚠ Measured at design: `eprintln!`/`println!` inside a *passing*
+   test is captured and shows **nothing** without `--nocapture`. A skip nobody can
+   see is the silent-green defect this spec exists to prevent, so the visible
+   surface must live outside the test harness — see Implementation Context.
+5. The `toml` dev-dependency is accompanied by a `DEC-*` recording it (constraint
+   `no-new-top-level-deps-without-decision`, as narrowed by DEC-004 rule 4).
+6. `cargo deny check licenses` still passes; MSRV 1.90 still holds; all existing
+   gates green.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+```bash
+# 1. the reader exists and reads all 7 manifest entries
+cargo test --all-features corpus_manifest_parses
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+# 2. sha256 mismatch is caught (plant a corrupted copy, expect failure)
+cargo test --all-features corpus_hash_mismatch_fails
+
+# 3. THE ONE THAT MATTERS — a missing file's skip is visible with NO extra flags
+just test 2>&1 | grep "SKIP"        # must print, naming the absent file
+```
+
+Test 3 is the acceptance criterion in executable form. It currently fails because
+nothing prints, and it will keep failing if the skip is implemented as `eprintln!`
+inside a passing test.
 
 ## Non-Goals
 
@@ -141,17 +159,47 @@ expand this one.
 
 ## Notes for the Implementer
 
-The manifest ships seeded with **7 files** — 3 own-work Q2 Monochrom frames and 4
-CC0 samples — each carrying a pinned `sha256` and `raw_checksum`. Read them; do
-not hardcode paths.
+### Two things were measured at design. Do not re-derive them.
 
-⚠ Nothing on disk parses TOML today (python 3.9, no `tomllib`; no `taplo`). The
-real reader is Rust's `toml` crate, and this spec is where it arrives — see the
-manifest's own header, which records that as a scheduled debt owned by this spec.
+**1. `toml` as a dev-dependency — costs and limits, measured on this crate.**
 
-**The `#[allow]` bypass that was briefly attached here moved to `SPEC-006`** at
-SPEC-001's ship. The two share no files, and that hole is live today with no
-module, so it never depended on this work.
+| config | crates in graph | parses? |
+|---|---|---|
+| `toml = "0.8"` | **12** | yes |
+| `default-features = false, features = ["parse"]` | **11** | yes |
+| `default-features = false` | 6 | **NO** — `Value: FromStr` unsatisfied |
+
+That last row is a trap: `cargo check` passes because nothing calls the API. It is
+a shape-check, not a behaviour-check (AGENTS.md §12). **Use
+`features = ["parse"]`** — one crate cheaper than default, and it actually parses.
+
+Also measured with the dep present: `cargo +1.90.0 check --all-targets` → **0**,
+and `cargo deny check licenses` → **licenses ok**. It is **dev-only**, so the
+library's zero-dependency public claim is untouched — say so explicitly in the DEC
+(criterion 5), because "irradiance has no dependencies" must remain true as
+written.
+
+**2. `eprintln!` in a passing test is INVISIBLE.** Measured:
+
+```
+cargo test              -> 0 SKIP lines
+cargo test -- --nocapture -> 2 SKIP lines
+```
+
+So criterion 4 **cannot** be met inside the test harness alone. The recommended
+shape: a small corpus-status step that `just test` runs **before** the suite,
+printing one line per manifest entry (present / MISSING with its path), so the
+information is visible with no flags and in CI logs. The in-harness skip then just
+returns early — the loudness lives where it can actually be seen.
+
+Do not "solve" this by making `just test` pass `--nocapture` globally; that buries
+the signal in full test output rather than surfacing it.
+
+### Scope discipline
+
+This spec builds the **reader** and the visible-skip surface. Storage and schema
+are settled (`DEC-003`); the manifest ships seeded with 7 entries. The
+`#[allow]`-bypass work is **SPEC-006**, a separate spec sharing no files.
 
 ## Reflection
 
