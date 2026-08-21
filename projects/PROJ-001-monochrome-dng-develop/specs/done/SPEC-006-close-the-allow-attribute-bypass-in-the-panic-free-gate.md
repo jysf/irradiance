@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -84,6 +84,7 @@ cost:
     tokens_total: 9935949
     estimated_usd: 0.00
     session_count: 2
+shipped_at: 2026-08-20
 ---
 
 # SPEC-006: Close the allow-attribute bypass in the panic-free gate
@@ -238,6 +239,57 @@ One gate, one CI job, one corrected sentence. **Do not** touch
 and this gate covers the part it structurally cannot. They are complementary.
 
 ## Reflection
+
+**1. What would I do differently next time?**
+
+Nothing about the mechanism — the design-time probe settled `-F` before build and
+build was a transcription. That is the pattern working exactly as AGENTS.md §12
+describes, and it is the contrast with SPEC-001, where three rounds went into a
+mechanism nobody had measured first.
+
+What I would do differently is **specify the red-proof's placement**. My spec said
+what to plant and not *where*; planting after the `#[cfg(test)]` module trips
+`clippy::items_after_test_module` and reddens CLIPPY for an unrelated reason,
+which would have *understated* the hole. Both the builder and the reviewer hit it
+independently (F-6). Placement is part of a reproduction, not an implementation
+detail.
+
+**2. Does any template, constraint, or decision need updating?**
+
+Three, all filed rather than fixed here:
+
+- **F-1 is the real one:** the gate's own flags are unpinned. Swapping all five
+  `-F` → `-D`, or dropping a single `-F`, restores the original hole with **eight
+  green gates and nothing in CI noticing**. That is `DEC-009`'s thesis one level
+  up — the thing that checks the policy can itself be silently weakened. See §3.
+- **F-5 — two owners, one field.** `AGENTS.md` §15 tells the agent to append the
+  cost session; `DEC-013` says `handback-sync` transcribes it. Both cannot be
+  authoritative, and this cycle had to discover which by finding `cost.sessions`
+  empty. A template-level contradiction.
+- **F-2/F-3 — `constraints.yaml:33`** omits feature configuration (no-op today,
+  live when `DEC-002`'s `std` feature lands) and *understates*: with the crate-root
+  `#![deny]` deleted and no attribute anywhere, the gate still exits 101, because
+  the `-F` flags re-impose the whole policy on `--lib`. Understating is the
+  conservative direction, so: follow-up, not a defect.
+
+**3. Is there a follow-up spec to write now?**
+
+**Deliberately not yet — and that judgement is the point.** F-1 is real, but each
+gate we have built closes the previous one's hole, and I am not going to spawn
+SPEC-007 reflexively. The threats are not equivalent:
+
+- `#[allow]` on a `pub fn` (SPEC-006) is a **one-line source change that looks
+  innocuous** in review. Worth a mechanism.
+- Editing the gate's own `-F` flags (F-1) means **changing the gate's definition
+  in `ci.yml`/`app.just`** — visible in any diff, and the sort of thing review is
+  actually good at.
+
+So F-1 is recorded as a signal with that reasoning, not converted into a spec.
+The open question — *where does this recursion stop?* — belongs to the maintainer
+at project close, not to another round of me deciding alone. My current position:
+these gates protect against **accident and drift**, not against an adversary with
+commit rights, and `constraints.yaml` should eventually say so in those words.
+
 
 *Appended during **ship**. Three questions, short answers.*
 
