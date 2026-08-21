@@ -132,7 +132,7 @@ in full test output instead of surfacing it.
 
 ### Execution notes
 
-- **Branch / PR:** `feat/spec-002-corpus-manifest-reader` — committed, **not
+- **Branch / PR:** `feat/spec-002-corpus-manifest-reader` @ **`4516280`** — committed, **not
   pushed and no PR**, per "commit; do not merge".
   ⚠ **Read this before anything else:** the SPEC-002 *design* commit `412cb1b`
   was sitting on the branch `feat/spec-006-allow-attribute-gate`, not on this
