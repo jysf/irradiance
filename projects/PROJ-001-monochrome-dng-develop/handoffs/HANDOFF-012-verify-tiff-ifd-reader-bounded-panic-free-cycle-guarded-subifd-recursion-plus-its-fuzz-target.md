@@ -50,7 +50,12 @@ handback:
   pr: null
   completed_at: 2026-08-20         # YYYY-MM-DD
   notes: "Verdict ⚠ PUNCH LIST at 644815f — one ship-blocker, documentation/config only, no code change. tokens_total is a transcript sum DEDUPED BY message.id (113 usage objects, 71 distinct ids, raw 14,592,470 vs deduped 9,036,505 = 1.61x); 97.9% cache-read; a FLOOR, written before the session closed."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-08-20   # stamped by the orchestrator: this cycle
+                         # is ALREADY in the spec (hand-written per
+                         # AGENTS.md §15). handback-sync keys idempotence
+                         # on this field alone and does NOT check existing
+                         # cost.sessions, so without this it would append
+                         # a duplicate. See feedback finding 15.
 ---
 
 # HANDOFF-012: TIFF/IFD reader — bounded, panic-free, cycle-guarded, SubIFD recursion — plus its fuzz target

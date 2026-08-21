@@ -506,6 +506,42 @@ note, rather than replaced by a plausible invention.
 
 ---
 
+## 15. `handback-sync` double-appends, because two mechanisms own one field
+
+The direct consequence of the two-owners problem (finding 5's cousin, filed in
+this repo as the `cost-field-has-two-owners` signal):
+
+- **`AGENTS.md` §15** tells the executing agent to *"append a cost session entry
+  to the spec's `cost.sessions`"*.
+- **`DEC-013`** says `handback-sync` transcribes it from the handback.
+
+Agents follow §15 and write the entry by hand. `handback-sync` then keys its
+idempotence on the handoff's **`synced_at`** field **alone** — it never checks
+whether `cost.sessions` already contains that cycle. So the tool happily appends a
+second copy.
+
+**Measured on SPEC-003:** three cycles, three hand-written sessions already in the
+spec, and `just handback-sync SPEC-003 --dry-run` reported it would transcribe all
+three — **6 sessions for 3 cycles**, silently inflating `cost.totals` to double.
+`just cost-audit` would have passed, because it checks presence, not duplication.
+
+The build session caught it and *warned rather than running it*, which is the only
+reason it did not land.
+
+**Fix, in order of preference:**
+1. Make `handback-sync` check `cost.sessions` for an existing entry of the same
+   `cycle` + `tokens_total` before appending. Idempotence should key on the data,
+   not on a flag beside it.
+2. Resolve the ownership: `AGENTS.md` §15 should say *"fill the handback; the
+   orchestrator syncs"*, so only one mechanism ever writes.
+3. Have `cost-audit` flag duplicate cycles as well as missing ones.
+
+**Workaround applied here:** `synced_at` stamped by hand on the three handoffs, so
+the tool becomes a no-op. That records a true fact — the cost *is* transcribed,
+just not by the tool — but it is a workaround for a design flaw, not a fix.
+
+---
+
 ## Priority (this instance's assessment)
 
 | # | Finding | Severity | Fix cost |
@@ -523,6 +559,7 @@ note, rather than replaced by a plausible invention.
 | 12 | `_lib.sh` truncates quoted YAML containing `#`; cost-audit still green | **high** — silent record corruption, 87% understated, gate blind | trivial |
 | 13 | parallel branches allocate colliding artifact IDs | medium — hit twice consecutively; validate blind | low |
 | 14 | cost figures are not measurements (~1.9x double-count, incomparable bases) | **high** — calibration will build a band from fiction | low |
+| 15 | `handback-sync` double-appends cost sessions; cost-audit blind | **high** — silently doubles `cost.totals`; caught only by a careful agent | low |
 | 6 | **spike lane beat the external design** | **win** — capture, don't promote (N=1) | n/a |
 
 Findings 1, 4, 7, 8 and 9 are all the *same shape*: the template knows the right

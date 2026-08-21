@@ -50,7 +50,12 @@ handback:
   pr: null
   completed_at: 2026-08-20         # YYYY-MM-DD
   notes: "SB-1 closed and the fuzz licence gate WIRED (just deny-fuzz + CI job licenses-fuzz), red-proofed both ways: exception removed -> exit 4, license field removed -> exit 4, honest tree -> exit 0. TEN gates green, pasted. NO src/ change - git status shows no file under src/. Three factual corrections re-measured on the files, not transcribed; the conformance matrix needed THREE rows, not the one named. New DEC-012 states the malformed-tag rule (strict on structure, tolerant on shape). tokens_total is a transcript sum DEDUPED BY message.id: 127 usage objects, 74 distinct ids, raw 17,087,494 vs deduped 9,733,599 = 1.76x, 97.9% cache-read, a FLOOR. Six measured factors now span 1.61x-2.25x - NOT a constant, no fixed correction is valid on any raw figure. ⚠ ORCHESTRATOR: just handback-sync SPEC-003 would DOUBLE-COUNT HANDOFF-011 and HANDOFF-012 - measured with --dry-run; both have hand-written sessions in the spec but synced_at: null, and the script keys idempotence on synced_at alone."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-08-20   # stamped by the orchestrator: this cycle
+                         # is ALREADY in the spec (hand-written per
+                         # AGENTS.md §15). handback-sync keys idempotence
+                         # on this field alone and does NOT check existing
+                         # cost.sessions, so without this it would append
+                         # a duplicate. See feedback finding 15.
 ---
 
 # HANDOFF-013: <Task Title — same as the spec's title>

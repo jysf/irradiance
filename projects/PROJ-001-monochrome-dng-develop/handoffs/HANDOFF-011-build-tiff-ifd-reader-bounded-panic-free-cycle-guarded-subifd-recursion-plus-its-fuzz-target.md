@@ -50,7 +50,12 @@ handback:
   pr: null                         # not opened — the handoff says commit, do not merge
   completed_at: 2026-08-20         # YYYY-MM-DD
   notes: "All 7 acceptance criteria met; nine gates green; both fuzz directions pasted. tokens_total is a transcript sum DEDUPED BY message.id (122 usage objects, 64 distinct ids, raw 19,980,303 vs deduped 10,967,269 = 1.82x inflation, 97.0% cache-read) and is a FLOOR - written before the session closed. No #[allow] was needed to satisfy the panic-free policy. Two measured corrections to the spec/handoff: only ONE corpus file is big-endian, not two; and K3III.PEF has no SubIFD at all - its plane is in IFD0 with NO NewSubfileType tag, which is what makes TIFF's absent-means-0 default load-bearing."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-08-20   # stamped by the orchestrator: this cycle
+                         # is ALREADY in the spec (hand-written per
+                         # AGENTS.md §15). handback-sync keys idempotence
+                         # on this field alone and does NOT check existing
+                         # cost.sessions, so without this it would append
+                         # a duplicate. See feedback finding 15.
 ---
 
 # HANDOFF-011: TIFF/IFD reader — bounded, panic-free, cycle-guarded, SubIFD recursion — plus its fuzz target
