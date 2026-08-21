@@ -6,7 +6,7 @@
 task:
   id: SPEC-006
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                    # frame | design | build | verify | ship
+  cycle: design                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -127,27 +127,45 @@ What the implementer will produce.
 
 ## Acceptance Criteria
 
-1. An `#[allow]` (or `#![allow]`) of any of the five policy lints outside
-   `#[cfg(test)]` and `src/bin/` **fails CI**.
-2. The sanctioned exceptions still pass — test modules and `src/bin/irr.rs` keep
-   their existing allows without special-casing each one by hand.
-3. **The gate is shown RED**, per `oracle-must-be-shown-red`: adding a violating
-   `#[allow]` turns it red, and that proof ships with it.
-4. **The gate is shown GREEN on the honest tree** — a negative control, the lesson
-   `DEC-009` paid three rounds to learn. Without it, "fails on X" cannot be
-   distinguished from "fails on everything".
+1. A CI job runs the **forbid check** below and fails on any `#[allow]`/`#![allow]`
+   of a policy lint in the library.
+2. The sanctioned exceptions still pass untouched — `#[cfg(test)]` modules and
+   `src/bin/irr.rs` keep their existing allows with no per-site special-casing.
+3. **Shown RED:** planting `#[allow(clippy::panic)]` on a `pub fn` in `src/lib.rs`
+   turns the job red, and that proof ships with the change.
+4. **Shown GREEN on the honest tree:** the same command exits 0 on unmodified
+   `main`. (The lesson DEC-009 cost three rounds — "fails on X" is meaningless
+   without "passes without X".)
 5. `guidance/constraints.yaml:33`'s `enforcement:` states what is now actually
    enforced — no more, no less.
 6. All existing gates stay green.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+Red today, green after build. **`-F` is `--forbid`: a forbidden lint cannot be
+re-allowed in source, and attempting it is compiler error `E0453`.**
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+```bash
+# THE GATE — must exit 0 on the honest tree, non-zero with any #[allow] planted
+cargo clippy --lib --quiet -- \
+  -F clippy::unwrap_used -F clippy::expect_used -F clippy::indexing_slicing \
+  -F clippy::panic -F clippy::arithmetic_side_effects
+```
+
+**The red-proof** — plant this in `src/lib.rs` and the gate must fail:
+
+```rust
+#[allow(clippy::panic, clippy::expect_used)]
+pub fn boom(v: &[u8]) -> u8 { if v.is_empty() { panic!("e") } *v.first().expect("x") }
+```
+
+Expected, measured at design:
+
+```
+error[E0453]: allow(clippy::panic) incompatible with previous forbid
+error[E0453]: allow(clippy::expect_used) incompatible with previous forbid
+exit 101
+```
 
 ## Non-Goals
 
@@ -159,24 +177,49 @@ expand this one.
 
 ## Notes for the Implementer
 
-⚠ **If you reach for a text search — and you probably will — heed the
-`attribute-text-inside-doc-comments` lesson signal, now at N=5 on SPEC-001
-alone.** Every one of those five produced a wrong *answer* rather than an error:
-two false negatives, one false green that shipped a panic past seven gates.
+### The mechanism is decided and measured — transcribe it
 
-The rules that came out of it: **anchor at column 0**, exclude `//`, `//!` and
-`/* */`, and **assert the match count** rather than taking the first hit.
-`src/lib.rs` contains attribute text inside its own module documentation — that is
-not an edge case here, it is the normal state of this file.
+**`cargo clippy --lib -- -F <each policy lint>`.** All three properties verified
+at design on the real crate:
 
-Consider whether a text search is the right tool at all. Alternatives worth a
-moment: `cargo clippy` with the lints forced at the command line (which overrides
-inner attributes but **not** `#[allow]` on an item), or a small AST pass. If a
-text gate is chosen, its own red-proof (criterion 3) is what keeps it honest.
+| run | result |
+|---|---|
+| `#[allow]` planted on a `pub fn` | **exit 101**, `E0453: allow(clippy::panic) incompatible with previous forbid` |
+| honest tree | **exit 0** — the negative control holds |
+| `--all-targets` instead of `--lib` | exit 101 — because tests legitimately allow |
 
-**Scope discipline:** this spec closes one hole and corrects one sentence. It is
-not a licence to redesign `DEC-009`'s red-proof, which is sound for what it
-pins.
+That last row is *why* the scope is `--lib`: it excludes `#[cfg(test)]` modules
+(not compiled without `cfg(test)`) and `src/bin/irr.rs` (a different target), so
+criterion 2 needs no per-site special-casing at all.
+
+### Why this beats the text search everyone reaches for first
+
+**There is no text matching, so the `attribute-text-inside-doc-comments` lesson
+(N=5) cannot bite.** `src/lib.rs` contains attribute text inside its own module
+docs; a grep would have to exclude `//`, `//!`, `/* */` and anchor at column 0,
+and five separate attempts on SPEC-001 got that wrong — each producing a wrong
+*answer* rather than an error.
+
+`E0453` is also strictly stronger than detecting a violation: it forbids the
+**escape hatch itself**, firing on the attribute whether or not the code beneath
+it actually panics.
+
+### Two things worth knowing
+
+- **`--force-warn` is the wrong tool here**, though it looks right. It *does*
+  override `#[allow]` (measured: 2 warnings at the planted line) but `-D warnings`
+  **cannot promote a force-warn diagnostic to an error**, so the exit code stays
+  **0**. A gate built on it would need output parsing — reintroducing exactly the
+  text-matching fragility this design avoids.
+- **Scope honestly.** This covers the `--lib` target. It is not a claim about
+  every future target, and `constraints.yaml` (criterion 5) should say so rather
+  than overstate again — F-4 was raised because the last wording did.
+
+### Scope discipline
+
+One gate, one CI job, one corrected sentence. **Do not** touch
+`scripts/lint-red-proof.sh` — `DEC-009`'s red-proof is sound for what it pins,
+and this gate covers the part it structurally cannot. They are complementary.
 
 ## Reflection
 
