@@ -29,3 +29,15 @@ path = "src/bin/irr.rs"
 [dependencies]
 
 [dev-dependencies]
+# DEV-ONLY, and that is load-bearing: `toml` parses tests/corpus/manifest.toml
+# for the corpus tests and the `corpus-status` example. It is never compiled
+# into the library, so "irradiance has no dependencies" stays true as written
+# — `[dependencies]` above is still empty. See DEC-010.
+#
+# Feature set is MEASURED (SPEC-002 design), not guessed:
+#   toml = "0.8"                                 -> 12 crates, parses
+#   default-features = false, features=["parse"] -> 11 crates, parses   <- this
+#   default-features = false                     ->  6 crates, does NOT parse
+#     (`Value: FromStr` unsatisfied — it passes `cargo check` only because
+#      nothing calls the API, a shape-check masquerading as a behaviour-check)
+toml = { version = "0.8", default-features = false, features = ["parse"] }

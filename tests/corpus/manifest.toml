@@ -18,12 +18,25 @@
 # is not a provenance record. This is the one field with no second chance.
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# ⚠ NO READER YET, and that is a scheduled debt, not an oversight. Nothing on
-#   this machine parses TOML (python 3.9 — no tomllib, no `toml`; no taplo/tomlq/
-#   yq). The real reader is Rust's `toml` crate and it arrives with the first
-#   Cargo.toml, in STAGE-001's corpus spec — which MUST read this file rather
-#   than hardcode paths, or the manifest becomes the unread field AGENTS.md §11
-#   warns about. Until then the only check is structural (required keys present).
+# ✅ THE READER EXISTS (SPEC-002, 2026-08-20) — the debt this header used to
+#   record is closed. `tests/support/corpus.rs` parses this file; the corpus
+#   tests in `tests/corpus_manifest.rs` consume it, and `just test` runs
+#   `examples/corpus-status.rs` BEFORE the suite so an absent file is named on
+#   the terminal and in CI logs with no extra flags.
+#
+#   Consequences for editing this file:
+#     - `path`, `tier`, `bytes`, `sha256`, `licence`, `source` and
+#       `[file.oracle] raw_checksum` are REQUIRED on every [[file]] entry. The
+#       reader rejects an entry missing any of them, naming it. `pgm_bytes` and
+#       `strip_bytes` are optional (the JPEG-compressed entries have no
+#       layer-0 arithmetic to pin).
+#     - `sha256` must be 64 hex characters, and it is VERIFIED against the
+#       bytes on disk for every present file. A mismatch fails loudly by name.
+#     - Adding or removing an entry fails `corpus_manifest_parses` until
+#       `MANIFEST_ENTRIES` in tests/corpus_manifest.rs is updated — deliberate,
+#       so a new entry cannot land with nothing consuming it.
+#     - `[[wanted]]` and `[[available]]` are NOT read by anything yet. They are
+#       a human-facing backlog; if that changes, ship the reader with the field.
 #
 # tier   = "b"                  tier A (committed) is a separate, CC0-only lane
 # licence: an SPDX id, a CC id, "own-work", or "personal-evaluation-only"

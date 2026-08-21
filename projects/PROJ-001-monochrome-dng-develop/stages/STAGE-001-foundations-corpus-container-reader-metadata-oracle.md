@@ -102,7 +102,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 Run `just frame-stage STAGE-001` to promote these outlines into real specs.
 
 - [x] SPEC-001 (shipped on 2026-08-20) [S] Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI
-- [ ] SPEC-002 (frame) [S] Corpus manifest reader and skip-when-absent harness
+- [x] SPEC-002 (shipped on 2026-08-20) [S] Corpus manifest reader and skip-when-absent harness
 - [ ] SPEC-003 (frame) [L] TIFF/IFD reader — bounded, panic-free, cycle-guarded, SubIFD recursion — plus its fuzz target
 - [ ] SPEC-004 (frame) [M] DNG tag model and typed metadata extraction
 - [x] SPEC-006 (shipped on 2026-08-20) [S] Close the allow-attribute bypass in the panic-free gate — split from SPEC-002 at SPEC-001 ship; depends only on SPEC-001
