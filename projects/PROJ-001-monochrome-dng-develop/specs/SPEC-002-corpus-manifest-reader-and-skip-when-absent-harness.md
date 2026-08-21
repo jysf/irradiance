@@ -6,14 +6,14 @@
 task:
   id: SPEC-002
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                     # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -80,10 +80,18 @@ cost:
       duration_minutes: 30
       recorded_at: 2026-08-20
       notes: "Build cycle for SPEC-002 (HANDOFF-008). Reader + visible skip shipped; all seven gates green and pasted in the handback, including the criterion `just test 2>&1 | grep SKIP` demonstrated in three corpus states (0/7, 6/7, 7/7 present) plus an adversarial mutation that takes it to 0 lines. One dev-dependency added (toml, DEC-010); [dependencies] still empty. SHA-256 written from FIPS 180-4 rather than taken as a second dep, with a provenance-ledger row. tokens_total is REAL but not from /cost, which is a client-side slash command the assistant cannot execute; I summed the usage objects in this session's own transcript (~/.claude/projects/-Users-...-irradiance/dbdeb6a8-....jsonl). Composition: input 150 + output 65,303 + cache-write 159,959 + cache-read 9,272,738 (97.6% cache-read). FLOOR - written before the session ends. IMPORTANT, and it breaks comparability with every SPEC-001 figure: this number is DEDUPED BY message.id. A transcript writes one jsonl line per content block and repeats the same usage object on each, so the raw sum every SPEC-001 session used double-counts multi-block messages - measured 1.7x on SPEC-001's own verify-4 transcript (116 raw objects, 67 distinct ids, raw 14,177,812 vs deduped 8,053,949, recorded 10,962,512). Signal token-counts-not-comparable updated with the measurement; SPEC-001's cost.totals of 51,979,929 should be re-summed with dedup rather than left standing."
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 6097683
+      estimated_usd: null
+      duration_minutes: 45
+      recorded_at: 2026-08-20
+      notes: "Verify cycle for SPEC-002 (HANDOFF-010). Verdict APPROVED at 4516280, no ship-blocking findings, 7 follow-ups (F1-F7 in the handoff). Criterion re-run here with no extra flags: 8 SKIP lines each naming its absent file; adversarial mutation of app.just takes it to 0 and restoring takes it back to 8; 6-of-7 corpus names exactly the removed frame; 7/7 corpus gives 0 SKIP, 9 tests, 14.91s. All seven gates re-run green. The hand-written SHA-256 was verified against an INDEPENDENT oracle rather than reviewed by eye: a differential harness #[path]-including the real file was compared to Python hashlib and shasum -a 256 over every length 0..600 (all 64 padding residues incl. 55/56/57/63/64), exhaustive 2-way and 3-way streaming splits (33042 splittings), byte-at-a-time updates, and 2^32+1 bytes to exercise the 64-bit length field past 4 GiB - 0 mismatches everywhere; K[64] and H0[8] were rederived from the cube/square roots of the first primes and all 72 constants are exact; all 7 real corpus digests match the manifest pins under shasum. Both red-proofs observed failing under their own deliberate fault, and selectively. Chief finding F1: the committed NIST vectors cover padding residues {0,3,56} only, so mutating the padding branch > to >= at tests/support/corpus.rs:474 breaks every length congruent to 55 mod 64 while all 9 tests still pass - and the real corpus cannot catch it either (sizes are residues {0,0,0,0,0,54,36}). Finding F2: the recorded design measurement is wrong as stated - eprintln! is captured by libtest but a direct writeln! to std::io::stderr() in a PASSING test is not, taking bare `cargo test` from 0 SKIP lines to 8; the shipped corpus-status design is still the better surface and stays. tokens_total is a transcript sum DEDUPED BY message.id and said so: 97 usage objects, 51 distinct ids, raw 11,900,593 vs deduped 6,097,683 = 1.95x inflation, 97.0% cache-read. Independently confirmed the build's double-counting diagnosis on three transcripts (1.86x / 1.84x / 2.25x). NOTE (F5): re-summing the build transcript dbdeb6a8 after its session closed gives 12,644,814 deduped, so the recorded build figure of 9,498,150 is a floor about 25% low - re-sum it alongside SPEC-001's four sessions."
   totals:
-    tokens_total: 9498150
+    tokens_total: 15595833
     estimated_usd: 0
-    session_count: 1
+    session_count: 2
 ---
 
 # SPEC-002: Corpus manifest reader and skip-when-absent harness
