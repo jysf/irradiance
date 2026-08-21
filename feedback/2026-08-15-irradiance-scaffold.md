@@ -450,6 +450,62 @@ free text — but that is a property of current callers, not of the functions.
 
 ---
 
+## 13. Parallel branches allocate colliding artifact IDs
+
+`AGENTS.md` §2 promises IDs are "globally unique and continuous across the repo".
+`just new-handoff` (and `new-spec`, `new-stage`, …) computes the next number from
+**what is visible in the current worktree** — so two branches in flight allocate
+the same one.
+
+**Measured twice, consecutively.** With `feat/spec-002-…` and `feat/spec-006-…`
+both live: SPEC-006's verify handoff was allocated `008`, already held by
+SPEC-002's build handoff on the other branch. Renamed to `009` by hand. The very
+next `new-handoff`, for SPEC-002's verify, allocated `009` — now held by the file
+just renamed. Renamed to `010`.
+
+This is a **direct consequence of the parallelism the template encourages**:
+`just ready` computes a "safely-parallel batch for sub-agents", and AGENTS.md §13
+mandates one worktree per concurrent session. Following both instructions produces
+ID collisions, and nothing detects them — `just validate` passed throughout,
+because each branch is internally consistent.
+
+**Fix options**, cheapest first:
+- Allocate from `git log --all` rather than the working tree, so branch-local
+  files are not the only input.
+- Have `just validate` refuse duplicate IDs across `refs/heads/*`.
+- Accept collisions and make merges resolve them — worst option; the ID is cited
+  in commit messages and handbacks long before the merge.
+
+---
+
+## 14. Cost figures across the template are not measurements
+
+`cost.sessions` and `just calibration` present token counts as data. In this
+instance, none of them are yet:
+
+- **Transcript sums double-count ~1.9×.** A transcript writes one JSONL line per
+  *content block* and repeats the same `usage` object on each. Measured on four
+  transcripts: 1.86× / 1.84× / 1.95× / 2.25× inflation. Deduplicating by
+  `message.id` is the one-line fix.
+- **A transcript re-summed after its session closes is larger** — one build's
+  figure went from 9,498,150 to 12,644,814, so the recorded number was a floor
+  ~25% low.
+- **Different execution modes are not comparable at all.** An Agent-result
+  `subagent_tokens` (197,940) and a deduplicated transcript sum (8,053,949) differ
+  by more than an order of magnitude, and ~97% of the latter is cache-read.
+
+Net: SPEC-001's `cost.totals: 51,979,929` is **not a real number**, and
+`just calibration` will happily build a credible-looking band from it. The
+template should either record a `basis:` per session (`agent-result` /
+`transcript-sum-deduped` / `slash-cost`) and group by it, or state plainly that
+these are spend indicators rather than effort measurements.
+
+⚠ The figures are **not corrected** in this repo, because a corrected number
+cannot be derived from a closed session. They are left as recorded, with this
+note, rather than replaced by a plausible invention.
+
+---
+
 ## Priority (this instance's assessment)
 
 | # | Finding | Severity | Fix cost |
@@ -465,6 +521,8 @@ free text — but that is a property of current callers, not of the functions.
 | 10 | `frame-stage` slugs uncapped → ENAMETOOLONG | medium — hard stop mid-framing (but atomic) | trivial |
 | 11 | `frame-stage` bakes `(not yet written)` into every filename | medium — permanent, cited for the project's life | trivial |
 | 12 | `_lib.sh` truncates quoted YAML containing `#`; cost-audit still green | **high** — silent record corruption, 87% understated, gate blind | trivial |
+| 13 | parallel branches allocate colliding artifact IDs | medium — hit twice consecutively; validate blind | low |
+| 14 | cost figures are not measurements (~1.9x double-count, incomparable bases) | **high** — calibration will build a band from fiction | low |
 | 6 | **spike lane beat the external design** | **win** — capture, don't promote (N=1) | n/a |
 
 Findings 1, 4, 7, 8 and 9 are all the *same shape*: the template knows the right
