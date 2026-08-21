@@ -109,10 +109,7 @@ fn cmd_ifd(args: &[&str]) -> ExitCode {
         }
     }
 
-    match container.sensor_candidates() {
-        Ok(c) => println!("sensor_matches  {c:?}"),
-        Err(e) => println!("sensor_matches  <error: {e}>"),
-    }
+    println!("sensor_matches  {:?}", container.sensor_candidates());
 
     let sensor = match container.sensor() {
         Ok(s) => s,

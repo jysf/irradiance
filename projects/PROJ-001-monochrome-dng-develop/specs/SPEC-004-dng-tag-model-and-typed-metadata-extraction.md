@@ -6,7 +6,7 @@
 task:
   id: SPEC-004
   type: story                      # epic | story | task | bug | chore
-  cycle: design                     # frame | design | build | verify | ship
+  cycle: verify                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,8 +27,8 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # filled when HANDOFF is created (any agent — see docs/porting.md)
+  created_at: 2026-08-21
 
 references:
   decisions: [DEC-008, DEC-012]                    # [DEC-NNN, DEC-MMM]
@@ -63,7 +63,15 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 50
+      recorded_at: 2026-08-21
+      notes: "Build cycle for SPEC-004 (HANDOFF-015), commit pending on feat/spec-004-tag-model, not merged. tokens_total is null, not by default: this session ran as the top-level interactive Claude Code session rather than a sub-agent an orchestrator metered via subagent_tokens, and there was no tool-level way to run /cost or read raw per-message usage objects from inside a turn to reproduce SPEC-003's dedup-by-message.id methodology (1.61x-2.25x measured range on record). See HANDOFF-015's handback notes for the full reasoning. Ten gates green and pasted in the handoff, including a fresh 13.6M-execution fuzz run with two new FU-11 seed fixtures. Found and corrected a stale-context issue: SPEC-003's build had already shipped most of AC1's tag extraction (contrary to this spec's own Context section); the real remaining work was AC1's typing (bare arrays to named structs), FU-11 itself, and the literally-named Failing Tests commands, none of which existed under those names before this build."
   totals:
     tokens_total: 0
     estimated_usd: 0

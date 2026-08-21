@@ -38,8 +38,12 @@
 //! and AGENTS.md §11/§12.
 //!
 //! `SPEC-001` scaffolded the crate; `SPEC-003` added [`ifd`], the TIFF/IFD
-//! container reader and its fuzz target. Still absent, by design: the typed
-//! tag model (`SPEC-004`) and any pixel decode or unpack (STAGE-002).
+//! container reader and its fuzz target; `SPEC-004` added the develop
+//! pipeline's remaining DNG integer tags (`BlackLevel`, `WhiteLevel`,
+//! `ActiveArea`, `DefaultCropOrigin`/`Size`, `Orientation`, opcode-list
+//! presence) as typed extraction. Still absent, by design: `RATIONAL`,
+//! `ASCII` and the signed field types (no DNG tag PROJ-001 reads needs them
+//! yet), and any pixel decode or unpack (STAGE-002).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -152,6 +156,19 @@ pub enum Error {
     /// SamplesPerPixel == 1`).
     NoSensorIfd,
 
+    /// No IFD matched the sensor-plane rule outright, **and** at least one
+    /// IFD's identifying tag (`NewSubfileType`, `PhotometricInterpretation`,
+    /// or `SamplesPerPixel`) could not be read at all — that IFD's identity
+    /// is *unknown*, not "not the sensor". Returned instead of a bare
+    /// [`Error::NoSensorIfd`] so a malformed tag on the true sensor IFD does
+    /// not silently masquerade as "this file has no raw plane" (`DEC-012`;
+    /// `SPEC-004` FU-11).
+    NoSensorIfdCandidatesMalformed {
+        /// `(ifd_index, tag)` for every IFD whose identity could not be
+        /// determined — `tag` is whichever identifying tag failed to read.
+        candidates: Vec<(usize, u16)>,
+    },
+
     /// The sensor plane is compressed and this library does not decode that
     /// compression. Three of the seven corpus files land here, and landing
     /// here **is** the clean rejection.
@@ -207,6 +224,14 @@ impl fmt::Display for Error {
             Error::NoSensorIfd => f.write_str(
                 "no IFD matched the sensor-plane rule (NewSubfileType 0, LinearRaw, 1 sample)",
             ),
+            Error::NoSensorIfdCandidatesMalformed { candidates } => {
+                write!(
+                    f,
+                    "no IFD matched the sensor-plane rule, and {} candidate(s) could not be \
+                     evaluated because an identifying tag was malformed: {candidates:?}",
+                    candidates.len()
+                )
+            }
             Error::UnsupportedCompression { compression } => {
                 write!(
                     f,

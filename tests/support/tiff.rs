@@ -355,6 +355,48 @@ pub fn malformed_black_level_repeat_dim() -> Vec<u8> {
     tiff(Order::Little, 8, &[Ifd::new(8, entries, 0)])
 }
 
+/// A malformed `PhotometricInterpretation` on IFD0 — posing as a thumbnail —
+/// alongside a valid `SubIFD` carrying the real sensor plane.
+///
+/// `SPEC-004` FU-11: `is_sensor_ifd` reads this tag on EVERY IFD to test
+/// whether it is the sensor. A malformed reading of it on an unrelated IFD
+/// must not cost the container — the real plane, found on another IFD, must
+/// still be reachable.
+pub fn malformed_photometric_on_thumbnail(order: Order) -> Vec<u8> {
+    tiff(
+        order,
+        8,
+        &[
+            Ifd::new(
+                8,
+                vec![
+                    long(NEW_SUBFILE_TYPE, 1),
+                    // An unreadable field type (TIFF defines none as 250),
+                    // so reading this tag as an integer fails outright.
+                    at_offset(PHOTOMETRIC, 250, 1, 0),
+                    long(SUB_IFDS, 200),
+                ],
+                0,
+            ),
+            Ifd::new(200, sensor_entries(order), 0),
+        ],
+    )
+}
+
+/// The other half of the same fixture shape: the malformed
+/// `PhotometricInterpretation` is on the file's ONLY candidate — there is no
+/// other IFD to fall back to.
+///
+/// `SPEC-004` FU-11: `sensor()` must say a candidate was malformed here, not
+/// return a bare `NoSensorIfd` indistinguishable from "this file has no raw
+/// plane at all".
+pub fn malformed_photometric_on_the_only_candidate(order: Order) -> Vec<u8> {
+    let mut entries = sensor_entries(order);
+    entries.retain(|e| e.tag != PHOTOMETRIC);
+    entries.push(at_offset(PHOTOMETRIC, 250, 1, 0));
+    tiff(order, 8, &[Ifd::new(8, entries, 0)])
+}
+
 /// An IFD with zero entries, chaining to nothing.
 pub fn zero_entries() -> Vec<u8> {
     tiff(Order::Little, 8, &[Ifd::new(8, vec![], 0)])
@@ -399,6 +441,14 @@ pub fn all() -> Vec<(&'static str, Vec<u8>)> {
         (
             "malformed-black-level-repeat-dim",
             malformed_black_level_repeat_dim(),
+        ),
+        (
+            "malformed-photometric-on-thumbnail",
+            malformed_photometric_on_thumbnail(Order::Little),
+        ),
+        (
+            "malformed-photometric-on-only-candidate",
+            malformed_photometric_on_the_only_candidate(Order::Little),
         ),
         ("zero-entries", zero_entries()),
         ("no-ifd0", no_ifd0()),

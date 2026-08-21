@@ -84,8 +84,9 @@ const ENTRY_SIZE: usize = 12;
 // Tags this module needs
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Only the tags the container walk and SPEC-003's acceptance criteria require.
-// The full typed tag model is SPEC-004's job, not this module's.
+// The tags SPEC-003's container walk needs, plus SPEC-004's typed extraction
+// of the develop pipeline's remaining DNG integer tags. RATIONAL, ASCII and
+// the signed field types are still absent — no tag PROJ-001 reads needs them.
 
 /// TIFF 6.0: `NewSubfileType`. **Default 0 when absent** — that default is
 /// load-bearing, see [`Container::sensor_ifd`].
@@ -405,6 +406,50 @@ impl Compression {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Typed geometry — SPEC-004 acceptance criterion 1
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A bare `[u32; N]` makes the caller remember an order the DNG spec defines
+// but the type does not. These structs carry that order in their field names
+// instead, so `sensor.active_area.top` cannot be confused with `.left` the
+// way `active_area[0]` invites.
+
+/// DNG `ActiveArea` (tag 50829, DNG 1.7 §Chapter 4): the rectangle of valid
+/// pixels within the full sensor image, in the tag's own (top, left, bottom,
+/// right) order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActiveArea {
+    /// Top edge, in raw pixel rows.
+    pub top: u32,
+    /// Left edge, in raw pixel columns.
+    pub left: u32,
+    /// Bottom edge (exclusive), in raw pixel rows.
+    pub bottom: u32,
+    /// Right edge (exclusive), in raw pixel columns.
+    pub right: u32,
+}
+
+/// DNG `DefaultCropOrigin` (tag 50719, DNG 1.7 §Chapter 4): the origin of the
+/// final image area, in raw pixel coordinates relative to `ActiveArea`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DefaultCropOrigin {
+    /// Horizontal offset.
+    pub x: u32,
+    /// Vertical offset.
+    pub y: u32,
+}
+
+/// DNG `DefaultCropSize` (tag 50720, DNG 1.7 §Chapter 4): the width and
+/// height of the final image area, in raw pixel units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DefaultCropSize {
+    /// Width, in raw pixel columns.
+    pub width: u32,
+    /// Height, in raw pixel rows.
+    pub height: u32,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // The sensor summary
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -444,12 +489,15 @@ pub struct Sensor {
     pub white_level: Option<u32>,
     /// DNG `BlackLevelRepeatDim`, when present **and well-formed**.
     pub black_level_repeat_dim: Option<[u32; 2]>,
-    /// DNG `ActiveArea` (top, left, bottom, right), when present.
-    pub active_area: Option<[u32; 4]>,
+    /// DNG `ActiveArea`, when present. **Absent, not a zero rectangle** —
+    /// the M Monochrom writes no `ActiveArea` at all, and this is `None`
+    /// there, never `Some(ActiveArea { top: 0, .. })` (acceptance criterion
+    /// 3).
+    pub active_area: Option<ActiveArea>,
     /// DNG `DefaultCropOrigin`, when present.
-    pub default_crop_origin: Option<[u32; 2]>,
+    pub default_crop_origin: Option<DefaultCropOrigin>,
     /// DNG `DefaultCropSize`, when present.
-    pub default_crop_size: Option<[u32; 2]>,
+    pub default_crop_size: Option<DefaultCropSize>,
     /// `Orientation`, read from IFD0 and falling back to the sensor IFD.
     ///
     /// Per-frame, never a camera constant: two frames from the same body
@@ -515,6 +563,28 @@ pub struct Container<'a> {
     byte_order: ByteOrder,
     ifd0_offset: u32,
     ifds: Vec<Ifd>,
+}
+
+/// The outcome of testing one IFD against the sensor-selection rule
+/// (`NewSubfileType == 0 && PhotometricInterpretation == 34892 (LinearRaw) &&
+/// SamplesPerPixel == 1`, see [`Container::is_sensor_ifd`]).
+///
+/// Not a `Result`: a malformed identifying tag is not an *error* to a caller
+/// scanning every IFD for the plane, it is a **third possible answer**,
+/// distinct from "no". Coercing it into [`SensorMatch::No`] would silently
+/// hide a real plane behind a bad tag if the IFD in question is, in fact, the
+/// sensor IFD — the obvious-looking fix `DEC-012` and `SPEC-004`'s FU-11 both
+/// reject.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SensorMatch {
+    /// This IFD matches the rule.
+    Yes,
+    /// This IFD does not match the rule — a confident negative.
+    No,
+    /// One of the three identifying tags could not be read. This IFD's
+    /// identity is *unknown*, not "not the sensor". Carries the tag that
+    /// failed.
+    Unreadable(u16),
 }
 
 impl<'a> Container<'a> {
@@ -667,6 +737,10 @@ impl<'a> Container<'a> {
     ///
     /// Reads `last()` rather than an index so there is no lookup that could
     /// fail and no unrelated error variant standing in for "impossible".
+    ///
+    /// See `DEC-012`: this is the **walk**-phase, and deliberately strict — a
+    /// malformed `SubIFDs` entry is fatal to the whole container, unlike
+    /// `array()`'s tag-level tolerance below.
     fn sub_ifd_offsets_of_last(&self) -> Result<Vec<u32>, Error> {
         match self.ifds.last().and_then(|ifd| ifd.entry(TAG_SUB_IFDS)) {
             None => Ok(Vec::new()),
@@ -707,10 +781,10 @@ impl<'a> Container<'a> {
 
     /// An entry's values widened to `u32`.
     ///
-    /// Handles `BYTE`, `SHORT`, `LONG`, `IFD` and `UNDEFINED`. The wider type
-    /// model — `RATIONAL`, the signed types, `ASCII` — is `SPEC-004`'s, and
-    /// asking for one here is a typed [`Error::UnexpectedFieldType`] rather
-    /// than a silent zero.
+    /// Handles `BYTE`, `SHORT`, `LONG`, `IFD` and `UNDEFINED` — every DNG tag
+    /// PROJ-001 reads. `RATIONAL`, the signed types and `ASCII` remain
+    /// unimplemented, still absent by design; asking for one here is a typed
+    /// [`Error::UnexpectedFieldType`] rather than a silent zero.
     pub fn uints(&self, entry: &Entry) -> Result<Vec<u32>, Error> {
         // The field type is a property of the entry, so it is checked before
         // the buffer is touched: otherwise a RATIONAL that also happens to
@@ -798,6 +872,9 @@ impl<'a> Container<'a> {
     /// Present-but-wrong-length is **not** an error: the tag is dropped and its
     /// number is pushed to `malformed`. That is what keeps the Pentax's
     /// one-element `BlackLevelRepeatDim` from costing the whole file.
+    ///
+    /// See `DEC-012`: this is the **interpret**-phase tolerance — a malformed
+    /// *optional* tag costs that tag alone, never the container.
     fn array<const N: usize>(
         &self,
         ifd: &Ifd,
@@ -833,36 +910,86 @@ impl<'a> Container<'a> {
     /// Both defaults are TIFF 6.0's and both are load-bearing: a Pentax `.PEF`
     /// puts its plane in IFD0 and writes **no** `NewSubfileType` at all, so
     /// absent-means-0 is what finds it.
-    pub fn is_sensor_ifd(&self, ifd: &Ifd) -> Result<bool, Error> {
-        let subfile_type = self.scalar(ifd, TAG_NEW_SUBFILE_TYPE)?.unwrap_or(0);
-        let photometric = self.scalar(ifd, TAG_PHOTOMETRIC)?;
-        let samples = self.scalar(ifd, TAG_SAMPLES_PER_PIXEL)?.unwrap_or(1);
-        Ok(subfile_type == 0 && photometric == Some(PHOTOMETRIC_LINEAR_RAW) && samples == 1)
+    ///
+    /// Returns [`SensorMatch`], not `Result<bool, Error>` — see FU-11 below
+    /// for why a `?`-shaped answer here was the defect, not the fix.
+    pub fn is_sensor_ifd(&self, ifd: &Ifd) -> SensorMatch {
+        let subfile_type = match self.scalar(ifd, TAG_NEW_SUBFILE_TYPE) {
+            Ok(v) => v.unwrap_or(0),
+            Err(_) => return SensorMatch::Unreadable(TAG_NEW_SUBFILE_TYPE),
+        };
+        let photometric = match self.scalar(ifd, TAG_PHOTOMETRIC) {
+            Ok(v) => v,
+            Err(_) => return SensorMatch::Unreadable(TAG_PHOTOMETRIC),
+        };
+        let samples = match self.scalar(ifd, TAG_SAMPLES_PER_PIXEL) {
+            Ok(v) => v.unwrap_or(1),
+            Err(_) => return SensorMatch::Unreadable(TAG_SAMPLES_PER_PIXEL),
+        };
+        if subfile_type == 0 && photometric == Some(PHOTOMETRIC_LINEAR_RAW) && samples == 1 {
+            SensorMatch::Yes
+        } else {
+            SensorMatch::No
+        }
+    }
+
+    /// Every IFD's outcome against [`Container::is_sensor_ifd`]: the matching
+    /// indices, and every `(index, tag)` whose identity could not be
+    /// determined at all.
+    ///
+    /// **FU-11.** `is_sensor_ifd` used to be `Result<bool, Error>`, and
+    /// `sensor_candidates`/`sensor_ifd`/`sensor` each `?`-propagated it over
+    /// *every* IFD — so a malformed identifying tag on a thumbnail aborted
+    /// the scan before it ever reached the real sensor plane elsewhere in the
+    /// same file. This is the one place that scan happens now: a malformed
+    /// candidate is skipped and recorded here, never allowed to abort the
+    /// loop, and the record is what lets [`Container::sensor`] say *why* when
+    /// nothing is found instead of returning a bare [`Error::NoSensorIfd`]
+    /// indistinguishable from "this file has no raw plane at all".
+    fn scan_sensor(&self) -> (Vec<usize>, Vec<(usize, u16)>) {
+        let mut matches = Vec::new();
+        let mut unreadable = Vec::new();
+        for (index, ifd) in self.ifds.iter().enumerate() {
+            match self.is_sensor_ifd(ifd) {
+                SensorMatch::Yes => matches.push(index),
+                SensorMatch::No => {}
+                SensorMatch::Unreadable(tag) => unreadable.push((index, tag)),
+            }
+        }
+        (matches, unreadable)
+    }
+
+    /// [`Error::NoSensorIfd`] when nothing was skipped; the more specific
+    /// [`Error::NoSensorIfdCandidatesMalformed`] when at least one candidate's
+    /// identity could not be determined (FU-11).
+    fn no_sensor_ifd_error(unreadable: Vec<(usize, u16)>) -> Error {
+        if unreadable.is_empty() {
+            Error::NoSensorIfd
+        } else {
+            Error::NoSensorIfdCandidatesMalformed {
+                candidates: unreadable,
+            }
+        }
     }
 
     /// Indices of every IFD matching [`Container::is_sensor_ifd`].
     ///
     /// Exposed so a test can assert there is exactly **one** — a selection rule
     /// that happens to pick the right IFD because it picks the first of several
-    /// is not the rule doing the work.
-    pub fn sensor_candidates(&self) -> Result<Vec<usize>, Error> {
-        let mut out = Vec::new();
-        for (index, ifd) in self.ifds.iter().enumerate() {
-            if self.is_sensor_ifd(ifd)? {
-                out.push(index);
-            }
-        }
-        Ok(out)
+    /// is not the rule doing the work. Infallible: a malformed candidate is
+    /// recorded, not surfaced as an error, here (FU-11) — see
+    /// [`Container::sensor`] for where that record turns into one.
+    pub fn sensor_candidates(&self) -> Vec<usize> {
+        self.scan_sensor().0
     }
 
-    /// The sensor IFD, or [`Error::NoSensorIfd`].
+    /// The sensor IFD, or an error explaining why none was found (FU-11).
     pub fn sensor_ifd(&self) -> Result<&Ifd, Error> {
-        for ifd in &self.ifds {
-            if self.is_sensor_ifd(ifd)? {
-                return Ok(ifd);
-            }
+        let (matches, unreadable) = self.scan_sensor();
+        match matches.first() {
+            Some(&index) => self.ifds.get(index).ok_or(Error::NoSensorIfd),
+            None => Err(Self::no_sensor_ifd_error(unreadable)),
         }
-        Err(Error::NoSensorIfd)
     }
 
     /// The sensor plane's tags, as [`Sensor`].
@@ -871,14 +998,10 @@ impl<'a> Container<'a> {
     /// succeeds on compressed files too, so their tags are readable and their
     /// rejection is a separate, explicit [`Sensor::require_uncompressed`].
     pub fn sensor(&self) -> Result<Sensor, Error> {
-        let mut index = None;
-        for (i, ifd) in self.ifds.iter().enumerate() {
-            if self.is_sensor_ifd(ifd)? {
-                index = Some(i);
-                break;
-            }
-        }
-        let ifd_index = index.ok_or(Error::NoSensorIfd)?;
+        let (matches, unreadable) = self.scan_sensor();
+        let ifd_index = *matches
+            .first()
+            .ok_or_else(|| Self::no_sensor_ifd_error(unreadable))?;
         let ifd = self.ifds.get(ifd_index).ok_or(Error::NoSensorIfd)?;
 
         let mut malformed: Vec<u16> = Vec::new();
@@ -912,9 +1035,20 @@ impl<'a> Container<'a> {
                 TAG_BLACK_LEVEL_REPEAT_DIM,
                 &mut malformed,
             )?,
-            active_area: self.array::<4>(ifd, TAG_ACTIVE_AREA, &mut malformed)?,
-            default_crop_origin: self.array::<2>(ifd, TAG_DEFAULT_CROP_ORIGIN, &mut malformed)?,
-            default_crop_size: self.array::<2>(ifd, TAG_DEFAULT_CROP_SIZE, &mut malformed)?,
+            active_area: self.array::<4>(ifd, TAG_ACTIVE_AREA, &mut malformed)?.map(
+                |[top, left, bottom, right]| ActiveArea {
+                    top,
+                    left,
+                    bottom,
+                    right,
+                },
+            ),
+            default_crop_origin: self
+                .array::<2>(ifd, TAG_DEFAULT_CROP_ORIGIN, &mut malformed)?
+                .map(|[x, y]| DefaultCropOrigin { x, y }),
+            default_crop_size: self
+                .array::<2>(ifd, TAG_DEFAULT_CROP_SIZE, &mut malformed)?
+                .map(|[width, height]| DefaultCropSize { width, height }),
             orientation,
             opcode_lists: [
                 ifd.has(TAG_OPCODE_LIST_1),
@@ -1169,7 +1303,7 @@ mod tests {
     #[test]
     fn a_readable_type_this_module_does_not_widen_is_typed() {
         // RATIONAL has a known size, so `payload` works; `uints` is what
-        // refuses, naming the type. The wider model is SPEC-004's.
+        // refuses, naming the type. RATIONAL/signed/ASCII remain unimplemented.
         let data = Build::new(false, 8)
             .ifd(8, &[(TAG_BLACK_LEVEL, 5, 1, 200)], 0)
             .done();
@@ -1276,7 +1410,7 @@ mod tests {
             .ifd(200, &plane, 0)
             .done();
         let c = Container::parse(&data).unwrap();
-        assert_eq!(c.sensor_candidates().unwrap(), vec![1]);
+        assert_eq!(c.sensor_candidates(), vec![1]);
         let s = c.sensor().unwrap();
         assert_eq!(s.width, 4);
         assert_eq!(s.ifd_index, 1);
@@ -1371,9 +1505,9 @@ mod tests {
     }
 
     #[test]
-    fn a_malformed_fixed_length_tag_costs_the_tag_not_the_file() {
+    fn malformed_tag_costs_only_that_tag() {
         // BlackLevelRepeatDim with count 1 where DNG requires 2 — the Pentax
-        // K-3 III Monochrome's real defect, in miniature.
+        // K-3 III Monochrome's real defect, in miniature. DEC-012.
         let b = Build::new(false, 8);
         let mut entries = sensor(&b);
         let word = b.short_word(1);
@@ -1398,7 +1532,15 @@ mod tests {
             data[at..at + 4].copy_from_slice(&v.to_le_bytes());
         }
         let s = Container::parse(&data).unwrap().sensor().unwrap();
-        assert_eq!(s.active_area, Some([0, 0, 2, 4]));
+        assert_eq!(
+            s.active_area,
+            Some(ActiveArea {
+                top: 0,
+                left: 0,
+                bottom: 2,
+                right: 4
+            })
+        );
         assert!(s.malformed_tags.is_empty());
     }
 
@@ -1485,6 +1627,9 @@ mod tests {
             Error::MissingTag { tag: 256 },
             Error::OffsetOutOfRange { offset: 9 },
             Error::NoSensorIfd,
+            Error::NoSensorIfdCandidatesMalformed {
+                candidates: vec![(0, TAG_PHOTOMETRIC)],
+            },
             Error::UnsupportedCompression { compression: 7 },
         ];
         for e in &errors {

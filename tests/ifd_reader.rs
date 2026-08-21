@@ -25,7 +25,9 @@ mod corpus;
 mod tiff;
 
 use corpus::{CorpusFile, CorpusRoot, Manifest};
-use irradiance::ifd::Container;
+use irradiance::ifd::{
+    ActiveArea, Container, DefaultCropOrigin, DefaultCropSize, Sensor, TAG_PHOTOMETRIC,
+};
 use irradiance::Error;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,9 +50,9 @@ struct Expected {
     compression: u32,
     black_level: Option<u32>,
     white_level: Option<u32>,
-    active_area: Option<[u32; 4]>,
-    crop_origin: Option<[u32; 2]>,
-    crop_size: Option<[u32; 2]>,
+    active_area: Option<ActiveArea>,
+    crop_origin: Option<DefaultCropOrigin>,
+    crop_size: Option<DefaultCropSize>,
     orientation: Option<u32>,
     opcode_lists: [bool; 3],
     strip_byte_counts: u32,
@@ -71,9 +73,17 @@ const EXPECTED: &[Expected] = &[
         compression: 1,
         black_level: Some(512),
         white_level: Some(16383),
-        active_area: Some([0, 0, 5632, 8392]),
-        crop_origin: Some([12, 24]),
-        crop_size: Some([8368, 5584]),
+        active_area: Some(ActiveArea {
+            top: 0,
+            left: 0,
+            bottom: 5632,
+            right: 8392,
+        }),
+        crop_origin: Some(DefaultCropOrigin { x: 12, y: 24 }),
+        crop_size: Some(DefaultCropSize {
+            width: 8368,
+            height: 5584,
+        }),
         orientation: Some(1),
         opcode_lists: [true, false, true],
         strip_byte_counts: 83026944,
@@ -92,9 +102,17 @@ const EXPECTED: &[Expected] = &[
         compression: 1,
         black_level: Some(512),
         white_level: Some(16383),
-        active_area: Some([0, 0, 5632, 8392]),
-        crop_origin: Some([12, 24]),
-        crop_size: Some([8368, 5584]),
+        active_area: Some(ActiveArea {
+            top: 0,
+            left: 0,
+            bottom: 5632,
+            right: 8392,
+        }),
+        crop_origin: Some(DefaultCropOrigin { x: 12, y: 24 }),
+        crop_size: Some(DefaultCropSize {
+            width: 8368,
+            height: 5584,
+        }),
         orientation: Some(6),
         opcode_lists: [true, false, true],
         strip_byte_counts: 83026944,
@@ -111,9 +129,17 @@ const EXPECTED: &[Expected] = &[
         compression: 1,
         black_level: Some(512),
         white_level: Some(16383),
-        active_area: Some([0, 0, 5632, 8392]),
-        crop_origin: Some([12, 24]),
-        crop_size: Some([8368, 5584]),
+        active_area: Some(ActiveArea {
+            top: 0,
+            left: 0,
+            bottom: 5632,
+            right: 8392,
+        }),
+        crop_origin: Some(DefaultCropOrigin { x: 12, y: 24 }),
+        crop_size: Some(DefaultCropSize {
+            width: 8368,
+            height: 5584,
+        }),
         orientation: Some(1),
         opcode_lists: [true, false, true],
         strip_byte_counts: 83026944,
@@ -132,8 +158,11 @@ const EXPECTED: &[Expected] = &[
         black_level: Some(220),
         white_level: Some(16383),
         active_area: None,
-        crop_origin: Some([2, 2]),
-        crop_size: Some([5212, 3468]),
+        crop_origin: Some(DefaultCropOrigin { x: 2, y: 2 }),
+        crop_size: Some(DefaultCropSize {
+            width: 5212,
+            height: 3468,
+        }),
         orientation: Some(1),
         opcode_lists: [false, false, false],
         strip_byte_counts: 36219904,
@@ -152,8 +181,11 @@ const EXPECTED: &[Expected] = &[
         black_level: Some(0),
         white_level: Some(3750),
         active_area: None,
-        crop_origin: Some([4, 4]),
-        crop_size: Some([5976, 3992]),
+        crop_origin: Some(DefaultCropOrigin { x: 4, y: 4 }),
+        crop_size: Some(DefaultCropSize {
+            width: 5976,
+            height: 3992,
+        }),
         orientation: Some(1),
         opcode_lists: [false, false, false],
         strip_byte_counts: 21311750,
@@ -171,9 +203,17 @@ const EXPECTED: &[Expected] = &[
         compression: 7,
         black_level: Some(64),
         white_level: Some(16378),
-        active_area: Some([34, 26, 4194, 6250]),
-        crop_origin: Some([28, 24]),
-        crop_size: Some([6192, 4128]),
+        active_area: Some(ActiveArea {
+            top: 34,
+            left: 26,
+            bottom: 4194,
+            right: 6250,
+        }),
+        crop_origin: Some(DefaultCropOrigin { x: 28, y: 24 }),
+        crop_size: Some(DefaultCropSize {
+            width: 6192,
+            height: 4128,
+        }),
         orientation: Some(1),
         opcode_lists: [false, false, false],
         strip_byte_counts: 31047287,
@@ -275,9 +315,7 @@ fn ifd_reaches_sensor_plane() {
         // happens to pick the right one because it picks the first of several
         // is not the rule doing the work — and on a Q2M, the runner-up would
         // be a full-resolution JPEG preview only 56 px narrower than the plane.
-        let candidates = container
-            .sensor_candidates()
-            .unwrap_or_else(|e| panic!("{}: candidate scan failed: {e}", expect.path));
+        let candidates = container.sensor_candidates();
         assert_eq!(
             candidates,
             vec![expect.sensor_index],
@@ -311,7 +349,7 @@ fn ifd_reaches_sensor_plane() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn ifd_tags_match_exiftool() {
+fn tag_model_matches_exiftool() {
     let (manifest, root) = manifest_pairs();
 
     for expect in EXPECTED {
@@ -364,6 +402,111 @@ fn ifd_tags_match_exiftool() {
                 "{at}: StripOffsets {offset} is outside the file"
             );
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2b. Orientation is read from the file every time, and absence is not zero
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One corpus file's sensor, or `None` when the file is absent (skip).
+fn sensor_of(manifest: &Manifest, root: &CorpusRoot, path: &str) -> Option<Sensor> {
+    let entry = manifest.get(path)?;
+    let data = bytes_of(entry, root)?;
+    Some(
+        Container::parse(&data)
+            .unwrap_or_else(|e| panic!("{path}: container did not parse: {e}"))
+            .sensor()
+            .unwrap_or_else(|e| panic!("{path}: no sensor plane: {e}")),
+    )
+}
+
+/// `Orientation` is per-frame, not a camera constant (SPEC-004 acceptance
+/// criterion 2): two frames from the SAME Leica Q2 Mono body disagree, and a
+/// reader that hardcoded either value would pass on one frame and fail on
+/// the other.
+#[test]
+fn orientation_is_per_frame() {
+    let (manifest, root) = manifest_pairs();
+    let unrotated = sensor_of(&manifest, &root, "LEICA-Q2-MONO/L1021223.DNG");
+    let rotated = sensor_of(&manifest, &root, "LEICA-Q2-MONO/L1026016.DNG");
+    let (Some(unrotated), Some(rotated)) = (unrotated, rotated) else {
+        eprintln!(
+            "orientation_is_per_frame: one or both Leica Q2 Mono frames are \
+             absent from the corpus, skipping"
+        );
+        return;
+    };
+
+    assert_eq!(unrotated.orientation, Some(1), "L1021223.DNG");
+    assert_eq!(rotated.orientation, Some(6), "L1026016.DNG");
+    assert_ne!(
+        unrotated.orientation, rotated.orientation,
+        "same body, different frames — Orientation must be read from the \
+         file every time, not hardcoded"
+    );
+}
+
+/// An absent optional tag must read as `None`, never silently as a
+/// present-and-zero value (SPEC-004 acceptance criterion 3) — TIFF's
+/// absent-means-0 default exists for OTHER tags (`NewSubfileType`,
+/// `SamplesPerPixel`), and conflating the two would make a real
+/// `ActiveArea { top: 0, .. }` indistinguishable from "this tag was never
+/// written".
+#[test]
+fn absent_tag_is_absent_not_zero() {
+    // Synthetic proof, runs everywhere: ActiveArea absent must differ from
+    // ActiveArea present-and-genuinely-zero.
+    let absent_data = tiff::tiff(
+        tiff::Order::Little,
+        8,
+        &[tiff::Ifd::new(
+            8,
+            tiff::sensor_entries(tiff::Order::Little),
+            0,
+        )],
+    );
+    let absent = Container::parse(&absent_data)
+        .expect("parses")
+        .sensor()
+        .expect("has a sensor plane");
+    assert_eq!(absent.active_area, None, "ActiveArea was never written");
+
+    let mut zero_entries = tiff::sensor_entries(tiff::Order::Little);
+    zero_entries.push(tiff::at_offset(irradiance::ifd::TAG_ACTIVE_AREA, 4, 4, 600));
+    let mut zero_data = tiff::tiff(
+        tiff::Order::Little,
+        8,
+        &[tiff::Ifd::new(8, zero_entries, 0)],
+    );
+    // 600..616 stay zero-filled by `resize` — four zeroed LONGs, i.e. an
+    // ActiveArea that is PRESENT and genuinely (0, 0, 0, 0).
+    zero_data.resize(616, 0);
+    let zero = Container::parse(&zero_data)
+        .expect("parses")
+        .sensor()
+        .expect("has a sensor plane");
+    assert_eq!(
+        zero.active_area,
+        Some(ActiveArea {
+            top: 0,
+            left: 0,
+            bottom: 0,
+            right: 0
+        }),
+        "ActiveArea present and genuinely zero"
+    );
+    assert_ne!(absent.active_area, zero.active_area);
+
+    // The real-world case, when the corpus is present: the M Monochrom
+    // genuinely omits ActiveArea — no synthetic stand-in needed.
+    let (manifest, root) = manifest_pairs();
+    match sensor_of(&manifest, &root, "LEICA-M-MONOCHROM/L1000622.DNG") {
+        Some(sensor) => assert_eq!(sensor.active_area, None, "M Monochrom has no ActiveArea"),
+        None => eprintln!(
+            "absent_tag_is_absent_not_zero: LEICA-M-MONOCHROM/L1000622.DNG is \
+             absent from the corpus, skipping the real-file half"
+        ),
     }
 }
 
@@ -472,6 +615,11 @@ fn ifd_rejects_hostile_input() {
         // no sanity rule about where an IFD is allowed to live.
         "unknown-field-type",
         "malformed-black-level-repeat-dim",
+        // Malformed identifying tags (SPEC-004 FU-11): the WALK still
+        // succeeds — only sensor SELECTION is affected, and that is a
+        // separate, dedicated pair of tests below.
+        "malformed-photometric-on-thumbnail",
+        "malformed-photometric-on-only-candidate",
         "zero-entries",
         "no-ifd0",
         "payload-offset-past-eof",
@@ -541,6 +689,54 @@ fn ifd_guards_each_fire_for_their_own_reason() {
             Err(Error::Truncated { .. })
         ));
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5b. FU-11 — a malformed identifying tag costs the CANDIDATE, not the file
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `is_sensor_ifd`'s three identifying tags are read over EVERY IFD, from
+// `sensor_candidates`, `sensor_ifd` and `sensor` alike. DEC-012 / SPEC-004's
+// FU-11: a malformed one must be skipped and recorded, never allowed to
+// abort the scan of the OTHER IFDs — and the two hand-built fixtures below
+// (`tests/support/tiff.rs`) are chosen so the malformed tag lands on
+// different IFDs and the outcomes are DIFFERENT and both asserted.
+
+/// The malformed tag is on an unrelated (thumbnail) IFD, and the real sensor
+/// plane is a SubIFD elsewhere. It must still be reachable.
+#[test]
+fn malformed_on_thumbnail_does_not_lose_the_plane() {
+    let data = tiff::malformed_photometric_on_thumbnail(tiff::Order::Little);
+    let container =
+        Container::parse(&data).expect("the walk itself is fine — DEC-012 walk vs interpret");
+    let sensor = container
+        .sensor()
+        .expect("a malformed tag on the thumbnail must not hide the real plane (FU-11)");
+    assert_eq!(sensor.ifd_index, 1);
+    assert_eq!((sensor.width, sensor.height), (4, 2));
+}
+
+/// The malformed tag is on the file's ONLY candidate — the plane itself.
+/// `sensor()` must fail with an error that SAYS a candidate was malformed,
+/// not a bare `NoSensorIfd` indistinguishable from "this file has no raw
+/// plane at all" — the obvious-looking fix (silently treat it as
+/// `NotSensor`) is exactly what FU-11 forbids.
+#[test]
+fn malformed_on_the_sensor_ifd_is_reported_not_hidden() {
+    let data = tiff::malformed_photometric_on_the_only_candidate(tiff::Order::Little);
+    let container = Container::parse(&data).expect("the walk itself is fine");
+    match container.sensor() {
+        Err(Error::NoSensorIfdCandidatesMalformed { candidates }) => {
+            assert_eq!(candidates, vec![(0, TAG_PHOTOMETRIC)]);
+        }
+        other => panic!("expected NoSensorIfdCandidatesMalformed naming the tag, got {other:?}"),
+    }
+    // Same discipline via sensor_ifd(): the caller who only needs the IFD,
+    // not the typed Sensor, gets the same explained failure.
+    assert!(matches!(
+        container.sensor_ifd(),
+        Err(Error::NoSensorIfdCandidatesMalformed { .. })
+    ));
 }
 
 /// Every prefix of a valid container: the truncation sweep a fuzzer would find
