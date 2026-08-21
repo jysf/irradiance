@@ -6,7 +6,7 @@
 task:
   id: SPEC-003
   type: story                      # epic | story | task | bug | chore
-  cycle: design                     # frame | design | build | verify | ship
+  cycle: verify                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,12 +27,19 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # filled when HANDOFF is created (any agent — see docs/porting.md)
+  created_at: 2026-08-20
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
+  decisions: [DEC-008, DEC-011]    # [DEC-NNN, DEC-MMM]
+  constraints:                     # [constraint-id-1, constraint-id-2]
+    - no-panics-on-untrusted-input
+    - provenance-recorded-per-algorithm
+    - no-copyleft-dependencies
+    - test-before-implementation
+    - oracle-must-be-shown-red
+    - library-not-application
+    - no-new-top-level-deps-without-decision
   related_specs: []                # [SPEC-NNN]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
@@ -63,11 +70,19 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 10967269
+      estimated_usd: null
+      duration_minutes: 75
+      recorded_at: 2026-08-20
+      notes: "Build cycle for SPEC-003 (HANDOFF-011), commit b79c7ef on feat/spec-003-ifd-reader, not merged. All 7 acceptance criteria met; nine gates green and pasted in the handback. The fuzz target ships in this change and BOTH directions are pasted: a planted unchecked index in Container::payload gave exit 77 plus crash artifact crash-88173bfa in under a second ('range start index 64 out of range for slice of length 26'), and the input libFuzzer reported was our own count-overflow SEED - tag 273 StripOffsets, LONG, count 0xFFFFFFFF - so the hand-built tier-A corpus caught it on the seed pass; removing the fault gave 12,992,033 runs in 61 s with zero artifacts (an earlier clean run did 14,863,561). Tag extraction matches exiftool 13.55 on all 7 corpus files, read through SPEC-002's manifest reader with no hardcoded paths. NO #[allow] of any policy lint was needed anywhere - the panic-free constraint cost nothing and improved two decisions (a single checked u64 choke point for count x sizeof(type), and packed_bits() returning bits rather than bytes so DEC-008's remainder rule stays STAGE-002's). One new decision: DEC-011 (libfuzzer-sys in a separate fuzz crate; [dependencies] still empty). TWO MEASURED CORRECTIONS to this spec's own notes: only ONE corpus file is big-endian, not two (six II, one MM - checked on the raw header bytes and with exiftool -ExifByteOrder); and K3III.PEF has NO SubIFD at all - it is the only file with a real IFD chain (IFD0->IFD1->IFD2), its plane is in IFD0, and it writes no NewSubfileType tag anywhere, which is what makes TIFF's absent-means-0 default load-bearing rather than decorative. tokens_total is a transcript sum DEDUPED BY message.id and says so: 122 usage objects, 64 distinct ids, raw 19,980,303 vs deduped 10,967,269 = 1.82x inflation, 97.0% cache-read. It is a FLOOR - written before the session closed. Consistent with the 1.7x-2.25x SPEC-002 measured; SPEC-001's totals of 51,979,929 are still raw and should be re-summed."
   totals:
-    tokens_total: 0
+    tokens_total: 10967269
     estimated_usd: 0
-    session_count: 0
+    session_count: 1
 ---
 
 # SPEC-003: TIFF/IFD reader — bounded, panic-free, cycle-guarded, SubIFD recursion — plus its fuzz target
@@ -99,22 +114,46 @@ as an implementation. Re-derive test-first.
 
 ## Inputs
 
-What the implementer will read or consume.
+*(Filled at build from what was actually read — 2026-08-20.)*
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `guidance/toolchain-brief.md` (the two `+toolchain` traps),
+  `guidance/constraints.yaml`, `AGENTS.md` §11/§12/§13,
+  `docs/measured-q2m-dng.md` (the tag set), `tests/corpus/manifest.toml`,
+  `tests/support/corpus.rs` (SPEC-002's reader — the only route to a corpus
+  path).
+- **External APIs:** none. TIFF 6.0 (1992) §2 and the Adobe DNG Specification
+  1.7.1.0 are the sources, as published specifications — provenance class 1.
+- **Oracle tools, run and never linked:** `exiftool 13.55` for the tag
+  cross-check, `dnglab 0.7.2` for the pinned `raw_checksum` the manifest
+  already holds.
+- **Related code paths:** `src/lib.rs` (the crate's `Error` type and the
+  panic-free lint policy).
 
 ## Outputs
 
-What the implementer will produce.
+*(Filled at build — 2026-08-20.)*
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files created:**
+  - `src/ifd.rs` — the reader.
+  - `tests/ifd_reader.rs` — corpus + hostile-input tests.
+  - `tests/support/tiff.rs` — hand-built tier-A byte fixtures, shared by the
+    test lane and the fuzz-seed writer.
+  - `fuzz/Cargo.toml`, `fuzz/fuzz_targets/ifd.rs`, `fuzz/seeds/ifd/*` — the
+    fuzz target and its committed seed corpus.
+  - `examples/fuzz-seeds.rs` — regenerates those seeds.
+  - `decisions/DEC-011-*.md` — `libfuzzer-sys` in a separate crate.
+- **Files modified:** `src/lib.rs` (13 new `Error` variants, `pub mod ifd`),
+  `src/bin/irr.rs` (the `ifd` subcommand), `app.just` + `AGENTS.md` §6 (the
+  `fuzz` recipes, and a correction — §6 documented the invocation that does not
+  work), `docs/provenance-ledger.md` (first real row), `.gitignore` (`*.PEF`),
+  `CHANGELOG.md`.
+- **New public API:** `ifd::Container::{parse, ifds, ifd0, payload, uints,
+  scalar, required_scalar, values, is_sensor_ifd, sensor_candidates,
+  sensor_ifd, sensor}`, `ifd::{Ifd, Entry, Sensor, Compression, ByteOrder}`,
+  the `TAG_*` constants, and `MAX_IFD_DEPTH` / `MAX_IFDS` / `MAX_TAG_VALUES`.
+- **New flags / options:** `irr ifd [--entries] <file>` — `--entries` defaults
+  to **off** and adds a per-entry tag/type/count dump.
+- **Database changes:** none.
 
 ## Acceptance Criteria
 
@@ -159,7 +198,22 @@ Explicit scope limits. If the implementer thinks any of these need to
 happen, they should create a new spec (in this stage's backlog), not
 expand this one.
 
-- ...
+- **Any pixel decode or unpack.** STAGE-002, where `DEC-008`'s two-path
+  (`bits % 8`) rule lands. `StripOffsets`/`StripByteCounts` are read here as
+  *tags*; reading the strip they point at is not in scope. Held at build:
+  `Sensor::packed_bits()` deliberately returns **bits**, not bytes, so the
+  remainder question stays STAGE-002's to answer.
+- **The typed tag model.** `SPEC-004`. This module widens `BYTE`/`SHORT`/`LONG`
+  to `u32` and returns `Error::UnexpectedFieldType` for `RATIONAL` and the
+  signed types rather than guessing.
+- **A live metadata oracle.** `SPEC-005` diffs parsed tags against
+  `dnglab analyze` and `exiftool` at run time. Here the `exiftool` answers are
+  *pinned* as an expected table, checked by hand at build.
+- **Decoding the DNG opcode streams.** Presence only (`OpcodeList1/2/3`);
+  `WarpRectilinear` and `FixBadPixelsConstant` are STAGE-003.
+- **Lossless JPEG (SOF-3) or Pentax PEF decompression.** Three corpus files
+  need one of these and are rejected cleanly instead; PROJ-003.
+- **Widening the lint exceptions.** None was needed — see the handback.
 
 ## Notes for the Implementer
 
