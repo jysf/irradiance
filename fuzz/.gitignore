@@ -1,0 +1,8 @@
+# cargo-fuzz working directories. `seeds/` is deliberately NOT here: the
+# hand-built tier-A seeds are committed (they are own work, deterministic, and
+# a few hundred bytes each), while `corpus/` is where libFuzzer writes what it
+# discovers — ignoring it keeps `git status` clean after a fuzz run.
+target
+corpus
+artifacts
+coverage

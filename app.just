@@ -85,3 +85,27 @@ lint-no-allow:
     cargo clippy --lib --quiet -- \
         -F clippy::unwrap_used -F clippy::expect_used -F clippy::indexing_slicing \
         -F clippy::panic -F clippy::arithmetic_side_effects
+
+# Run the IFD fuzz target (SPEC-003, AGENTS.md §12 bar 2).
+#
+# ⚠ The `PATH=` prefix is load-bearing and is NOT redundant with the
+# `~/.cargo/bin/cargo` below. `cargo fuzz` shells out to a bare `"cargo"
+# "build"`, and that INNER call resolves to Homebrew's stable cargo, which
+# rejects `-Zsanitizer=address` ("error: 1 nightly option were parsed").
+# Invoking the shim as the OUTER command does not fix the inner one. See
+# guidance/toolchain-brief.md, "The SECOND `+toolchain` trap" — measured
+# 2026-08-18 and re-confirmed 2026-08-20.
+#
+# Two corpus dirs on purpose: `fuzz/seeds/ifd` is the committed hand-built
+# tier-A seed set (`just fuzz-seeds` regenerates it), `fuzz/corpus/ifd` is
+# where libFuzzer writes what it finds and is gitignored, so a run leaves
+# `git status` clean.
+fuzz seconds="60":
+    mkdir -p fuzz/corpus/ifd
+    PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ifd \
+        fuzz/corpus/ifd fuzz/seeds/ifd -- -max_total_time={{seconds}}
+
+# Regenerate the committed fuzz seed corpus from tests/support/tiff.rs, so a
+# fixture added to the hostile-input test lands in the fuzz lane too.
+fuzz-seeds:
+    cargo run --quiet --all-features --example fuzz-seeds

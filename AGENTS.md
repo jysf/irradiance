@@ -301,8 +301,22 @@ cargo build --release
 # licences   — the permissive-only gate (constraint no-copyleft-dependencies)
 cargo deny check licenses
 
-# fuzz       — MUST go through the rustup shim; see §5
-~/.cargo/bin/cargo +nightly fuzz run <target> -- -max_total_time=60
+# fuzz       — the rustup shim must be FIRST ON PATH, not merely invoked: see
+#              guidance/toolchain-brief.md, "The SECOND `+toolchain` trap".
+#              cargo fuzz shells out to a bare `"cargo" "build"`, and that
+#              INNER call is what resolves to Homebrew's stable cargo and
+#              rejects -Zsanitizer. `~/.cargo/bin/cargo +nightly fuzz run`
+#              alone therefore still fails. Measured 2026-08-18 and again
+#              2026-08-20 (SPEC-003).
+#
+#              `fuzz/seeds/ifd` is the committed hand-built seed set;
+#              `fuzz/corpus/ifd` is libFuzzer's own, and is gitignored.
+mkdir -p fuzz/corpus/ifd
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ifd \
+    fuzz/corpus/ifd fuzz/seeds/ifd -- -max_total_time=60
+
+# fuzz-seeds — regenerate the committed seed corpus from tests/support/tiff.rs
+cargo run --quiet --all-features --example fuzz-seeds
 ```
 
 Oracle commands (run as **tools**, never linked) live in

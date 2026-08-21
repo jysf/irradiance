@@ -37,8 +37,9 @@
 //! See constraint `no-panics-on-untrusted-input` in `guidance/constraints.yaml`
 //! and AGENTS.md §11/§12.
 //!
-//! This spec (`SPEC-001`) scaffolds the crate only — no TIFF walk, no tag
-//! model, no unpack. Those land in SPEC-003/004.
+//! `SPEC-001` scaffolded the crate; `SPEC-003` added [`ifd`], the TIFF/IFD
+//! container reader and its fuzz target. Still absent, by design: the typed
+//! tag model (`SPEC-004`) and any pixel decode or unpack (STAGE-002).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -48,6 +49,8 @@
     clippy::panic,
     clippy::arithmetic_side_effects
 )]
+
+pub mod ifd;
 
 use core::fmt;
 
@@ -71,6 +74,91 @@ pub enum Error {
         /// Number of bytes the read needed but did not have.
         len: usize,
     },
+
+    /// The first two bytes were neither `II` nor `MM`, so this is not a TIFF
+    /// container (TIFF 6.0 §2, "Image File Header").
+    NotTiff {
+        /// The two bytes actually found.
+        mark: [u8; 2],
+    },
+
+    /// The byte-order mark was valid but the version word was not 42.
+    UnsupportedTiffVersion {
+        /// The version word actually found.
+        version: u16,
+    },
+
+    /// An IFD offset was reached twice. The cycle guard — a `SubIFD` chain
+    /// that points at itself terminates here instead of recursing forever.
+    CyclicIfd {
+        /// The offset that was about to be visited a second time.
+        offset: u32,
+    },
+
+    /// `SubIFD` recursion went deeper than [`ifd::MAX_IFD_DEPTH`].
+    IfdDepthExceeded {
+        /// The depth limit that was exceeded.
+        limit: u32,
+    },
+
+    /// The walk reached [`ifd::MAX_IFDS`] directories. A chain long enough to
+    /// hit this is hostile even when it is acyclic.
+    TooManyIfds {
+        /// The IFD-count limit that was reached.
+        limit: usize,
+    },
+
+    /// A tag was present but carried a field type this reader does not read as
+    /// an integer. The wider type model is `SPEC-004`'s.
+    UnexpectedFieldType {
+        /// The tag whose type was unexpected.
+        tag: u16,
+        /// The TIFF field type found (TIFF 6.0 §2, "Types").
+        field_type: u16,
+    },
+
+    /// `count × sizeof(type)` overflowed, or a value did not fit the type it
+    /// was being converted into.
+    ValueOverflow {
+        /// The tag whose size arithmetic overflowed.
+        tag: u16,
+    },
+
+    /// A tag declared more values than [`ifd::MAX_TAG_VALUES`]. Bounds
+    /// allocation from a hostile `count` independently of the file's length.
+    TagTooLarge {
+        /// The tag with the outsized count.
+        tag: u16,
+        /// The count the file declared.
+        count: u32,
+        /// The limit that was exceeded.
+        limit: usize,
+    },
+
+    /// A tag the caller required is not present in the IFD.
+    MissingTag {
+        /// The absent tag.
+        tag: u16,
+    },
+
+    /// An offset in the file is larger than this platform can address.
+    OffsetOutOfRange {
+        /// The offset that could not be represented as a `usize`.
+        offset: u32,
+    },
+
+    /// No IFD matched the sensor-plane selection rule
+    /// (`NewSubfileType == 0 && PhotometricInterpretation == 34892 &&
+    /// SamplesPerPixel == 1`).
+    NoSensorIfd,
+
+    /// The sensor plane is compressed and this library does not decode that
+    /// compression. Three of the seven corpus files land here, and landing
+    /// here **is** the clean rejection.
+    UnsupportedCompression {
+        /// The TIFF `Compression` code found.
+        compression: u32,
+    },
 }
 
 impl fmt::Display for Error {
@@ -78,6 +166,52 @@ impl fmt::Display for Error {
         match self {
             Error::Truncated { at, len } => {
                 write!(f, "truncated input: needed {len} byte(s) at offset {at}")
+            }
+            Error::NotTiff { mark } => {
+                let (a, b) = (mark.first().copied(), mark.last().copied());
+                write!(
+                    f,
+                    "not a TIFF container: byte-order mark is {:#04x}{:#04x}, expected II or MM",
+                    a.unwrap_or(0),
+                    b.unwrap_or(0)
+                )
+            }
+            Error::UnsupportedTiffVersion { version } => {
+                write!(f, "unsupported TIFF version {version}, expected 42")
+            }
+            Error::CyclicIfd { offset } => {
+                write!(f, "cyclic IFD: offset {offset} was already visited")
+            }
+            Error::IfdDepthExceeded { limit } => {
+                write!(f, "SubIFD recursion exceeded the depth limit of {limit}")
+            }
+            Error::TooManyIfds { limit } => {
+                write!(f, "IFD walk reached the limit of {limit} directories")
+            }
+            Error::UnexpectedFieldType { tag, field_type } => {
+                write!(f, "tag {tag} has unreadable field type {field_type}")
+            }
+            Error::ValueOverflow { tag } => {
+                write!(f, "tag {tag}: value size arithmetic overflowed")
+            }
+            Error::TagTooLarge { tag, count, limit } => {
+                write!(
+                    f,
+                    "tag {tag} declares {count} values, over the limit of {limit}"
+                )
+            }
+            Error::MissingTag { tag } => write!(f, "required tag {tag} is absent"),
+            Error::OffsetOutOfRange { offset } => {
+                write!(f, "offset {offset} is not addressable on this platform")
+            }
+            Error::NoSensorIfd => f.write_str(
+                "no IFD matched the sensor-plane rule (NewSubfileType 0, LinearRaw, 1 sample)",
+            ),
+            Error::UnsupportedCompression { compression } => {
+                write!(
+                    f,
+                    "compression {compression} is not supported by this library"
+                )
             }
         }
     }

@@ -61,6 +61,10 @@ tests/corpus/tier-b/
 *.cr2
 *.ARW
 *.arw
+# PEF was missing here while tests/corpus/manifest.toml already indexed a
+# 37 MB K3III.PEF — added 2026-08-20 (SPEC-003).
+*.PEF
+*.pef
 
 # Private commercial / positioning notes (crustyimg's `business/` precedent)
 business/
