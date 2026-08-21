@@ -251,10 +251,11 @@ above are wired.
 **These run.** `SPEC-001` (2026-08-18) filled `app.just`'s stubs to match the
 block below — `just build` / `just test` / `just lint` / `just typecheck` /
 `just deny` / `just lint-red-proof`, plus `just install` / `just dev`;
-`SPEC-006` added `just lint-no-allow`. Every recipe's commands appear in the
-block below and nothing in the block is unrunnable: that correspondence is
-acceptance criterion 8, so a recipe that gains a command gains a line here in
-the same change.
+`SPEC-006` added `just lint-no-allow`; `SPEC-003` added `just fuzz` /
+`just fuzz-seeds`, and its punch-list round added `just deny-fuzz` and
+`just msrv`. Every recipe's commands appear in the block below and nothing in
+the block is unrunnable: that correspondence is acceptance criterion 8, so a
+recipe that gains a command gains a line here in the same change.
 
 App commands belong in **`app.just`** (project-owned, imported by the
 template-managed root `justfile`) so a template update never clobbers them. For
@@ -298,8 +299,30 @@ cargo check --all-targets --all-features
 # build      — release artifact
 cargo build --release
 
-# licences   — the permissive-only gate (constraint no-copyleft-dependencies)
+# licences   — the permissive-only gate (constraint no-copyleft-dependencies).
+#              TWO invocations, and BOTH are required: this repo has two cargo
+#              graphs and cargo-deny evaluates one manifest's graph per run.
+#              The first covers the library; it does not see a single crate
+#              under fuzz/, which DEC-011 keeps outside the library's graph on
+#              purpose. From SPEC-003's build until its verify cycle the second
+#              was believed impossible and a hand-written table in DEC-011 stood
+#              in for it — the table was wrong, and the command was one flag
+#              away. Running only the first and reporting "licences green" is a
+#              green that checked nothing about fuzz/.
 cargo deny check licenses
+cargo deny --manifest-path fuzz/Cargo.toml check licenses
+
+# msrv       — compile the whole target set against EXACTLY the pinned 1.90.0.
+#              ⚠ The `~/.cargo/bin/` prefix is the THIRD instance of the
+#              `+toolchain` trap: a bare `cargo +1.90.0 check` fails with
+#              `error: no such command: +1.90.0`, because `cargo` on PATH is
+#              Homebrew's real cargo and it does not understand `+toolchain`
+#              syntax at all. Only the rustup shim does. Unlike the fuzz trap,
+#              no PATH= prefix is needed — nothing shells out to an inner
+#              `cargo` here. Measured 2026-08-20 by two agents in succession,
+#              each losing a loop to it, because until then this was the one
+#              gate with no `just` recipe hiding the fix.
+~/.cargo/bin/cargo +1.90.0 check --all-targets --all-features
 
 # fuzz       — the rustup shim must be FIRST ON PATH, not merely invoked: see
 #              guidance/toolchain-brief.md, "The SECOND `+toolchain` trap".

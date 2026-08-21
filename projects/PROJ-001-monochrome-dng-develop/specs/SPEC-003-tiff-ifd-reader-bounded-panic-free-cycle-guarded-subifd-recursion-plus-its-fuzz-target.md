@@ -31,7 +31,7 @@ handoff:
   created_at: 2026-08-20
 
 references:
-  decisions: [DEC-008, DEC-011]    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-008, DEC-011, DEC-012]  # [DEC-NNN, DEC-MMM]
   constraints:                     # [constraint-id-1, constraint-id-2]
     - no-panics-on-untrusted-input
     - provenance-recorded-per-algorithm
@@ -87,6 +87,14 @@ cost:
       duration_minutes: 55
       recorded_at: 2026-08-20
       notes: "Verify cycle for SPEC-003 (HANDOFF-012), reviewing b79c7ef at HEAD 644815f on feat/spec-003-ifd-reader, not merged. VERDICT: PUNCH LIST - one ship-blocker, documentation and config only, no src/ change. Nine gates re-run by the reviewer and all green (48 tests; MSRV via the rustup shim - bare 'cargo +1.90.0' fails with 'no such command', the FIRST +toolchain trap, and it is the only gate with no just recipe). BOTH fuzz directions run personally: direction 1 planted a DIFFERENT lint-clean fault at a DIFFERENT site from the build's - split_at in Container::read_ifd (the walk path, not the payload path) - and the negative control was measured first, just lint exit 0 AND just lint-no-allow exit 0 WITH the fault in place, proving the fuzzer is the only thing that can see it; libFuzzer then found it from a ZERO-SEED corpus in ~38,900 execs ('mid > len', crash-decd0828, exit 1), synthesising II/version-42/IFD0-offset/entry-count-6608 itself, which is a stronger red than the build's seed-pass catch. Direction 2 restored byte-for-byte (sha256 9c965c48..., grep DELIBERATE FAULT = 0) and gave 16,832,041 runs in 61 s, zero artifacts, git status clean. SHIP-BLOCKER SB-1: DEC-011's licence table is wrong for the one crate it exists to sanction - libfuzzer-sys 0.4.13 declares '(MIT OR Apache-2.0) AND NCSA', not 'MIT OR Apache-2.0'; NCSA is not in deny.toml's allow list, so DEC-011's claim that no exception was needed is false; the enumeration also omits cfg-if, getrandom and r-efi, the last declaring 'MIT OR Apache-2.0 OR LGPL-2.1-or-later'; and the premise that cargo deny cannot reach fuzz/ is itself wrong - 'cargo deny --manifest-path fuzz/Cargo.toml check licenses' runs and catches exactly what the hand-check missed. Substance is fine (NCSA is permissive, nothing copyleft is linked); the RECORD is wrong, on a blocking constraint, in the only document standing in for an absent gate. Fix is four lines across DEC-011, deny.toml, fuzz/Cargo.toml (currently unlicensed) and constraints.yaml's enforcement field. Eight follow-ups: a THIRD wrong fact in the spec's corpus paragraph beyond the two known (three JPEG-compressed is wrong - two are JPEG code 7, K3III.PEF is code 65535 vendor-private - and HANDOFF-012 itself repeats it); the byte-order error also lives at CHANGELOG.md:31 (5 II / 1 MM / 1 PEF conflates byte order with container, the PEF is II too) and NOT in docs/conformance-matrix.md as the handoff said; 'full-resolution SubIFD' in AC6 and STAGE-001 is unsatisfiable for the PEF, whose plane is IFD0; conformance-matrix.md is stale in the way its own opening rule forbids - three held bodies now read end-to-end have no row, and its 'validates against ONE camera' section is false at the container level; malformed-tag policy is asymmetric and unstated (array() tolerates, SubIFDs via uints() is fatal to the whole container); the multi-strip gap is ASSERTED not merely uncovered (tests/ifd_reader.rs:352,443,448); 'no #[allow] anywhere in src/' is imprecise - two exist on cfg(test) modules, both sanctioned and invisible to the --lib-scoped gate; and the MSRV gate needs a just recipe. Guards verified on EVERY recursion path including the chain's next pointers - one shared visited vec threaded through the whole walk, depth checked at walk_chain entry, MAX_IFDS bounding the acyclic case, four shape-separated tests including a depth test that uses distinct offsets so the cycle guard cannot be what stops it. UnsupportedCompression boundary is structurally right: sensor() reads tags only and never dereferences StripOffsets, so rejection is a separate explicit require_uncompressed() and compressed files stay fully tag-readable. packed_bits() in bits is the right call and should stay - bytes would force the remainder decision that IS DEC-008's rule. tokens_total is a transcript sum DEDUPED BY message.id and says so: 113 usage objects, 71 distinct ids, raw 14,592,470 vs deduped 9,036,505 = 1.61x inflation, 97.9% cache-read. It is a FLOOR - written before the session closed. The 1.61x sits just under SPEC-002's 1.7x-2.25x band and the build's 1.82x, which confirms the factor is not a constant and no single correction should be applied to anyone's raw figure."
+    - cycle: build
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 9733599
+      estimated_usd: null
+      duration_minutes: 60
+      recorded_at: 2026-08-20
+      notes: "Second BUILD cycle for SPEC-003 (HANDOFF-013) - the punch-list round closing the verify cycle's ship-blocker. Commit on feat/spec-003-ifd-reader, not merged. NO src/ CHANGE, as the handoff required: git status shows twelve modified files and one new decision, none under src/, and the reader is byte-identical to b79c7ef. SB-1 CLOSED, all three parts reproduced by me before fixing: cargo deny --manifest-path fuzz/Cargo.toml check licenses ran and FAILED on the untouched tree, on exactly two defects - libfuzzer-sys 0.4.13 declares (MIT OR Apache-2.0) AND NCSA, conjunctive, and irradiance-fuzz carried no license field at all, which is unlicensed and an error not a warning. Fixed by a NAMED per-crate exception in deny.toml rather than widening allow (allow is a standing graph-wide sanction and NCSA is here for one fuzz-only reason; a second NCSA crate should fail loudly), a license field on fuzz/Cargo.toml, and a DEC-011 licence table re-measured from cargo metadata rather than recollection - twelve packages, three of which the old table omitted, including r-efi 6.0.0 whose MIT OR Apache-2.0 OR LGPL-2.1-or-later is the only LGPL mention in either graph (disjunctive, so nothing is violated, but it is exactly what a provenance ledger exists to surface). NEW PROVENANCE FACT found while checking: libfuzzer-sys's README says the vendored libfuzzer/ directory is NCSA, but all 49 vendored .cpp/.h/.def files carry the post-2019 LLVM header Apache License v2.0 with LLVM Exceptions and NONE mentions NCSA or the University of Illinois - counted, not sampled. So the crate's declared SPDX expression and its own README are both stale against the code it ships; every reading is permissive and the gate enforces the stricter one. THE GATE IS NOW WIRED, which was the point: just deny-fuzz, CI job licenses-fuzz using cargo-deny-action's documented manifest-path input, AGENTS.md 6, and constraints.yaml's enforcement field naming both invocations. RED-PROOFED in both directions per oracle-must-be-shown-red: control green (exit 0), exception removed -> exit 4 rejected, license field removed -> exit 4 unlicensed, restored -> exit 0. Both halves of the fix are individually load-bearing. TEN GATES GREEN, run by me: fmt, clippy, test (48 - 31 lib + 9 corpus + 8 ifd_reader), just msrv, just deny, just deny-fuzz, lint-red-proof, lint-no-allow, cost-audit, decisions-index. Plus a fuzz smoke test because I touched the manifest cargo-fuzz reads: 5,757,081 runs in 21 s, zero artifacts, git status unchanged. THIRD +toolchain trap reproduced and closed: bare cargo +1.90.0 check exits 101 with no such command, just msrv exits 0; recipe added, trap documented, and MSRV is no longer the one gate of the ten with no recipe. THREE FACTUAL CORRECTIONS, each re-measured on the files rather than transcribed: byte order is 6 II / 1 MM (raw magic bytes of all seven; CHANGELOG:31's 5 II / 1 MM / 1 PEF conflated byte order with container - the PEF is II too); compression is 2 JPEG code 7 plus 1 vendor-private code 65535, not three JPEG (irr ifd on all five distinct shapes); and docs/conformance-matrix.md gained rows for THREE held bodies, not the one the handoff named - M Monochrom, M Monochrom Typ 246 and K-3 III Monochrome were all read end-to-end with no row, so fixing only one would have left the same defect twice. Its validates-against-ONE-camera section is corrected to the layer where it is now false (container: four bodies, seven files) while keeping it where it is still true (develop: one body), and its tier-A claim about the Pentax fixture is corrected to tier B - a 37 MB uncommitted file cannot gate anything; the tier-A synthetic in src/ifd.rs:1374 is what actually runs in CI. NEW DECISION DEC-012 states the malformed-tag rule: STRICT ON STRUCTURE, TOLERANT ON SHAPE - malformedness that changes what EXISTS (header, entry table, chain next, SubIFDs 330) is fatal to the container; malformedness that changes only what a known-optional fixed-length tag SAYS costs that tag and is reported in malformed_tags. The asymmetry is kept and is narrower than FU-5 framed: array() tolerates a wrong COUNT and nothing else - a wrong field type is fatal there too, via the ? on its uints() call. SubIFDs stays structural because a tolerant 330 yields a container that is structurally a lie, and SPIKE-001 measured how close the resulting wrong answer is - a Q2M SubIFD2 preview 56 px narrower than the plane. ALSO FIXED, not in the handoff's list but the same defect in the other durable doc: FU-3's full-resolution SubIFD in AC6 and STAGE-001, unsatisfiable on the PEF whose plane is IFD0. tokens_total is a transcript sum DEDUPED BY message.id and says so: 127 usage objects, 74 distinct ids, raw 17,087,494 vs deduped 9,733,599 = 1.76x. 97.9% cache-read. It is a FLOOR - computed before the session closed. The five measured factors are now 1.61x/1.76x/1.82x/1.86x/1.95x/2.25x: NOT a constant, so no fixed correction may be applied to any raw figure, including SPEC-001's cost.totals of 51,979,929 which is still a raw double-counted sum and must be re-summed with dedup, not divided. WARNING FOR THE ORCHESTRATOR, measured with --dry-run: just handback-sync SPEC-003 would append DUPLICATE build and verify sessions for HANDOFF-011 and HANDOFF-012, because both already have hand-written entries here yet both still read synced_at: null, and the script keys idempotence on synced_at alone with no check against existing sessions. I did not edit synced_at - the template says do not - so this entry is hand-written to match precedent. Stamp 011 and 012 synced, or delete the hand-written entries before syncing; do not run it as-is."
   totals:
     tokens_total: 10967269
     estimated_usd: 0
@@ -179,10 +187,14 @@ as an implementation. Re-derive test-first.
    unchecked index, planted temporarily, must be found by libFuzzer and produce a
    crash artifact. Paste that. A fuzz target that has never caught anything is
    the "green oracle that cannot fail" in another costume.
-6. On the real corpus, the reader reaches the full-resolution SubIFD and reports
+6. On the real corpus, the reader reaches the full-resolution **sensor IFD** —
+   *not* "SubIFD": `K3III.PEF` has none and keeps its plane in `IFD0` — and reports
    dimensions, bit depth, compression, levels, `ActiveArea`, `DefaultCrop`,
    `Orientation` and opcode-list presence, matching `exiftool` on all 7 files.
-7. All nine gates stay green.
+7. All gates stay green. ⚠ **Nine at design; TEN as shipped.** The punch-list
+   round added `just deny-fuzz` — the licence gate over `fuzz/`, which DEC-011
+   had recorded as unreachable and hand-checked instead. It reaches fine, and it
+   was failing the whole time (HANDOFF-013, SB-1).
 
 ## Failing Tests
 
@@ -267,10 +279,38 @@ implementation** (`test-before-implementation`); re-derive test-first. What it
 ### Corpus facts that shape the tests
 
 Seven files, `tests/corpus/manifest.toml`, read via the SPEC-002 reader — **do not
-hardcode paths**. Two are big-endian (`MM`) where five are `II`. Three are
-JPEG-compressed and must be **rejected cleanly**, not decoded. One (Pentax) carries
-a `BlackLevelRepeatDim` tag that dnglab itself warns is malformed — a natural
-regression fixture, and the reader must not panic on it.
+hardcode paths**.
+
+⚠ **Three facts in this paragraph were wrong as designed. All three are corrected
+below, each measured on the files themselves.** Build caught the byte-order count
+and the PEF's missing `SubIFDs` (HANDOFF-011); verify caught the compression count
+— and caught that HANDOFF-012 had repeated it (FU-2). They are left visible rather
+than silently swapped, because a design that asserted corpus numbers without
+measuring them is the thing worth remembering.
+
+- **Byte order: SIX `II`, ONE `MM`** — not "two big-endian where five are `II`".
+  Only `M2462362.DNG` (M Monochrom Typ 246) is `MM`. Read off the raw two-byte
+  magic of all seven, three times now by three agents.
+- **Compression: TWO are JPEG, not three.** `M2462362.DNG` and `K3III.DNG` are
+  `Compression == 7`. The third undecodable file, `K3III.PEF`, is
+  `Compression == 65535` — a **vendor-private Pentax scheme, not JPEG**. All
+  three must be rejected cleanly, and the distinction is load-bearing rather than
+  pedantic: PROJ-003 scopes lossless-JPEG (SOF-3) and PEF decompression as two
+  different problems, so "three JPEG" implies one unsupported-compression class
+  where there are two.
+- **`K3III.PEF` has no `SubIFDs` tag at all** — no `SubIFD`, no `NewSubfileType`
+  anywhere in the file, its plane in `IFD0`, and it is the only file in the corpus
+  with a real IFD **chain** (`IFD0 → IFD1 → IFD2`). So TIFF's *absent-means-0*
+  default for `NewSubfileType` is load-bearing, and "the full-resolution SubIFD"
+  is unsatisfiable on 1 of the 7 files this spec names. **"sensor IFD"** is the
+  phrase that is true for all seven; the code and tests already use it
+  (`sensor_ifd`, `ifd_reaches_sensor_plane`).
+
+One (Pentax `K3III.DNG`) carries a `BlackLevelRepeatDim` tag that dnglab itself
+warns is malformed — a natural regression fixture, and the reader must not panic
+on it. ⚠ It is a **tier-B** file (37 MB, uncommitted), so it is a fixture only
+where the corpus is present; `docs/conformance-matrix.md` previously called it
+tier A.
 
 ### Scope
 

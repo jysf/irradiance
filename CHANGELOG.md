@@ -28,9 +28,12 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
     PhotometricInterpretation == 34892 && SamplesPerPixel == 1` — **never on
     largest dimensions**, because a Q2M's `SubIFD2` is a full-resolution JPEG
     preview only 56 px narrower than the plane.
-  - Verified against `exiftool 13.55` on all **7** corpus files (5 `II` / 1 `MM`
-    / 1 PEF), including the Pentax's malformed `BlackLevelRepeatDim`, which
-    costs the tag and not the file.
+  - Verified against `exiftool 13.55` on all **7** corpus files — **6 `II` / 1
+    `MM`** by byte order, and **6 DNG / 1 PEF** by container; the two are
+    independent axes and the PEF is `II` as well. Four bodies: Leica Q2
+    Monochrom ×3, Leica M Monochrom, Leica M Monochrom (Typ 246, the only `MM`),
+    Pentax K-3 III Monochrome ×2. Includes the Pentax's malformed
+    `BlackLevelRepeatDim`, which costs the tag and not the file.
   - Compressed planes (2 JPEG, 1 Pentax PEF) are **rejected cleanly** with
     `Error::UnsupportedCompression`; their tags stay readable.
 - **A fuzz target, shipped in the same change** (`fuzz/fuzz_targets/ifd.rs`,
@@ -43,8 +46,10 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   (`width x height x bits == StripByteCounts x 8`).
 - `just fuzz` / `just fuzz-seeds`, which encode the `cargo fuzz` PATH trap so
   nobody rediscovers it.
-- CI: `fmt --check`, `clippy -D warnings`, `test`, `cargo deny check licenses`,
-  an MSRV check, and the lint red-proof.
+- CI: `fmt --check`, `clippy -D warnings`, `test`, **two** `cargo deny check
+  licenses` jobs — one for the library's graph and one for `fuzz/`'s, which is a
+  separate package and a separate graph (DEC-011) — an MSRV check, and the lint
+  red-proof.
   ⚠ CI **cannot** verify decode correctness — tier-B corpus files are never
   committed (DEC-003), so a green badge does not mean the decoder is bit-exact.
 
@@ -56,9 +61,44 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 - No typed tag model: `irradiance::ifd` widens `BYTE`/`SHORT`/`LONG` to `u32`
   and returns `Error::UnexpectedFieldType` for `RATIONAL` and the signed types.
   SPEC-004 owns that.
-- `cargo deny` does not reach `fuzz/`; its dependencies' licences were checked
-  by hand and recorded in DEC-011.
+- No multi-strip corpus file. All seven held planes are single-strip, and the
+  tests **assert** that (`tests/ifd_reader.rs:352`, `:443`, `:448`) rather than
+  merely not exercising the alternative — so the day a multi-strip file arrives
+  it fails those assertions loudly instead of silently taking an untested path.
+  That is the right way round, but it is a test to update, not a reader bug.
 
 ### Changed
 
 ### Fixed
+
+- **The licence gate now actually covers `fuzz/`.** `DEC-011` recorded that
+  `cargo deny` could not reach the fuzz package and hand-wrote its licence table
+  instead. Both halves were wrong: `cargo deny --manifest-path fuzz/Cargo.toml
+  check licenses` runs fine, and it **failed** — `libfuzzer-sys` declares
+  `(MIT OR Apache-2.0) AND NCSA` (conjunctive, so NCSA is not optional) where the
+  table said `MIT OR Apache-2.0`, and `irradiance-fuzz` itself carried no
+  `license` field, which is `unlicensed` and an error. NCSA is permissive
+  (OSI-approved, FSF Free/Libre) so nothing copyleft was ever linked — but the
+  record was wrong on a `blocking` constraint, in the document standing in for
+  the gate. Now: a named per-crate exception in `deny.toml` (not a widened
+  `allow`), a `license` field on `fuzz/Cargo.toml`, a corrected and re-measured
+  table in DEC-011 covering all ten crates, and `just deny-fuzz` + a CI job so it
+  is a gate rather than a paragraph.
+- `just msrv` — the MSRV gate was the only one of the ten with no recipe, so it
+  was the only one handing out a raw `cargo +1.90.0 …` that fails with
+  `no such command` under the default PATH (the third instance of the
+  `+toolchain` trap; `guidance/toolchain-brief.md`).
+- Corpus facts in `SPEC-003` and this file: the byte-order count (**6 `II` / 1
+  `MM`**, not 5 + a PEF — container and byte order are different axes), the
+  compression count (**2 JPEG**, code 7; `K3III.PEF` is code **65535**,
+  vendor-private, not JPEG), and "the full-resolution SubIFD" (the PEF has none —
+  its plane is in `IFD0`).
+- `docs/conformance-matrix.md` gained the three bodies that were held, read
+  end-to-end and unlisted, against that file's own opening rule.
+- The malformed-tag rule is now stated rather than implied (**DEC-012**):
+  **strict on structure, tolerant on shape.** A malformedness that changes *what
+  exists* — the header, an entry table, the chain's `next`, or `SubIFDs` — is
+  fatal to the container; one that changes only what a known-optional fixed-length
+  tag *says* costs that tag and is reported in `Sensor::malformed_tags`. No
+  behaviour changed; `SPEC-004` widens the type model on top of this boundary and
+  should not have had to guess it.

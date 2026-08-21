@@ -41,6 +41,11 @@ This costs a loop every single time it is rediscovered. `cargo fuzz` needs
 nightly, and fuzz targets ship with the first parser spec (AGENTS.md §12), so
 this will come up early and often.
 
+**It has now cost three, and they are numbered below** — the plain `+nightly`
+form above, `cargo fuzz`'s inner shell-out (second), and the MSRV gate's
+`+1.90.0` (third). Every one was measured, not predicted. Read all three before
+typing a `+` after `cargo`.
+
 ## ⚠ The SECOND `+toolchain` trap: `cargo fuzz`
 
 The PATH fix above is not enough for fuzzing. `cargo fuzz` **shells out to a bare
@@ -62,6 +67,35 @@ PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run <target>
 Measured 2026-08-18: with this, `cargo fuzz init` works, a target ran **32.9 M
 executions in 16 s**, and a deliberately unchecked index was caught — exit status
 77 plus a crash artifact under `fuzz/artifacts/`.
+
+## ⚠ The THIRD `+toolchain` trap: the MSRV gate
+
+Same root cause as the first, and it bites on a gate you are *required* to run:
+
+```
+$ cargo +1.90.0 check --all-targets --all-features
+error: no such command: `+1.90.0`
+```
+
+Homebrew's cargo does not understand `+toolchain` **at all** — not `+nightly`,
+not `+stable`, not a version pin. Go through the shim:
+
+```bash
+~/.cargo/bin/cargo +1.90.0 check --all-targets --all-features
+```
+
+**No `PATH=` prefix is needed here**, unlike the fuzz trap: nothing shells out to
+an inner bare `cargo`, so fixing the outer command is enough. The three traps are
+one fact with three costs, and the fix differs by one detail each time — which is
+exactly why each gets rediscovered.
+
+Measured 2026-08-20, twice in succession by two different agents on SPEC-003, each
+losing a loop. The reason it kept happening: **MSRV was the one gate of the ten
+with no `just` recipe**, so it was the only one that handed you the raw command
+instead of a working one. That is now `just msrv`, and the general lesson is
+worth more than the fix — *a gate documented as a raw command is a gate that will
+be run wrong.* If you find yourself pasting a bare toolchain command out of a
+document, that command belongs in `app.just`.
 
 ## Package manager
 

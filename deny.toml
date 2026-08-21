@@ -11,6 +11,20 @@
 # ships this with zero dependencies declared in Cargo.toml — the gate exists so
 # the FIRST dependency this crate ever adds is checked automatically, not so it
 # is checking anything today.
+#
+# ⚠ ONE FILE, TWO GRAPHS. cargo-deny evaluates the graph rooted at ONE manifest,
+# and this repo has two: the library at the root, and `irradiance-fuzz` under
+# `fuzz/` (DEC-011). This policy file governs both, but only because BOTH are
+# invoked:
+#
+#     just deny        ->  cargo deny check licenses
+#     just deny-fuzz   ->  cargo deny --manifest-path fuzz/Cargo.toml check licenses
+#
+# `just deny` alone does NOT see `fuzz/`. DEC-011 originally recorded that as an
+# unreachable corner of the gate and hand-checked it instead; SPEC-003's verify
+# cycle measured that the second invocation works and that the hand-check had got
+# the licences wrong (HANDOFF-012, SB-1). Adding a dependency to `fuzz/` and
+# running only `just deny` is therefore a green that checked nothing. Run both.
 
 [graph]
 # Evaluate the FULL feature graph so a copyleft dependency cannot slip in behind
@@ -33,7 +47,28 @@ allow = [
 # named crate. Everything else still fails — including any NEW GPL/AGPL/LGPL dep.
 # Document why each exception is safe.
 exceptions = [
-    # { name = "some-crate", allow = ["LGPL-3.0-or-later"] },
+    # libfuzzer-sys declares `(MIT OR Apache-2.0) AND NCSA` — AND, conjunctive:
+    # the NCSA terms apply IN ADDITION to the permissive pair, not as an
+    # alternative to them. NCSA is there because the crate vendors LLVM's own
+    # libFuzzer runtime (`libfuzzer/` in its source tree), which is NCSA-licensed
+    # C++ compiled by its build script.
+    #
+    # NCSA is OSI-approved and FSF Free/Libre — cargo-deny itself reports both —
+    # and it is permissive: attribution and no-endorsement, no reciprocity. So it
+    # satisfies `no-copyleft-dependencies` on substance. It is recorded here as a
+    # per-crate EXCEPTION rather than added to `allow` above deliberately:
+    #
+    #   - `allow` is a standing, graph-wide sanction. NCSA is in this repo for
+    #     exactly one reason (a fuzz-only test dependency's vendored C++), and it
+    #     has no business being pre-approved for the LIBRARY's graph, which is
+    #     the graph carrying the embeddable-permissive promise consumers rely on.
+    #   - An exception is NAMED. A second crate arriving with NCSA fails loudly
+    #     and gets its own decision, which is the behaviour this repo wants; a
+    #     widened `allow` would wave it through silently.
+    #
+    # Reached only by `just deny-fuzz` — libfuzzer-sys is not in the library's
+    # graph at all (DEC-011). Recorded there in full.
+    { name = "libfuzzer-sys", allow = ["NCSA"] },
 ]
 
 # Require high confidence when matching a license file's text to an SPDX id.

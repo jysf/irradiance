@@ -76,6 +76,35 @@ jobs:
         with:
           command: check licenses
 
+  # SPEC-003 punch-list round. This repo has TWO cargo graphs: the library at the
+  # root, and `irradiance-fuzz` under fuzz/ (DEC-011), which is deliberately kept
+  # out of the library's graph so `[dependencies]` stays empty. cargo-deny
+  # evaluates ONE manifest's graph per invocation, so the job above does not see
+  # a single one of libfuzzer-sys's dependencies — this job is not redundant with
+  # it, and neither is a substitute for the other.
+  #
+  # DEC-011 originally recorded this graph as a corner cargo-deny could not reach
+  # and hand-wrote its licence table instead. SPEC-003's verify cycle ran the
+  # command: it works, and it FAILED, on two real defects the hand-check had
+  # missed — libfuzzer-sys declares `(MIT OR Apache-2.0) AND NCSA` (conjunctive;
+  # NCSA now carries a named per-crate exception in deny.toml) and
+  # `irradiance-fuzz` had no `license` field at all, which is `unlicensed` and an
+  # error. The gate was never absent. It was never invoked, for the length of a
+  # whole build cycle, while a document stood in for it on a `blocking`
+  # constraint. `--manifest-path` was the entire fix.
+  #
+  # Mirrors `just deny-fuzz` (app.just). Uses the same policy file as the job
+  # above — deny.toml governs both graphs.
+  licenses-fuzz:
+    name: rust / license policy — fuzz graph (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: fuzz/Cargo.toml
+          command: check licenses
+
   msrv:
     name: rust / MSRV (1.90.0)
     runs-on: ubuntu-latest

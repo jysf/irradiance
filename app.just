@@ -52,9 +52,33 @@ lint:
 typecheck:
     cargo check --all-targets --all-features
 
-# Licences — the permissive-only gate (constraint no-copyleft-dependencies)
+# Licences — the permissive-only gate (constraint no-copyleft-dependencies).
+#
+# ⚠ This covers the LIBRARY's graph ONLY. `fuzz/` is a separate package
+# (DEC-011) and cargo-deny evaluates one manifest's graph at a time, so this
+# recipe does not see a single one of libfuzzer-sys's dependencies. Run
+# `just deny-fuzz` too — see below.
+#
+# Licences — the permissive-only gate over the LIBRARY's graph.
 deny:
     cargo deny check licenses
+
+# The same gate over the FUZZ graph (`irradiance-fuzz`, DEC-011). The tenth gate.
+#
+# ⚠ Not redundant with `just deny`, and the difference is not cosmetic: the two
+# graphs share nothing except this library. DEC-011 originally recorded this as
+# a corner cargo-deny could not reach and hand-checked the licences instead;
+# SPEC-003's verify cycle ran it and it FAILED on two real defects the
+# hand-check had missed (libfuzzer-sys declares `(MIT OR Apache-2.0) AND NCSA`
+# — conjunctive — and `irradiance-fuzz` carried no `license` field at all). The
+# gate was never absent; it was never invoked.
+#
+# `--manifest-path` is the whole fix. Keep both recipes green before claiming
+# the licence gate passes.
+#
+# Licences — the same gate over the FUZZ graph.
+deny-fuzz:
+    cargo deny --manifest-path fuzz/Cargo.toml check licenses
 
 # Prove the LIBRARY's panic-free lint policy actually rejects violating code —
 # one violation per policy lint, injected into a temp-dir copy of src/lib.rs,
@@ -109,3 +133,25 @@ fuzz seconds="60":
 # fixture added to the hostile-input test lands in the fuzz lane too.
 fuzz-seeds:
     cargo run --quiet --all-features --example fuzz-seeds
+
+# The MSRV gate (rust-version = "1.90" in Cargo.toml).
+#
+# ⚠ The `~/.cargo/bin/` prefix is load-bearing — this is the THIRD instance of
+# the `+toolchain` trap and the reason this recipe exists at all. A bare
+# `cargo +1.90.0 check` fails with `error: no such command: +1.90.0`, because
+# `cargo` on PATH is Homebrew's real cargo, which does not understand
+# `+toolchain` syntax at all. Only the rustup shim does. See
+# guidance/toolchain-brief.md, "The THIRD `+toolchain` trap".
+#
+# Until SPEC-003's punch-list round this was the ONE gate of the ten with no
+# recipe, so it was the one that handed you the raw failing command — measured
+# twice, by two different agents, each losing a loop to it.
+#
+# A pin, not a floor: `rust-version` is only meaningful if something compiles
+# against EXACTLY that toolchain. Do not swap this for `+stable`, and do not
+# bump the pin without compiling against an actually-older toolchain first
+# (SPEC-001 acceptance criterion 2).
+#
+# MSRV — compile the whole target set against exactly 1.90.0.
+msrv:
+    ~/.cargo/bin/cargo +1.90.0 check --all-targets --all-features

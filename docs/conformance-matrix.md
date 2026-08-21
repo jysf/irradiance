@@ -9,7 +9,10 @@ out of scope, here is the row."
 
 | Camera | Sensor | Bits | Container / mode | Corpus | Oracle | Target | Coverage |
 |---|---|---|---|---|---|---|---|
-| **Leica Q2 Monochrom** | **no CFA** (LinearRaw, 1 sample) | 14 | native DNG, **uncompressed**, single strip | held | ✔ dnglab decodes it | n/a (mono) | **PROJ-001** |
+| **Leica Q2 Monochrom** | **no CFA** (LinearRaw, 1 sample) | 14 | native DNG, **uncompressed**, single strip | held ×3 | ✔ dnglab decodes it | n/a (mono) | **PROJ-001** — reference body; container read end-to-end (SPEC-003) |
+| **Leica M Monochrom** | **no CFA** (LinearRaw, 1 sample) | **16** | native DNG, **uncompressed**, single strip | held (CC0) | ✔ dnglab decodes it | n/a (mono) | **PROJ-001** — container read end-to-end (SPEC-003). ⭐ The only *third-party* file that decodes today, and DEC-008's 16-bit branch evidence: a third bit depth, BlackLevel 220 not 512, and the only **non-zero `ActiveArea` origin** held (2 2 5212 3468), so the crop has somewhere to move. No `OpcodeList` tags at all — the no-opcodes path |
+| **Leica M Monochrom (Typ 246)** | **no CFA** (LinearRaw, 1 sample) | **12** | native DNG, **JPEG** (`Compression 7`), **`MM`** | held (CC0) | ✔ dnglab decodes it | n/a (mono) | **PROJ-001 container only** — tags read end-to-end (SPEC-003), plane rejected with `Error::UnsupportedCompression`. The corpus's **only big-endian file**, and its only 12-bit one. Decode waits on lossless JPEG SOF-3 → **PROJ-003** |
+| **Pentax K-3 III Monochrome** | **no CFA** (LinearRaw, 1 sample) | 14 | **two containers, same scene**: DNG **JPEG** (`Compression 7`) and native **PEF** (`Compression 65535`, vendor-private) | held ×2 (CC0) | ✔ dnglab decodes both | n/a (mono) | **PROJ-001 container only** — tags read end-to-end (SPEC-003), both planes rejected cleanly. A monochrome sensor from a different **make**. The PEF is the corpus's **only real IFD chain** (`IFD0→IFD1→IFD2`), has **no `SubIFDs` tag at all** (plane in `IFD0`), and the DNG carries the malformed `BlackLevelRepeatDim`. Decode → **PROJ-003**; PEF and SOF-3 are *different* problems |
 | Nikon P1100 (Coolpix) | Bayer | 12 | **NRW**, uncompressed | wanted | dnglab lists it, 12bit | no | PROJ-002 — bit-depth stress test |
 | Nikon D750 | Bayer | 12/14 | NEF — lossless + Lossy(type 2). **No uncompressed option (menu checked)** | wanted | dnglab lists it | **yes — the ColorChecker camera** | PROJ-003, or PROJ-002 via `dnglab convert -c uncompressed` |
 | Nikon D3200 | Bayer | 12 | NEF — Lossy(type 2) only | wanted | dnglab lists it | no | PROJ-003 |
@@ -18,11 +21,34 @@ out of scope, here is the row."
 | Canon CR3 | Bayer | 14 | CRX wavelet | none | — | no | **declared-empty** — 2,653 lines in rawler; demand-gated |
 | Nikon Z-series HE/HE* | Bayer | 14 | TicoRAW | none | **rawler rejects it outright** (`nef.rs:205`) | no | **declared-empty — CLOSED, not expensive** |
 
-## ⚠ PROJ-001 validates against ONE camera
+## ⚠ PROJ-001 validates against ONE camera — at the DEVELOP layer. The CONTAINER half is done.
 
-One body, one firmware, one frame. Everything in `docs/measured-q2m-dng.md` could carry a
-Leica-specific assumption nobody notices until a second DNG arrives. A **second native-DNG
-source** is cheap insurance and worth adding before STAGE-002 finishes:
+✅ **Updated 2026-08-20 (SPEC-003).** This section said "one body, one firmware,
+one frame" and it is no longer true at the layer where it was cheapest to fix.
+The container reader is now exercised against **four bodies, three makes-worth of
+firmware and seven files**, all read end-to-end and cross-checked against
+`exiftool 13.55` — which is exactly the *"prove the **container reader** is not
+Leica-shaped"* job the closing paragraph of this section calls STAGE-001's, and
+"the cheap half of the value". That half is spent, and it bought:
+
+- a **third and fourth bit depth** (12 and 16, against the Q2M's 14),
+- the only **big-endian** file held, so byte-order handling has a real test,
+- a **non-zero `ActiveArea` origin**, so the crop has somewhere to move,
+- a file with **no `SubIFDs` tag**, which makes TIFF's *absent-means-0* default
+  for `NewSubfileType` load-bearing rather than decorative,
+- the only **IFD chain** (`IFD0→IFD1→IFD2`) in the corpus,
+- a **different make** (Ricoh/Pentax), and a **vendor-private container** (PEF),
+- and a real shipping camera's **malformed tag**, free.
+
+**What is still one camera is the DEVELOP path**, and that is the part the
+paragraph below was really about: only the Q2 Monochrom and the M Monochrom are
+*uncompressed*, and everything in `docs/measured-q2m-dng.md` — levels, opcode
+lists, geometry — is still measured on one body. STAGE-002 onward inherits that
+caveat undiminished. The M Monochrom (16-bit, uncompressed, CC0) is the one file
+that narrows it today, and it is why it is worth more than its size suggests.
+
+A **Bayer** native-DNG source remains cheap insurance for the container reader's
+*mosaic* assumptions, which no monochrome file can test:
 
 | Candidate | Why | Cost |
 |---|---|---|
@@ -32,7 +58,9 @@ source** is cheap insurance and worth adding before STAGE-002 finishes:
 | iPhone ProRAW | ⚠ typically *Linear* DNG — already demosaiced. Verify before relying on it | free |
 
 It is Bayer, so it cannot ship in PROJ-001's develop path — but it can prove the **container
-reader** is not Leica-shaped, which is STAGE-001's job. That is the cheap half of the value.
+reader** is not Leica-shaped, which is STAGE-001's job. Four monochrome bodies have now done
+most of that (above); what a Bayer file adds specifically is `CFARepeatPatternDim` and friends,
+the one tag family a monochrome corpus structurally cannot exercise.
 
 ## ⚠ Open question carried out of SPIKE-002 (2026-08-18)
 
@@ -43,10 +71,19 @@ blocked on a Fuji RAF and a Nikon D750 NEF, neither held. SPIKE-002 landed
 landing.** It decides whether corpus-widening for PROJ-002 is cheap or expensive,
 so reopen it as its own spike when the files arrive.
 
-Also from SPIKE-002, worth a row's worth of attention: the **Pentax K-3 Mark III
+Also from SPIKE-002, and it has its own row now: the **Pentax K-3 Mark III
 Monochrome** DNG carries a tag `dnglab` itself warns about — *"BlackLevelRepeatDim
 tag but with invalid length: 1"*. A shipping camera writing a malformed tag that a
-mature decoder tolerates is a tier-A regression fixture, not a curiosity.
+mature decoder tolerates is a regression fixture, not a curiosity.
+
+⚠ **It is TIER B, not tier A** — this said tier A, which it cannot be: the file is
+37 MB and uncommitted, so it is a fixture only where `$IRRADIANCE_CORPUS_DIR` is
+populated, and never in CI. SPEC-003 handled that the right way round: the reader
+tolerates a present-but-wrong-length tag by dropping the value and recording the
+tag number in `Sensor::malformed_tags`, and the behaviour is pinned by a **tier-A
+hand-built fixture** carrying the same defect, which does run in CI. The real file
+is the *discovery*; the synthetic one is the *regression test*. Do not confuse
+them — the tier-B file cannot gate anything.
 
 ## Gotchas already found
 

@@ -55,7 +55,9 @@ orchestration_cost:
 ## What This Stage Is
 
 When this stage ships, `irradiance` can open a real Leica Q2 Monochrom DNG,
-walk its IFD tree to the full-resolution SubIFD, and report every tag the develop
+walk its IFD tree to the full-resolution **sensor IFD** — a `SubIFD` on every
+file held except the Pentax PEF, whose plane sits in `IFD0` and which carries no
+`SubIFDs` tag at all — and report every tag the develop
 pipeline will later need — dimensions, bit depth, black and white levels, active
 area, default crop, orientation, and the two opcode lists — with an oracle that
 proves those values right rather than merely plausible. It reads no pixels.
