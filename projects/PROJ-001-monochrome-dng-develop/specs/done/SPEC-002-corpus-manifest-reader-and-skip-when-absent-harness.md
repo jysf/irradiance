@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -90,8 +90,9 @@ cost:
       notes: "Verify cycle for SPEC-002 (HANDOFF-010). Verdict APPROVED at 4516280, no ship-blocking findings, 7 follow-ups (F1-F7 in the handoff). Criterion re-run here with no extra flags: 8 SKIP lines each naming its absent file; adversarial mutation of app.just takes it to 0 and restoring takes it back to 8; 6-of-7 corpus names exactly the removed frame; 7/7 corpus gives 0 SKIP, 9 tests, 14.91s. All seven gates re-run green. The hand-written SHA-256 was verified against an INDEPENDENT oracle rather than reviewed by eye: a differential harness #[path]-including the real file was compared to Python hashlib and shasum -a 256 over every length 0..600 (all 64 padding residues incl. 55/56/57/63/64), exhaustive 2-way and 3-way streaming splits (33042 splittings), byte-at-a-time updates, and 2^32+1 bytes to exercise the 64-bit length field past 4 GiB - 0 mismatches everywhere; K[64] and H0[8] were rederived from the cube/square roots of the first primes and all 72 constants are exact; all 7 real corpus digests match the manifest pins under shasum. Both red-proofs observed failing under their own deliberate fault, and selectively. Chief finding F1: the committed NIST vectors cover padding residues {0,3,56} only, so mutating the padding branch > to >= at tests/support/corpus.rs:474 breaks every length congruent to 55 mod 64 while all 9 tests still pass - and the real corpus cannot catch it either (sizes are residues {0,0,0,0,0,54,36}). Finding F2: the recorded design measurement is wrong as stated - eprintln! is captured by libtest but a direct writeln! to std::io::stderr() in a PASSING test is not, taking bare `cargo test` from 0 SKIP lines to 8; the shipped corpus-status design is still the better surface and stays. tokens_total is a transcript sum DEDUPED BY message.id and said so: 97 usage objects, 51 distinct ids, raw 11,900,593 vs deduped 6,097,683 = 1.95x inflation, 97.0% cache-read. Independently confirmed the build's double-counting diagnosis on three transcripts (1.86x / 1.84x / 2.25x). NOTE (F5): re-summing the build transcript dbdeb6a8 after its session closed gives 12,644,814 deduped, so the recorded build figure of 9,498,150 is a floor about 25% low - re-sum it alongside SPEC-001's four sessions."
   totals:
     tokens_total: 15595833
-    estimated_usd: 0
+    estimated_usd: 0.00
     session_count: 2
+shipped_at: 2026-08-20
 ---
 
 # SPEC-002: Corpus manifest reader and skip-when-absent harness
@@ -167,8 +168,12 @@ a corpus path.
 3. Each present file's `sha256` is **verified**, and a mismatch fails loudly and
    names the file (a re-download or truncation must not pass silently).
 4. **A missing tier-B file skips — and the skip is VISIBLE under plain
-   `cargo test`.** ⚠ Measured at design: `eprintln!`/`println!` inside a *passing*
-   test is captured and shows **nothing** without `--nocapture`. A skip nobody can
+   `cargo test`.** ⚠ **CORRECTED at ship — the original wording overstated a real measurement.**
+   `eprintln!`/`println!` in a passing test *are* captured (measured). But
+   `writeln!(std::io::stderr(), …)` is **not** — a direct write to the OS handle
+   escapes libtest's capture and IS visible under bare `cargo test` (verified at
+   ship). So loudness *can* live in the harness; the design note claimed it could
+   not. A skip nobody can
    see is the silent-green defect this spec exists to prevent, so the visible
    surface must live outside the test harness — see Implementation Context.
 5. The `toml` dev-dependency is accompanied by a `DEC-*` recording it (constraint
@@ -253,6 +258,52 @@ are settled (`DEC-003`); the manifest ships seeded with 7 entries. The
 `#[allow]`-bypass work is **SPEC-006**, a separate spec sharing no files.
 
 ## Reflection
+
+**1. What would I do differently next time?**
+
+**Not over-generalise a measurement.** I measured that `eprintln!` in a passing
+test is captured — true, and it did change the design for the better. I then wrote
+that "the loudness cannot live in the test harness", which is **false**: a direct
+`writeln!(std::io::stderr(), …)` escapes libtest's capture entirely. Verified at
+ship: bare `cargo test` shows the direct write and hides the macro.
+
+The measurement licensed a claim about `eprintln!`. I made a claim about the
+*category*, and it propagated into the spec, the handoff, the commit message and
+my summary — asserted as "measured" in five places. Running something is not a
+defence against over-claiming what the run proved. This is a sharper cousin of the
+`unrun-docs-carry-errors` lesson: the docs *were* run, and were still wrong.
+
+The decision itself survives: `corpus-status` reports all 7 entries up front
+rather than only the skips, so it is the better surface either way. But a
+developer typing bare `cargo test` still gets a silent skip, and the recorded
+*reason* was wrong.
+
+**2. Does any template, constraint, or decision need updating?**
+
+- **F1 is the substantive one:** the NIST vectors cover length residues
+  {0, 3, 56} only, and the real corpus is no better ({0,0,0,0,0,54,36}). A `>` →
+  `>=` mutation at `tests/support/corpus.rs:474` breaks every message of length
+  ≡ 55 mod 64 and **all 9 tests still pass**. The shipped code is correct; the
+  suite simply cannot tell. Lengths 55, 57, 63 kill the mutant.
+- **F3 — the SHA-256 decision has no DEC of its own.** Hand-writing a hash
+  function is a larger call than the `toml` dev-dep it is currently a bullet
+  inside.
+- **F5/cost** — the recorded build figure is a floor ~25% low, because a
+  transcript re-summed after its session closes is larger. Combined with the
+  ~1.9× double-count, no cost number in this repo is yet a measurement.
+
+**3. Is there a follow-up spec to write now?**
+
+**One, and it is small: F1.** Adding lengths 55/57/63 to the vectors is a
+handful of lines and it converts "the code is correct" from a claim into
+something the suite can defend. Everything else here is a follow-up signal.
+
+Worth stating plainly: the reviewer did not weigh my SHA-256 question, it
+**tested** it — every length 0..600, all 64 padding residues, 33,042 splittings,
+2³²+1 bytes, and all 72 constants rederived from first principles. That is the
+strongest verification anything in this repo has received, and it is what turned
+a judgement call into a measured fact.
+
 
 *Appended during **ship**. Three questions, short answers.*
 

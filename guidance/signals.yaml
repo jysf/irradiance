@@ -151,7 +151,7 @@ signals:
   - id: attribute-text-inside-doc-comments
     type: lesson
     summary: "Tooling that pattern-matches Rust attributes must exclude doc comments and plain // comments — three separate false results on one spec."
-    evidence: "SPEC-001, N=3 — (1) orchestrator's attack hit `#[cfg(test)]` inside a doc comment; (2) orchestrator's attack hit the second `#![deny(` which lives in the module doc, deleting 14 chars of prose and reporting a false negative; (3) the red-proof's own prologue parser skips `//!` but not `//`, which is PL-1: a silent false green with a panic shipped."
+    evidence: "SPEC-001, N=5 (see notes) — (1) orchestrator's attack hit `#[cfg(test)]` inside a doc comment; (2) orchestrator's attack hit the second `#![deny(` which lives in the module doc, deleting 14 chars of prose and reporting a false negative; (3) the red-proof's own prologue parser skips `//!` but not `//`, which is PL-1: a silent false green with a panic shipped."
     bar: "N=3 same-outcome"
     status: watch
     disposition_at: stage-close
@@ -177,12 +177,24 @@ signals:
     summary: "One #[allow(clippy::panic, clippy::expect_used)] on a pub fn passes all seven gates while shipping panics on the public API."
     evidence: "SPEC-001 verify round 3, F-2 — reproduced independently by the orchestrator: no module needed, seven green gates, two panics on the public API."
     bar: null
-    status: accepted
+    status: done
     disposition_at: project-close
     first_flagged: 2026-08-18
     last_touched: 2026-08-18
     raised_by: claude
     notes: |
+      CLOSED by SPEC-006 (shipped 2026-08-18): `cargo clippy --lib -- -F <each lint>`.
+      Verified under FOURTEEN bypass attempts incl. #[cfg_attr], #[expect], lint
+      aliases, macro-generated allows, and a lib module pulled in by #[path] from
+      tests/. The grep-shaped mechanism this signal originally predicted was
+      REJECTED — a compiler-level forbid needs no text matching at all, which is
+      most of why it won.
+      Residual, recorded but NOT converted to a spec: the gate's own -F flags are
+      unpinned (swap -F->-D and the hole returns with eight green gates). That
+      requires editing the gate's definition in ci.yml/app.just, which is visible
+      in any diff — a weaker threat than a one-line #[allow] on a pub fn. Where
+      this recursion stops is a maintainer call at project close.
+      ORIGINAL NOTE FOLLOWS.
       ACCEPTED AND SCHEDULED, not merely noted. DEC-009's red-proof pins the
       policy at the crate ROOT; no #![deny] mutation test can observe an #[allow]
       anywhere below it, so this needs a different mechanism (most likely a gate
@@ -193,3 +205,38 @@ signals:
       and the first module lands in SPEC-002. Re-attached to SPEC-002 at ship.
       constraints.yaml:33 currently reads as a stronger guarantee than holds (F-4)
       and should be softened in the same change.
+
+  # --- lesson: a measurement licenses a claim about WHAT WAS MEASURED ---------
+  - id: measurement-over-generalised
+    type: lesson
+    summary: "Running something proves what you ran, not the category it belongs to — over-generalised measurements read as `measured` and are wrong."
+    evidence: "SPEC-002 F2 — measured that eprintln! in a passing test is captured (true), then asserted 'the loudness cannot live in the test harness' (false: writeln!(stderr) escapes capture). Propagated into the spec, handoff, commit message and summary as `measured` in five places. N=1."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-08-18
+    last_touched: 2026-08-18
+    raised_by: claude
+    notes: |
+      Distinct from [[unrun-docs-carry-errors]] and sharper: those docs were never
+      executed. This one WAS executed, and was still wrong, because the conclusion
+      was broader than the experiment. Watch for N=2 before codifying. Candidate
+      rule: when a probe result becomes a spec claim, state the exact command that
+      produced it next to the claim, so the scope of the evidence travels with it.
+
+  # --- process-debt: two owners for one field ---------------------------------
+  - id: cost-field-has-two-owners
+    type: process-debt
+    summary: "AGENTS.md §15 tells the agent to write cost.sessions; DEC-013 says handback-sync transcribes it."
+    evidence: "SPEC-006 F-5 — cost.sessions was empty after verify because each side could assume the other had it."
+    bar: null
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-08-18
+    last_touched: 2026-08-18
+    raised_by: claude
+    notes: |
+      Both cannot be authoritative. `handback-sync` is the better owner (it is
+      idempotent, it stamps synced_at, and it cannot fat-finger a number), so
+      AGENTS.md §15 should say "fill the handback; the orchestrator syncs" rather
+      than "append a cost session". Template-level: fix upstream, not just here.
