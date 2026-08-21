@@ -240,3 +240,25 @@ signals:
       idempotent, it stamps synced_at, and it cannot fat-finger a number), so
       AGENTS.md §15 should say "fill the handback; the orchestrator syncs" rather
       than "append a cost session". Template-level: fix upstream, not just here.
+
+  # --- process-debt: a ship step with no surface skipped six times --------------
+  - id: brag-step-skipped-at-ship
+    type: process-debt
+    summary: "The ship cycle's accomplishment-logging step was skipped on every shipped artifact until a human asked."
+    evidence: "SPIKE-001, SPIKE-002, SPEC-001, SPEC-002, SPEC-003, SPEC-006 all shipped with cost.totals, reflections and archive done, and zero brag entries. brag_list for this project returned [] after six ships."
+    bar: null
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-08-21
+    last_touched: 2026-08-21
+    raised_by: human
+    notes: |
+      DEC-010 makes it on-by-default and AGENTS.md §15 lists it, but nothing
+      SURFACES its absence: `just status`, `just validate` and `just cost-audit`
+      are all silent, and archive-spec succeeds regardless. It is the "ship the
+      reader with the field" defect (AGENTS.md §11) applied to a process step —
+      an unperformed step looks exactly like a step whose turn has not come.
+      Cheap fix: have `just status` count shipped specs against brag entries for
+      the project and show the gap, or have archive-spec refuse without one.
+      Backfilled 2026-08-21 (entries 384-390), so the record is now complete —
+      but it took a human noticing, which is the whole point.
