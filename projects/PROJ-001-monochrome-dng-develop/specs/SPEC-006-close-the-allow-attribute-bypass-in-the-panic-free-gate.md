@@ -6,14 +6,14 @@
 task:
   id: SPEC-006
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -63,11 +63,27 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 5121192
+      estimated_usd: null
+      duration_minutes: 15
+      recorded_at: 2026-08-20
+      notes: "All six acceptance criteria met; both red-proof directions measured and pasted. The headline: with the spec's #[allow] planted on a pub fn in src/lib.rs (before the #[cfg(test)] module), BUILD 0 CLIPPY 0 FMT 0 TEST 0 MSRV 0 DENY 0 REDPROOF 0 and the new NO-ALLOW gate 101 with two E0453s at src/lib.rs:88 -- the hole reproduced, one gate seeing it. Honest tree: all eight 0. Also proved the inner #![allow] form (101) and, on the honest tree, that --all-targets goes 101 on the test module's legitimate allow, which is why the scope is --lib. Mechanism transcribed verbatim from the spec; no text search; scripts/lint-red-proof.sh and src/lib.rs both untouched. constraints.yaml:33 rewritten to name both jobs, state SCOPE: --lib only, and say plainly that neither job proves any code is panic-free -- only that the policy is intact and inescapable on the library; constraints-view.sh output byte-identical before and after. Three deviations, all recorded in the handback: (1) the branch already pointed at 412cb1b (SPEC-002's design commit) rather than main, so it was reset onto main dd4eb42 -- nothing lost, 412cb1b is still the tip of feat/spec-002-corpus-manifest-reader; (2) AGENTS.md §6 gained the command block, because §6 makes recipe<->block correspondence SPEC-001 acceptance criterion 8; (3) CI inlines the cargo invocation rather than calling just, because just is not on ubuntu-latest -- caught by executing the YAML run: block before commit, not by reading it. Ran in an isolated git worktree: another session was moving HEAD in the shared checkout during this cycle. tokens_total is REAL but not from /cost (a client-side slash command the assistant cannot execute): summed 53 deduplicated usage objects in this session's own transcript (~/.claude/projects/-Users-...-irradiance/e8f27d72-....jsonl). Composition: input 106 + output 39,205 + cache-write 106,729 + cache-read 4,975,152 (97.1% cache-read). FLOOR -- written before the session ends. Same method as SPEC-001's verify-1/verify-2 and build-2/build-3/build-4; NOT comparable to build-1's 197,940 (token-counts-not-comparable). Follow-ups, none blocking: src/lib.rs's module doc now reads as if the gap is still open (one sentence would close it, deliberately left to avoid touching the file the gate protects); --all-features was NOT added to the gate on purpose, but DEC-002's std-behind-a-feature proposal will make that a real question; and toolchain-brief.md's +stable = 1.97.0 has drifted to 1.98.0 on this host."
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 4814757
+      estimated_usd: null
+      duration_minutes: 30
+      recorded_at: 2026-08-20
+      notes: "APPROVED at e4a7087 (implementation 618fd6f). All six acceptance criteria met and re-measured independently in a fresh worktree; eight follow-ups, ZERO ship-blocking. Ran check #9 myself: attack planted before the #[cfg(test)] module -> BUILD 0 CLIPPY 0 FMT 0 TEST 0 MSRV 0 DENY 0 REDPROOF 0, NO-ALLOW 101 with both E0453s at src/lib.rs:88, and `just lint-no-allow` 101 on the same tree; honest tree all eight 0. Then tried thirteen more bypasses and every one was caught: inner #![allow] in a module, crate-root #![allow] under the #![deny], #[cfg_attr(all(), allow(...))], #[cfg_attr(not(test), allow(...))], #[expect(...)], #[warn(...)], renamed aliases (clippy::option_unwrap_used / clippy::integer_arithmetic -> E0453 after rename), macro_rules!-generated #[allow], #[allow(clippy::restriction)] (five E0453s), a lib module pulled in via #[path] from tests/, Cargo.toml [lints.clippy] allow, and both group forms (#[allow(clippy::all)] / #[allow(warnings)]) which emit no E0453 but cannot silence the lints either - all still 101, even with the crate-root #![deny] deleted. Two measured results the constraint text does not yet carry: (a) the gate ALONE re-imposes all five lints at forbid level on --lib - with the crate-root #![deny] block deleted and a plain panicking pub fn with no attribute at all, it still exits 101, so for the library it is not dependent on job (1); (b) the gate is scoped by TARGET but not by FEATURE configuration - it runs default features, a no-op at zero features today but live the day DEC-002 puts std behind one. The largest follow-up: the gate's own flags are unpinned. Measured - swap all five -F to -D and the planted attack goes GREEN (0); drop -F clippy::expect_used and plant #[allow(clippy::expect_used)] on a pub fn that expects, and BOTH the no-allow gate and the full clippy gate exit 0, a panic on the public API with all eight gates green again. Nothing in CI notices either edit. That is DEC-009's own thesis one level up - SPEC-001's gate self-tests in CI, this one was proved red once by hand - and it wants its own spec, not another round here (the criteria as written are met and the gate is sound at this SHA). Three disclosed deviations all confirmed accurate and confined: the branch reset (412cb1b is contained in feat/spec-002-corpus-manifest-reader, whose tip has since moved to 112bd80 - nothing lost), the AGENTS.md §6 addition (two hunks, both inside §6, recipe text matches app.just), and CI inlining cargo (single additive hunk at ci.yml:120-165; every other job inlines the same way). constraints-view.sh output re-diffed byte-identical against main. Placement question answered: appending the attack AFTER the test module does trip clippy::items_after_test_module and turns CLIPPY 101 for an unrelated reason - reproduced - so any future automated red-proof for this gate must pin the site. tokens_total is REAL but not from /cost (a client-side slash command the assistant cannot execute): summed 42 deduplicated usage objects in this session's own transcript (~/.claude/projects/-Users-...-irradiance-verify-spec-006/42350191-....jsonl). Composition: input 84 + output 44,391 + cache-write 137,798 + cache-read 4,632,484 (96.2% cache-read). FLOOR - written before the session ends. Same method as SPEC-001's verify-1/2/3 and build-2/3/4; NOT comparable to build-1's 197,940 (token-counts-not-comparable). Cost transcribed by the tool, never by hand: ran `just handback-sync SPEC-006`, which stamped both HANDOFF-007 (build, 5,121,192) and HANDOFF-009 into cost.sessions and set synced_at - hand-appending double-counts (settled on SPEC-001, HANDOFF-004)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 9935949
+    estimated_usd: 0.00
+    session_count: 2
 ---
 
 # SPEC-006: Close the allow-attribute bypass in the panic-free gate
