@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved         # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -81,9 +81,10 @@ cost:
       recorded_at: 2026-08-21
       notes: "Verify cycle for SPEC-007 (HANDOFF-018), reviewing 0de18d4 on feat/spec-007-extraction-tolerance; branch at a94f5b4, main untouched at 99086fb, not merged. VERDICT: APPROVED at 0de18d4 — all six acceptance criteria met, 7 follow-ups (FU-1..FU-7), 0 ship-blockers. TEN GATES RUN BY ME, all green: cargo fmt --check; cargo clippy --all-targets --all-features -D warnings; cargo check --all-targets --all-features; cargo test --all-features 58 passed (37 lib + 0 irr + 9 corpus_manifest + 12 ifd_reader + 0 doc, SUMMED across five targets with IRRADIANCE_CORPUS_DIR set, corpus reporting 7/7 files present); cargo clippy --lib -F x5 exit 0; cargo deny check licenses AND cargo deny --manifest-path fuzz/Cargo.toml check licenses (both licenses ok); ~/.cargo/bin/cargo +1.90.0 check --all-targets --all-features; scripts/lint-red-proof.sh (control clean exit 0 -> injection rejected exit 101 -> all five lints fired, still fired without -D warnings — I WATCHED IT GO RED, check 9); cargo build --release. Plus cost-audit, decisions-index --check, just validate (7 artifacts), just decisions-audit --changed. FUZZ RE-RUN BY ME (check 10): 10,768,231 runs in 61s, cov 620 ft 2048, fuzz/artifacts/ifd empty; confirmed the target actually reaches the widened path — fuzz/fuzz_targets/ifd.rs:47 calls uints() on every entry regardless of field type and :53 calls sensor(), so both TYPE_RATIONAL and cost_the_field are fuzzed; seeds regenerate byte-identical (26 seeds, diff -rq clean). NAMED TESTS: each of the five confirmed to EXIST via per-target -- --list before its green was trusted (anchored grep (^|::)<name>: test$ — a bare ^<name> pattern returns 0 for all five, because lib tests list as ifd::tests::<name>; that near-miss is recorded because it reads as 'the tests do not exist'); all five live in the lib target only, each matched exactly 1, each passes. SCRUTINY 1 (scope extension): CORRECT and nothing structural swept in — cost_the_field has 8 call sites (src/ifd.rs:1103,1112,1120,1125,1136,1141,1152,1158) covering 7 distinct tags (Orientation x2, BlackLevel, WhiteLevel, BlackLevelRepeatDim, ActiveArea, DefaultCropOrigin, DefaultCropSize), a literal 7-for-7 match with DEC-012 amendment's Interpretation row; the 9 remaining bare-? sites are all Structure-class (ImageWidth:1169, ImageLength:1170, BitsPerSample:1171, SamplesPerPixel:1173, Photometric:1175, Compression:1178, RowsPerStrip:1184, StripOffsets:1186, StripByteCounts:1187), unchanged from main, and the three cited lines 1173/1178/1184 are exactly where the handoff said. SCRUTINY 2 (cost_the_field): leaves stay honest (scalar/values/uints/array all still return Result; array() returns Err WITHOUT pushing and pushes only on the Ok(None) count-mismatch branch, so no double-record on that path); cost_the_field is private, takes no &self, called from sensor() and nowhere else. Nothing is dropped unrecorded — mutation M8 (delete malformed.push) compiled and turned FOUR tests red. But the INVERSE is unguarded: FU-1 and FU-2. SCRUTINY 3 (RATIONAL): zero denominator exits via checked_div/checked_rem both returning None before any unchecked division executes, no raw / or %; legitimate integral RATIONAL is genuinely READ not merely tolerated — mutation M12 (success arm can never push) turned rational_default_crop_size_reads_or_costs_the_field red; chunks_exact(8) cannot drop a partial value since payload() returns exactly count*8 bytes for type_size(5)==8. FU-5 is that the DIVISION is unpinned. SCRUTINY 4 (FU-20): MEASURED not reasoned — built irr at main 99086fb in a throwaway worktree and at HEAD, ran irr ifd over all 7 manifest files, diffed both transcripts IN FULL: EMPTY. Byte-identical including sensor_matches, sensor_ifd, every tag value, malformed_tags, layer0 closure and unpackable. Selection: six files matches [1] -> #1, K3III.PEF matches [0] -> #0 (its plane IS IFD0, which is what makes FU-1 a real corpus shape); K3III.DNG still reports malformed [50713]. Mutation M10 (delete the short-circuit) turned candidates_malformed_names_only_candidates AND a_reduced_resolution_linear_raw_ifd_is_not_the_sensor red. SCRUTINY 5 (tier_map): it should RECORD, not PREDICT — 0 for 2, wrong in both directions; the defect is the wiring, a prediction stamped into handoff.to_agent which handback-sync copies into cost.sessions[].agent, a field consumed as a measurement. Recommend tier_map become a dispatch hint only, to_agent start null, handback its sole writer. MUTATION TESTING (every mutation verified PRESENT via git diff and verified to COMPILE before its result was read — the trap that has failed five times here, twice this cycle): M1 RowsPerStrip tolerant -> malformed_structural_tag_is_still_fatal RED and only it (reproduces the orchestrator's result independently); M7 BlackLevel back to bare ? -> malformed_interpretation_tag_costs_only_the_field RED (both directions proven); M8 -> 4 red; M9 accept non-integral RATIONAL -> a_non_integral_rational_also_costs_the_field RED; M10 -> 2 red; M12 -> 1 red. BUT M2/M4/M5/M6 (Compression, StripOffsets, StripByteCounts, BitsPerSample each made tolerant) each compiled and left the FULL 58-test suite GREEN with the corpus present — the structural half of the boundary is pinned for RowsPerStrip ALONE (FU-3); Compression is the sharp one, since a softened Compression defaults to 1 and lets require_uncompressed() pass so STAGE-002 would read JPEG bytes as raw samples. Not a code defect — criterion 5 is met as written — a thin regression net. Recorded as NOT a gap: mutating SamplesPerPixel:1173 or Photometric:1175 also leaves the suite green and that is CORRECT, they are re-reads of tags is_sensor_ifd already read successfully for the selected IFD, so their ? can never fire — equivalent mutants, unkillable by construction. FU-4 (measured at HEAD vs main): uints() type gate is global, so widening it to TYPE_RATIONAL loosened the WALK — SubIFDs (330) as RATIONAL 400/2 was Err(UnexpectedFieldType) on main and is now ACCEPTED (ifds=2, candidates=[1], SubIFD walked), and StripByteCounts (279) as RATIONAL 28/2 now reads [14]; tag 330 is the case DEC-012 singled out as structural. Follow-up not ship-blocker for three measured reasons: it widens a looseness that already existed (uints() accepted TYPE_UNDEFINED/TYPE_BYTE for 330 on main, equally illegal — the gate has never been per-tag), no safety property moves (all bounds/cycle/depth guards still apply, 10.7M fuzz runs clean), and no wrong answer is produced (400/2 is a correct reading of an out-of-spec encoding; anything expressible as RATIONAL was already expressible as LONG). Provenance ledger row extended in place, honest class 1 - specification, RATIONAL cited to TIFF 6.0 §2 Types; no new dependency; no new DEC needed and the build's reasoning for that is right. tokens_total is a transcript sum DEDUPED BY message.id from this session's own JSONL (108 usage objects, 64 distinct ids; raw 13,161,712, deduped 7,736,717 = 1.70x, inside SPEC-004 verify's 1.61x-2.51x band; 97.5% cache-read; deduped cache-creation 143,213 entirely on the 1-hour tier, 5-minute tier 0, read from the nested cache_creation object not assumed), rounded UP to cover the turns spent writing the handback and committing, captured BEFORE the session closed. estimated_usd computed per-component at published Opus rates, NOT harness-reported — flagged because the repo's flat cost.rate_per_mtok 6.60 would give $51.06 for this session, 2.7x high on a 97.5%-cache-read profile; the build hit the same divergence and also went per-component, so it is now on record twice. Did NOT run handback-sync, per the handoff."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 27310728
+    estimated_usd: 27.97
+    session_count: 2
+shipped_at: 2026-08-21
 ---
 
 # SPEC-007: Unreadable tags in the extraction path, and DEC-012s contradiction
@@ -241,6 +242,63 @@ orientation transform** — STAGE-002 and `DEC-008`. Extracting is in scope; app
 is not.
 
 ## Reflection
+
+**1. What would I do differently next time?**
+
+**Not generalise a mutation test from one instance.** I mutated `RowsPerStrip`,
+watched `malformed_structural_tag_is_still_fatal` go red, and reported *"the
+boundary test has teeth."* The reviewer mutated the rest of the structural row —
+`Compression`, `StripOffsets`, `StripByteCounts`, `BitsPerSample` — and **every one
+compiled and left all 58 tests green.** I reproduced the `Compression` case
+myself: zero failures.
+
+So the boundary is guarded for **one tag in five**, and my sentence claimed the
+class. This is the third instance of `measurement-over-generalised`: measure one
+thing, assert a property of the category. The first was `eprintln!` in SPEC-002;
+this one is worse, because I was specifically checking whether a *boundary* held
+and checked one point on it.
+
+`Compression` is the one that matters. Softened it defaults to `1`,
+`require_uncompressed()` passes, and **STAGE-002 would read JPEG bytes as raw
+samples** — a wrong image from a file that parsed cleanly, which is this project's
+signature failure shape.
+
+**2. Does any template, constraint, or decision need updating?**
+
+- **`FU-4` is decision-level.** Widening `uints()` was **global, not per-tag**, so
+  it loosened the *walk*: `SubIFDs` (330) encoded as `RATIONAL 400/2` was
+  `Err(UnexpectedFieldType)` on `main` and is now accepted. `DEC-012` names
+  `SubIFDs` as **structural**. The reviewer's three reasons for follow-up rather
+  than blocker are sound — the looseness pre-existed (`TYPE_UNDEFINED` was already
+  accepted for 330), no guard moved, and `400/2` is a *correct* reading of an
+  out-of-spec encoding — but a global widening under a per-class decision should be
+  written down or gated, not left implicit.
+- **`FU-6` — `tier_map` should record, not predict.** It is **0 for 2**, wrong in
+  both directions, and the comment I added on 2026-08-18 states the premise that
+  has now failed twice. The defect is the wiring: a *prediction* is stamped into
+  `handoff.to_agent`, which `handback-sync` copies into a field downstream reads as
+  a *measurement*. Both times the only safeguard was an implementer who noticed.
+  Fixed at ship per the reviewer's recommendation: dispatch hint only, `to_agent`
+  starts null, the handback is its sole writer.
+- **The flat `rate_per_mtok` is wrong by 2.7×** on cache-heavy sessions —
+  $19.35 computed per-component versus $51.06 at the repo's flat 6.60. Recorded on
+  the existing cost signal rather than silently reprocessing numbers.
+
+**3. Is there a follow-up spec to write now?**
+
+**Yes — `FU-3` and `FU-4` together.** Both are "a guard that exists in the
+decision but not in the tests": four structural tags can be softened with nothing
+failing, and a structural tag's *type* check was widened globally. One spec,
+because both are answered by the same move — **pin the Structure class with tests
+that fail when it is softened**, per tag, and make `uints()`'s widening per-tag
+rather than global.
+
+`FU-1` (Orientation double-recorded as `[274, 274]` when the plane is IFD0 — a
+real corpus shape, the Pentax `.PEF`) and `FU-2` (a *good* Orientation on the
+sensor IFD recorded as malformed) belong there too: both are `malformed_tags`
+saying something untrue, which is the same class of defect as an unguarded
+boundary — a record that reads as evidence and is not.
+
 
 *Appended during **ship**. Three questions, short answers.*
 

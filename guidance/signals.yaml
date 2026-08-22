@@ -210,7 +210,7 @@ signals:
   - id: measurement-over-generalised
     type: lesson
     summary: "Running something proves what you ran, not the category it belongs to — over-generalised measurements read as `measured` and are wrong."
-    evidence: "SPEC-002 F2 — measured that eprintln! in a passing test is captured (true), then asserted 'the loudness cannot live in the test harness' (false: writeln!(stderr) escapes capture). Propagated into the spec, handoff, commit message and summary as `measured` in five places. N=1."
+    evidence: "N=3. (1) SPEC-002/F2 — measured eprintln! is captured, asserted 'loudness cannot live in the harness' (false; writeln!(stderr) escapes). (2) SPEC-004 — read the first lines of `pub struct Sensor` and asserted SPEC-003 'stops where geometry begins' (false; it already carried every tag). (3) SPEC-007 — mutated ONE structural tag, watched the test go red, asserted 'the boundary test has teeth'; the reviewer softened the other four and all 58 tests stayed green."
     bar: "N=3 same-outcome"
     status: watch
     disposition_at: stage-close
@@ -220,9 +220,12 @@ signals:
     notes: |
       Distinct from [[unrun-docs-carry-errors]] and sharper: those docs were never
       executed. This one WAS executed, and was still wrong, because the conclusion
-      was broader than the experiment. Watch for N=2 before codifying. Candidate
-      rule: when a probe result becomes a spec claim, state the exact command that
-      produced it next to the claim, so the scope of the evidence travels with it.
+      was broader than the experiment. AT BAR (N=3) as of 2026-08-21 — codify at
+      the owning stage's close. The rule that would have caught all three: when a
+      probe result becomes a claim, state the exact command AND its scope beside
+      it ("mutated RowsPerStrip" is not "the boundary is mutation-tested"). The
+      third instance is the worst: the whole point was to check a BOUNDARY, and one
+      point on a boundary is never a boundary.
 
   # --- process-debt: two owners for one field ---------------------------------
   - id: cost-field-has-two-owners
@@ -311,3 +314,42 @@ signals:
       for the spec-driven-template repo -- the template has no follow-up convention
       at all, and every instance will reinvent one. Promote only on evidence; a
       wrong paved road is worse than none.
+
+  # --- process-debt: to_agent is a prediction read as a measurement ------------
+  - id: tier-map-predicts-what-it-should-record
+    type: process-debt
+    summary: "tier_map stamps a PREDICTED model into handoff.to_agent, which handback-sync copies into a field downstream reads as measured fact."
+    evidence: "SPEC-007/FU-6. 0 for 2: SPEC-001's build ran on opus against a map saying sonnet; SPEC-007's build ran on sonnet against a map saying opus. Both times the only safeguard was an implementer who noticed and said so."
+    bar: null
+    status: accepted
+    disposition_at: project-close
+    first_flagged: 2026-08-21
+    last_touched: 2026-08-21
+    raised_by: claude
+    notes: |
+      Half-fixed at SPEC-007's ship: .repo-context.yaml now labels tier_map a
+      DISPATCH HINT and tells whoever runs a cycle to correct to_agent to what
+      actually ran. The real fix is upstream in the template -- new-handoff should
+      leave to_agent null and let the handback be its sole writer. Same family as
+      [[cost-field-has-two-owners]]: a field with two writers, one of which is
+      guessing.
+
+  # --- process-debt: the flat rate is wrong by 2.7x on cache-heavy sessions ----
+  - id: flat-rate-overstates-cached-sessions
+    type: process-debt
+    summary: "rate_per_mtok: 6.60 applied flat computes 2.7x the true cost on a 97.5%-cache-read session."
+    evidence: "SPEC-007 verify: $19.35 computed per-component at published Opus rates vs $51.06 at the repo's flat rate. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them, always in the same direction."
+    bar: null
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-08-21
+    last_touched: 2026-08-21
+    raised_by: claude
+    notes: |
+      Compounds [[token-counts-not-comparable]]: the token counts are already
+      basis-dependent, and estimated_usd then multiplies them by a rate that
+      ignores cache tiers entirely. AGENTS.md §4 does say the estimate is
+      order-of-magnitude and cache-discount-free -- so this is documented, not
+      hidden -- but "documented as wrong" and "useful" are different things.
+      Options at close: record the four component counts per session and compute,
+      or drop estimated_usd rather than carry a number nobody should use.

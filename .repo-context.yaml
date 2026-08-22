@@ -38,6 +38,15 @@ spec:
     # for build — only the ids are now real. DEC-004 rule 3 depends on this being
     # accurate: a stale map is exactly the silent ~6x cost surprise the rule exists
     # to prevent, because the orchestrator stamps these into every handoff.
+    # ⚠ 2026-08-21 (SPEC-007/FU-6): this map is 0 FOR 2 as a PREDICTION -- it said
+    # sonnet when a build ran on opus, then opus when a build ran on sonnet. The
+    # defect is the wiring, not the values: a prediction is stamped into
+    # handoff.to_agent, which handback-sync copies into a field downstream reads
+    # as a MEASUREMENT. Both times the only safeguard was an implementer who
+    # noticed and said so.
+    # TREAT THESE AS A DISPATCH HINT ONLY. `to_agent` should start null and the
+    # handback should be its sole writer; until new-handoff is changed, whoever
+    # runs a cycle must correct to_agent to what ACTUALLY ran.
     default_model: claude-opus-5      # stamped into new specs/patches' agents.*
     tier_map:                         # which model runs which cycle (pluggable)
       design: claude-opus-5
