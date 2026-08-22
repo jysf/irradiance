@@ -112,7 +112,7 @@ satisfied either way. It says nothing about *scope*, which is the actual questio
     a strict one is a *loud* one, and this library's stated posture on hostile
     input is loud.
 
-## ⚠ This decision contradicts its own table — found 2026-08-21 (FU-16)
+## ⚠ This decision contradicts its own table — found 2026-08-21 (SPEC-004/FU-16)
 
 The **principle** above says a malformedness that changes only *what a known-optional
 field says* costs **that field alone**. The **table** sanctions `sensor()`
@@ -124,7 +124,7 @@ Reproduced at SPEC-004's verify: `sensor_matches [1]`, then discarded
 `SPEC-004` closed the same class in the *selection* path (`is_sensor_ifd`, now a
 `SensorMatch` tri-state) while the *extraction* path kept it.
 
-A second instance of the same gap (FU-17): a **DNG-legal `RATIONAL`**
+A second instance of the same gap (SPEC-004/FU-17): a **DNG-legal `RATIONAL`**
 `DefaultCropSize`/`DefaultCropOrigin`/`BlackLevel` makes the **whole file
 unreadable**, because `uints()` returns `UnexpectedFieldType` and `sensor()`
 propagates it. That is fatal to the file, not a missing field.

@@ -1095,6 +1095,33 @@ Append a verify cost session entry before returning the verdict.
 
 Output: ✅ APPROVED (with SHA) / ⚠ PUNCH LIST / ❌ REJECTED.
 
+**Every finding is labelled ship-blocking or follow-up, and gets an id.** The
+labels are the reviewer's core judgement — a defect that lets bad data or a panic
+reach a consumer is ship-blocking; a sharp edge that fails loudly is a follow-up,
+which gets filed and does not hold the spec.
+
+- `SB-N` — ship-blocker. `FU-N` — follow-up.
+- **Numbering is PER SPEC and restarts at 1.** `SPEC-003/FU-1` and
+  `SPEC-004/FU-1` are different findings; there is no repo-wide counter and
+  nothing enforces one.
+- **Cite a finding from another spec with its spec prefix** — `SPEC-003/FU-11`,
+  never a bare `FU-11`. Inside its own spec's documents the bare form is fine.
+- Round 2 of a cycle continues its spec's sequence rather than restarting, so a
+  finding keeps one id for the life of the spec.
+
+The point of the id is that a finding **survives a handoff boundary**.
+`SPEC-003/FU-11` was raised at verify, carried into the next build brief, deferred
+with a stated reason, re-raised at the following verify, and finally became
+`SPEC-007`'s Context — four artifacts and three sessions without anyone restating
+it from scratch. Prose alone cannot do that.
+
+> **Provenance, recorded honestly:** this convention was **not** in the template.
+> It was invented by SPEC-003's verify session in its handback (`de7a598`),
+> adopted without question by the orchestrator, and written into decision records
+> and a framed spec before anyone asked what it meant. It is codified here because
+> it earned its place — but it accumulated authority for several rounds first,
+> which is the failure mode `guidance/signals.yaml` exists to catch.
+
 ### During **ship**
 
 Append a `## Reflection` block to the spec with three answers:

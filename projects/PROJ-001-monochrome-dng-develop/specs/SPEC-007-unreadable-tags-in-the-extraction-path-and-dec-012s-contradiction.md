@@ -74,15 +74,15 @@ cost:
 
 ## Context
 
-`SPEC-004` closed FU-11 for the **selection** path — `is_sensor_ifd` is now a
+`SPEC-004` closed `SPEC-003/FU-11` for the **selection** path — `is_sensor_ifd` is now a
 `SensorMatch` tri-state, so a malformed identifying tag on one IFD no longer aborts
 the scan of the others. Its verify found the **extraction** path still has the same
 gap, twice:
 
-- **FU-16** — `sensor()` reads `Orientation` from `IFD0` with a bare `?`
+- **`SPEC-004/FU-16`** — `sensor()` reads `Orientation` from `IFD0` with a bare `?`
   (`src/ifd.rs:1011`), so a malformed tag on a **non-sensor** IFD discards an
   already-located plane. Reproduced: `sensor_matches [1]`, then discarded.
-- **FU-17** — a **DNG-legal `RATIONAL`** `DefaultCropSize`/`DefaultCropOrigin`/
+- **`SPEC-004/FU-17`** — a **DNG-legal `RATIONAL`** `DefaultCropSize`/`DefaultCropOrigin`/
   `BlackLevel` makes the **whole file unreadable**: `uints()` (`src/ifd.rs:788`)
   returns `UnexpectedFieldType` and `sensor()` propagates it. Reproduced. This is
   fatal to the file, not a missing field — a severity the build's framing
@@ -133,7 +133,7 @@ What the implementer will produce.
    optional-on-type-error — the decision from criterion 1 dictates which.
 4. Hand-built fixtures for both, asserting the *new* outcome and the *unchanged*
    fatal cases, so the boundary is pinned in both directions.
-5. **FU-20** while here: `NoSensorIfdCandidatesMalformed` can name IFDs that were
+5. **`SPEC-004/FU-20`** while here: `NoSensorIfdCandidatesMalformed` can name IFDs that were
    never candidates (`src/ifd.rs:916`).
 6. Ten gates green; fuzz covers the widened paths.
 
