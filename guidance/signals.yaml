@@ -282,3 +282,32 @@ signals:
       target and saw "0 passed" for four of five; the reviewer's tail -40 cut the
       lib target off the top -- the same error in opposite directions on one day),
       and it must run WITH the corpus.
+
+  # --- golden-path: capture freely, promote almost never ----------------------
+  - id: findings-carry-ids-across-boundaries
+    type: golden-path
+    summary: "Labelling every review finding ship-blocking or follow-up, and giving follow-ups a per-spec id, lets a finding survive a handoff boundary."
+    evidence: "SPEC-003/FU-11 crossed four artifacts and three sessions: raised at verify, carried into the next build brief, deferred with a stated reason, re-raised at the following verify, and became SPEC-007's Context. N=1."
+    bar: "N=3"
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-08-21
+    last_touched: 2026-08-21
+    raised_by: human
+    notes: |
+      Codified in AGENTS.md §15 on 2026-08-21 as SB-N / FU-N, numbered PER SPEC.
+      NOT in the template -- invented by SPEC-003's verify session, adopted without
+      question, and it reached a decision record and a framed spec before anyone
+      asked what it meant.
+      TWO PARTS, WORTH SEPARATING WHEN JUDGING IT. The ship-blocking/follow-up SPLIT
+      is what stopped SPEC-001's gate loop -- three reviewers found real defects and
+      still approved. The ID is narrower: it earns its place only when a finding
+      CROSSES a boundary (deferred, re-raised, handed to another spec), which is
+      roughly a third of what we have numbered. IDs for findings that die in the
+      same document are ceremony.
+      Maintainer's stated intent (2026-08-21): this is effectively a bug/task list
+      and will eventually move to a real tool; the repo convention is the interim.
+      DISPOSITION AT PROJECT CLOSE: if it is still carrying its weight, write it up
+      for the spec-driven-template repo -- the template has no follow-up convention
+      at all, and every instance will reinvent one. Promote only on evidence; a
+      wrong paved road is worse than none.

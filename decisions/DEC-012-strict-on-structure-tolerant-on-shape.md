@@ -112,6 +112,47 @@ satisfied either way. It says nothing about *scope*, which is the actual questio
     a strict one is a *loud* one, and this library's stated posture on hostile
     input is loud.
 
+## Amendment — 2026-08-21: what "what exists" means
+
+The contradiction below is **resolved here rather than by supersession**, because
+the *principle* was always right and only the table was wrong. `status` stays
+`accepted`; this section is the operative text where the two disagree.
+
+**The table's phrase "fatal to that call only" was the defect.** `sensor()` *is* a
+call, so "only" silently included the plane. It conflated **the accessor that read
+the tag** with **the accessor the caller invoked**.
+
+**The line, stated once:**
+
+> **"What exists" is the plane — its presence, its location and its extent.**
+> A tag that determines *whether there is a plane and where it is* is
+> **structural**: malformed means fatal. Every other tag *describes how to
+> interpret a plane that already exists*, and malformed costs **that field alone**.
+
+| Class | Tags | Malformed → |
+|---|---|---|
+| **Structure** | header, entry tables, chain `next`, `SubIFDs`, `StripOffsets`, `StripByteCounts`, `ImageWidth`/`Length`, `Compression`, and the identifying trio (`NewSubfileType`, `Photometric`, `SamplesPerPixel`) | **fatal** — there is no plane, or no honest way to find it |
+| **Interpretation** | `BlackLevel`, `WhiteLevel`, `ActiveArea`, `DefaultCropOrigin`/`Size`, `Orientation`, `OpcodeList*`, `BlackLevelRepeatDim` | **costs the field.** Value dropped, tag recorded in `Sensor::malformed_tags`, the file reads |
+
+Two consequences that were previously ambiguous, and are the whole reason for the
+amendment:
+
+1. **A leaf accessor may still return `Err`.** `scalar()`/`array()`/`values()`
+   report a malformed tag honestly. What changes is that **a composite accessor
+   must not inherit that failure for an interpretation tag** — `sensor()` records
+   it and continues. `SPEC-004/FU-16` is exactly this: a malformed `Orientation`
+   read from `IFD0` discarding an already-located plane.
+2. **An unimplemented-but-legal field type is a malformed *shape*, not missing
+   structure.** A DNG-legal `RATIONAL` `DefaultCropSize` costs that field; it must
+   not make the file unreadable (`SPEC-004/FU-17`). Reading it correctly is better
+   still, and is preferred where cheap — but the *floor* is that the file survives.
+
+The identifying trio sits under **Structure** deliberately: a malformed
+`Photometric` genuinely does destroy our ability to say whether an IFD holds a
+plane. `SPEC-004` already handles that correctly by **skipping the candidate and
+naming it** rather than aborting the scan — which is the structural rule applied
+per-IFD rather than per-file, and is the shape to follow.
+
 ## ⚠ This decision contradicts its own table — found 2026-08-21 (SPEC-004/FU-16)
 
 The **principle** above says a malformedness that changes only *what a known-optional

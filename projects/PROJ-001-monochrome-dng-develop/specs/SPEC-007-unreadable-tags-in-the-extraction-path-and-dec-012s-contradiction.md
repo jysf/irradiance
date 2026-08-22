@@ -6,7 +6,7 @@
 task:
   id: SPEC-007
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                    # frame | design | build | verify | ship
+  cycle: design                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -31,7 +31,7 @@ handoff:
   created_at: null
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-012]                    # [DEC-NNN, DEC-MMM]
   constraints: []                  # [constraint-id-1, constraint-id-2]
   related_specs: []                # [SPEC-NNN]
 
@@ -97,11 +97,13 @@ on the DEC itself.
 
 ## Goal
 
-Decide what "what exists" means — **the plane**, or **every tag the plane's record
-carries** — amend `DEC-012` to say so, and make the extraction path obey it.
+Make the extraction path obey `DEC-012`'s principle: **a DNG-legal file must not
+become unreadable because one interpretation tag is malformed or uses a legal type
+we have not implemented.**
 
-A file that is legal per the DNG specification must not become unreadable because
-one optional tag is malformed or uses a legal type we have not implemented.
+`DEC-012` was **amended 2026-08-21** and now answers the question this spec was
+framed around, so the spec does not have to. Read the amendment first — it is the
+operative text.
 
 ## Inputs
 
@@ -124,27 +126,61 @@ What the implementer will produce.
 
 ## Acceptance Criteria
 
-1. `DEC-012` amended (or superseded) so its principle and its table agree, and the
-   contradiction note on it is resolved rather than left standing.
-2. A malformed `Orientation` on a non-sensor IFD **does not** discard a located
-   plane; it costs that field.
-3. A `RATIONAL` `DefaultCropSize`/`Origin`/`BlackLevel` **does not** make the file
-   unreadable. Either widen `uints()` to handle `RATIONAL`, or make the tag
-   optional-on-type-error — the decision from criterion 1 dictates which.
-4. Hand-built fixtures for both, asserting the *new* outcome and the *unchanged*
-   fatal cases, so the boundary is pinned in both directions.
-5. **`SPEC-004/FU-20`** while here: `NoSensorIfdCandidatesMalformed` can name IFDs that were
-   never candidates (`src/ifd.rs:916`).
-6. Ten gates green; fuzz covers the widened paths.
+1. **The Structure / Interpretation split is implemented as `DEC-012` states.**
+   Measured at design, the affected call sites in `src/ifd.rs` are:
+
+   | line | tag | class | today | required |
+   |---|---|---|---|---|
+   | 1012/1014/1016 | `Orientation` | interpretation | bare `?` | costs the field |
+   | 1031 | `BlackLevel` | interpretation | bare `?` | costs the field |
+   | 1032 | `WhiteLevel` | interpretation | bare `?` | costs the field |
+   | 1038 | `ActiveArea` | interpretation | bare `?` | costs the field |
+   | 1024 | `SamplesPerPixel` | **structure** | bare `?` | **stays fatal** |
+   | 1027 | `Compression` | **structure** | bare `?` | **stays fatal** |
+   | 1028 | `RowsPerStrip` | **structure** | bare `?` | **stays fatal** — see note |
+
+   ⚠ `RowsPerStrip` is structural because it maps strips to rows; without it a
+   multi-strip plane cannot be assembled honestly. It is *inferable* on a
+   single-strip file (`rows_per_strip == height`), and every corpus file is
+   single-strip — so **do not let a green corpus talk you out of the fatal
+   classification.** If you disagree, say so in the handback; do not just soften it.
+
+2. **A leaf accessor may still return `Err`.** `scalar()`/`array()`/`values()`
+   keep reporting a malformed tag honestly. What changes is that **`sensor()` must
+   not inherit that failure for an interpretation tag** — it records the tag in
+   `Sensor::malformed_tags` and continues.
+
+3. **`RATIONAL` is handled** (`SPEC-004/FU-17`). `TYPE_RATIONAL` is not even
+   defined in `src/ifd.rs` today (only BYTE/SHORT/LONG/UNDEFINED/IFD at :141-145).
+   Read it as the two-`u32` pair the TIFF spec defines. A zero denominator, or a
+   value that is not integral, is a **malformed shape** — it costs the field, it
+   does not fail the file.
+
+4. **`SPEC-004/FU-20`:** `NoSensorIfdCandidatesMalformed` must not name IFDs that
+   were never candidates (`src/ifd.rs:916`).
+
+5. **Fixtures pin the boundary in BOTH directions** — an interpretation tag
+   malformed → the file still reads and the tag is recorded; a structural tag
+   malformed → still fatal. A change that only demonstrates the new tolerance has
+   not shown the boundary still exists.
+
+6. Ten gates green; fuzz covers the widened `uints()`.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+```bash
+cargo test --all-features malformed_interpretation_tag_costs_only_the_field
+cargo test --all-features malformed_structural_tag_is_still_fatal
+cargo test --all-features rational_default_crop_size_reads_or_costs_the_field
+cargo test --all-features malformed_orientation_on_ifd0_keeps_the_plane   # SPEC-004/FU-16
+cargo test --all-features candidates_malformed_names_only_candidates      # SPEC-004/FU-20
+```
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+⚠ **`cargo test <name>` matching ZERO tests exits 0** — a spec that names its
+tests can pass vacuously (`named-tests-can-pass-vacuously`). Confirm each name
+exists with `cargo test -- --list`, and **sum across targets**; reading one
+target's line has produced a wrong answer twice on this project, in both
+directions.
 
 ## Non-Goals
 
@@ -156,10 +192,37 @@ job in **build** is to make these pass.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+### `DEC-012`'s amendment is the spec. Read it first.
 
----
+The line it draws: **"what exists" is the plane — its presence, location and
+extent.** A tag that determines whether there is a plane and where it is, is
+structural and fatal. Every other tag describes how to *interpret* a plane that
+already exists, and malformed costs that field alone.
+
+The defect being fixed is subtle and worth understanding rather than pattern-matching:
+the old table said a malformed tag was *"fatal to that call only"* — but `sensor()`
+**is** a call, so "only" silently included the plane. It conflated the accessor
+that **read** the tag with the accessor the caller **invoked**.
+
+### The shape to copy already exists
+
+`SPEC-004` solved the same problem for the *selection* path: `is_sensor_ifd`
+returns a `SensorMatch { Yes | No | Unreadable(tag) }` tri-state, so one bad IFD
+does not abort the scan — the structural rule applied **per-IFD instead of
+per-file**. Do the analogous thing per-**tag** in `sensor()`.
+
+### Do not treat a green corpus as evidence
+
+Every corpus file is single-strip, so the `RowsPerStrip` classification is
+untested by real data. No corpus file carries a malformed tag on the paths this
+spec changes — that is why `SPEC-004/FU-16` and `FU-17` were latent for two specs.
+The hand-built fixtures are the evidence here; the corpus is a regression check.
+
+### Scope
+
+The extraction path and `uints()`. **No levels arithmetic, no cropping, no
+orientation transform** — STAGE-002 and `DEC-008`. Extracting is in scope; applying
+is not.
 
 ## Reflection
 
