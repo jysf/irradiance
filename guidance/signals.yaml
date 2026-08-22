@@ -262,3 +262,23 @@ signals:
       the project and show the gap, or have archive-spec refuse without one.
       Backfilled 2026-08-21 (entries 384-390), so the record is now complete —
       but it took a human noticing, which is the whole point.
+
+  # --- process-debt: a named-test spec can pass vacuously -----------------------
+  - id: named-tests-can-pass-vacuously
+    type: process-debt
+    summary: "`cargo test <name>` matching ZERO tests exits 0, so a spec that names its failing tests can be satisfied by tests that do not exist."
+    evidence: "SPEC-004 build + verify, both reproduced. Two of the five named tests also pass vacuously on a runner without the corpus."
+    bar: null
+    status: accepted
+    disposition_at: project-close
+    first_flagged: 2026-08-21
+    last_touched: 2026-08-21
+    raised_by: claude
+    notes: |
+      ACCEPTED AS A CHECK, not a signal -- the reviewer's argument is that a signal
+      alone repeats [[brag-step-skipped-at-ship]], where a documented step with no
+      surface simply did not happen. Two traps for whoever writes it, both measured
+      on SPEC-004: it must SUM ACROSS TARGETS (the orchestrator read only the first
+      target and saw "0 passed" for four of five; the reviewer's tail -40 cut the
+      lib target off the top -- the same error in opposite directions on one day),
+      and it must run WITH the corpus.

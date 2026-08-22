@@ -106,11 +106,11 @@ Run `just frame-stage STAGE-001` to promote these outlines into real specs.
 - [x] SPEC-001 (shipped on 2026-08-20) [S] Crate scaffold: Cargo.toml, measured MSRV, panic-free lints, Rust CI
 - [x] SPEC-002 (shipped on 2026-08-20) [S] Corpus manifest reader and skip-when-absent harness
 - [x] SPEC-003 (shipped on 2026-08-21) [L] TIFF/IFD reader — bounded, panic-free, cycle-guarded, SubIFD recursion — plus its fuzz target
-- [ ] SPEC-004 (frame) [M] DNG tag model and typed metadata extraction
+- [x] SPEC-004 (shipped on 2026-08-21) [M] DNG tag model and typed metadata extraction
 - [x] SPEC-006 (shipped on 2026-08-20) [S] Close the allow-attribute bypass in the panic-free gate — split from SPEC-002 at SPEC-001 ship; depends only on SPEC-001
 - [ ] SPEC-005 (frame) [S] Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red
 
-**Count:** 4 shipped / 2 active / 0 pending
+**Count:** 5 shipped / 1 active / 0 pending
 
 ## Design Notes
 

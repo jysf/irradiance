@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -81,9 +81,10 @@ cost:
       recorded_at: 2026-08-21
       notes: "Verify cycle for SPEC-004 (HANDOFF-016), reviewing 37204d0 at HEAD 08fe18f on feat/spec-004-tag-model, not merged. VERDICT: APPROVED at 37204d0 - six follow-ups, NO ship-blockers. The build's deviation is correct and the narrowed scope is COMPLETE: I checked the tag list against docs/measured-q2m-dng.md line by line and every tag it records is extracted and pinned, plus StripOffsets, NewSubfileType, OpcodeList2 and BlackLevelRepeatDim beyond it; the three-stage geometry (ActiveArea -> DefaultCrop* -> Orientation) is whole. TEN GATES re-run by me, all green: build, test (52 passed - 31 lib + 0 irr bin + 9 corpus_manifest + 12 ifd_reader + 0 doc, SUMMED across five Running lines), clippy, fmt, check, deny, deny-fuzz, just msrv, lint-red-proof, lint-no-allow, fuzz (15,649,000 runs in 61 s, zero artifacts). Plus validate, cost-audit, decisions-audit --changed (names DEC-008 and DEC-012 on src/ifd.rs - DEC-012's affected_scope deferral fires as designed) and decisions-index --check. fuzz-seeds regenerates all 25 seeds BYTE-IDENTICALLY. main untouched at 00e0472. I HIT THE INVERSE OF THE HANDOFF'S COUNTING TRAP: my first test run was piped through tail -40, which cut the lib target's 31 off the TOP - the orchestrator under-counted by reading the first target, I under-counted by discarding it. THE TWO MALFORMED-TAG FIXTURES RUN BY ME through the shipped irr ifd binary, not only as assertions: same tag (Photometric forced to field type 250) on different IFDs gives sensor_ifd #1 / dimensions 4x2 / exit 0 on the thumbnail case, and exit 1 with 'no IFD matched the sensor-plane rule, and 1 candidate(s) could not be evaluated because an identifying tag was malformed: [(0, 262)]' on the only-candidate case. The error DOES name which IFD (0) and which tag (262), in the error value itself. FU-11 genuinely closed for the class it names; SensorMatch is the right shape because a Result cannot express skip-and-keep-scanning without a side channel. ORACLE RED-PROOFED BY ME: swapped top/left in the ActiveArea mapping and watched tag_model_matches_exiftool FAIL on PENTAX-K3III-MONO/K3III.DNG (26/34 vs 34/26). Worth recording - the fault is INVISIBLE on the Q2 Monochrom, whose ActiveArea is 0 0 5632 8392, so top and left are both 0 and a swap changes nothing; the Pentax's asymmetric 26/34 is the only thing in the corpus that can see a real transposition. A single-body oracle would have gone green. FUZZ RED-PROOFED AT THE NEW CODE, because reaching is not covering: planted a lint-clean split_at(usize::MAX) in scan_sensor firing only when TWO IFDs have an unreadable identifying tag - a shape no committed seed has. Negative control FIRST with the fault live: cargo test 52 passed exit 0, just lint exit 0, just lint-no-allow exit 0, so the fuzzer is the only thing that can see it. libFuzzer synthesised it (deadly signal, EXIT 77, crash-6a0da6a3cd4b48df, 314 bytes, built by mutating the thumbnail seed into a container with a SECOND unreadable IFD). Restored byte-identical (sha256 496c2baadf5814de..., grep DELIBERATE FAULT = 0, git status clean) and re-ran clean: 10,365,858 runs in 46 s, zero artifacts. SIX FOLLOW-UPS. FU-16 (highest value): sensor() STILL loses the plane to a malformed tag on a NON-SENSOR IFD, via Orientation - src/ifd.rs:1011-1017 reads TAG_ORIENTATION from IFD0 with a bare ?, so a fixture with tag 274 malformed on IFD0 gives sensor_matches [1] (the plane WAS located, the tri-state worked) and then '<none: tag 274 has unreadable field type 250>'. FU-11's exact failure shape at the site FU-11 did not name. NOT a regression - git show main:src/ifd.rs is identical, inherited from SPEC-003 - and DEC-012's TABLE sanctions it (interpret-phase, fatal to that call only), but DEC-012's PRINCIPLE ('costs that field alone' for a known-optional field) points the other way and Sensor::orientation is Option<u32>. The table and the principle disagree for optional scalar tags and the code follows the table; that is what needs deciding, not the one line. FU-17: a DNG-LEGAL RATIONAL DefaultCropSize/DefaultCropOrigin/BlackLevel makes the whole file unreadable - uints() at src/ifd.rs:788-800 rejects TYPE_RATIONAL and array()?/scalar()? propagate it out of sensor(). Built a spec-legal fixture (DefaultCropSize as RATIONAL 8368/1, 5584/1): sensor_matches [0], then '<none: tag 50720 has unreadable field type 5>'. The build flagged RATIONAL as a follow-up but framed it as a missing field; the blast radius is FATAL TO THE FILE and the message calls a spec-legal type 'unreadable'. No corpus file exercises it, which is why it is not a blocker. FU-16 and FU-17 ARE ONE SPEC, not two - both are 'a locatable plane discarded because one optional tag on some IFD could not be read'. FU-18: do NOT set .repo-context.yaml cost.metering_source to none. It is a REPO-GLOBAL switch and DEC-013's own Context lists flipping it as bad outcome #2 - 'the cost data is lost permanently, for cycles that DO have a number available' - and SPEC-003 produced four real deduped figures that this would retroactively excuse. cost-audit is silent now only because scripts/cost-audit.sh:51-57 gates SHIPPED specs; SPEC-004 will fail it at ship. And the premise is wrong anyway: I OBTAINED A REAL NUMBER FROM THE SAME TOP-LEVEL INTERACTIVE MODE the build reported as unmeterable, by reading this session's own transcript at ~/.claude/projects/<path-slug>/<session-id>.jsonl - the session id is discoverable from the scratchpad path the harness provides. The build's reasoning was honest and DEC-013-compliant (never invent a number); its premise that no source existed was simply not checked. Real fix is per-session, already half-written in the open signal token-counts-not-comparable (guidance/signals.yaml:108): add 'none' as a fourth basis and have cost-audit accept null only when that session's basis says so. FU-19: cargo test <name> matching ZERO tests exits 0 - reproduced (four targets, all '0 passed', exit 0). Every spec here names its tests and AGENTS.md 15 verify check 2 is 'failing tests from spec now pass', which a zero-match green satisfies vacuously. Make it a CHECK first and a signal second - a signal alone reproduces brag-step-skipped-at-ship exactly, a step nothing surfaces. A just failing-tests SPEC-NNN recipe reading the spec's ## Failing Tests block; it must SUM ACROSS TARGETS (malformed_tag_costs_only_that_tag is a LIB unit test at src/ifd.rs:1508, which is why a first-target read reports zero) and must run WITH the corpus, since tag_model_matches_exiftool and orientation_is_per_frame also pass vacuously on a bare runner via the skip-when-absent harness. FU-20 (minor): NoSensorIfdCandidatesMalformed can name IFDs that were never candidates - is_sensor_ifd (src/ifd.rs:916-933) reads all three identifying tags before combining, so an IFD with a READABLE NewSubfileType == 1 (a preview, definitively disqualified) still returns Unreadable if its Photometric is malformed, which is exactly the shipped thumbnail fixture's shape. Harmless, but it makes the error's own word 'candidate' untrue. FU-21 (minor): cost.totals is 0/0/session_count 0 with sessions recorded - a ship-cycle item, flagged so it is not inherited silently the way SPEC-003's FU-13 was. CHECKS THAT PASSED AND ARE WORTH STATING: no new DEC needed (SensorMatch, the infallible sensor_candidates and the new Error variant were all PRESCRIBED by FU-11's text and DEC-012's rule, not chosen - though note two BREAKING public API changes, fine at 0.1.0 under DEC-007 with no consumers and disclosed); provenance row EXTENDED not duplicated, same class 1, states no implementation was consulted; no new dependency, Cargo.toml not in the diff; design cycle has no cost session, which is correct per scripts/cost-audit.sh:12-14; DEC-012's two deferred pointer comments are both present and both accurate (src/ifd.rs:741 walk-strict, :876 interpret-tolerant), which was the one thing DEC-012 asked SPEC-004's first edit to do; AC3 holds on real files too, with active_area: None pinned on BOTH M Monochrom bodies; references.decisions is now [DEC-008, DEC-012], closing SPEC-003's FU-12. tokens_total is a transcript sum DEDUPED BY message.id and says so: 124 usage objects, 49 distinct ids, raw 15,050,048 vs deduped 5,991,740 = 2.51x, 97.0% cache-read. It is a FLOOR - computed before the session closed. This is the EIGHTH measured factor and a NEW HIGH: the band was 1.61x/1.76x/1.82x/1.86x/1.95x/2.20x/2.25x and is now 1.61x-2.51x, a 1.56x spread over eight observations, which STRENGTHENS the standing rule that no fixed correction may be applied to any raw figure, SPEC-001's 51,979,929 included. DID NOT run handback-sync, per the handoff (finding 15)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 5991740
+    estimated_usd: 39.55
+    session_count: 2
+shipped_at: 2026-08-21
 ---
 
 # SPEC-004: DNG tag model and typed metadata extraction
@@ -220,6 +221,64 @@ are STAGE-002 and `DEC-008`'s territory. Extracting `BlackLevel` is in scope;
 subtracting it is not.
 
 ## Reflection
+
+**1. What would I do differently next time?**
+
+**Read the code before writing the spec that changes it.** This spec's Context
+claimed SPEC-003 "stops exactly where geometry begins." It was false: `main`
+already carried `black_level`, `white_level`, `active_area`, `orientation`,
+`opcode_lists` and `black_level_repeat_dim` at `src/ifd.rs:442-460`, already
+satisfying AC3 and part of `DEC-012`. I grepped `pub struct Sensor`, read its first
+lines, and stopped — in the same handoff that warned the builder to re-measure
+anything it was about to assert.
+
+The build read the code instead of trusting my Context, and was right to. That is
+now **twice** a build has corrected my prior claims rather than inheriting them,
+and both times the correct move cost one command.
+
+There is a matching, smaller version: I checked the five named tests with a `grep`
+that read only the first target's line and reported "0 passed" for four of them.
+The reviewer hit the inverse — a `tail -40` that cut the lib target off the top.
+Both of us mis-measured the same thing in opposite directions on the same day.
+
+**2. Does any template, constraint, or decision need updating?**
+
+**`DEC-012` contradicts itself, and that is the real finding (FU-16).** Its
+principle says a malformedness that changes only *what an optional field says*
+costs that field alone. Its *table* sanctions `sensor()` propagating a malformed
+`Orientation` read from IFD0 — which loses the whole plane to a tag on a
+non-sensor IFD. Reproduced: `sensor_matches [1]`, then discarded. Not a regression
+— identical on `main` — but the decision and its own table disagree, and that
+disagreement is what needs deciding, not the one line at `src/ifd.rs:1011`.
+
+**FU-18 corrected me:** I asked whether `cost.metering_source: none` should be set
+for this execution mode. The reviewer's answer is no, and the reasoning is better
+than my question — it is **repo-global**, and `DEC-013`'s own Context names it as
+the outcome the decision exists to *avoid*. The premise was also wrong: a real
+number *was* obtainable from the same top-level mode by reading the session's own
+transcript, so the build's `null` was avoidable rather than forced.
+
+**3. Is there a follow-up spec to write now?**
+
+**Yes, one — and FU-16 and FU-17 are the same spec**, as the reviewer says.
+Both ask what an *unreadable* tag costs in the **extraction** path, where FU-11
+answered it only for the **selection** path:
+
+- **FU-16** — a malformed `Orientation` on IFD0 discards a located plane.
+- **FU-17** — a **DNG-legal `RATIONAL`** `DefaultCropSize`/`Origin`/`BlackLevel`
+  makes the whole file unreadable (`uints()` at `src/ifd.rs:788` returns
+  `UnexpectedFieldType`, and `sensor()` propagates it). The build framed this as a
+  missing field type; it is **fatal to the file**, which is a different severity.
+
+`DEC-012` must be amended before that spec is designed, because today it would
+sanction the behaviour the spec exists to fix.
+
+**FU-19** deserves a **check, not a signal** — the reviewer is right that a signal
+alone repeats `brag-step-skipped-at-ship`. `cargo test <name>` matching zero tests
+exits **0**, so any spec naming its tests can pass vacuously. Two traps for whoever
+writes it, both measured here: it must **sum across targets**, and it must run
+**with the corpus**, since two of the five also pass vacuously on a bare runner.
+
 
 *Appended during **ship**. Three questions, short answers.*
 
