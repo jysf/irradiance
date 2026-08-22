@@ -163,6 +163,45 @@ fn type_size(field_type: u16) -> Option<u64> {
     }
 }
 
+/// `DEC-012`'s Structure class, restated as a predicate so [`Container::uints`]
+/// can reject `TYPE_RATIONAL` **per-tag** instead of globally (`SPEC-007`
+/// `FU-4`).
+///
+/// On `main`, every tag read through `uints()` rejected `RATIONAL`, because
+/// none of them are legal that way. `SPEC-007` widened `uints()`'s type-gate
+/// match arm to let a DNG-legal RATIONAL `DefaultCropSize` read instead of
+/// erroring — but that match arm is `uints()`'s only gate, shared by every
+/// tag that flows through it, so the widening silently applied to every
+/// *other* tag too. Measured consequence: a `SubIFDs` (330) entry encoded as
+/// `RATIONAL 400/2` (= 200, a valid-looking offset) walked the SubIFD, where
+/// `main` returned `Err(UnexpectedFieldType)`; `StripByteCounts` (279) as
+/// `RATIONAL 28/2` silently read `[14]`. `DEC-012` names both tags
+/// structural — "what exists" must not depend on an out-of-spec encoding a
+/// reader happens to tolerate.
+///
+/// This list is exactly `DEC-012`'s amended Structure row (the walk-phase
+/// items — the header, entry tables, and chain `next` — never reach
+/// `uints()` at all, so they need no entry here). Interpretation tags are
+/// *not* listed, so they keep the RATIONAL widening `SPEC-007` added them
+/// for (`FU-17`: `BlackLevel`, `DefaultCropOrigin`, `DefaultCropSize` and
+/// friends may legally be RATIONAL in DNG).
+fn is_structural_tag(tag: u16) -> bool {
+    matches!(
+        tag,
+        TAG_NEW_SUBFILE_TYPE
+            | TAG_IMAGE_WIDTH
+            | TAG_IMAGE_LENGTH
+            | TAG_BITS_PER_SAMPLE
+            | TAG_COMPRESSION
+            | TAG_PHOTOMETRIC
+            | TAG_STRIP_OFFSETS
+            | TAG_SAMPLES_PER_PIXEL
+            | TAG_ROWS_PER_STRIP
+            | TAG_STRIP_BYTE_COUNTS
+            | TAG_SUB_IFDS
+    )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Byte order
 // ─────────────────────────────────────────────────────────────────────────────
@@ -796,6 +835,15 @@ impl<'a> Container<'a> {
         // The field type is a property of the entry, so it is checked before
         // the buffer is touched: otherwise a RATIONAL that also happens to
         // point out of bounds reports `Truncated` and hides the real problem.
+        //
+        // RATIONAL's acceptance is gated PER-TAG, ahead of the general match
+        // below — see [`is_structural_tag`] for why (`SPEC-007/FU-4`).
+        if entry.field_type == TYPE_RATIONAL && is_structural_tag(entry.tag) {
+            return Err(Error::UnexpectedFieldType {
+                tag: entry.tag,
+                field_type: entry.field_type,
+            });
+        }
         match entry.field_type {
             TYPE_BYTE | TYPE_UNDEFINED | TYPE_SHORT | TYPE_LONG | TYPE_IFD | TYPE_RATIONAL => {}
             other => {
@@ -1098,23 +1146,37 @@ impl<'a> Container<'a> {
         // read this from IFD0 with a bare `?`, so a malformed tag on a
         // NON-SENSOR IFD discarded an already-located plane. IFD0 is tried
         // first (every DNG measured carries it there); the sensor IFD is the
-        // fallback for a Pentax `.PEF`, where the plane IS IFD0.
-        let ifd0_orientation = match self.ifd0() {
-            Some(ifd0) => Self::cost_the_field(
-                self.scalar(ifd0, TAG_ORIENTATION),
-                TAG_ORIENTATION,
-                &mut malformed,
-            ),
-            None => None,
+        // fallback when IFD0 doesn't yield a value.
+        //
+        // `SPEC-008/FU-1,FU-2`: the field is costed **at most once**, and
+        // only when no valid value was found anywhere. The old code got two
+        // cases wrong: (1) the plane IS IFD0 (the Pentax `.PEF` corpus
+        // shape) — there is only ONE entry to read, not two, so a malformed
+        // read must not be recorded twice; (2) IFD0's entry is malformed but
+        // the sensor IFD's OWN entry is well-formed — the field was
+        // recovered, not dropped, so it must not be recorded malformed at
+        // all. `ifd_index == 0` is exactly "the plane is IFD0": `ifd0()` is
+        // always `self.ifds[0]`, so a distinct sensor-IFD read only exists
+        // when the sensor plane is some other index.
+        let ifd0_read = self.ifd0().map(|ifd0| self.scalar(ifd0, TAG_ORIENTATION));
+        let plane_is_ifd0 = ifd_index == 0;
+        let sensor_read = if plane_is_ifd0 {
+            None
+        } else {
+            Some(self.scalar(ifd, TAG_ORIENTATION))
         };
-        let orientation = match ifd0_orientation {
-            Some(value) => Some(value),
-            None => Self::cost_the_field(
-                self.scalar(ifd, TAG_ORIENTATION),
-                TAG_ORIENTATION,
-                &mut malformed,
-            ),
+        let orientation = match &ifd0_read {
+            Some(Ok(Some(value))) => Some(*value),
+            _ => match &sensor_read {
+                Some(Ok(value)) => *value,
+                _ => None,
+            },
         };
+        if orientation.is_none()
+            && (matches!(ifd0_read, Some(Err(_))) || matches!(sensor_read, Some(Err(_))))
+        {
+            malformed.push(TAG_ORIENTATION);
+        }
 
         // Interpretation: BlackLevel, WhiteLevel.
         let black_level = Self::cost_the_field(
@@ -1170,8 +1232,17 @@ impl<'a> Container<'a> {
             height: self.required_scalar(ifd, TAG_IMAGE_LENGTH)?,
             bits_per_sample: self.required_scalar(ifd, TAG_BITS_PER_SAMPLE)?,
             // Structural: SamplesPerPixel — part of the identifying trio.
+            //
+            // `SPEC-008`: no softening test is written for this read. It is
+            // a RE-READ of a tag `is_sensor_ifd` already read successfully
+            // to select THIS `ifd` as the candidate in the first place — a
+            // mutant that tolerates a bad read here can never fire, because
+            // the value it would tolerate was already read once, without
+            // error, by the scan that chose this IFD. Equivalent mutant,
+            // unkillable by construction; do not manufacture coverage for it.
             samples_per_pixel: self.scalar(ifd, TAG_SAMPLES_PER_PIXEL)?.unwrap_or(1),
-            // Structural: Photometric — part of the identifying trio.
+            // Structural: Photometric — part of the identifying trio. Same
+            // equivalent-mutant reasoning as `samples_per_pixel` above.
             photometric: self.required_scalar(ifd, TAG_PHOTOMETRIC)?,
             // Structural: Compression. TIFF 6.0 defaults to 1 (uncompressed)
             // when absent.
@@ -1735,6 +1806,90 @@ mod tests {
         ));
     }
 
+    // `SPEC-008`: `RowsPerStrip` was the ONLY structural tag with a
+    // softening-fails test (`malformed_structural_tag_is_still_fatal` above).
+    // Measured before this spec: softening `Compression`, `StripOffsets`,
+    // `StripByteCounts` or `BitsPerSample` to tolerant left the full 58-test
+    // suite green. `Compression` is the dangerous one — softened, it
+    // defaults to 1 (uncompressed), `require_uncompressed()` passes, and
+    // STAGE-002 would read JPEG bytes as raw samples. All four go through
+    // `uints()` and propagate with `?` the same as `RowsPerStrip`
+    // (`required_scalar()` for `BitsPerSample`, `scalar()?` for
+    // `Compression`, `values()` for `StripOffsets`/`StripByteCounts`), so
+    // the same fixture shape pins all four the same way.
+    //
+    // `SamplesPerPixel` and `Photometric` are deliberately NOT here — see the
+    // comment on `Sensor::samples_per_pixel`'s construction in `sensor()`:
+    // they are equivalent mutants, unkillable by construction.
+
+    #[test]
+    fn structural_compression_bad_type_is_fatal() {
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.retain(|(tag, ..)| *tag != TAG_COMPRESSION);
+        entries.push((TAG_COMPRESSION, 250, 1, 0));
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        assert!(matches!(
+            c.sensor(),
+            Err(Error::UnexpectedFieldType {
+                tag: TAG_COMPRESSION,
+                field_type: 250,
+            })
+        ));
+    }
+
+    #[test]
+    fn structural_strip_offsets_bad_type_is_fatal() {
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.retain(|(tag, ..)| *tag != TAG_STRIP_OFFSETS);
+        entries.push((TAG_STRIP_OFFSETS, 250, 1, 0));
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        assert!(matches!(
+            c.sensor(),
+            Err(Error::UnexpectedFieldType {
+                tag: TAG_STRIP_OFFSETS,
+                field_type: 250,
+            })
+        ));
+    }
+
+    #[test]
+    fn structural_strip_byte_counts_bad_type_is_fatal() {
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.retain(|(tag, ..)| *tag != TAG_STRIP_BYTE_COUNTS);
+        entries.push((TAG_STRIP_BYTE_COUNTS, 250, 1, 0));
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        assert!(matches!(
+            c.sensor(),
+            Err(Error::UnexpectedFieldType {
+                tag: TAG_STRIP_BYTE_COUNTS,
+                field_type: 250,
+            })
+        ));
+    }
+
+    #[test]
+    fn structural_bits_per_sample_bad_type_is_fatal() {
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.retain(|(tag, ..)| *tag != TAG_BITS_PER_SAMPLE);
+        entries.push((TAG_BITS_PER_SAMPLE, 250, 1, 0));
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        assert!(matches!(
+            c.sensor(),
+            Err(Error::UnexpectedFieldType {
+                tag: TAG_BITS_PER_SAMPLE,
+                field_type: 250,
+            })
+        ));
+    }
+
     #[test]
     fn a_well_formed_fixed_length_tag_is_reported() {
         let b = Build::new(false, 8);
@@ -1831,6 +1986,61 @@ mod tests {
     }
 
     #[test]
+    fn rational_denominator_is_actually_divided() {
+        // `SPEC-008`/FU-5: every well-formed RATIONAL fixture before this one
+        // used denominator 1 (see `rational_default_crop_size_reads_or_costs_the_field`
+        // above: `(8368, 1), (5584, 1)`), so a mutant that pushed the
+        // numerator and never divided would still pass all 58 tests.
+        // 16736/2 = 8368 pins the division: if a mutant returned the
+        // numerator unchanged, this asserts 16736, not 8368, and fails.
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.push((TAG_DEFAULT_CROP_SIZE, TYPE_RATIONAL, 2, 600));
+        let mut data = b.ifd(8, &entries, 0).done();
+        write_rationals(&mut data, 600, &[(16736, 2), (5584, 1)]);
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(
+            s.default_crop_size,
+            Some(DefaultCropSize {
+                width: 8368,
+                height: 5584
+            })
+        );
+        assert!(s.malformed_tags.is_empty());
+    }
+
+    #[test]
+    fn subifds_rational_is_rejected() {
+        // `SPEC-007`/FU-4: `uints()`'s RATIONAL widening was GLOBAL, so a
+        // `SubIFDs` entry encoded as RATIONAL 400/2 (= 200, a valid-looking —
+        // and here, actually correct — offset) walked the SubIFD instead of
+        // failing the container, where `main` returned
+        // `Err(UnexpectedFieldType)`. `DEC-012` names `SubIFDs` structural;
+        // the acceptance must be per-tag, not global — `is_structural_tag`.
+        let b = Build::new(false, 8);
+        let plane = sensor(&b);
+        let mut data = b
+            .ifd(
+                8,
+                &[
+                    (TAG_NEW_SUBFILE_TYPE, TYPE_LONG, 1, 1),
+                    (TAG_SUB_IFDS, TYPE_RATIONAL, 1, 600),
+                ],
+                0,
+            )
+            .ifd(200, &plane, 0)
+            .done();
+        write_rationals(&mut data, 600, &[(400, 2)]);
+        assert!(matches!(
+            Container::parse(&data),
+            Err(Error::UnexpectedFieldType {
+                tag: TAG_SUB_IFDS,
+                field_type: TYPE_RATIONAL,
+            })
+        ));
+    }
+
+    #[test]
     fn opcode_list_presence_is_reported_without_decoding_them() {
         let b = Build::new(false, 8);
         let mut entries = sensor(&b);
@@ -1889,6 +2099,56 @@ mod tests {
         assert_eq!(s.malformed_tags, vec![TAG_ORIENTATION]);
         // and the plane is still located and read
         assert_eq!(s.width, 4);
+    }
+
+    #[test]
+    fn orientation_costed_once_when_plane_is_ifd0() {
+        // `SPEC-008`/FU-1: the Pentax `.PEF` corpus shape — the plane IS
+        // IFD0, so there is only ONE `Orientation` entry to read, not two
+        // (an "IFD0 first" try followed by a "sensor IFD" fallback that
+        // happens to be the SAME entry). Before this fix the fallback
+        // re-read the identical malformed entry and pushed `TAG_ORIENTATION`
+        // a second time: `malformed_tags == [274, 274]`.
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.push((TAG_ORIENTATION, 250, 1, 0)); // unreadable field type
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        assert_eq!(c.sensor_candidates(), vec![0]);
+        let s = c.sensor().unwrap();
+        assert_eq!(s.orientation, None);
+        assert_eq!(s.malformed_tags, vec![TAG_ORIENTATION]);
+        // and the plane is still located and read
+        assert_eq!(s.width, 4);
+    }
+
+    #[test]
+    fn wellformed_orientation_is_not_recorded_malformed() {
+        // `SPEC-008`/FU-2: IFD0's `Orientation` is malformed, but the sensor
+        // IFD (a DIFFERENT ifd — a SubIFD, unlike the fixture above) carries
+        // its OWN well-formed `Orientation`. The field is recovered, not
+        // dropped: `orientation` must read `Some(6)` and `malformed_tags`
+        // must NOT carry `TAG_ORIENTATION` — before this fix it did, even
+        // though a good value was found and used.
+        let b = Build::new(false, 8);
+        let mut plane = sensor(&b);
+        let word = b.short_word(6);
+        plane.push((TAG_ORIENTATION, TYPE_SHORT, 1, word));
+        let data = b
+            .ifd(
+                8,
+                &[
+                    (TAG_NEW_SUBFILE_TYPE, TYPE_LONG, 1, 1),
+                    (TAG_ORIENTATION, 250, 1, 0), // malformed, on IFD0
+                    (TAG_SUB_IFDS, TYPE_LONG, 1, 200),
+                ],
+                0,
+            )
+            .ifd(200, &plane, 0)
+            .done();
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(s.orientation, Some(6));
+        assert!(s.malformed_tags.is_empty());
     }
 
     #[test]

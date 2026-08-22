@@ -14,12 +14,12 @@ handoff:
   id: HANDOFF-019
   cycle: build                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: null    # a DISPATCH HINT is not a measurement (SPEC-007/FU-6);
+  to_agent: claude-sonnet-5    # a DISPATCH HINT is not a measurement (SPEC-007/FU-6);
                     # whoever runs this cycle sets it to what ACTUALLY ran
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-08-21
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                  # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-008
@@ -43,14 +43,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
+  status: completed                     # completed | blocked | rejected
+  tokens_total: 25000000               # REAL combined count — what cost-audit reads
+  estimated_usd: 10.20              # tokens_total × your rate, or your harness's number
+  duration_minutes: 60
+  branch: feat/spec-008-pin-structure-class
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  completed_at: 2026-08-21               # YYYY-MM-DD
+  notes: "tokens_total rounded up from a measured 24,241,777 floor (deduped by message.id); see spec cost.sessions[0].notes and this handoff's Cost self-report for the full transcript-sourced breakdown. Did NOT run handback-sync per the return criteria."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -158,10 +158,16 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `feat/spec-008-pin-structure-class` (local commit; not pushed, no PR opened per return criteria — "commit; do not merge")
+- **Completed at:** 2026-08-21
+- **All acceptance criteria met?** yes.
+  1. Four new hand-built fixtures (`structural_compression_bad_type_is_fatal`, `structural_strip_offsets_bad_type_is_fatal`, `structural_strip_byte_counts_bad_type_is_fatal`, `structural_bits_per_sample_bad_type_is_fatal`) pin `Compression`/`StripOffsets`/`StripByteCounts`/`BitsPerSample` as fatal-when-malformed, alongside the pre-existing `RowsPerStrip` one — same template (`entries.retain` to drop the well-formed tag, push field-type `250`, assert `sensor()` returns `Err(UnexpectedFieldType)`). `SamplesPerPixel`/`Photometric` deliberately left uncovered, with the equivalent-mutant reasoning written as a comment on their construction in `sensor()`, exactly as instructed.
+  2. `uints()`'s `TYPE_RATIONAL` acceptance made per-tag: a new free fn `is_structural_tag(tag)` restates `DEC-012`'s amended Structure row as a predicate (the 11 tags: `NewSubfileType`, `ImageWidth`, `ImageLength`, `BitsPerSample`, `Compression`, `Photometric`, `StripOffsets`, `SamplesPerPixel`, `RowsPerStrip`, `StripByteCounts`, `SubIFDs`); `uints()` now rejects RATIONAL for any of them ahead of the general type-gate match, restoring `main`'s behaviour, while interpretation tags keep `SPEC-007`'s widening. New test `subifds_rational_is_rejected` reproduces the exact `RATIONAL 400/2` shape the handoff's Context measured and asserts `Container::parse` itself errors (the walk fails, not merely `sensor()`).
+  3. `FU-1`/`FU-2` fixed together, same root cause: `sensor()`'s `Orientation` read rewritten so `IFD0`'s and the sensor IFD's reads are each computed at most once (the sensor-IFD read is skipped entirely — not merely redundant — when `ifd_index == 0`, i.e. the plane IS `IFD0`), and `malformed` is pushed **at most once**, only when the final `orientation` is `None` **and** at least one of the two reads actually errored (not merely absent). New tests `orientation_costed_once_when_plane_is_ifd0` and `wellformed_orientation_is_not_recorded_malformed`.
+  4. `FU-5` fixed with a fixture only, no code change (the division was already correct — `checked_div`/`checked_rem`, no raw `/`): `rational_denominator_is_actually_divided` uses `16736/2` (denominator ≠ 1, unlike every prior RATIONAL fixture) and asserts the quotient `8368`, not the raw numerator.
+  5. Ten gates green — see Cost self-report below is not the place; see the spec's `cost.sessions[0].notes` for the full gate-by-gate transcript. Summary: `cargo build --release`; `cargo test --all-features` 66 passed (58 prior + 8 new, corpus 7/7 present, summed across five targets); `cargo clippy --all-targets --all-features -D warnings` + `cargo fmt --check`; `cargo check --all-targets --all-features`; `cargo deny check licenses` + `cargo deny --manifest-path fuzz/Cargo.toml check licenses` (both green); `scripts/lint-red-proof.sh` exit 0; `cargo clippy --lib --quiet -F x5` exit 0; `~/.cargo/bin/cargo +1.90.0 check --all-targets --all-features` (msrv); fuzz 12,971,280 runs in 61s, zero crashes.
+  6. **Mutant-kill proof, both directions, all six mutants** (the required four plus two bonus ones on FU-4 and FU-5, since they were cheap and directly on point): `Compression`, `StripOffsets`, `StripByteCounts`, `BitsPerSample` each individually softened (via `.ok().flatten().unwrap_or(default)` or `.unwrap_or_default()`), each turned its own new test RED, each reverted and confirmed GREEN, `git diff` checked clean before trusting each green. `SubIFDs`' `is_structural_tag` guard block deleted entirely (reverting to `SPEC-007`'s exact global-widening code) turned `subifds_rational_is_rejected` RED, restored GREEN. The whole `Orientation` fix swapped back to the literal pre-fix two-`cost_the_field` version turned **both** `orientation_costed_once_when_plane_is_ifd0` (assertion `left: [274, 274]` `right: [274]` — the exact bug the handoff described, reproduced byte-for-byte) and `wellformed_orientation_is_not_recorded_malformed` RED simultaneously; restored, both GREEN. The RATIONAL division's success arm changed from `out.push(value)` to `out.push(numerator)` turned `rational_denominator_is_actually_divided` RED (`left: {width: 16736, ...}` `right: {width: 8368, ...}`), restored GREEN.
+- **For `verify`:** N/A — this is the build handback.
 
 ### Cost self-report
 
@@ -169,27 +175,27 @@ Mirror what you put in the `handback:` front-matter, and say where the number
 came from. **This is the number that lands in the spec** — the orchestrator
 transcribes it via `just handback-sync`, it does not estimate it.
 
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 25,000,000 (rounded up from a measured floor) — a transcript sum, **deduplicated by `message.id`**, from this session's own transcript at `~/.claude/projects/<path-slug>/8e88da11-7b71-4569-b4da-609dfd4d432a.jsonl` (session id read off the scratchpad path the harness gave me, the same method `SPEC-007`'s build/verify used). Measured shortly before writing this note: 235 `usage` objects across 124 distinct message ids; deduped total (input + output + cache-read + cache-write) 24,241,777. 98.6% cache-read; all cache-creation on the 1-hour ephemeral tier (0 in the 5-minute tier, read from the nested `cache_creation` object, not assumed). Rounded up to 25,000,000 to cover the remaining turns spent finishing this handback and committing — **this is a floor**, captured before the session closes, per the handoff's explicit instruction.
+- **Estimated USD:** 10.20 — computed at published Sonnet rates ($3/M input, $15/M output, $6/M cache-write-1h, $0.30/M cache-read) on the measured 24.24M figure ($9.88), rounded to match the rounded token total. Not a harness-reported figure; flagged so it isn't mistaken for a metered one.
+- **Duration (minutes):** ~60 (session start to this handback, by wall clock; not separately instrumented).
+- **Source of the number:** none available via `/cost` from inside a turn — **transcript `usage` objects**, read directly, same methodology as `SPEC-004`'s verify and `SPEC-007`'s build/verify.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None. Every change enforces `DEC-012`'s existing table rather than redrawing it — `is_structural_tag` is a direct restatement of the amended Structure row, and the `Orientation` fix is a control-flow correction of the existing IFD0-then-sensor-IFD fallback the amendment already prescribed, not a new rule.
 - **Deviations from spec:**
-  - [list]
+  - None substantive. The mutant-kill proof covers six mutants instead of the four the return criteria literally names (added `SubIFDs`' RATIONAL gate and the RATIONAL-division success arm) — strictly additional rigor, not a scope change, and cheap given the fixtures already existed.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - None new. `RowsPerStrip`'s and now `Compression`/`StripOffsets`/`StripByteCounts`/`BitsPerSample`'s structural classification remain unverified by real data — every corpus file is still single-strip and uncompressed — which is the same accepted gap `DEC-012`'s amendment and `SPEC-007` already flagged, not a new finding.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing blocking. The Orientation fix required working out, from scratch, exactly which of the four (IFD0-well-formed / IFD0-absent / IFD0-malformed-with-fallback-success / IFD0-malformed-with-fallback-failure) × (plane-is-IFD0 / plane-is-not-IFD0) cases the two existing tests (`orientation_comes_from_ifd0_when_the_plane_is_a_subifd`, `malformed_orientation_on_ifd0_keeps_the_plane`) already pinned, so the new logic wouldn't regress them — the handoff correctly named the two bugs but not the shape of a fix that satisfies both simultaneously without re-reading the same entry twice.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `DEC-012` (amended), `guidance/constraints.yaml`'s five blocking constraints, and `guidance/toolchain-brief.md`'s three `+toolchain` traps were exactly what this build needed and all were already listed.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing structural. I'd capture the transcript token count once near the start as well as near the end (as this handoff itself half-suggests), so the floor-vs-final gap is measured rather than inferred from the two SPEC-007 sessions' own notes.
