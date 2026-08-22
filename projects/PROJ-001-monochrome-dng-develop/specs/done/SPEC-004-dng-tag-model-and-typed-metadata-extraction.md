@@ -220,6 +220,29 @@ Tags only. **No levels arithmetic, no cropping, no orientation transform** — t
 are STAGE-002 and `DEC-008`'s territory. Extracting `BlackLevel` is in scope;
 subtracting it is not.
 
+## Follow-ups
+
+> **Reconciled 2026-08-21**, not written at ship — this table is the retrofit that
+> AGENTS.md §15's *Where an unresolved follow-up goes* now makes a ship step.
+> Every disposition below was checked against git and disk, not transcribed from
+> the handback that raised it.
+
+> ⚠ **Numbering.** These ids continue `SPEC-003`'s sequence rather than restarting
+> at 1, because the per-spec rule was not written down until `SPEC-007`. They are
+> **not** renumbered — `SPEC-004/FU-20` has been cited in four artifacts, and an id
+> that moves is worse than an id that looks odd. See AGENTS.md §15.
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-16` | `sensor()` still loses the plane to a malformed `Orientation` on a **non-sensor** IFD | `fixed` → `SPEC-007` (with `DEC-012` amended first, since the decision would otherwise have sanctioned the behaviour) |
+| `FU-17` | a **DNG-legal** `RATIONAL` `DefaultCropSize`/`Origin`/`BlackLevel` makes the whole file unreadable — fatal, not a missing field type | `fixed` → `SPEC-007` (`TYPE_RATIONAL` read per TIFF 6.0 §2) |
+| `FU-18` | do **not** set `.repo-context.yaml`'s `cost.metering_source: none` — the answer is per-session, and the number *was* obtainable | `closed` — question answered, no change wanted; the premise (no source exists) was wrong, which is the durable part |
+| `FU-19` | `cargo test <name>` matching **zero** tests exits 0, so a spec naming its failing tests can be satisfied vacuously | `signal: named-tests-can-pass-vacuously` — `accepted`, project-close. Carries both measured traps: sum across targets, and run with the corpus |
+| `FU-20` | `NoSensorIfdCandidatesMalformed` can name IFDs that were never candidates | `fixed` → `SPEC-007`. Verified 2026-08-21: `is_sensor_ifd` (`src/ifd.rs`) now short-circuits per identifying tag, returning `SensorMatch::No` on a readable disqualifying `NewSubfileType` before `Photometric` is read |
+| `FU-21` | `cost.totals` is `0 / 0 / session_count: 0` with sessions recorded | `fixed` at ship — `5,991,740` over 2 sessions |
+
+**6 raised · 4 `fixed` · 1 `closed` · 1 `signal` · 0 live.**
+
 ## Reflection
 
 **1. What would I do differently next time?**

@@ -1108,6 +1108,17 @@ which gets filed and does not hold the spec.
   never a bare `FU-11`. Inside its own spec's documents the bare form is fine.
 - Round 2 of a cycle continues its spec's sequence rather than restarting, so a
   finding keeps one id for the life of the spec.
+- ⚠ **Per-spec restart is in force from `SPEC-007` onward, and the ids before it
+  are not renumbered.** There are three eras, and a reader will meet all three:
+
+  | Specs | Label | Numbering |
+  |---|---|---|
+  | `SPEC-001`, `SPEC-002`, `SPEC-006` | `F-N` | per spec — pre-dates the `FU-`/`SB-` split entirely |
+  | `SPEC-003`, `SPEC-004` | `FU-N` | one continuous run: `FU-1`…`FU-15`, then `FU-16`…`FU-21` |
+  | `SPEC-007` onward | `FU-N` / `SB-N` | per spec, restarting at 1 — the rule above |
+
+  `SPEC-004/FU-20` is a real id cited in four artifacts; an id that moves is worse
+  than an id that looks odd. Read the prefix, not the number.
 
 The point of the id is that a finding **survives a handoff boundary**.
 `SPEC-003/FU-11` was raised at verify, carried into the next build brief, deferred
@@ -1122,6 +1133,75 @@ it from scratch. Prose alone cannot do that.
 > it earned its place — but it accumulated authority for several rounds first,
 > which is the failure mode `guidance/signals.yaml` exists to catch.
 
+### Where an unresolved follow-up goes
+
+The id lets a finding survive a handoff boundary. It does **not** make anyone
+decide it, and for eight cycles nothing did: 34 `FU-N`s accumulated across
+handbacks, shipped-spec reflections and `DEC-012` with no index, no status and no
+owner, so a finding's fate depended on whether the orchestrator happened to act on
+it that session. `guidance/signals.yaml` had a forcing function; follow-ups had a
+naming convention.
+
+Reconciled 2026-08-21: **34 findings across four specs. 26 already had a findable
+disposition** — a fix, an owning spec, a signal, or a stated answer — **and 8 had
+none**, four of them because a shipped reflection said "yes, one spec" and no spec
+was ever created. The ids did not lose findings; the ids were never the missing
+half. The missing half was a **disposition point**.
+
+**The rule: a follow-up is dispositioned at the ship cycle of the spec that raised
+it, and never crosses that ship undecided.** That bounds an open follow-up's
+lifetime to one spec — which is precisely why this convention needs **no tracker
+and no new list**. A register of unresolved follow-ups would only ever hold one
+spec's worth, for the length of a punch-list round, and the two lists we already
+have are the two destinations.
+
+**Four dispositions. Every follow-up gets exactly one:**
+
+| Disposition | Means | Where it lands |
+|---|---|---|
+| `fixed` | Done, in this spec's own cycles or at ship | name the commit or `file:line` in the row |
+| `spec: SPEC-NNN` | It is work someone must do | a **real spec** — `frame` is enough, `ready` is not required. Put the finding's id in that spec's `## Context` |
+| `signal: <signal-id>` | It is a recurring pattern, or friction in the process itself | a `guidance/signals.yaml` entry — new, or evidence added to an existing one. That ledger's close ritual now owns it |
+| `closed: <reason>` | Deliberately not doing it | one line of why, in the row. A close whose trigger is a *test that will fail* is a good close; a close whose trigger is someone remembering is not |
+
+**"Carried into the next build brief" is not a disposition.** That is what was
+happening, and it is why `SPEC-003/FU-11` needed four artifacts and three sessions
+to reach an owner. Carrying is a fine *tactic* inside a spec's own punch-list
+round; it is not an answer at ship.
+
+**Spec or signal?** A follow-up that names one file and one fix is a spec (or is
+`fixed`). A follow-up about a *class* — a rule that will recur, friction in the
+process — is a signal. Do not route concrete defects into `signals.yaml`: it
+carries ~13 entries and a ten-minute walk at each close, and thirty bug rows would
+destroy the thing that makes it work. Do not route process friction into a spec:
+it has no acceptance criteria and will sit in `frame` forever.
+
+**The record lives in the spec, not the handback.** Ship appends a `## Follow-ups`
+table to the spec — one row per follow-up id raised against it across every cycle,
+with its disposition. The handback is where a finding is *raised*; the spec is
+where it is *decided*, because the spec is archived under `specs/done/` and read by
+`just status`, while a handback is (`SPEC-003/FU-14`'s own phrase for it) the least
+durable place in this repo.
+
+```markdown
+## Follow-ups
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | one line | `fixed` — `src/ifd.rs:188` |
+| `FU-2` | one line | `spec: SPEC-009` |
+| `FU-3` | one line | `signal: tier-map-predicts-what-it-should-record` |
+| `FU-4` | one line | `closed` — reason |
+```
+
+⚠ **What enforces this today: nothing.** This repo has measured **twice** that a
+documented step with no surface simply does not happen —
+`brag-step-skipped-at-ship` (six ships, zero entries, caught by a human) and
+`named-tests-can-pass-vacuously`. Until `just validate` asserts that every `FU-N`
+raised in a spec's handoffs has a row in that spec's `## Follow-ups` table, this
+rule rests on the ship cycle being run honestly, and it is the same shape as the
+two steps that were not. Tracked as `follow-up-disposition-has-no-surface`.
+
 ### During **ship**
 
 Append a `## Reflection` block to the spec with three answers:
@@ -1131,6 +1211,9 @@ Append a `## Reflection` block to the spec with three answers:
 
 Then:
 - Update the spec's `task.cycle` → `ship`.
+- **Append the `## Follow-ups` table** — one row per `FU-N` raised against this
+  spec across every cycle, each with one of the four dispositions. No follow-up
+  crosses this ship undecided; see *Where an unresolved follow-up goes* above.
 - Append a ship cost session entry, then compute `cost.totals`.
 - Stamp `task.complexity_actual` — what it actually took, on the same
   `XS|S|M|L|XL|XXL` scale as the expected `task.complexity`. Ship is the only

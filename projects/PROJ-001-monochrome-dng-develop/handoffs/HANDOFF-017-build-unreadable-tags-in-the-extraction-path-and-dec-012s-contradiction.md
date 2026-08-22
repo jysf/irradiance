@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 19480728           # REAL combined count — what cost-audit reads
+  estimated_usd: 8.62              # tokens_total × your rate, or your harness's number
+  duration_minutes: 75
+  branch: feat/spec-007-extraction-tolerance
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  completed_at: 2026-08-21         # YYYY-MM-DD
+  notes: "BACK-FILLED 2026-08-21 by the orchestrator, closing SPEC-007/FU-7: this block was left entirely null while `handoff.status: completed` and the prose `## Handback` below was complete. Nothing was lost — the build wrote `cost.sessions` directly, so SPEC-007 has always carried the real figure — but the machine-readable half said nothing, which is `cost-field-has-two-owners` firing from the other side. Values transcribed verbatim from SPEC-007's own build session; not re-derived. tokens_total is a transcript sum deduplicated by message.id (174 usage objects, 87 distinct ids; raw 38,007,198, deduped 19,480,728 = 1.95x, 98.2% cache-read); estimated_usd computed per-component at published Sonnet rates, NOT harness-reported."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 

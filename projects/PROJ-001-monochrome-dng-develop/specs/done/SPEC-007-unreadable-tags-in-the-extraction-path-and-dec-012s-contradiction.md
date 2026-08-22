@@ -241,6 +241,25 @@ The extraction path and `uints()`. **No levels arithmetic, no cropping, no
 orientation transform** — STAGE-002 and `DEC-008`. Extracting is in scope; applying
 is not.
 
+## Follow-ups
+
+> **Reconciled 2026-08-21**, not written at ship — this table is the retrofit that
+> AGENTS.md §15's *Where an unresolved follow-up goes* now makes a ship step.
+> Every disposition below was checked against git and disk, not transcribed from
+> the handback that raised it.
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | a malformed `Orientation` is recorded **twice** (`[274, 274]`) when the plane is `IFD0` | `fixed` → `SPEC-008` (single combined `malformed.push`) |
+| `FU-2` | a tag is listed in `malformed_tags` even when its value **was** read | `fixed` → `SPEC-008` |
+| `FU-3` | the structural half of the boundary is pinned for exactly **one** tag | `fixed` → `SPEC-008` added four structural fixtures. ⚠ The *membership list* remains one-point-wide — that is `SPEC-008/FU-1`, a distinct finding one level up, not this one re-opened |
+| `FU-4` | the `RATIONAL` widening loosened the **walk**, which `DEC-012` classifies as structural | `fixed` → `SPEC-008` made `uints()`'s `TYPE_RATIONAL` acceptance per-tag via `is_structural_tag()` |
+| `FU-5` | no fixture pins the `RATIONAL` **division** — every well-formed fixture uses denominator 1 | `fixed` → `SPEC-008`. Verified: mutant M4 (push the numerator) kills exactly `rational_denominator_is_actually_divided` |
+| `FU-6` | `tier_map` predicts into `handoff.to_agent`, a field downstream reads as measured fact — 0 for 2 | `signal: tier-map-predicts-what-it-should-record` — `accepted`, project-close. Half-fixed at ship (dispatch-hint wording); the real fix is upstream in the template |
+| `FU-7` | `HANDOFF-017`'s YAML `handback:` block is entirely null while `handoff.status: completed` | `fixed` 2026-08-21 — back-filled verbatim from this spec's own `cost.sessions`, marked as a back-fill in `notes`. The double-append hazard the finding worried about is **not** reachable: measured, `just handback-sync SPEC-007` exits 1 with *"Spec not found"* once the spec is archived, so `synced_at` needed no hand-stamp |
+
+**7 raised · 6 `fixed` · 1 `signal` · 0 live.**
+
 ## Reflection
 
 **1. What would I do differently next time?**

@@ -327,6 +327,33 @@ Container only. **No pixel decode, no unpack** — that is STAGE-002, where
 `DEC-008`'s two-path (`bits % 8`) rule lands. Reading `StripOffsets`/
 `StripByteCounts` as *tags* is in scope; reading the strip is not.
 
+## Follow-ups
+
+> **Reconciled 2026-08-21**, not written at ship — this table is the retrofit that
+> AGENTS.md §15's *Where an unresolved follow-up goes* now makes a ship step.
+> Every disposition below was checked against git and disk, not transcribed from
+> the handback that raised it.
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | the byte-order error (`5 II / 1 MM / 1 PEF`) also lives at `CHANGELOG.md:31` | `fixed` — `CHANGELOG.md:31-35` now reads **6 `II` / 1 `MM`** and names byte order and container as independent axes |
+| `FU-2` | a third wrong corpus fact: **two** files are JPEG (code 7), not three; `K3III.PEF` is 65535 vendor-private | `fixed` — spec Context and `CHANGELOG.md:91-93` |
+| `FU-3` | "full-resolution SubIFD" is unsatisfiable on the PEF, whose plane is `IFD0` | `fixed` — punch-list round, AC 6 and `STAGE-001` |
+| `FU-4` | `docs/conformance-matrix.md` is stale in the way its own opening rule forbids — three held bodies with no row | `fixed` — punch-list round added rows for M Monochrom, Typ 246 and K-3 III Monochrome |
+| `FU-5` | the malformed-tag policy is asymmetric and the rule is nowhere stated | `fixed` — became `DEC-012`, which also narrowed this finding's framing (`array()` tolerates a wrong *count* and nothing else) |
+| `FU-6` | the single-strip shape is **asserted**, not merely untested (`tests/ifd_reader.rs:352`, `:443`, `:448`) | `closed` — recorded under *Known gaps* in `CHANGELOG.md`. The trigger is mechanical, not memory: the day a multi-strip file enters the corpus those three assertions fail loudly. A test to update, not a reader bug |
+| `FU-7` | "no `#[allow]` of any policy lint anywhere in `src/`" is imprecise — two exist, both on `#[cfg(test)]` modules | `closed` — the imprecise sentence lived only in a handback's prose claim, never in a durable doc; `src/lib.rs:34-35` already states the limitation correctly |
+| `FU-8` | the MSRV gate is the one gate of ten with no `just` recipe | `fixed` — `just msrv`, plus the third `+toolchain` trap written into `guidance/toolchain-brief.md` |
+| `FU-9` | the provenance ledger has no bullet for the declared-vs-carried case, which runs the *inverse* of its own motivating example | `fixed` at ship — `docs/provenance-ledger.md` |
+| `FU-10` | the new "four bodies, seven files" claim omits that all seven are tier B and **zero** tier A, so none of it runs in CI | `fixed` at ship — `docs/conformance-matrix.md` |
+| `FU-11` | `is_sensor_ifd` propagates `scalar()` errors, and all three selection paths call it over *every* IFD — a malformed tag on a thumbnail costs the plane | `fixed` → `SPEC-004`, which made `sensor_candidates()` infallible and added `SensorMatch` |
+| `FU-12` | `SPEC-004`'s `references.decisions` is `[]` while `DEC-012` aims its deferral at `SPEC-004`'s first edit | `fixed` at ship |
+| `FU-13` | `cost.totals.tokens_total` is `10,967,269` — exactly the first build session — where four sum to `37,494,894` | `fixed` at ship |
+| `FU-14` | `oracle-must-be-shown-red` says "every ORACLE" while three *gates* are now red-proofed | `fixed` at ship — `guidance/constraints.yaml` now reads "every oracle **AND every GATE**" |
+| `FU-15` | the "full-resolution SubIFD" phrasing `FU-3` corrected survives at `STAGE-002:84` | `fixed` at ship — `STAGE-002` now reads "the full-resolution **sensor IFD** (⚠ *not necessarily a SubIFD*)" |
+
+**15 raised · 13 `fixed` · 2 `closed` · 0 live.**
+
 ## Reflection
 
 **1. What would I do differently next time?**

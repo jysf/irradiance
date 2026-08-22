@@ -98,12 +98,13 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 Run `just frame-stage STAGE-002` to promote these outlines into real specs.
 
+- [ ] SPEC-009 (frame) [S] **Pin the Structure-class MEMBERSHIP, table-driven over all eleven tags — FIRST, before the unpack.** Carries `SPEC-008/FU-1`, `FU-2`, `FU-3`, `FU-5`. ⚠ Measured by the orchestrator 2026-08-21 (mutation asserted applied by `diff`, suite summed across all five targets, tree restored byte-identical): `is_structural_tag()` at `src/ifd.rs:188-203` has **eleven** memberships and exactly **one** — `TAG_SUB_IFDS` — is enforced by any test. Deleting the other ten leaves **66/66 green**. The hazard lands squarely on THIS stage: a `Compression` encoded `RATIONAL 2/2` reads `1`, `require_uncompressed()` passes, and the unpack reads JPEG bytes as raw samples — a wrong image from a file that parsed cleanly. It is here rather than in STAGE-001 because that is where the hazard bites, and because STAGE-001's close is the forcing function for three `lesson` signals already at or past their bar.
 - [ ] (not yet written) [M] Strip location and sample unpack, with the StripByteCounts assertion. ⚠ **TWO PATHS, per DEC-008** — sub-byte samples (14-bit) are a MSB-first bit stream; byte-aligned samples (16-bit) are plain integers in the FILE's byte order. SPIKE-002 found the single-path version produced a byte-swapped plane on a 16-bit file. Keep the `max > WhiteLevel` assertion: it is what caught it. Both paths need their own fuzz coverage — one target exercising only 14-bit recreates the exact blind spot.
 - [ ] (not yet written) [S] Bit-exact plane oracle against `dnglab analyze --raw-checksum`, plus a red-on-injected-fault test
 - [ ] (not yet written) [M] Black/white level normalization, ActiveArea → DefaultCrop, and orientation
 - [ ] (not yet written) [S] **Analytic levels/geometry oracle (DEC-004)** — assert normalization maps BlackLevel→0 and WhiteLevel→1 on tags READ FROM THE FILE, plus crop dimensions and orientation on both a rotated and an unrotated frame. ⚠ SPIKE-001 proved the plane checksum is structurally blind to a levels error and the develop oracle misses one up to +256 (50%). Without this spec, levels ship with NO oracle coverage.
 
-**Count:** 0 shipped / 0 active / 4 pending
+**Count:** 0 shipped / 1 framed / 4 pending
 
 ## Design Notes
 

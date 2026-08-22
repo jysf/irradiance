@@ -231,18 +231,28 @@ signals:
   - id: cost-field-has-two-owners
     type: process-debt
     summary: "AGENTS.md §15 tells the agent to write cost.sessions; DEC-013 says handback-sync transcribes it."
-    evidence: "SPEC-006 F-5 — cost.sessions was empty after verify because each side could assume the other had it."
+    evidence: "N=2. (1) SPEC-006 F-5 — cost.sessions was empty after verify because each side could assume the other had it. (2) SPEC-007/FU-7 — HANDOFF-017's whole `handback:` block was null while handoff.status was `completed`; the number survived only because the build wrote cost.sessions directly, i.e. the same ambiguity firing from the OTHER side."
     bar: null
     status: open
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-18
+    last_touched: 2026-08-21
     raised_by: claude
     notes: |
       Both cannot be authoritative. `handback-sync` is the better owner (it is
       idempotent, it stamps synced_at, and it cannot fat-finger a number), so
       AGENTS.md §15 should say "fill the handback; the orchestrator syncs" rather
       than "append a cost session". Template-level: fix upstream, not just here.
+
+      ⚠ MEASURED 2026-08-21 while reconciling SPEC-007/FU-7, and it narrows the
+      fix: `just handback-sync SPEC-NNN` EXITS 1 with "Spec not found" once the
+      spec is archived to specs/done/. So the double-append hazard SPEC-003's
+      build measured is only live BEFORE ship, and after ship the handback
+      front-matter can never be reconciled by the tool at all — it has to be
+      hand-corrected, as HANDOFF-017's was. HANDOFF-015/016/019/020 all still
+      read `synced_at: null` with hand-written sessions in their specs; harmless
+      now for the same reason, but it means the tool has never actually run on
+      SPEC-004, SPEC-007 or SPEC-008.
 
   # --- process-debt: a ship step with no surface skipped six times --------------
   - id: brag-step-skipped-at-ship
@@ -310,6 +320,21 @@ signals:
       same document are ceremony.
       Maintainer's stated intent (2026-08-21): this is effectively a bug/task list
       and will eventually move to a real tool; the repo convention is the interim.
+
+      RECONCILED 2026-08-21, and the count is now measured rather than estimated:
+      34 findings across SPEC-003 (FU-1..15), SPEC-004 (FU-16..21, which continued
+      the sequence rather than restarting), SPEC-007 (FU-1..7) and SPEC-008
+      (FU-1..6). 26 already had a findable disposition and 8 had none — four of
+      those because SPEC-008's reflection said "yes, one spec" and no spec was
+      created. Final tally after the walk: 25 `fixed`, 3 `closed`, 2 `signal`,
+      4 → SPEC-009. That ratio is the honest verdict on the convention: the
+      ID did NOT lose findings, but only the ones an orchestrator happened to act
+      on got acted on. The half that was missing was never the id; it was a
+      DISPOSITION POINT. AGENTS.md §15 now names one (the raising spec's ship) and
+      four dispositions, with [[follow-up-disposition-has-no-surface]] carrying the
+      check that would make it stick. Re-judge at project close with that in place:
+      the split (ship-blocking vs follow-up) is proven; the id plus a bounded
+      lifetime is the part that is new as of today and unproven.
       DISPOSITION AT PROJECT CLOSE: if it is still carrying its weight, write it up
       for the spec-driven-template repo -- the template has no follow-up convention
       at all, and every instance will reinvent one. Promote only on evidence; a
@@ -333,6 +358,65 @@ signals:
       leave to_agent null and let the handback be its sole writer. Same family as
       [[cost-field-has-two-owners]]: a field with two writers, one of which is
       guessing.
+
+  # --- process-debt: the policy that fixes the two-list problem has no gate ----
+  - id: follow-up-disposition-has-no-surface
+    type: process-debt
+    summary: "AGENTS.md §15 now requires a `## Follow-ups` table at ship, and nothing checks that it exists or is complete."
+    evidence: "The reconciliation of 2026-08-21 — 34 FU-N findings across SPEC-003/004/007/008, none of which had a status field until they were walked by hand. Same shape as [[brag-step-skipped-at-ship]] (a ship step with no surface, skipped six times) and [[named-tests-can-pass-vacuously]] (a spec claim nothing asserts)."
+    bar: null
+    status: accepted
+    disposition_at: project-close
+    first_flagged: 2026-08-21
+    last_touched: 2026-08-21
+    raised_by: claude
+    notes: |
+      ACCEPTED AS A CHECK, not merely a note — and the reason is that this repo has
+      already measured the alternative TWICE. `brag-step-skipped-at-ship` was
+      documented in AGENTS.md §15 and DEC-010, on by default, and was skipped on
+      six consecutive ships until a human asked. A follow-up disposition step is
+      the same shape: an unperformed step looks exactly like a step whose turn has
+      not come.
+      THE CHECK: `just validate` (or a sibling) asserts that every `FU-N` id
+      appearing in a spec's own `handoffs/HANDOFF-*.md` has a row in that spec's
+      `## Follow-ups` table carrying one of the four dispositions. It is a text
+      scan over two artifact sets, both already on disk.
+      TWO TRAPS FOR WHOEVER WRITES IT, both already measured here:
+        1. It must heed [[attribute-text-inside-doc-comments]] in its general form
+           — `FU-` appears inside prose, inside handback `notes:` strings, and
+           inside cross-spec citations (`SPEC-004/FU-20`) that must NOT be counted
+           as raised-by-this-spec. Anchor to the finding heading, and ASSERT THE
+           MATCH COUNT rather than taking the first hit.
+        2. Per `oracle-must-be-shown-red` as widened by SPEC-003/FU-14, it is a
+           GATE and therefore needs its own red-proof plus a negative control:
+           delete one row from a `## Follow-ups` table and watch it fail, then
+           restore and watch it pass. That discipline is why this was NOT written
+           inline during the design session that wrote the policy — a gate added
+           without its red-proof violates a blocking constraint.
+      Until it exists, the policy in AGENTS.md §15 rests on the ship cycle being
+      run honestly, and that is stated in §15 itself rather than left implied.
+
+      KNOWN UNRECONCILED SCOPE, stated so it is not mistaken for done. The
+      2026-08-21 pass reconciled the `FU-N` body only — SPEC-003, 004, 007, 008.
+      A SECOND body exists under the older `F-N` label (SPEC-001, SPEC-002,
+      SPEC-006) and was NOT walked. Spot-checked while reconciling, three of
+      SPEC-006's eight are already owned (F-1 sits on
+      [[allow-attribute-exits-the-panic-policy]], F-4 is closed, F-5's ownership
+      half sits on [[cost-field-has-two-owners]]) and at least three are LIVE:
+        - `src/lib.rs:34-35` — the module doc still reads as if the `#[allow]`
+          hole is open, months after SPEC-006's `lint-policy-no-allow` closed it.
+          Deliberately left by SPEC-006's build "to avoid touching the file the
+          gate protects"; it wants a spec that is already editing that file.
+        - `guidance/constraints.yaml`'s `no-panics-on-untrusted-input`
+          enforcement text still scopes by TARGET only (`--lib`) and says nothing
+          about FEATURE configuration (F-2), and still opens "the PAIR is the
+          guarantee — neither alone is" when SPEC-006 measured that job (2) alone
+          re-imposes all five lints at forbid level on `--lib` (F-3).
+        - `guidance/toolchain-brief.md`'s `+stable = 1.97.0` was already drifting
+          at SPEC-006 and has never been re-measured.
+      SPEC-001's F-N set (four verify rounds) is the largest and was not sampled
+      at all. Reconcile it in the same shape — a `## Follow-ups` table per spec —
+      before this signal is called `done`.
 
   # --- process-debt: the flat rate is wrong by 2.7x on cache-heavy sessions ----
   - id: flat-rate-overstates-cached-sessions

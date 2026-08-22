@@ -158,8 +158,13 @@ What the implementer will produce.
    A structural tag encoded as `RATIONAL` must be rejected as it was on `main`;
    an interpretation tag may accept it. Either way it is **written down**.
 3. **`SPEC-007/FU-1`:** when the plane is `IFD0`, a malformed `Orientation` is
-   recorded **twice** — measured `malformed_tags = [274, 274]` on the Pentax
-   `.PEF`, a real corpus shape.
+   recorded **twice** — `malformed_tags = [274, 274]`, measured on a **synthetic
+   fixture** built to that shape. ⚠ *Corrected 2026-08-21 (`SPEC-008/FU-6`): the
+   corpus fact is `sensor_index: 0` on the Pentax `.PEF` — that the plane can be
+   `IFD0` at all. The real file's `Orientation` is well-formed
+   (`tests/ifd_reader.rs:239`, `:242` record `Some(1)` and `&[]`, byte-identical
+   on `main`), so it never produced `[274, 274]`. The defect was real; the word
+   "measured" was carrying a claim about a file it had not been run against.*
 4. **`SPEC-007/FU-2`:** a *well-formed* `Orientation` on the sensor IFD is recorded
    as malformed — `orientation = Some(6)` **and** `malformed_tags = [274]`.
 5. **`SPEC-007/FU-5`:** every well-formed RATIONAL fixture uses denominator `1`, so
@@ -244,9 +249,10 @@ reasoning should survive in the code or a comment, not only in a handback.
 ### FU-1/FU-2/FU-5 are all "the record says something untrue"
 
 - **FU-1** — plane in `IFD0`: `sensor()` reads `Orientation` from `ifd0()`, costs
-  it, falls back to the *same* IFD, and costs it again. Measured
-  `malformed_tags = [274, 274]`. The Pentax `.PEF` is `sensor_ifd #0`, so this is
-  a **corpus shape**, not hypothetical.
+  it, falls back to the *same* IFD, and costs it again, giving
+  `malformed_tags = [274, 274]` on a synthetic fixture. The Pentax `.PEF` is
+  `sensor_ifd #0`, so the **shape** is a corpus fact — the doubled reading is not;
+  that file's `Orientation` is well-formed (`SPEC-008/FU-6`).
 - **FU-2** — a *well-formed* `Orientation` on the sensor IFD yields
   `orientation = Some(6)` **and** `malformed_tags = [274]`.
 - **FU-5** — every well-formed RATIONAL fixture uses denominator `1`, so a mutant
@@ -261,6 +267,24 @@ malformed is the same defect class as a boundary that is not guarded.
 Tests, one type-acceptance change, and three `malformed_tags` corrections.
 **No new tolerance, no reclassification.** If you believe a tag is in the wrong
 class, say so in the handback — `DEC-012`'s line is not this spec's to redraw.
+
+## Follow-ups
+
+> **Reconciled 2026-08-21**, not written at ship — this table is the retrofit that
+> AGENTS.md §15's *Where an unresolved follow-up goes* now makes a ship step.
+> Every disposition below was checked against git and disk, not transcribed from
+> the handback that raised it.
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | `is_structural_tag()` has **eleven** memberships and exactly **one** is enforced — deleting the other ten leaves all 66 tests green | `spec: SPEC-009`. **Reproduced by the orchestrator 2026-08-21**, not inherited: mutation asserted applied by `diff`, suite summed across all five targets (45 + 0 + 9 + 12 + 0 = 66 passed, corpus present), tree restored byte-identical. The hazard is `Compression` as `RATIONAL 2/2` → reads `1` → `require_uncompressed()` passes → STAGE-002 reads JPEG as raw samples |
+| `FU-2` | "costed at most once" is untested on the only path where it can fail (both `Orientation` entries malformed) | `spec: SPEC-009` — same shape as `FU-1`: a correct fix with a one-point guard |
+| `FU-3` | a good `IFD0` value with an erroring sensor read swallows the malformed tag, contradicting `malformed_tags`' own documented contract | `spec: SPEC-009` — needs a **decision written down** before code; both answers are defensible and nothing says which wins |
+| `FU-4` | "exactly `DEC-012`'s amended Structure row" is not exact — the code additionally carries `BitsPerSample` (258) and `RowsPerStrip` (278) | `fixed` at ship — `DEC-012`'s Structure row amended to name both, with `is_structural_tag()` declared the authoritative list. Code was right, table was short |
+| `FU-5` | `wellformed_orientation_is_not_recorded_malformed` never asserts the precondition it depends on | `spec: SPEC-009` — one line, `assert_eq!(c.sensor_candidates(), vec![1]);`. Verified still absent at `src/ifd.rs:2126-2152` |
+| `FU-6` | AC 3 calls a synthetic measurement a corpus measurement — `K3III.PEF` records `malformed: &[]`, never `[274, 274]` | `fixed` 2026-08-21 — AC 3 and the Notes narrowed to say `sensor_index: 0` is the corpus fact and `[274, 274]` the synthetic fixture's shape |
+
+**6 raised · 2 `fixed` · 4 → `SPEC-009`.**
 
 ## Reflection
 
