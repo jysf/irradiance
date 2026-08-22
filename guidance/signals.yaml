@@ -344,14 +344,30 @@ signals:
   - id: tier-map-predicts-what-it-should-record
     type: process-debt
     summary: "tier_map stamps a PREDICTED model into handoff.to_agent, which handback-sync copies into a field downstream reads as measured fact."
-    evidence: "SPEC-007/FU-6. 0 for 2: SPEC-001's build ran on opus against a map saying sonnet; SPEC-007's build ran on sonnet against a map saying opus. Both times the only safeguard was an implementer who noticed and said so."
+    evidence: "SPEC-007/FU-6. 0 for 3: SPEC-001's build ran on opus against a map saying sonnet; SPEC-007's build ran on sonnet against a map saying opus; SPEC-005's build (2026-08-22) ran on claude-sonnet-5 against a map saying claude-opus-5, and this time NO implementer noticed — the orchestrator caught it only by reading message.model in the build's own transcript."
     bar: null
     status: accepted
     disposition_at: project-close
     first_flagged: 2026-08-21
-    last_touched: 2026-08-21
+    last_touched: 2026-08-22
     raised_by: claude
     notes: |
+      ⚠ THIRD INSTANCE, 2026-08-22 (SPEC-005 build), and it is the worst of the
+      three because the previous safeguard FAILED. Both earlier times an
+      implementer noticed and said so; this time the build session never filled
+      the handback at all, so nothing corrected to_agent and the orchestrator
+      nearly transcribed the prediction as fact. It was caught only by reading
+      `message.model` in the build's own transcript (215/215 claude-sonnet-5).
+      COST CONSEQUENCE, measured on that session: 30,114,705 deduped tokens at
+      98.2% cache-read computes $13.55 at published Sonnet rates, $67.74 at Opus
+      rates — 5.0x — and $198.76 at the repo's flat rate_per_mtok 6.60 — 14.7x.
+      So the two open cost signals COMPOUND here: a wrong model in to_agent
+      multiplies a figure the flat rate already inflates. Any fix that leaves
+      to_agent writable by a prediction leaves that product in place.
+      The narrow lesson worth carrying even before the fix lands: `message.model`
+      in the session transcript is an ACTUAL record and is cheap to read. Whoever
+      writes a cost session should read it rather than trusting any map.
+
       Half-fixed at SPEC-007's ship: .repo-context.yaml now labels tier_map a
       DISPATCH HINT and tells whoever runs a cycle to correct to_agent to what
       actually ran. The real fix is upstream in the template -- new-handoff should

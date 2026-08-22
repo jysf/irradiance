@@ -14,13 +14,15 @@ handoff:
   id: HANDOFF-021
   cycle: build                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # ⚠ DISPATCH HINT from tier_map.build, NOT a record
-                                   #   (SPEC-007/FU-6, 0 for 2). Whoever runs this cycle
-                                   #   MUST correct it to what ACTUALLY ran.
+  to_agent: claude-sonnet-5        # ⚠ CORRECTED to what ACTUALLY ran, measured from the
+                                   #   build session's own transcript (215/215 message.model
+                                   #   = claude-sonnet-5). tier_map.build predicted
+                                   #   claude-opus-5 and was WRONG — SPEC-007/FU-6 is now
+                                   #   0 for 3, not 0 for 2.
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-08-21
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-005
@@ -44,15 +46,15 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 30114705           # REAL combined count — what cost-audit reads
+  estimated_usd: 13.55             # tokens_total × your rate, or your harness's number
+  duration_minutes: 34
+  branch: feat/spec-005-metadata-oracle
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  completed_at: 2026-08-22         # YYYY-MM-DD
+  notes: "⚠ FILLED BY THE ORCHESTRATOR, not by the build session — DEC-004 rule 1's mechanical-remainder clause. The build reported done but left this block null, did not branch, and did not commit; it asked the orchestrator to run /cost, which is a client-side command the assistant cannot execute AND which would have measured the WRONG session. The number below is the build's own, recovered from its own transcript (1148ce23-9e13-4f4b-bc12-15b519c8ae76.jsonl) — the method SPEC-004/FU-18 established, and the reason its premise 'no source exists' was wrong then and is wrong now. DEDUPED BY message.id and I say so: 215 usage objects, 106 distinct ids, raw 59,191,677 vs deduped 30,114,705 = 1.97x, 98.2% cache-read. Components: input 212, output 167,728, cache-write 359,304, cache-read 29,587,461. estimated_usd computed PER-COMPONENT at published SONNET rates ($3/$15/$6/$0.30 per M) because the session ran on claude-sonnet-5 — NOT harness-reported. Two comparisons worth recording: at Opus rates (what tier_map.build predicted) the same session computes $67.74, 5.0x high; at the repo's flat rate_per_mtok 6.60 it computes $198.76, 14.7x high. The orchestrator nearly booked the Opus figure before checking message.model — which is precisely what [[tier-map-predicts-what-it-should-record]] exists to catch, now 0 for 3. Committed by the orchestrator at 418be15 on feat/spec-005-metadata-oracle; reports/daily/2026-08-21.md deliberately left untracked (unrelated generated output, one-spec-per-pr). FOUR reconciliation findings carried into HANDOFF-022 as required checks."
+  synced_at: 2026-08-22
 ---
 
 # HANDOFF-021: Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red

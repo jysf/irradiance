@@ -6,7 +6,7 @@
 task:
   id: SPEC-005
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -73,10 +73,18 @@ cost:
       duration_minutes: null
       recorded_at: 2026-08-21
       notes: "main-loop, not separately metered (AGENTS.md §4). Design cycle: probed both oracle tools against all seven real corpus files BEFORE writing the spec, per §15 design rule 4 — dnglab 0.7.2 and exiftool 13.55 confirmed by --version, the full ours-vs-both-tools matrix in ## Implementation Context measured rather than transcribed. Four traps found by running rather than reasoning: dnglab's stderr warning on K3III.DNG corrupts a 2>&1 JSON stream; its cropArea.p is sensor-absolute where ours and exiftool's are DNG-relative (verified on all six DNGs, worked example on K3III.DNG); its K3III.PEF black/white/crop values are in no tag in that file (rawler's camera database) and its PEF bitDepth is output depth 16 not BitsPerSample 14; and exiftool exits 0 on both a truncated file and an absent tag, so its exit code carries no signal. The third finding removed the serde_json question entirely — exiftool -T -n -s3 emits tab-separated values needing no parser — which is why AC7 forbids a new dependency rather than sanctioning one. HANDOFF-021 written for build."
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: other
+      tokens_total: 30114705
+      estimated_usd: 13.55
+      duration_minutes: 34
+      recorded_at: 2026-08-22
+      notes: "⚠ FILLED BY THE ORCHESTRATOR, not by the build session — DEC-004 rule 1's mechanical-remainder clause. The build reported done but left this block null, did not branch, and did not commit; it asked the orchestrator to run /cost, which is a client-side command the assistant cannot execute AND which would have measured the WRONG session. The number below is the build's own, recovered from its own transcript (1148ce23-9e13-4f4b-bc12-15b519c8ae76.jsonl) — the method SPEC-004/FU-18 established, and the reason its premise 'no source exists' was wrong then and is wrong now. DEDUPED BY message.id and I say so: 215 usage objects, 106 distinct ids, raw 59,191,677 vs deduped 30,114,705 = 1.97x, 98.2% cache-read. Components: input 212, output 167,728, cache-write 359,304, cache-read 29,587,461. estimated_usd computed PER-COMPONENT at published SONNET rates ($3/$15/$6/$0.30 per M) because the session ran on claude-sonnet-5 — NOT harness-reported. Two comparisons worth recording: at Opus rates (what tier_map.build predicted) the same session computes $67.74, 5.0x high; at the repo's flat rate_per_mtok 6.60 it computes $198.76, 14.7x high. The orchestrator nearly booked the Opus figure before checking message.model — which is precisely what [[tier-map-predicts-what-it-should-record]] exists to catch, now 0 for 3. Committed by the orchestrator at 418be15 on feat/spec-005-metadata-oracle; reports/daily/2026-08-21.md deliberately left untracked (unrelated generated output, one-spec-per-pr). FOUR reconciliation findings carried into HANDOFF-022 as required checks."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 30114705
+    estimated_usd: 13.55
+    session_count: 2
 ---
 
 # SPEC-005: Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red
