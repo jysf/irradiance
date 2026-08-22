@@ -110,6 +110,23 @@ lint-no-allow:
         -F clippy::unwrap_used -F clippy::expect_used -F clippy::indexing_slicing \
         -F clippy::panic -F clippy::arithmetic_side_effects
 
+# lint-ci — clippy AS CI SEES IT. `cargo clippy` on PATH is Homebrew's 0.1.97;
+#   CI uses dtolnay/rust-toolchain@stable, which FLOATS and is 0.1.98 today.
+#   Every lint clippy adds is a new CI failure under `-D warnings`, and a green
+#   local `just lint` says nothing about it. That gap ran CI red for FOUR
+#   shipped specs (PATCH-001) while every verify cycle reported "ten gates
+#   green" — locally.
+#   ⚠ THE PATH= PREFIX IS LOAD-BEARING and is the FOURTH instance of the
+#   `+toolchain` trap family (guidance/toolchain-brief.md). `~/.cargo/bin/cargo
+#   +stable clippy` ALONE reports clippy 0.1.97: the outer command resolves via
+#   the shim but `cargo-clippy`/`clippy-driver` are then found on PATH, where
+#   Homebrew's win. With the prefix it reports 0.1.98. Measured 2026-08-22.
+#   Run this before every push. It is the only local command that can see what
+#   CI will see.
+lint-ci:
+    PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy \
+        --all-targets --all-features -- -D warnings
+
 # Run the IFD fuzz target (SPEC-003, AGENTS.md §12 bar 2).
 #
 # ⚠ The `PATH=` prefix is load-bearing and is NOT redundant with the

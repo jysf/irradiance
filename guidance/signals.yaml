@@ -418,6 +418,51 @@ signals:
       at all. Reconcile it in the same shape — a `## Follow-ups` table per spec —
       before this signal is called `done`.
 
+  # --- risk: -D warnings on a FLOATING toolchain breaks CI on unchanged code -
+  - id: floating-toolchain-plus-deny-warnings
+    type: risk
+    summary: "CI runs `-D warnings` on `dtolnay/rust-toolchain@stable`, so every lint a new clippy release ADDS fails CI on code nobody touched."
+    evidence: "PATCH-001, 2026-08-22. stable moved 1.97.1 -> 1.98.0 on 2026-08-18; clippy 0.1.98 added `chunks_exact_to_as_chunks`, which fired on 7 pre-existing sites. Result: 0 of 12 CI runs green on main across FOUR shipped specs (SPEC-003/004/007/008), every one of which reported 'ten gates green' — locally."
+    bar: null
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-08-22
+    last_touched: 2026-08-22
+    raised_by: claude
+    notes: |
+      PATCH-001 fixed the INSTANCE and added `just lint-ci` so the drift is
+      visible locally. It did NOT settle the standing question, which is a real
+      trade-off and wants a DEC rather than a habit:
+
+        FLOATING + `-D warnings` catches new lints early — that is the point —
+        but makes every clippy release a potential CI outage on unchanged code.
+        PINNING makes CI reproducible but freezes the panic-free lint policy at
+        an old clippy, which is the thing the policy exists to keep sharp.
+
+      Three options for the close, in the order I would consider them:
+        1. Keep floating; make `just lint-ci` a PRE-PUSH habit and accept
+           periodic breakage as the cost of currency. (Status quo + the recipe.)
+        2. Pin the CI toolchain and add a SCHEDULED job on floating stable that
+           reports without blocking — currency without the outage.
+        3. Drop the blanket `-D warnings` for an explicit deny-list, so only
+           lints we chose can break the build.
+      Option 2 is the one that keeps both properties; it costs one workflow.
+
+      ⚠ WHAT MAKES THIS A RISK RATHER THAN JUST DEBT: the two jobs that were
+      dark are `clippy -D warnings` and `lint policy red-proof` — the mechanical
+      enforcement of the BLOCKING constraint `no-panics-on-untrusted-input`
+      (DEC-009). constraints.yaml says "do not delete either job without
+      replacing its guarantee." A job red for four specs is deleted in effect,
+      and a red for an UNRELATED reason is worse than a red badge: a genuine
+      failure becomes indistinguishable from the noise. Whatever the close
+      decides, that property is the one to protect.
+
+      Compounds [[unrun-docs-carry-errors]] from the other direction: here the
+      docs were right (SPEC-006's handback flagged the 1.97->1.98 drift on
+      2026-08-18) and nobody acted, because a note in a handback has no forcing
+      function. That is the same gap [[follow-up-disposition-has-no-surface]]
+      exists to close, arriving from a third direction.
+
   # --- process-debt: the flat rate is wrong by 2.7x on cache-heavy sessions ----
   - id: flat-rate-overstates-cached-sessions
     type: process-debt

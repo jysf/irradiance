@@ -97,6 +97,32 @@ worth more than the fix — *a gate documented as a raw command is a gate that w
 be run wrong.* If you find yourself pasting a bare toolchain command out of a
 document, that command belongs in `app.just`.
 
+## ⚠ The FOURTH `+toolchain` trap: clippy's own driver
+
+The three above are about `cargo` not understanding `+toolchain`. This one is
+about the *component* being found on PATH after the outer command resolved
+correctly — the same shape as the `cargo fuzz` trap, on a different binary.
+
+```
+$ ~/.cargo/bin/cargo +stable clippy --version
+clippy 0.1.97                                    # Homebrew's, NOT stable's
+
+$ PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy --version
+clippy 0.1.98 (88d9e12ae1 2026-08-18)            # what CI actually runs
+```
+
+**Why it matters more than the other three.** CI uses
+`dtolnay/rust-toolchain@stable`, which **floats**, with `-D warnings`. So every
+lint a new clippy release ADDS is an immediate CI failure on code that did not
+change — and the local `cargo clippy` (pinned at Homebrew 0.1.97) cannot see it.
+
+Measured 2026-08-22: that gap ran CI **red on `main` for four shipped specs**
+(SPEC-003, 004, 007, 008 — 0 of 12 runs green), while every verify cycle in that
+window reported "ten gates green". They were green *locally*. `PATCH-001`.
+
+The fix is a recipe, not a habit: **`just lint-ci`**. Per SPEC-003/FU-8's lesson,
+a gate documented as a raw command is a gate that will be run wrong.
+
 ## Package manager
 
 `cargo`. **There is no `Cargo.toml` and no `src/` yet** — the first spec of

@@ -293,6 +293,21 @@ cargo clippy --lib --quiet -- \
     -F clippy::unwrap_used -F clippy::expect_used -F clippy::indexing_slicing \
     -F clippy::panic -F clippy::arithmetic_side_effects
 
+# lint-ci    — clippy AS CI SEES IT, and the only local command that can.
+#              `cargo clippy` on PATH is Homebrew's 0.1.97; CI uses
+#              dtolnay/rust-toolchain@stable, which FLOATS — 0.1.98 today.
+#              Under `-D warnings` every lint clippy ADDS is a new CI failure
+#              on code that never changed, and `just lint` cannot see it.
+#              That gap ran CI red for FOUR shipped specs while every verify
+#              reported "ten gates green" — locally (PATCH-001).
+#              ⚠ The PATH= prefix is the FOURTH `+toolchain` trap: bare
+#              `~/.cargo/bin/cargo +stable clippy` still reports 0.1.97,
+#              because the OUTER command goes through the shim but
+#              `clippy-driver` is then found on PATH. Measured 2026-08-22.
+#              RUN THIS BEFORE EVERY PUSH.
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy \
+    --all-targets --all-features -- -D warnings
+
 # typecheck  — Rust has no separate typecheck; `check` is the fast path
 cargo check --all-targets --all-features
 

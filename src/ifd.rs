@@ -769,7 +769,9 @@ impl<'a> Container<'a> {
             })?;
 
         let mut entries = Vec::with_capacity(usize::from(count));
-        for chunk in table.chunks_exact(ENTRY_SIZE) {
+        // `as_chunks` rather than `chunks_exact`: it yields `&[u8; ENTRY_SIZE]`,
+        // so the length is a type-level fact rather than a runtime one.
+        for chunk in table.as_chunks::<ENTRY_SIZE>().0 {
             entries.push(Entry::parse(chunk, self.byte_order)?);
         }
 
@@ -873,36 +875,28 @@ impl<'a> Container<'a> {
                 }
             }
             TYPE_SHORT => {
-                for chunk in bytes.chunks_exact(2) {
-                    let raw: [u8; 2] = chunk
-                        .try_into()
-                        .map_err(|_| Error::ValueOverflow { tag: entry.tag })?;
-                    out.push(u32::from(self.byte_order.u16(raw)));
+                // `as_chunks` yields `&[u8; 2]`, so the `try_into` that could
+                // never fail is gone rather than merely unreachable.
+                for chunk in bytes.as_chunks::<2>().0 {
+                    out.push(u32::from(self.byte_order.u16(*chunk)));
                 }
             }
             TYPE_LONG | TYPE_IFD => {
-                for chunk in bytes.chunks_exact(4) {
-                    let raw: [u8; 4] = chunk
-                        .try_into()
-                        .map_err(|_| Error::ValueOverflow { tag: entry.tag })?;
-                    out.push(self.byte_order.u32(raw));
+                for chunk in bytes.as_chunks::<4>().0 {
+                    out.push(self.byte_order.u32(*chunk));
                 }
             }
             TYPE_RATIONAL => {
                 // TIFF 6.0 §2: two LONGs, numerator then denominator. Reading
                 // this correctly (rather than just refusing it) is what
                 // closes `SPEC-004`'s FU-17 for the well-formed case.
-                for chunk in bytes.chunks_exact(8) {
-                    let num_bytes: [u8; 4] = chunk
-                        .get(0..4)
-                        .ok_or(Error::ValueOverflow { tag: entry.tag })?
-                        .try_into()
-                        .map_err(|_| Error::ValueOverflow { tag: entry.tag })?;
-                    let den_bytes: [u8; 4] = chunk
-                        .get(4..8)
-                        .ok_or(Error::ValueOverflow { tag: entry.tag })?
-                        .try_into()
-                        .map_err(|_| Error::ValueOverflow { tag: entry.tag })?;
+                for chunk in bytes.as_chunks::<8>().0 {
+                    // Destructured, not indexed: `as_chunks` makes the eight
+                    // bytes a type-level fact, so the two `get(..)?` +
+                    // `try_into()?` pairs that could never fail are gone.
+                    let [n0, n1, n2, n3, d0, d1, d2, d3] = *chunk;
+                    let num_bytes: [u8; 4] = [n0, n1, n2, n3];
+                    let den_bytes: [u8; 4] = [d0, d1, d2, d3];
                     let numerator = self.byte_order.u32(num_bytes);
                     let denominator = self.byte_order.u32(den_bytes);
                     // `checked_div`/`checked_rem` both report zero

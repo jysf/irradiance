@@ -452,14 +452,12 @@ pub mod sha256 {
             // and the digest silently changes — caught by
             // `sha256_streaming_matches_one_shot`, split at 4999.
             if !data.is_empty() {
-                let mut chunks = data.chunks_exact(BLOCK);
-                for block in &mut chunks {
-                    let mut b = [0u8; BLOCK];
-                    b.copy_from_slice(block);
-                    compress(&mut self.state, &b);
+                // `as_chunks` yields `&[u8; BLOCK]` directly, so the copy into
+                // a local array is gone along with it (`PATCH-001`).
+                let (blocks, rest) = data.as_chunks::<BLOCK>();
+                for block in blocks {
+                    compress(&mut self.state, block);
                 }
-
-                let rest = chunks.remainder();
                 self.buf[..rest.len()].copy_from_slice(rest);
                 self.buf_len = rest.len();
             }
@@ -483,8 +481,8 @@ pub mod sha256 {
             compress(&mut self.state, &block);
 
             let mut out = [0u8; 32];
-            for (chunk, word) in out.chunks_exact_mut(4).zip(self.state.iter()) {
-                chunk.copy_from_slice(&word.to_be_bytes());
+            for (chunk, word) in out.as_chunks_mut::<4>().0.iter_mut().zip(self.state.iter()) {
+                *chunk = word.to_be_bytes();
             }
             out
         }
@@ -493,10 +491,8 @@ pub mod sha256 {
     /// FIPS 180-4 §6.2.2 — the 64-round compression function.
     fn compress(state: &mut [u32; 8], block: &[u8; BLOCK]) {
         let mut w = [0u32; 64];
-        for (word, chunk) in w.iter_mut().zip(block.chunks_exact(4)) {
-            let mut b = [0u8; 4];
-            b.copy_from_slice(chunk);
-            *word = u32::from_be_bytes(b);
+        for (word, chunk) in w.iter_mut().zip(block.as_chunks::<4>().0) {
+            *word = u32::from_be_bytes(*chunk);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
