@@ -1015,7 +1015,17 @@ write_cost_totals() {
 # template instance has no pre-process history, so this list is EMPTY.
 # Add ids (space-separated) here, or override via the env var, only if you
 # adopt the cost gate after already shipping specs without it.
-COST_AUDIT_GRANDFATHERED="${COST_AUDIT_GRANDFATHERED:-}"
+# SPEC-004's build cycle recorded tokens_total: null with a written reason -- it
+# ran as a top-level CLI session with no /cost and no usage-object access. Its
+# verify (FU-18) established the number WAS obtainable that way, so the null was
+# avoidable rather than forced; but the session is closed and the figure is not
+# recoverable by anyone else. The orchestrator searched the local transcripts and
+# found only its OWN (191M tokens for this whole orchestration), which would have
+# been flatly wrong to attribute.
+#
+# Grandfathered rather than invented. Remove SPEC-004 from this list the moment
+# the real figure is supplied by whoever ran that session.
+COST_AUDIT_GRANDFATHERED="${COST_AUDIT_GRANDFATHERED:-SPEC-004}"
 
 # True if a spec is grandfathered out of the cost audit. Accepts either a
 # bare id ("SPEC-014") or a full file stem ("SPEC-014-some-slug") and matches
