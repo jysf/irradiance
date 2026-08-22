@@ -111,9 +111,9 @@ Run `just frame-stage STAGE-001` to promote these outlines into real specs.
 - [ ] SPEC-005 (frame) [S] Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red
 
 - [x] SPEC-007 (shipped 2026-08-21) — extraction tolerance per DEC-012's amendment
-- [ ] SPEC-008 (frame) [S] Pin the Structure class with tests that fail when it is softened
+- [x] SPEC-008 (shipped on 2026-08-21) [S] Pin the Structure class with tests that fail when it is softened
 
-**Count:** 5 shipped / 1 active / 0 pending
+**Count:** 7 shipped / 1 active / 0 pending
 
 ## Design Notes
 

@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -84,6 +84,7 @@ cost:
     tokens_total: 34600000
     estimated_usd: 34.60
     session_count: 2
+shipped_at: 2026-08-21
 ---
 
 # SPEC-008: Pin the Structure class with tests that fail when it is softened
@@ -262,6 +263,55 @@ Tests, one type-acceptance change, and three `malformed_tags` corrections.
 class, say so in the handback — `DEC-012`'s line is not this spec's to redraw.
 
 ## Reflection
+
+**1. What would I do differently next time?**
+
+**Measure a claim before writing it into acceptance criteria.** `SPEC-008/FU-6`:
+AC 3 asserted `malformed_tags = [274, 274]` was "a real corpus shape, the Pentax
+`.PEF`". It was never measured. `tests/ifd_reader.rs:242` records
+`malformed: &[]` for that file, identical on `main`. I lifted the figure from
+SPEC-007's verify handback and promoted it from a claim about a *fixture* into a
+claim about the *corpus*, in a spec's binding criteria.
+
+Only `sensor_index: 0` was ever the corpus fact. The underlying defect was real —
+the double-cost existed — but my evidence for it was fabricated by re-labelling
+someone else's measurement.
+
+**2. Does any template, constraint, or decision need updating?**
+
+`DEC-012`'s amended Structure table is **incomplete** (`SPEC-008/FU-4`):
+`is_structural_tag()` includes `BitsPerSample` (258) and `RowsPerStrip` (278),
+which my amendment's Structure row does not name. Both are correct under the
+principle, and both were already treated as structural before this spec — so the
+code is right and the table is short. `docs/provenance-ledger.md:39`'s claim that
+the list is "exactly DEC-012's amended Structure row" is therefore false.
+Amend the table; do not narrow the code.
+
+**3. Is there a follow-up spec to write now?**
+
+**Yes — `FU-1` and `FU-2` as one spec, and the reason to do it is that it
+terminates.**
+
+`FU-1`: `is_structural_tag()` has **eleven** memberships and exactly **one** is
+enforced. Deleting the other ten leaves all 66 tests green — reproduced by the
+orchestrator. The concrete hazard is the one this spec was written to close,
+reachable by another route: **`Compression` as `RATIONAL 2/2` reads `1`,
+`require_uncompressed()` passes, STAGE-002 reads JPEG as raw samples.**
+
+This is the third turn of the same screw — SPEC-007 fixed the behaviour, SPEC-008
+pinned the tags, and now the *membership list* is pinned at one point. It is worth
+asking whether this recurses forever. **It does not, and the reason is the shape
+of the fix**: one table-driven test over all eleven memberships has no "one point"
+left to be narrow at. That differs in kind from adding a twelfth bespoke test, and
+from the SPEC-001 gate loop where each round proposed another mechanism.
+
+`FU-2` belongs with it — "costed at most once" is unguarded on the only path where
+it can fail. Same shape: a correct fix with a one-point guard.
+
+`FU-3` and `FU-5` fold in as small corrections. `FU-3` needs a decision written
+down rather than code: a malformed sensor-IFD `Orientation` is currently swallowed
+when IFD0 has a good value, and nobody has said whether that is right.
+
 
 *Appended during **ship**. Three questions, short answers.*
 

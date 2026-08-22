@@ -131,7 +131,15 @@ the tag** with **the accessor the caller invoked**.
 
 | Class | Tags | Malformed → |
 |---|---|---|
-| **Structure** | header, entry tables, chain `next`, `SubIFDs`, `StripOffsets`, `StripByteCounts`, `ImageWidth`/`Length`, `Compression`, and the identifying trio (`NewSubfileType`, `Photometric`, `SamplesPerPixel`) | **fatal** — there is no plane, or no honest way to find it |
+| **Structure** | header, entry tables, chain `next`, `SubIFDs`, `StripOffsets`, `StripByteCounts`, `ImageWidth`/`Length`, `Compression`, **`BitsPerSample`**, **`RowsPerStrip`**, and the identifying trio (`NewSubfileType`, `Photometric`, `SamplesPerPixel`) | **fatal** — there is no plane, or no honest way to find it |
+> ⚠ **Amended again 2026-08-21 (`SPEC-008/FU-4`):** `BitsPerSample` and `RowsPerStrip`
+> were missing from this row while the code already treated both as structural —
+> correctly, since neither can be dropped and still leave an honest way to size or
+> lay out the plane. The code was right and the table was short.
+> **`is_structural_tag()` (`src/ifd.rs:188`) is the authoritative list**, and
+> `docs/provenance-ledger.md:39`'s claim that it matches this row exactly was false
+> until this amendment.
+
 | **Interpretation** | `BlackLevel`, `WhiteLevel`, `ActiveArea`, `DefaultCropOrigin`/`Size`, `Orientation`, `OpcodeList*`, `BlackLevelRepeatDim` | **costs the field.** Value dropped, tag recorded in `Sensor::malformed_tags`, the file reads |
 
 Two consequences that were previously ambiguous, and are the whole reason for the
