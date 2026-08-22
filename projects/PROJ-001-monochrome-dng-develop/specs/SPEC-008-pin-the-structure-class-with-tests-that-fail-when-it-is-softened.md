@@ -6,7 +6,7 @@
 task:
   id: SPEC-008
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                    # frame | design | build | verify | ship
+  cycle: design                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -152,12 +152,20 @@ What the implementer will produce.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+```bash
+cargo test --all-features structural_compression_bad_type_is_fatal
+cargo test --all-features structural_strip_offsets_bad_type_is_fatal
+cargo test --all-features structural_strip_byte_counts_bad_type_is_fatal
+cargo test --all-features structural_bits_per_sample_bad_type_is_fatal
+cargo test --all-features subifds_rational_is_rejected            # SPEC-007/FU-4
+cargo test --all-features orientation_costed_once_when_plane_is_ifd0   # FU-1
+cargo test --all-features wellformed_orientation_is_not_recorded_malformed # FU-2
+cargo test --all-features rational_denominator_is_actually_divided      # FU-5
+```
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+⚠ Confirm every name **exists** (`cargo test -- --list`) and **sum across
+targets** — a zero-match `cargo test <name>` exits **0**
+(`named-tests-can-pass-vacuously`).
 
 ## Non-Goals
 
@@ -167,10 +175,75 @@ job in **build** is to make these pass.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+### The pattern already exists — copy it four times
 
----
+`malformed_structural_tag_is_still_fatal` (`src/ifd.rs:1716`) is the template.
+It plants an **invalid field type** on the tag and asserts `sensor()` errors:
+
+```rust
+entries.push((TAG_ROWS_PER_STRIP, 250, 1, 0));   // 250 = a type uints() rejects
+assert!(matches!(c.sensor(),
+    Err(Error::UnexpectedFieldType { tag: TAG_ROWS_PER_STRIP, field_type: 250 })));
+```
+
+It catches `RowsPerStrip` for one reason only: **it is the only tag it is written
+for.** The other four are read through three different accessors, all measured at
+design, all reaching `uints()` and all propagating with `?`:
+
+| tag | accessor | line |
+|---|---|---|
+| `BitsPerSample` | `required_scalar()` | 1171 |
+| `Compression` | `scalar()?…unwrap_or(1)` | 1178 |
+| `StripOffsets` | `values()` | 1186 |
+| `StripByteCounts` | `values()` | 1187 |
+
+So the same fixture shape should reach all four. **Verify that rather than assume
+it** — if one does not error, that is a finding about the code, not a reason to
+weaken the test.
+
+⚠ **`Compression` is the one that matters.** Softened it defaults to `1`,
+`require_uncompressed()` passes, and STAGE-002 reads JPEG bytes as raw samples.
+
+### Equivalent mutants — do not manufacture coverage
+
+`SamplesPerPixel` and `Photometric` in `sensor()` are **re-reads** of tags
+`is_sensor_ifd` already read successfully for the selected IFD. A softening mutant
+there is unkillable *by construction*, and a test that appears to cover them would
+be theatre. Leave them, and say so in a comment.
+
+### FU-4 is a one-line global widening
+
+`uints()` at **`src/ifd.rs:800`** accepts `TYPE_RATIONAL` in the **global** match
+arm, so every tag read through it accepts RATIONAL — including `SubIFDs` (330),
+which `DEC-012` names **structural**. On `main` that was
+`Err(UnexpectedFieldType)`; today `RATIONAL 400/2` walks the SubIFD.
+
+Make the acceptance **per-tag**. Whatever you choose, **write it down** — the
+reviewer's judgement that this is a follow-up rather than a blocker rested on
+three measured facts (the looseness pre-existed for `TYPE_UNDEFINED`, no guard
+moved, and `400/2` is a *correct* reading of an out-of-spec encoding). That
+reasoning should survive in the code or a comment, not only in a handback.
+
+### FU-1/FU-2/FU-5 are all "the record says something untrue"
+
+- **FU-1** — plane in `IFD0`: `sensor()` reads `Orientation` from `ifd0()`, costs
+  it, falls back to the *same* IFD, and costs it again. Measured
+  `malformed_tags = [274, 274]`. The Pentax `.PEF` is `sensor_ifd #0`, so this is
+  a **corpus shape**, not hypothetical.
+- **FU-2** — a *well-formed* `Orientation` on the sensor IFD yields
+  `orientation = Some(6)` **and** `malformed_tags = [274]`.
+- **FU-5** — every well-formed RATIONAL fixture uses denominator `1`, so a mutant
+  that pushes the numerator and ignores the quotient passes all 58 tests. Pin it
+  with a denominator ≠ 1.
+
+`malformed_tags` is read as evidence. A field that records tags that are not
+malformed is the same defect class as a boundary that is not guarded.
+
+### Scope
+
+Tests, one type-acceptance change, and three `malformed_tags` corrections.
+**No new tolerance, no reclassification.** If you believe a tag is in the wrong
+class, say so in the handback — `DEC-012`'s line is not this spec's to redraw.
 
 ## Reflection
 

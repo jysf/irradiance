@@ -110,6 +110,9 @@ Run `just frame-stage STAGE-001` to promote these outlines into real specs.
 - [x] SPEC-006 (shipped on 2026-08-20) [S] Close the allow-attribute bypass in the panic-free gate — split from SPEC-002 at SPEC-001 ship; depends only on SPEC-001
 - [ ] SPEC-005 (frame) [S] Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red
 
+- [x] SPEC-007 (shipped 2026-08-21) — extraction tolerance per DEC-012's amendment
+- [ ] SPEC-008 (frame) [S] Pin the Structure class with tests that fail when it is softened
+
 **Count:** 5 shipped / 1 active / 0 pending
 
 ## Design Notes
