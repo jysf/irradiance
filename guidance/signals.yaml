@@ -78,9 +78,21 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-18
+    last_touched: 2026-08-22
     raised_by: claude
     notes: |
+      ══ STAGE-001 CLOSE, 2026-08-22: DEFERRED with a trigger, still N=2. ══
+      Below its N=3 bar and NOT codified — the bar did its job here, so let it.
+      No third instance appeared across SPEC-005/007/008 or PATCH-001, and the
+      practice that would have caused one (writing a doc from a session that
+      cannot run the code) has largely stopped: SPEC-005's design cycle probed
+      seven real files before a line of the spec was written, which is the
+      opposite behaviour.
+      TRIGGER: re-examine at STAGE-002's close, or the first time a planning doc
+      states a numeric fact the author did not execute. If STAGE-002 closes with
+      it still at N=2, DROP it — a lesson that stops recurring has been learned,
+      and carrying it forever is the ledger rotting in the other direction.
+
       Both errors were load-bearing: the first breaks STAGE-003's develop oracle,
       the second makes any orientation test pass on one frame and fail on the next.
       Neither was careless — both were reasonable inferences from documentation.
@@ -153,12 +165,19 @@ signals:
     summary: "Tooling that pattern-matches Rust attributes must exclude doc comments and plain // comments — three separate false results on one spec."
     evidence: "SPEC-001, N=5 (see notes) — (1) orchestrator's attack hit `#[cfg(test)]` inside a doc comment; (2) orchestrator's attack hit the second `#![deny(` which lives in the module doc, deleting 14 chars of prose and reporting a false negative; (3) the red-proof's own prologue parser skips `//!` but not `//`, which is PL-1: a silent false green with a panic shipped."
     bar: "N=3 same-outcome"
-    status: watch
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-18
+    last_touched: 2026-08-22
     raised_by: claude
     notes: |
+      ══ STAGE-001 CLOSE, 2026-08-22: CODIFIED at N=5. ══
+      Landed in AGENTS.md §16 alongside its sibling
+      [[a-gate-that-fails-mutely-is-a-gate-that-never-ran]] — they are one rule
+      stated from two sides (a match landing on the wrong text; a NON-match
+      becoming control flow), and splitting them in the codification would
+      guarantee each is rediscovered through the other's gap.
+
       N=5 as of SPEC-001 ship (F-6 corrected the recorded N=3 — verify round 3 hit
       it again on `#[cfg(test)]` in the module doc at src/lib.rs:16, and the
       orchestrator's stale hazard example in HANDOFF-006 was a sixth near-miss).
@@ -212,12 +231,18 @@ signals:
     summary: "Running something proves what you ran, not the category it belongs to — over-generalised measurements read as `measured` and are wrong."
     evidence: "N=5. (1) SPEC-002/F2 — measured eprintln! is captured, asserted 'loudness cannot live in the harness' (false; writeln!(stderr) escapes). (2) SPEC-004 — read the first lines of `pub struct Sensor` and asserted SPEC-003 'stops where geometry begins' (false; it already carried every tag). (3) SPEC-007 — mutated ONE structural tag, watched the test go red, asserted 'the boundary test has teeth'; the reviewer softened the other four and all 58 tests stayed green. (4) SPEC-005 build — DEC-013 recorded choosing a GENERIC malformed_tags exemption and shipped a single hardcoded tag; settled by test, not by reading (malformed BlackLevelRepeatDim diffs []; an identically malformed ActiveArea still reds). (5) SPEC-005/FU-8 — the ORCHESTRATOR, in the doc comment written to reject instance 4 for exactly this, measured ONE simulated future and wrote 'the day FU-1 is fixed, K3III.DNG goes red here'; the reviewer built FU-1 AS SPECIFIED and the alarm never fires."
     bar: "N=3 same-outcome"
-    status: watch
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-08-18
     last_touched: 2026-08-22
     raised_by: claude
     notes: |
+      ══ STAGE-001 CLOSE, 2026-08-22: CODIFIED at N=5. ══
+      Landed in AGENTS.md §16 as a WRITING RULE, which is the form instance 5
+      dictated: it was committed by an agent who knew the rule, had just enforced
+      it on someone else, and was writing the correction at the time. A checklist
+      cannot catch that; a rule you apply while typing the sentence can.
+
       ⚠ N=5 as of 2026-08-22 (SPEC-005), and instance 5 is the one that settles
       how to codify this. It was committed BY THE ORCHESTRATOR, in the doc
       comment written to reject instance 4 FOR THIS EXACT DEFECT, in the same
@@ -523,12 +548,22 @@ signals:
           2026-08-20) — it failed in all 17 runs of the red streak and clippy in
           only 14, so the first three reds were THIS defect alone.
     bar: "N=3 same-outcome"
-    status: watch
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-08-22
     last_touched: 2026-08-22
     raised_by: claude
     notes: |
+      ══ STAGE-001 CLOSE, 2026-08-22: CODIFIED at N=4. ══
+      Landed in AGENTS.md §16. Codified in the same stage it was raised, which
+      is unusual and deliberate: it is the only lesson here with a MEASURED
+      FALSE GREEN among its instances, and its fourth instance had a
+      blocking-constraint gate dark in CI for 17 consecutive runs.
+      ⚠ NOT DONE, and stated so it is not mistaken for done: the sweep. The rule
+      is landed and lint-red-proof.sh is clean, but the same shape was measured
+      in _lib.sh, decisions-audit.sh, ready.sh, release-notes.sh, report_daily.sh
+      and test.sh. Auditing those is STAGE-002 work, not a note.
+
       SPLIT OUT of [[floating-toolchain-plus-deny-warnings]] on 2026-08-22 after
       PATCH-001's verify (SB-2) showed that signal's evidence had the causality
       INVERTED. Conflating them would have had the project close fix the

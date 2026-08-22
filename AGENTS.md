@@ -1296,6 +1296,54 @@ Use 1.0 only for decisions that are truly locked (tech stack choice
 after it's been installed and working, for example). Most decisions
 should land between 0.7 and 0.95.
 
+### Three rules earned the hard way — codified at STAGE-001's close, 2026-08-22
+
+These are not style preferences. Each is a **lesson at or past its bar** in
+`guidance/signals.yaml`, and between them they account for a false green that
+shipped a panic past seven gates, a decision record rejected on three counts, and
+a blocking constraint's CI gate that was dark for **17 consecutive runs**.
+
+**1. The writing rule — `measurement-over-generalised` (N=5).**
+
+> When a probe result becomes a claim, the sentence names **the exact command and
+> its scope**. Any word that generalises beyond the run — *"the day X happens"*,
+> *"the boundary"*, *"the class"*, *"always"* — must either be **deleted** or be
+> backed by a **second measured point in a different direction**.
+
+Apply it while typing the sentence, not in review. Instance 5 was committed by an
+agent who knew the rule, had just enforced it on someone else, and was writing
+that very correction — so a checklist provably does not catch this; a rule you
+apply as you write does. "Mutated `RowsPerStrip`" is not "the boundary is
+mutation-tested". One point on a boundary is never a boundary.
+
+**2. Assert the match count — `attribute-text-inside-doc-comments` (N=5).**
+
+> Any tooling that pattern-matches source text or tool output must anchor
+> deliberately, exclude `//` / `//!` / `/* */`, and **assert how many times it
+> matched**. Never take the first hit.
+
+`index()` on source text finds *documentation about* the code as readily as the
+code. Every one of the five instances produced a **wrong answer** rather than an
+error — twice a false negative, once a false green that shipped a panic.
+
+**3. A gate must fail through its own `die` — `a-gate-that-fails-mutely-is-a-gate-that-never-ran` (N=4).**
+
+> Every `grep` whose result a gate depends on is **guarded** (`|| true`) and its
+> match count **asserted**. A gate never exits on a pipeline's own status; it
+> exits through its own error message, with a reason.
+
+Rules 2 and 3 are one rule from two sides — a match landing on the wrong text, and
+a **non**-match becoming control flow. Two traps, both measured:
+- **Guarding one `grep` in a pipeline is not enough, and looks like it is.** A
+  zero-match emits nothing, so the *next* `grep` zero-matches too and aborts
+  anyway — byte-for-byte the original behaviour.
+- **The obvious test exercises the wrong path.** Forcing an out-of-range value
+  makes the leading `grep` *match*. Only a genuine zero-match of the **leading**
+  `grep` exposes the defect.
+
+A proof that dies without a message is indistinguishable from a proof that never
+ran — which is the exact thing these gates exist to prevent.
+
 **In this repo, "measured once, on one file" is not 1.0.** The oracle contract
 was verified against a single Leica Q2 Monochrom frame from one firmware. High
 confidence for that file; lower for the claim as stated generally. Say which
