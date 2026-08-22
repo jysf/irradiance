@@ -20,9 +20,7 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-use irradiance::ifd::{
-    ActiveArea, DefaultCropOrigin, DefaultCropSize, Sensor, TAG_BLACK_LEVEL_REPEAT_DIM,
-};
+use irradiance::ifd::{ActiveArea, DefaultCropOrigin, DefaultCropSize, Sensor};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Errors
@@ -296,12 +294,33 @@ impl std::fmt::Display for Mismatch {
 }
 
 /// Compare a container's [`Sensor`] against exiftool's reading of the same
-/// IFD, field by field (AC1). A tag already recorded in `malformed_tags` is
-/// **skipped** here: its divergence is already explained and positively
-/// asserted by a dedicated test (AC4.3), so re-reporting it as an
-/// unexplained mismatch would double-count a difference DEC-012 predicts —
-/// the tolerance is visible in `malformed_tags` itself, not a defect to flag
-/// again here.
+/// IFD, field by field (AC1). **Every one of the eleven fields is compared
+/// unconditionally** — there is no exemption for a tag recorded in
+/// `Sensor::malformed_tags`.
+///
+/// `SPEC-005` shipped with one (`DEC-013`, now `rejected`) and it was dead
+/// code: removing it left all 21 oracle tests green, because the case it
+/// suppressed cannot currently arise. `exiftool` reports `K3III.DNG`'s
+/// malformed `BlackLevelRepeatDim` as a bare `1`,
+/// [`reading_from_fields`]'s `<[u32; 2]>::try_from(..).ok()` degrades that
+/// to `None`, and `DEC-012` independently gives us `None` — so the two
+/// already agree and there is nothing to exempt.
+///
+/// ⚠ **That agreement is an accident of `SPEC-005/FU-1`**, the defect where
+/// a shape-odd tool value is reclassified as absence. The day `FU-1` is
+/// fixed, `K3III.DNG` goes red here — and that is deliberate. Whoever fixes
+/// `FU-1` must then decide, with a test, whether a `DEC-012`-tolerated tag
+/// is exempt from this diff. Leaving the guard in place would have let that
+/// decision happen silently, by absorption, which is the one outcome
+/// `DEC-013` was trying to avoid and the one it would have caused.
+///
+/// That alarm is **measured, not reasoned** (2026-08-22): with the `FU-1`
+/// fix simulated here — a one-element reading mapped to `Some([a, a])`
+/// instead of `None` — `metadata_matches_exiftool_on_every_corpus_file`
+/// fails immediately with
+/// `PENTAX-K3III-MONO/K3III.DNG: BlackLevelRepeatDim: ours=None,
+/// theirs=Some([1, 1])`. Mutation asserted applied and compiled; tree
+/// restored byte-identical.
 pub fn diff(sensor: &Sensor, reading: &ToolReading) -> Vec<Mismatch> {
     let mut out = Vec::new();
 
@@ -347,9 +366,7 @@ pub fn diff(sensor: &Sensor, reading: &ToolReading) -> Vec<Mismatch> {
             theirs: format!("{:?}", reading.white_level),
         });
     }
-    if !sensor.malformed_tags.contains(&TAG_BLACK_LEVEL_REPEAT_DIM)
-        && sensor.black_level_repeat_dim != reading.black_level_repeat_dim
-    {
+    if sensor.black_level_repeat_dim != reading.black_level_repeat_dim {
         out.push(Mismatch {
             field: "BlackLevelRepeatDim",
             ours: format!("{:?}", sensor.black_level_repeat_dim),

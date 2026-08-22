@@ -4,7 +4,7 @@
 insight:
   id: DEC-013
   type: decision
-  confidence: 0.85
+  confidence: 0.9
   audience:
     - developer
     - agent
@@ -21,7 +21,7 @@ repo:
 created_at: 2026-08-21
 supersedes: null
 superseded_by: null
-status: accepted
+status: rejected
 deciders: [claude]
 
 affected_scope:
@@ -33,6 +33,95 @@ tags:
   - testing
   - dec-012
 ---
+
+# DEC-013: A tag already recorded in `malformed_tags` is exempt from the live metadata oracle's field-by-field diff — **REJECTED**
+
+> ⚠ **REJECTED 2026-08-22, at `SPEC-005`'s verify punch-list round (`SB-1`).**
+> This record was written during `SPEC-005`'s build and shipped in `418be15`.
+> It is wrong on three counts, all measured independently by the orchestrator
+> and the reviewer, and the guard it sanctioned has been removed. The record is
+> kept — not deleted — because *why* it was wrong is the useful part, and
+> because a decision that quietly vanishes teaches nobody. The original text is
+> preserved verbatim below the line.
+
+## What was decided instead
+
+**`tools::diff()` compares all eleven fields unconditionally. There is no
+`malformed_tags` exemption.**
+
+## Why the original was rejected — three measured counts
+
+1. **The guard was dead code.** Removing the
+   `!sensor.malformed_tags.contains(&TAG_BLACK_LEVEL_REPEAT_DIM)` condition left
+   **all 21 oracle tests green** with the corpus present. Measured twice
+   independently — by the orchestrator during reconciliation and by the reviewer
+   during verify — each with the mutation asserted applied and the tree restored
+   byte-identical. A guard that nothing dies without is a guard nobody knows
+   works.
+
+2. **Its stated premise is false.** The record claims `K3III.DNG` "would fail
+   `AC1`'s own test on `BlackLevelRepeatDim` forever." It would not. `exiftool`
+   reports that malformed tag as a bare `1`; `reading_from_fields`'
+   `<[u32; 2]>::try_from(v.as_slice()).ok()` degrades a one-element vector to
+   `None`; `DEC-012` independently gives our reader `None`. `None == None` — no
+   mismatch. The permanent red this decision existed to prevent **cannot
+   currently occur**, so every alternative it weighed was weighed against a
+   scenario that does not arise.
+
+3. **It records choosing Option C and shipped Option B's shape.** Option C is
+   stated as *"`diff()` reads `malformed_tags` and skips exempted fields
+   **generically** … no per-file knowledge in the comparator at all … needs no
+   update when a FUTURE file exercises a different malformed tag."* The code was
+   `!sensor.malformed_tags.contains(&TAG_BLACK_LEVEL_REPEAT_DIM)` — a single
+   hardcoded tag, which is the hardcoded-exception shape Option B was rejected
+   for. The reviewer settled it with the decisive test rather than by reading:
+   a malformed `BlackLevelRepeatDim` diffs `[]`, while an **identically**
+   malformed `ActiveArea` still reds. The property Option C was chosen for does
+   not hold.
+
+   This is the fourth instance of `measurement-over-generalised` — a guard one
+   point wide, recorded as covering a class. The signal was already at its
+   `N=3` bar; it is now `N=4`.
+
+## Why the guard was REMOVED rather than made generic
+
+This is the part worth carrying forward, and it is a deliberate choice between
+two defensible options.
+
+The reviewer's sharpest observation is that the agreement in count 2 **is an
+accident of `SPEC-005/FU-1`** — the defect where a shape-odd tool value is
+reclassified as absence. *Fix `FU-1` and the guard becomes necessary.* So the
+original record's **conclusion** may well be right; only its premise and its
+implementation were wrong.
+
+Keeping a corrected guard would therefore have been reasonable. It was rejected
+because **removing it makes `FU-1`'s fix self-forcing.** With a guard in place,
+whoever fixes `FU-1` gets the consequence absorbed silently and the real
+question — *is a `DEC-012`-tolerated tag exempt from this oracle?* — is answered
+by accident, which is precisely the outcome this decision was written to
+prevent. With no guard, fixing `FU-1` turns `K3III.DNG` red immediately, and the
+fixer must decide deliberately **and ship a test with the answer**.
+
+A dead guard is not neutral: it is a decision made in advance, on evidence that
+does not exist yet, that disarms the alarm which would have demanded it.
+
+## What is NOT re-litigated
+
+`DEC-012`'s tolerance is untouched and correct. `AC4.3`'s dedicated test
+(`malformed_black_level_repeat_dim_reads_three_different_ways`) still positively
+asserts the three-way divergence and is unaffected by this rejection — the
+divergence remains explicitly checked, which was the original record's one sound
+instinct.
+
+## References
+
+- `SPEC-005` (`AC1`, `AC4.3`), and its verify round's `SB-1` / `FU-1`
+- `DEC-012` — `Sensor::malformed_tags`' contract, unchanged
+- Signal `measurement-over-generalised`, now `N=4`
+
+---
+
+# ORIGINAL TEXT, preserved verbatim — rejected, do not act on it
 
 # DEC-013: A tag already recorded in `malformed_tags` is exempt from the live metadata oracle's field-by-field diff
 

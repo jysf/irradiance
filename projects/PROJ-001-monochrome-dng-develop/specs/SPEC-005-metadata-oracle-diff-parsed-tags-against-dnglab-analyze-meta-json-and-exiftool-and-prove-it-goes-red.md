@@ -81,10 +81,18 @@ cost:
       duration_minutes: 34
       recorded_at: 2026-08-22
       notes: "⚠ FILLED BY THE ORCHESTRATOR, not by the build session — DEC-004 rule 1's mechanical-remainder clause. The build reported done but left this block null, did not branch, and did not commit; it asked the orchestrator to run /cost, which is a client-side command the assistant cannot execute AND which would have measured the WRONG session. The number below is the build's own, recovered from its own transcript (1148ce23-9e13-4f4b-bc12-15b519c8ae76.jsonl) — the method SPEC-004/FU-18 established, and the reason its premise 'no source exists' was wrong then and is wrong now. DEDUPED BY message.id and I say so: 215 usage objects, 106 distinct ids, raw 59,191,677 vs deduped 30,114,705 = 1.97x, 98.2% cache-read. Components: input 212, output 167,728, cache-write 359,304, cache-read 29,587,461. estimated_usd computed PER-COMPONENT at published SONNET rates ($3/$15/$6/$0.30 per M) because the session ran on claude-sonnet-5 — NOT harness-reported. Two comparisons worth recording: at Opus rates (what tier_map.build predicted) the same session computes $67.74, 5.0x high; at the repo's flat rate_per_mtok 6.60 it computes $198.76, 14.7x high. The orchestrator nearly booked the Opus figure before checking message.model — which is precisely what [[tier-map-predicts-what-it-should-record]] exists to catch, now 0 for 3. Committed by the orchestrator at 418be15 on feat/spec-005-metadata-oracle; reports/daily/2026-08-21.md deliberately left untracked (unrelated generated output, one-spec-per-pr). FOUR reconciliation findings carried into HANDOFF-022 as required checks."
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 8500000
+      estimated_usd: 19.30
+      duration_minutes: 21
+      recorded_at: 2026-08-22
+      notes: "Verdict ⚠ PUNCH LIST. DEDUPED BY message.id and I say so: 123 usage objects, 65 distinct ids, raw 16,016,382 vs deduped 8,409,731 = 1.90x, 97.5% cache-read. Deduped components: input 130, output 49,334, cache-write 161,965, cache-read 8,198,302. estimated_usd computed PER-COMPONENT at published OPUS rates ($15/$75/$18.75/$1.50 per M) because message.model reads claude-opus-5 on all 123 objects — checked, not inherited from tier_map. tokens_total is rounded UP from the 8,409,731 measured mid-session because the transcript is still being written as this block is authored (the handback prose and the final gate re-run are not yet in it); the true figure is ~8.5M and cannot be measured exactly from inside the session that is producing it. Four handoff findings confirmed (F-1/F-2/F-3 merged as SB-1, F-4 as FU-1), F-5 confirmed and BROADER than stated (FU-3), both handoff-suggested sixth findings KILLED, three new findings raised (FU-2/FU-4/FU-5). Every mutation asserted applied AND compiled; tree restored byte-identical (shasum checked each time) and `git diff 418be15 -- src/ tests/ Cargo.toml Cargo.lock` is empty."
   totals:
-    tokens_total: 30114705
-    estimated_usd: 13.55
-    session_count: 2
+    tokens_total: 38614705
+    estimated_usd: 32.85
+    session_count: 3
 ---
 
 # SPEC-005: Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red
