@@ -287,14 +287,22 @@ assert_lints_fired "$CLIPPY_LOG" "mutation run"
 # what rules out "the lint names arrived from somewhere else in the file": the
 # injected code occupies lines ${INJ_FIRST}..${INJ_LAST} of the mutated copy,
 # and each of the four violating functions must be pointed at.
-# `|| true` on the leading grep is deliberate: a ZERO-match grep exits 1, and
-# under `set -o pipefail` that killed this script silently rather than letting
-# the `die` below explain itself (PATCH-001). A proof that dies without a
-# message is indistinguishable from a proof that never ran, which is the exact
-# defect class this file exists to prevent — so the zero case must FLOW to the
-# assertion, not abort before it.
+# ⚠ EVERY grep in this pipeline is guarded, and that is not belt-and-braces.
+# A zero-match grep exits 1; under `set -o pipefail` + `set -e` that kills this
+# script before the `die` below can explain itself, and a proof that dies
+# without a message is indistinguishable from a proof that never ran — the
+# exact defect class this file exists to prevent (PATCH-001).
+#
+# Guarding only the FIRST grep does not work, and the first fix did exactly
+# that: a zero-match there emits NOTHING, so the second grep zero-matches too
+# and aborts the assignment anyway — byte-for-byte the original behaviour.
+# Found by PATCH-001's independent verify (SB-1). The orchestrator's own
+# suggested test would have PASSED while the defect stayed, because pointing
+# INJ_FIRST/INJ_LAST outside the range makes the first grep MATCH and awk do
+# the filtering — a different path from the bug. Only a genuine zero-match of
+# the LEADING grep exposes it.
 IN_RANGE="$( { grep -oE -- '--> src/lib\.rs:[0-9]+' "$CLIPPY_LOG" || true; } \
-    | grep -oE '[0-9]+$' \
+    | { grep -oE '[0-9]+$' || true; } \
     | awk -v lo="$INJ_FIRST" -v hi="$INJ_LAST" '$1 >= lo && $1 <= hi' \
     | sort -un | wc -l | tr -d '[:space:]')"
 # Four violating functions, so four distinct source lines are pointed at

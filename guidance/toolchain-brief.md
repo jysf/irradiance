@@ -116,9 +116,20 @@ clippy 0.1.98 (88d9e12ae1 2026-08-18)            # what CI actually runs
 lint a new clippy release ADDS is an immediate CI failure on code that did not
 change — and the local `cargo clippy` (pinned at Homebrew 0.1.97) cannot see it.
 
-Measured 2026-08-22: that gap ran CI **red on `main` for four shipped specs**
-(SPEC-003, 004, 007, 008 — 0 of 12 runs green), while every verify cycle in that
-window reported "ten gates green". They were green *locally*. `PATCH-001`.
+Measured 2026-08-22, and **corrected by `PATCH-001`'s independent verify** — the
+first version of this paragraph named the drift as the root cause and was wrong:
+
+`main` was red for **17 consecutive runs**, from `1964a7f` (2026-08-20 —
+`ship(spec-001)`, the first run that contained the Rust jobs) through `04aaf4b`,
+spanning **six** shipped specs. Every verify cycle in that window reported "ten
+gates green". They were green *locally*.
+
+⚠ **The drift is the smaller half.** Job-by-job: the **red-proof failed in all
+17**; clippy in **14**. The first three reds had clippy green, with the
+red-proof's own ANSI-parsing defect the sole cause — so the gate enforcing a
+blocking constraint had **never once run successfully in CI**. That is a
+different problem from this one and is tracked as
+`a-gate-that-fails-mutely-is-a-gate-that-never-ran`.
 
 The fix is a recipe, not a habit: **`just lint-ci`**. Per SPEC-003/FU-8's lesson,
 a gate documented as a raw command is a gate that will be run wrong.

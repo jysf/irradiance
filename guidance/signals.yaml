@@ -418,11 +418,11 @@ signals:
       at all. Reconcile it in the same shape — a `## Follow-ups` table per spec —
       before this signal is called `done`.
 
-  # --- risk: -D warnings on a FLOATING toolchain breaks CI on unchanged code -
-  - id: floating-toolchain-plus-deny-warnings
-    type: risk
-    summary: "CI runs `-D warnings` on `dtolnay/rust-toolchain@stable`, so every lint a new clippy release ADDS fails CI on code nobody touched."
-    evidence: "PATCH-001, 2026-08-22. stable moved 1.97.1 -> 1.98.0 on 2026-08-18; clippy 0.1.98 added `chunks_exact_to_as_chunks`, which fired on 7 pre-existing sites. Result: 0 of 12 CI runs green on main across FOUR shipped specs (SPEC-003/004/007/008), every one of which reported 'ten gates green' — locally."
+  # --- process-debt: IDs minted on two branches collide ----------------------
+  - id: spec-ids-collide-across-unmerged-branches
+    type: process-debt
+    summary: "`just new-spec` mints the next ID by scanning the WORKING TREE, so an ID created while a branch is in flight silently collides with one created on that branch."
+    evidence: "2026-08-22. SPEC-010 was framed during SPEC-005's ship and committed on feat/spec-005-metadata-oracle. Later the same day, on main (PR not yet merged), `just new-spec` assigned SPEC-010 AGAIN — for a different spec. Caught by hand because the collision was visible in the same session; it would not have been visible to either branch alone, and would have surfaced as a merge that produced two SPEC-010 files."
     bar: null
     status: open
     disposition_at: project-close
@@ -430,6 +430,93 @@ signals:
     last_touched: 2026-08-22
     raised_by: claude
     notes: |
+      AGENTS.md §2 is explicit that IDs are "globally unique and continuous
+      across the repo" and that `just new-stage` / `just new-spec` "assign the
+      next number repo-wide". They assign the next number in the CHECKOUT, which
+      is the same thing only while there is exactly one branch — and this repo's
+      whole model is a spec-per-branch with build and verify dispatched
+      elsewhere, so in-flight branches are the NORMAL state, not the exception.
+      Renamed by hand to SPEC-011 this time.
+      Cheap fixes, in order of preference:
+        1. Mint from `git log --all` / `git ls-tree` across refs rather than the
+           worktree — sees every branch, merged or not.
+        2. Have `just validate` fail on duplicate IDs, so a collision cannot
+           reach main even if minting misses it. (Detection, not prevention —
+           but it is the half that cannot be forgotten.)
+      Template-level: this is the template's script, so fix upstream and not
+      only here. Same family as [[cost-field-has-two-owners]] and
+      [[tier-map-predicts-what-it-should-record]] — a value derived from an
+      incomplete view, presented as authoritative.
+
+  # --- lesson: a gate that fails MUTELY is indistinguishable from one that never ran
+  - id: a-gate-that-fails-mutely-is-a-gate-that-never-ran
+    type: lesson
+    summary: "A zero-match grep under `set -o pipefail` aborts the script before its own error message — so a gate reports 'failed' with no reason, and nobody can tell it from a gate that never ran."
+    evidence: |
+      N=4, and all four are the same root shape: TEXT MATCHING ON OUTPUT, where
+      the zero-match case became control flow instead of an assertion.
+      (1) SPEC-001 — the orchestrator's attack hit `#[cfg(test)]` inside a DOC
+          COMMENT; false negative.
+      (2) SPEC-001 — the attack hit the second `#![deny(` which lives in module
+          prose, deleting 14 chars of text; false negative.
+      (3) SPEC-001/PL-1 — the red-proof's own prologue parser skipped `//!` but
+          not `//`: a silent FALSE GREEN that shipped a panic past seven gates.
+      (4) PATCH-001 — the red-proof's assertion 4 grepped for `--> src/lib.rs`
+          in CLIPPY'S OWN OUTPUT, which CI colourises even when redirected:
+          `\e[1m\e[94m--> \e[0msrc/lib.rs:66`. Zero match, exit 1, script dead
+          before its `die`. DARK FROM THE DAY THE JOB WAS CREATED (1964a7f,
+          2026-08-20) — it failed in all 17 runs of the red streak and clippy in
+          only 14, so the first three reds were THIS defect alone.
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-08-22
+    last_touched: 2026-08-22
+    raised_by: claude
+    notes: |
+      SPLIT OUT of [[floating-toolchain-plus-deny-warnings]] on 2026-08-22 after
+      PATCH-001's verify (SB-2) showed that signal's evidence had the causality
+      INVERTED. Conflating them would have had the project close fix the
+      toolchain and leave the mute gate — and the mute gate is the one that had
+      never worked.
+      This is the same family as [[attribute-text-inside-doc-comments]] (N=5)
+      but the OUTCOME differs and that is why it is its own entry: there, a
+      match landed on the wrong text; here, a NON-match became control flow.
+      Both are "assert your match count", from opposite sides.
+      WELL PAST BAR at N=4 with a false green among them. Codify at stage close:
+        Every grep whose result a gate DEPENDS ON is guarded (`|| true`) and its
+        match count ASSERTED. A gate must never exit on a pipeline's own status;
+        it exits through its own `die`, with a reason.
+      ⚠ Guarding ONE grep in a pipeline is not enough and looks like it is —
+      PATCH-001's first fix did exactly that and reproduced the original
+      behaviour byte-for-byte, because a zero-match emits nothing and the NEXT
+      grep in the pipe zero-matches too. Guard every stage.
+      ⚠ And the test that "checks" this is easy to get wrong in the same
+      direction: the orchestrator proposed forcing the range out of bounds,
+      which makes the leading grep MATCH and exercises a different path. Only a
+      genuine zero-match of the LEADING grep exposes it.
+
+  # --- risk: -D warnings on a FLOATING toolchain breaks CI on unchanged code -
+  - id: floating-toolchain-plus-deny-warnings
+    type: risk
+    summary: "CI runs `-D warnings` on `dtolnay/rust-toolchain@stable`, so every lint a new clippy release ADDS fails CI on code nobody touched."
+    evidence: "PATCH-001, 2026-08-22, and CORRECTED by its independent verify (SB-2) — the first version of this line named the drift as root cause and was WRONG. Measured job-by-job across 22 runs: main was red for 17 CONSECUTIVE runs from 1964a7f (2026-08-20, ship(spec-001) — the first run that contained the Rust jobs) through 04aaf4b, spanning SIX shipped specs. The red-proof job failed in ALL 17; clippy in 14. THE FIRST THREE HAD CLIPPY GREEN, with the red-proof's ANSI defect the sole cause. So the toolchain drift is the LATER and SMALLER half: the gate enforcing a blocking constraint had never once run successfully in CI."
+    bar: null
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-08-22
+    last_touched: 2026-08-22
+    raised_by: claude
+    notes: |
+      ⚠ SCOPE OF THIS SIGNAL, narrowed by PATCH-001's verify. This risk is about
+      the FLOATING-TOOLCHAIN half only, and that half accounts for 14 of the 17
+      red runs. The other, older and more serious half — a red-proof that had
+      never run successfully in CI, dark from the day the job was created — is
+      NOT a toolchain question at all and is tracked separately as
+      [[a-gate-that-fails-mutely-is-a-gate-that-never-ran]]. Do not let the
+      close treat one as the other; the first version of this entry did exactly
+      that, which is what SB-2 caught.
+
       PATCH-001 fixed the INSTANCE and added `just lint-ci` so the drift is
       visible locally. It did NOT settle the standing question, which is a real
       trade-off and wants a DEC rather than a habit:

@@ -52,10 +52,26 @@ cost:
 
 ## Problem
 
-**0 of the last 12 CI runs on `main` succeeded.** Red continuously from
-`ee5f310` (2026-08-21) through `04aaf4b` — spanning **SPEC-003, SPEC-004,
-SPEC-007 and SPEC-008**. Every one of those shipped reporting *"ten gates
-green."* They were green **locally**. Nobody read CI.
+> ⚠ **This section was WRONG when first written and is corrected here.** The
+> independent verify (`SB-2`) measured the history job-by-job and found the
+> causality inverted. Both versions are kept: the original claim is struck
+> through below, because *how* it was wrong is the lesson.
+
+**~~0 of the last 12 CI runs on `main` succeeded, red from `ee5f310`
+(2026-08-21) across four shipped specs.~~**
+
+**17 consecutive CI runs on `main` failed** — from `1964a7f` (2026-08-20,
+`ship(spec-001)`, **the first run that ever contained the Rust jobs**) through
+`04aaf4b`, spanning **six** shipped specs: SPEC-001, 006, 003, 004, 007, 008.
+Every one shipped reporting *"ten gates green."* They were green **locally**.
+Nobody read CI.
+
+⚠ **And the toolchain drift is the smaller, later half.** Job-by-job: the
+**red-proof failed in all 17 runs; clippy in 14.** The first three reds had
+clippy **green**, with the red-proof's own ANSI-parsing defect the sole cause.
+So the gate that mechanically enforces a **blocking constraint** had *never once
+run successfully in CI* — it was born dark. The drift did not cause that and does
+not explain it.
 
 **Root cause.** `.github/workflows/ci.yml` uses `dtolnay/rust-toolchain@stable`,
 which **floats**, with `-D warnings`. Stable moved to `rustc 1.98.0` on
@@ -160,9 +176,17 @@ flow.
 
 The gate is the test. Both directions run with the CI-parity clippy:
 
-- **`just lint-ci` on the unpatched tree** → **9 lint hits** (the negative
-  control — measured by reverting `src/ifd.rs` to its pre-patch bytes, confirmed
-  changed by `diff`, then restored byte-identical).
+- **`just lint-ci` on the unpatched tree** → red (the negative control —
+  measured by reverting `src/ifd.rs` to its pre-patch bytes, confirmed changed by
+  `diff`, then restored byte-identical).
+  ⚠ **Corrected:** an earlier draft of this line said *"9 lint hits"* and
+  attached that figure to the wrong scenario. Reverting `src/ifd.rs` **alone**
+  yields **4**, with `tests/support/corpus.rs`'s three hidden behind the lib
+  failure — the same masking that hid them from the original CI log, faithfully
+  reproduced. The `9` was a count of matching *log lines* across a
+  both-files-unpatched tree, not of sites. The direction was right and the
+  number was not; per `measurement-over-generalised`, the number is the part
+  that has to be exact.
 - **`just lint-ci` on the patched tree** → **exit 0.**
 - `cargo test --all-features` → **66 passed**, summed across targets. The
   `sha256` rewrite is covered by the published NIST vectors and by
@@ -254,6 +278,24 @@ of §15's four dispositions you think it wants. Verdict: ✅ APPROVED (with SHA)
 deduped; compute `estimated_usd` per-component at the rates for the model that
 **actually ran** (`message.model`, not `tier_map` — it is 1 for 4). Capture as
 late as you can: the "floor" convention measured ~17% low on `SPEC-005`.
+
+## Findings — dispositioned (AGENTS.md §15)
+
+The independent verify returned ⚠ PUNCH LIST with two ship-blockers and four
+follow-ups. Both `SB`s were the orchestrator's, and both are **confirmed
+independently before being accepted** — the shell-level repro for `SB-1`, the
+22-run job-by-job history for `SB-2`.
+
+| id | finding | disposition |
+|---|---|---|
+| `SB-1` | `\|\| true` on the leading grep does **not** stop the silent death — a zero-match emits nothing, so the *second* grep zero-matches, exits 1, and pipefail aborts the assignment before the `die` | `fixed` — every stage of the pipeline is now guarded. **Red-proofed with a genuine leading-grep zero-match**: the script now exits 1 **with** `ERROR: … only 0 distinct diagnostic span(s) point inside the injected block`. Fails closed *and* audibly |
+| `SB-2` | the root cause is inverted — the ANSI defect was never latent; the red-proof was dark from the first run that ever contained it | `fixed` — corrected in four documents, and the conflated signal **split in two**: `floating-toolchain-plus-deny-warnings` keeps the drift half (14 of 17 runs), and the new lesson `a-gate-that-fails-mutely-is-a-gate-that-never-ran` takes the older half. The close would otherwise have fixed the toolchain and left the mute gate |
+| `FU-1` | the outage is understated in six documents — 17 runs / six specs, not 12 / four | `fixed` — corrected in `AGENTS.md`, `guidance/toolchain-brief.md`, `guidance/signals.yaml` and this record. The original claim is struck through rather than deleted |
+| `FU-2` | the "9 lint hits" figure is attached to the wrong scenario | `fixed` — corrected above; reverting `src/ifd.rs` alone gives **4**, the other three masked behind the lib failure |
+| `FU-3` | the zero-match class got no `signals.yaml` entry despite being named a fourth instance | `signal: a-gate-that-fails-mutely-is-a-gate-that-never-ran` — created, `N=4`, **past its bar**, with the codification text and both traps written in |
+| `FU-4` | `fuzz/` sits outside every `-D warnings` gate | `spec: SPEC-011` — **confirmed**: root `cargo clippy --all-targets` never mentions `irradiance-fuzz` (0 hits), because `DEC-011` deliberately keeps it out of the library's graph. Exactly the shape `deny` / `deny-fuzz` already has, and it needs the same second invocation — plus its own red-proof, which is why it is a spec and not a line here |
+
+**2 ship-blockers + 4 follow-ups · 4 `fixed` · 1 `signal` · 1 → `SPEC-011`.**
 
 ## Defect-catch stage
 

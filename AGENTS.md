@@ -298,8 +298,11 @@ cargo clippy --lib --quiet -- \
 #              dtolnay/rust-toolchain@stable, which FLOATS — 0.1.98 today.
 #              Under `-D warnings` every lint clippy ADDS is a new CI failure
 #              on code that never changed, and `just lint` cannot see it.
-#              That gap ran CI red for FOUR shipped specs while every verify
-#              reported "ten gates green" — locally (PATCH-001).
+#              That gap accounts for 14 of the 17 CONSECUTIVE red CI runs
+#              PATCH-001 found (2026-08-20 → 2026-08-22, six shipped specs),
+#              while every verify in that window reported "ten gates green" —
+#              locally. ⚠ The other three, and the OLDER defect, were a
+#              red-proof that had never once run successfully in CI.
 #              ⚠ The PATH= prefix is the FOURTH `+toolchain` trap: bare
 #              `~/.cargo/bin/cargo +stable clippy` still reports 0.1.97,
 #              because the OUTER command goes through the shim but
