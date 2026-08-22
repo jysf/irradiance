@@ -180,7 +180,15 @@ done
 run_clippy() {
     local log="$1"
     shift
-    ( cd "$WORK_DIR" && cargo clippy --all-targets --all-features "$@" ) >"$log" 2>&1
+    # ⚠ `--color never` is LOAD-BEARING, not cosmetic. Assertions 3 and 4 grep
+    # this log, and CI's clippy colourises even when redirected to a file:
+    # the real bytes are `\e[1m\e[94m--> \e[0msrc/lib.rs:66`, so a reset
+    # sequence sits BETWEEN `-->` and the path and `grep -- '--> src/lib\.rs'`
+    # matches nothing. That took the proof out on 2026-08-22 (PATCH-001) with
+    # NO message — the zero-match grep tripped `set -o pipefail` and killed the
+    # script before its own `die` could run. Latent since the job was written;
+    # only reachable once everything upstream of assertion 4 was green.
+    ( cd "$WORK_DIR" && cargo clippy --color never --all-targets --all-features "$@" ) >"$log" 2>&1
 }
 
 # ── Assertion 1: THE CONTROL — the unmutated copy must be clean ─────────────
@@ -279,7 +287,13 @@ assert_lints_fired "$CLIPPY_LOG" "mutation run"
 # what rules out "the lint names arrived from somewhere else in the file": the
 # injected code occupies lines ${INJ_FIRST}..${INJ_LAST} of the mutated copy,
 # and each of the four violating functions must be pointed at.
-IN_RANGE="$(grep -oE -- '--> src/lib\.rs:[0-9]+' "$CLIPPY_LOG" \
+# `|| true` on the leading grep is deliberate: a ZERO-match grep exits 1, and
+# under `set -o pipefail` that killed this script silently rather than letting
+# the `die` below explain itself (PATCH-001). A proof that dies without a
+# message is indistinguishable from a proof that never ran, which is the exact
+# defect class this file exists to prevent — so the zero case must FLOW to the
+# assertion, not abort before it.
+IN_RANGE="$( { grep -oE -- '--> src/lib\.rs:[0-9]+' "$CLIPPY_LOG" || true; } \
     | grep -oE '[0-9]+$' \
     | awk -v lo="$INJ_FIRST" -v hi="$INJ_LAST" '$1 >= lo && $1 <= hi' \
     | sort -un | wc -l | tr -d '[:space:]')"

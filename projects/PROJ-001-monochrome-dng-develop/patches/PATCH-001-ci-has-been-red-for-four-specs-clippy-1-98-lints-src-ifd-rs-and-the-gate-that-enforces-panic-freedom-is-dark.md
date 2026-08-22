@@ -105,6 +105,49 @@ panic-free lint policy at an old clippy. The recurrence question — `-D warning
 on a floating toolchain means *every* future clippy release can break CI on
 unchanged code — is real and is **not** settled here. Filed as a signal.
 
+## ⚠ A SECOND defect, found only because the first was fixed
+
+Fixing the lint turned `clippy -D warnings` green — and the **`lint policy
+red-proof` job still failed**, now for an unrelated reason that had been latent
+the whole time.
+
+`scripts/lint-red-proof.sh`'s assertion 4 greps its captured clippy log for
+`'--> src/lib\.rs:[0-9]+'`. **CI's clippy colourises even when redirected to a
+file.** The real bytes are:
+
+```
+\e[1m\e[94m--> \e[0msrc/lib.rs:66
+```
+
+— a reset sequence sits **between** `-->` and the path, so the grep matches
+nothing, exits 1, and under `set -o pipefail` + `set -e` **kills the script
+before its own `die` can print.** Exit 1, no message.
+
+**A proof that dies without a message is indistinguishable from a proof that
+never ran** — which is the exact defect class this file exists to prevent. It
+was unreachable until now only because the job had been failing *earlier*, at
+the control run.
+
+It is also the general form of [[attribute-text-inside-doc-comments]] arriving a
+fourth way: *text matching on tool output finds what the tool decided to
+render*, and a zero-match must be **asserted**, never allowed to become control
+flow.
+
+**Fix, two parts:**
+1. `--color never` on both clippy invocations in `run_clippy`, so the log is
+   parseable deterministically on any host regardless of CI's colour behaviour.
+2. `|| true` on the leading grep, so a zero-match **flows to the assertion** and
+   the `die` explains itself instead of the script aborting mutely.
+
+**Red-proofed, with a control** — CI's condition reproduced locally via
+`CARGO_TERM_COLOR=always`:
+
+| | exit | explanatory output |
+|---|---|---|
+| **old** script + forced colour | **1** | **none** — CI's silent death, reproduced |
+| **new** script + forced colour | **0** | full success line |
+| new script, local (0.1.97) and CI-parity (0.1.98), no forced colour | 0 | full success line |
+
 ## Failing Tests
 
 The gate is the test. Both directions run with the CI-parity clippy:
