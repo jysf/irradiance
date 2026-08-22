@@ -43,6 +43,15 @@ test:
     cargo run --quiet --all-features --example corpus-status
     cargo test --all-features
 
+# Run ONLY the live metadata oracle (SPEC-005) — exiftool/dnglab cross-checks
+# plus the red-proof. Needs $IRRADIANCE_CORPUS_DIR for the tier-B half and
+# exiftool/dnglab on PATH; both halves skip loudly, naming what's missing,
+# when absent. The tier-A red-proof (`oracle_is_clean_on_an_unmodified_reading`,
+# `oracle_names_the_one_field_that_was_perturbed`) needs neither and is the
+# only half CI can run.
+oracle-meta:
+    cargo test --all-features --test metadata_oracle
+
 # Lint / format check
 lint:
     cargo clippy --all-targets --all-features -- -D warnings

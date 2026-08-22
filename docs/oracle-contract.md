@@ -16,13 +16,65 @@ dev-dependency, without its own decision.
 
 | Layer | Command | Verdict |
 |---|---|---|
-| Metadata | `dnglab analyze --meta --json` (or `--yaml`) | exact, machine-diffable |
+| Metadata | `exiftool -T -n -s3` (primary) + `dnglab analyze --meta --json` (six-DNG cross-check) — see below | exact, machine-diffable, live (`SPEC-005`) |
 | File structure | `dnglab analyze --structure` | validates the IFD walk |
 | **Sensor plane** | `dnglab analyze --raw-checksum` | **bit-exact** |
 | Developed output | `dnglab analyze --srgb` → **16-bit PNM, not a TIFF** ⚠ | SSIMULACRA2 **≥ 85** (DEC-005) |
 
 There is also a **layer 0** that costs nothing: the packing arithmetic must
 reproduce `StripByteCounts` exactly. See `measured-q2m-dng.md`.
+
+## ⚠ The metadata layer is TWO tools, not one — measured 2026-08-21
+
+`SPEC-005` built the live oracle. `exiftool 13.55` and `dnglab analyze --meta
+--json` are BOTH run, and neither one alone is "the metadata layer": they
+answer different questions, verified across all seven corpus files before a
+line of the comparator was written (`tests/support/tools.rs`,
+`tests/metadata_oracle.rs`).
+
+- **`exiftool` reads what the file SAYS**, per IFD — the ground truth for
+  every tag `Sensor` carries, absence included. It is the primary tag-level
+  oracle, run on all seven files.
+- **`dnglab` reports what a DECODER CONCLUDED**, through rawler's camera
+  database. On `K3III.PEF` — a vendor container with no DNG tags at all —
+  `dnglab` still answers (`black 64`, `white 16378`, an `activeArea` and a
+  `cropArea`, `bitDepth 16`), and `exiftool`/our reader both agree the file
+  contains none of them. Treating the two tools as interchangeable would
+  produce an oracle that demands the reader hallucinate values the file does
+  not contain — so `dnglab`'s comparison is scoped to the **six DNG files
+  only**, by name, with the divergence asserted rather than ignored.
+- **`dnglab`'s `cropArea.p` is sensor-absolute; ours and exiftool's are
+  DNG-relative.** `dnglab.cropArea.p == active_area.(left, top) +
+  crop_origin`, verified on all six DNGs — `K3III.DNG`: `(26, 34) + (28, 24)
+  = (54, 58)`, exactly what dnglab prints. A naive direct comparison would
+  have called the correct reader wrong.
+- **No new dependency was needed.** `exiftool -T -n -s3` emits one
+  tab-separated line, values in the order requested, `-` for an absent tag —
+  no parser required. `dnglab`'s JSON is read by asserting the handful of
+  keys this oracle needs (`rawWidth`, `rawHeight`, `bitDepth`, `whitelevels`,
+  `orientation`, `blacklevels.levels`, and `cropArea`) are unique in the
+  document before trusting a match — `x`/`y`/`w`/`h` are NOT unique (they
+  appear under both `cropArea` and `activeArea`), which is why `cropArea.p`
+  is extracted from a brace-matched substring rather than a bare search.
+- ⚠ **Capture `dnglab`'s STDOUT only.** On `K3III.DNG` it writes an ANSI
+  warning to stderr — `File has BlackLevelRepeatDim tag but with invalid
+  length: 1` — and merging the streams (`2>&1`) makes the JSON unparseable at
+  byte 1. `std::process::Command::output()` keeps the two streams separate by
+  construction, which is the fix, not a flag.
+- ⚠ **`exiftool`'s exit code carries no signal.** It exits 0 on a truncated
+  file and on an absent tag alike — measured on the first 4 KB of a Q2M frame,
+  which still yields `ImageWidth 8424`. Only stdout is trusted.
+  `dnglab`'s exit code DOES carry signal (it exits 2 on the same truncated
+  input) and `dnglab_meta` checks it.
+- `blacklevels.levels` is an array of **rational strings** (`["512/1"]`, not
+  `[512]`) — parsed as `N/D`, asserting `N % D == 0` rather than assuming
+  `D == 1`.
+
+This layer stays **tag-extraction correctness only**: whether our reader
+reproduces the same value the file's bytes encode. Whether that value is the
+*right* one — levels normalization, crop correctness — is verified
+analytically per `DEC-004`, never by comparison; see that record before
+extending this oracle to cover it.
 
 ## ⚠ The plane contract — VERIFIED 2026-08-15, not assumed
 

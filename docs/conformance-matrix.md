@@ -40,6 +40,16 @@ Leica-shaped"* job the closing paragraph of this section calls STAGE-001's, and
 - a **different make** (Ricoh/Pentax), and a **vendor-private container** (PEF),
 - and a real shipping camera's **malformed tag**, free.
 
+✅ **Updated 2026-08-21 (SPEC-005).** "Cross-checked against `exiftool 13.55`"
+above was, until this spec, a design-time cross-check frozen into a
+hand-transcribed table (`tests/ifd_reader.rs`) — accurate the day it was typed,
+unable to notice drift afterward. It is now a **live** oracle
+(`tests/metadata_oracle.rs`) that shells out to both `exiftool` and
+`dnglab analyze --meta --json` every run, diffs every tag field-by-field, and
+ships proven red (a committed fixture red-proof runs in CI with no tool and no
+corpus; a real-file red-proof patches a tag in memory and confirms the oracle
+names it) — see `docs/oracle-contract.md`'s metadata-layer section.
+
 **What is still one camera is the DEVELOP path**, and that is the part the
 paragraph below was really about: only the Q2 Monochrom and the M Monochrom are
 *uncompressed*, and everything in `docs/measured-q2m-dng.md` — levels, opcode

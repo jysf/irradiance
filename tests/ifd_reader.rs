@@ -5,19 +5,20 @@
 //! - **`ifd_rejects_hostile_input`** and its neighbours run **everywhere**. They
 //!   are hand-built byte fixtures (`tests/support/tiff.rs`), so a machine with
 //!   no corpus still proves the guards.
-//! - **`ifd_reaches_sensor_plane`** and the `exiftool` table need tier-B files,
-//!   which are never committed (`DEC-003`). They go through `SPEC-002`'s reader
-//!   — no hardcoded paths — and skip per-entry when a file is absent, with
+//! - **`ifd_reaches_sensor_plane`** and its neighbours need tier-B files, which
+//!   are never committed (`DEC-003`). They go through `SPEC-002`'s reader — no
+//!   hardcoded paths — and skip per-entry when a file is absent, with
 //!   `just test` printing the corpus-status lines that make the skip visible
 //!   before this suite runs.
 //!
-//! ## Where the expected values came from
+//! ## Where the expected values come from
 //!
-//! `exiftool 13.55`, run on 2026-08-20 against each corpus file, cross-checked
-//! against an independent byte-level dump of the same IFDs. They are pinned as
-//! literals here rather than shelled out to, because `SPEC-005` is the spec that
-//! builds the *live* metadata oracle — this table is what `SPEC-003`'s
-//! acceptance criterion 6 asks for, and it runs with no external tool installed.
+//! `EXPECTED` below carries only this reader's own **structure** claims —
+//! `big_endian`, `ifds`, `sensor_index`, `opcode_lists`, `malformed` — none of
+//! which any external tool reports. Every **tag value** (dimensions, levels,
+//! geometry, orientation, …) used to be hand-transcribed from `exiftool` here;
+//! `SPEC-005` replaced that frozen copy with a *live* oracle that shells out to
+//! `exiftool` and `dnglab` every run — see `tests/metadata_oracle.rs`.
 
 #[path = "support/corpus.rs"]
 mod corpus;
@@ -25,16 +26,16 @@ mod corpus;
 mod tiff;
 
 use corpus::{CorpusFile, CorpusRoot, Manifest};
-use irradiance::ifd::{
-    ActiveArea, Container, DefaultCropOrigin, DefaultCropSize, Sensor, TAG_PHOTOMETRIC,
-};
+use irradiance::ifd::{ActiveArea, Container, Sensor, TAG_PHOTOMETRIC};
 use irradiance::Error;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The exiftool table
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// One corpus file's expected container reading.
+/// One corpus file's expected container STRUCTURE — no tag value, per AC8
+/// (`SPEC-005`): every field here is a claim only this reader's own walk
+/// makes, and no external tool reports.
 struct Expected {
     /// Manifest path — the key into `SPEC-002`'s reader, never a real path.
     path: &'static str,
@@ -44,18 +45,7 @@ struct Expected {
     ifds: usize,
     /// Index of the sensor IFD in walk order.
     sensor_index: usize,
-    width: u32,
-    height: u32,
-    bits: u32,
-    compression: u32,
-    black_level: Option<u32>,
-    white_level: Option<u32>,
-    active_area: Option<ActiveArea>,
-    crop_origin: Option<DefaultCropOrigin>,
-    crop_size: Option<DefaultCropSize>,
-    orientation: Option<u32>,
     opcode_lists: [bool; 3],
-    strip_byte_counts: u32,
     /// Tags present but shaped wrong. Only the Pentax DNG has one.
     malformed: &'static [u16],
 }
@@ -67,26 +57,7 @@ const EXPECTED: &[Expected] = &[
         big_endian: false,
         ifds: 4,
         sensor_index: 1,
-        width: 8424,
-        height: 5632,
-        bits: 14,
-        compression: 1,
-        black_level: Some(512),
-        white_level: Some(16383),
-        active_area: Some(ActiveArea {
-            top: 0,
-            left: 0,
-            bottom: 5632,
-            right: 8392,
-        }),
-        crop_origin: Some(DefaultCropOrigin { x: 12, y: 24 }),
-        crop_size: Some(DefaultCropSize {
-            width: 8368,
-            height: 5584,
-        }),
-        orientation: Some(1),
         opcode_lists: [true, false, true],
-        strip_byte_counts: 83026944,
         malformed: &[],
     },
     // THE ROTATED FRAME. Same body, same firmware, different Orientation —
@@ -96,26 +67,7 @@ const EXPECTED: &[Expected] = &[
         big_endian: false,
         ifds: 4,
         sensor_index: 1,
-        width: 8424,
-        height: 5632,
-        bits: 14,
-        compression: 1,
-        black_level: Some(512),
-        white_level: Some(16383),
-        active_area: Some(ActiveArea {
-            top: 0,
-            left: 0,
-            bottom: 5632,
-            right: 8392,
-        }),
-        crop_origin: Some(DefaultCropOrigin { x: 12, y: 24 }),
-        crop_size: Some(DefaultCropSize {
-            width: 8368,
-            height: 5584,
-        }),
-        orientation: Some(6),
         opcode_lists: [true, false, true],
-        strip_byte_counts: 83026944,
         malformed: &[],
     },
     Expected {
@@ -123,26 +75,7 @@ const EXPECTED: &[Expected] = &[
         big_endian: false,
         ifds: 4,
         sensor_index: 1,
-        width: 8424,
-        height: 5632,
-        bits: 14,
-        compression: 1,
-        black_level: Some(512),
-        white_level: Some(16383),
-        active_area: Some(ActiveArea {
-            top: 0,
-            left: 0,
-            bottom: 5632,
-            right: 8392,
-        }),
-        crop_origin: Some(DefaultCropOrigin { x: 12, y: 24 }),
-        crop_size: Some(DefaultCropSize {
-            width: 8368,
-            height: 5584,
-        }),
-        orientation: Some(1),
         opcode_lists: [true, false, true],
-        strip_byte_counts: 83026944,
         malformed: &[],
     },
     // ── Leica M Monochrom: a THIRD bit depth, NO ActiveArea, no opcodes ─────
@@ -151,21 +84,7 @@ const EXPECTED: &[Expected] = &[
         big_endian: false,
         ifds: 2,
         sensor_index: 1,
-        width: 5216,
-        height: 3472,
-        bits: 16,
-        compression: 1,
-        black_level: Some(220),
-        white_level: Some(16383),
-        active_area: None,
-        crop_origin: Some(DefaultCropOrigin { x: 2, y: 2 }),
-        crop_size: Some(DefaultCropSize {
-            width: 5212,
-            height: 3468,
-        }),
-        orientation: Some(1),
         opcode_lists: [false, false, false],
-        strip_byte_counts: 36219904,
         malformed: &[],
     },
     // ── The ONE big-endian file, and JPEG-compressed ────────────────────────
@@ -174,21 +93,7 @@ const EXPECTED: &[Expected] = &[
         big_endian: true,
         ifds: 2,
         sensor_index: 1,
-        width: 5984,
-        height: 4000,
-        bits: 12,
-        compression: 7,
-        black_level: Some(0),
-        white_level: Some(3750),
-        active_area: None,
-        crop_origin: Some(DefaultCropOrigin { x: 4, y: 4 }),
-        crop_size: Some(DefaultCropSize {
-            width: 5976,
-            height: 3992,
-        }),
-        orientation: Some(1),
         opcode_lists: [false, false, false],
-        strip_byte_counts: 21311750,
         malformed: &[],
     },
     // ── Pentax DNG: the malformed BlackLevelRepeatDim dnglab warns about ────
@@ -197,26 +102,7 @@ const EXPECTED: &[Expected] = &[
         big_endian: false,
         ifds: 3,
         sensor_index: 1,
-        width: 6304,
-        height: 4224,
-        bits: 14,
-        compression: 7,
-        black_level: Some(64),
-        white_level: Some(16378),
-        active_area: Some(ActiveArea {
-            top: 34,
-            left: 26,
-            bottom: 4194,
-            right: 6250,
-        }),
-        crop_origin: Some(DefaultCropOrigin { x: 28, y: 24 }),
-        crop_size: Some(DefaultCropSize {
-            width: 6192,
-            height: 4128,
-        }),
-        orientation: Some(1),
         opcode_lists: [false, false, false],
-        strip_byte_counts: 31047287,
         malformed: &[50713],
     },
     // ── Pentax PEF: no SubIFDs at all, a 3-IFD CHAIN, and the plane in IFD0
@@ -227,18 +113,7 @@ const EXPECTED: &[Expected] = &[
         big_endian: false,
         ifds: 3,
         sensor_index: 0,
-        width: 6304,
-        height: 4224,
-        bits: 14,
-        compression: 65535,
-        black_level: None,
-        white_level: None,
-        active_area: None,
-        crop_origin: None,
-        crop_size: None,
-        orientation: Some(1),
         opcode_lists: [false, false, false],
-        strip_byte_counts: 30916224,
         malformed: &[],
     },
 ];
@@ -326,12 +201,10 @@ fn ifd_reaches_sensor_plane() {
         let sensor = container
             .sensor()
             .unwrap_or_else(|e| panic!("{}: no sensor plane: {e}", expect.path));
-        assert_eq!(
-            (sensor.width, sensor.height),
-            (expect.width, expect.height),
-            "{}: dimensions",
-            expect.path
-        );
+        // Dimensions are a TAG VALUE — `tests/metadata_oracle.rs` cross-checks
+        // them against exiftool live (SPEC-005 AC1). This invariant is ours
+        // alone: the selection rule must have picked an IFD that actually
+        // satisfies it.
         assert_eq!(sensor.samples_per_pixel, 1, "{}: samples", expect.path);
         assert_eq!(
             sensor.photometric, 34892,
@@ -345,11 +218,12 @@ fn ifd_reaches_sensor_plane() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. every tag matches exiftool
+// 2. structure columns no external tool reports — tag VALUES are
+//    `tests/metadata_oracle.rs`'s job (SPEC-005)
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn tag_model_matches_exiftool() {
+fn sensor_structural_columns_match_the_file() {
     let (manifest, root) = manifest_pairs();
 
     for expect in EXPECTED {
@@ -366,30 +240,7 @@ fn tag_model_matches_exiftool() {
             .unwrap_or_else(|e| panic!("{}: no sensor plane: {e}", expect.path));
 
         let at = expect.path;
-        assert_eq!(s.bits_per_sample, expect.bits, "{at}: BitsPerSample");
-        assert_eq!(
-            s.compression.code(),
-            expect.compression,
-            "{at}: Compression"
-        );
-        assert_eq!(s.black_level, expect.black_level, "{at}: BlackLevel");
-        assert_eq!(s.white_level, expect.white_level, "{at}: WhiteLevel");
-        assert_eq!(s.active_area, expect.active_area, "{at}: ActiveArea");
-        assert_eq!(
-            s.default_crop_origin, expect.crop_origin,
-            "{at}: DefaultCropOrigin"
-        );
-        assert_eq!(
-            s.default_crop_size, expect.crop_size,
-            "{at}: DefaultCropSize"
-        );
-        assert_eq!(s.orientation, expect.orientation, "{at}: Orientation");
         assert_eq!(s.opcode_lists, expect.opcode_lists, "{at}: OpcodeList1/2/3");
-        assert_eq!(
-            s.strip_byte_counts,
-            vec![expect.strip_byte_counts],
-            "{at}: StripByteCounts"
-        );
         assert_eq!(
             s.malformed_tags, expect.malformed,
             "{at}: tags present but shaped wrong"
@@ -527,23 +378,31 @@ fn ifd_rejects_compressed_planes_cleanly() {
         };
         let container = Container::parse(&data).expect("parses");
         let sensor = container.sensor().expect("has a sensor plane");
+        let width_before = sensor.width;
 
         match sensor.require_uncompressed() {
             Ok(()) => assert_eq!(
-                expect.compression, 1,
-                "{}: accepted a compressed plane",
+                sensor.compression.code(),
+                1,
+                "{}: Ok(()) but Compression is not 1",
                 expect.path
             ),
             Err(Error::UnsupportedCompression { compression }) => {
                 assert_ne!(
-                    expect.compression, 1,
+                    sensor.compression.code(),
+                    1,
                     "{}: rejected an uncompressed plane",
                     expect.path
                 );
-                assert_eq!(compression, expect.compression, "{}", expect.path);
+                assert_eq!(
+                    compression,
+                    sensor.compression.code(),
+                    "{}: the error's code must be the SAME code Compression carries",
+                    expect.path
+                );
                 // The rejection must be the ONLY consequence: the tags of a
                 // file this library cannot decode are still readable.
-                assert_eq!(sensor.width, expect.width, "{}", expect.path);
+                assert_eq!(sensor.width, width_before, "{}", expect.path);
             }
             Err(other) => panic!("{}: wrong error: {other}", expect.path),
         }
@@ -559,9 +418,6 @@ fn ifd_layer0_packing_closes_on_uncompressed_planes() {
     let (manifest, root) = manifest_pairs();
 
     for expect in EXPECTED {
-        if expect.compression != 1 {
-            continue;
-        }
         let Some(entry) = manifest.get(expect.path) else {
             continue;
         };
@@ -572,11 +428,21 @@ fn ifd_layer0_packing_closes_on_uncompressed_planes() {
             .expect("parses")
             .sensor()
             .expect("has a sensor plane");
+        if sensor.compression.code() != 1 {
+            continue;
+        }
 
         // AGENTS.md §12 bar 3: needs no oracle tooling, no network, no corpus
-        // beyond the file itself. width x height x bits == StripByteCounts x 8.
+        // beyond the file itself — width x height x bits == StripByteCounts x
+        // 8, both sides read LIVE from the file (no hand-typed literal, per
+        // SPEC-005 AC8).
         let packed = sensor.packed_bits().expect("packing arithmetic");
-        let declared = u64::from(expect.strip_byte_counts) * 8;
+        let declared: u64 = sensor
+            .strip_byte_counts
+            .iter()
+            .map(|&b| u64::from(b))
+            .sum::<u64>()
+            * 8;
         assert_eq!(
             packed, declared,
             "{}: {} x {} x {} bits is {packed}, but StripByteCounts says {declared}",
@@ -584,7 +450,7 @@ fn ifd_layer0_packing_closes_on_uncompressed_planes() {
         );
         assert_eq!(
             sensor.rows_per_strip,
-            Some(expect.height),
+            Some(sensor.height),
             "{}",
             expect.path
         );
