@@ -80,8 +80,19 @@ tags:
    not hold.
 
    This is the fourth instance of `measurement-over-generalised` — a guard one
-   point wide, recorded as covering a class. The signal was already at its
-   `N=3` bar; it is now `N=4`.
+   point wide, recorded as covering a class.
+
+   > ⚠ **And then a fifth, in this document.** The doc comment written to
+   > replace the guard claimed *"the day `FU-1` is fixed, `K3III.DNG` goes red
+   > here"* on the strength of **one** simulated future. `SPEC-005/FU-8` built
+   > `FU-1` as round 1 actually specified it — a tri-state compared against
+   > `malformed_tags` — and the alarm **never fires**, because that comparison
+   > *is* the generic guard, on the side that holds the information. The
+   > removal is still right (weakly dominant across all three measured futures,
+   > and counts 1–3 stand on their own); the *justification* was over-claimed.
+   > Knowing the rule and writing the correction did not prevent committing it.
+   > `measurement-over-generalised` is `N=5`, and instance 5 is why its
+   > codification is a **writing rule**, not a checklist item.
 
 ## Why the guard was REMOVED rather than made generic
 

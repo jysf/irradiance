@@ -6,14 +6,14 @@
 task:
   id: SPEC-005
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved         # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -89,10 +89,27 @@ cost:
       duration_minutes: 21
       recorded_at: 2026-08-22
       notes: "Verdict ⚠ PUNCH LIST. DEDUPED BY message.id and I say so: 123 usage objects, 65 distinct ids, raw 16,016,382 vs deduped 8,409,731 = 1.90x, 97.5% cache-read. Deduped components: input 130, output 49,334, cache-write 161,965, cache-read 8,198,302. estimated_usd computed PER-COMPONENT at published OPUS rates ($15/$75/$18.75/$1.50 per M) because message.model reads claude-opus-5 on all 123 objects — checked, not inherited from tier_map. tokens_total is rounded UP from the 8,409,731 measured mid-session because the transcript is still being written as this block is authored (the handback prose and the final gate re-run are not yet in it); the true figure is ~8.5M and cannot be measured exactly from inside the session that is producing it. Four handoff findings confirmed (F-1/F-2/F-3 merged as SB-1, F-4 as FU-1), F-5 confirmed and BROADER than stated (FU-3), both handoff-suggested sixth findings KILLED, three new findings raised (FU-2/FU-4/FU-5). Every mutation asserted applied AND compiled; tree restored byte-identical (shasum checked each time) and `git diff 418be15 -- src/ tests/ Cargo.toml Cargo.lock` is empty."
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 5683739
+      estimated_usd: 13.75
+      duration_minutes: 12
+      recorded_at: 2026-08-22
+      notes: "Verdict ✅ APPROVED at 5b1aef7. SB-1 is cleared; no SB-2. Four follow-ups (FU-8..FU-11), none holding the spec. DEDUPED BY message.id and I say so: 110 usage objects, 47 distinct ids, raw 12,944,378 vs deduped 5,683,739 = 2.28x, 96.8% cache-read. Components: input 94, output 37,138, cache-write 144,318, cache-read 5,502,189. estimated_usd computed PER-COMPONENT at published OPUS rates ($15/$75/$18.75/$1.50 per M) because message.model reads claude-opus-5 on all 110 objects — checked against my own transcript, not inherited from tier_map. THIS IS A FLOOR and the handoff's own warning applies to it: the convention runs ~17% low, so expect ~6.6M / ~$16 once this session closes. I REPRODUCED the handoff's floor-bias measurement independently before trusting it — round 1's transcript (cabae9fc) gives 10,203,870 deduped over 74 distinct ids, 139/139 claude-opus-5, exactly as HANDOFF-023 states. THE ONE CLAIM I WAS TOLD NOT TO INHERIT REPRODUCES VERBATIM: with the FU-1 fix simulated as the doc comment describes it, metadata_matches_exiftool_on_every_corpus_file fails with 'PENTAX-K3III-MONO/K3III.DNG: BlackLevelRepeatDim: ours=None, theirs=Some([1, 1])'. I also measured the counterfactual the argument rests on and nobody asked for: with the guard RESTORED on top of that same simulation, all 21 tests go green — so the guard would indeed have absorbed the divergence silently. Both halves of the self-forcing argument hold. FU-8 is where it stops holding: FU-1's fix has at least three shapes and only two of them red. Every mutation asserted applied (shasum before/after) AND compiled (cargo build --all-features --tests exit 0); tree restored byte-identical (tools.rs back to 0b9e3a573dc08c9049727dc260b3233b9f8862913bc52e132ae5fdc2c0bc2d53) and 'git diff 5b1aef7 -- src/ tests/ Cargo.toml Cargo.lock' is empty. handback-sync NOT run."
+    - cycle: ship
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-08-22
+      notes: "main-loop, not separately metered (AGENTS.md §4). Ship cycle: narrowed the diff() doc comment per FU-8 (the claim it made was over-generalised from one simulated future — instance 5 of measurement-over-generalised, committed inside the record that rejected instance 4 for the same defect), took the signal to N=5 with a WRITING RULE rather than a checklist item as its codification form, corrected DEC-013's own N-count, wrote the Follow-ups table (the first spec to use AGENTS.md §15's disposition policy — 11 findings + 1 ship-blocker, all four dispositions used, none left without an owner), and framed SPEC-010 as the destination for FU-1/FU-2/FU-4/FU-9. Gates re-run after every edit."
   totals:
-    tokens_total: 38614705
-    estimated_usd: 32.85
-    session_count: 3
+    tokens_total: 44298444
+    estimated_usd: 46.60
+    session_count: 5
+shipped_at: 2026-08-22
 ---
 
 # SPEC-005: Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red
@@ -433,7 +450,116 @@ mutation that never applied five separate times.
   they will be dispositioned at ship into `fixed` / a spec / a signal / an
   explicit close — AGENTS.md §15, *Where an unresolved follow-up goes*.
 
+## Follow-ups
+
+| id | finding | disposition |
+|---|---|---|
+| `SB-1` | `DEC-013` wrong on three counts — dead guard, false premise, Option-C-recorded/Option-B-shipped | `fixed` — `5b1aef7`. Guard removed, `DEC-013` `status: rejected` with the original preserved verbatim |
+| `FU-1` | a shape-odd tool value is reclassified as **absence**, so 5/5 garbled readings diff clean. Outside `AC2`'s wording — a design gap, not a build one | `spec: SPEC-010` — the fix is specified (tri-state on the tool side, compared against `malformed_tags`) and `FU-8` has already **measured** that it works. Carries `FU-2` |
+| `FU-2` | `opt()`/`req()` truncate a multi-valued reading to its head (`black="512 999"` → `Some(512)`). Latent on a mono corpus, live at `SamplesPerPixel > 1` | `spec: SPEC-010` — same parse layer, same fix pass |
+| `FU-3` | all **seven** corpus-gated tests pass in 0.06 s against a bogus corpus dir, including the tier-B red-proof. Skips are loud but only under `--nocapture` | `signal: named-tests-can-pass-vacuously` — evidence added; the accepted check is exactly this, and this is its sharpest instance yet (a *red-proof* passing vacuously) |
+| `FU-4` | the tier-A pair is two frozen literals carrying the three blind spots `## Context` indicts the old table for; nothing reconciles them even where corpus and tools exist | `spec: SPEC-010` — reconcile fixture against live tool when both are present. Reviewer verified both halves accurate **today**; rot risk, not a present defect |
+| `FU-5` | `AC8`'s letter — eleven literals in `fixture_sensor()` | `closed` — reviewer closed it in round 1: `tests/ifd_reader.rs` itself is clean, and the fixture literals are the *point* of a tier-A fixture. `AC8`'s intent is met |
+| `FU-6` | `measurement-over-generalised` reaches `N=4` | `signal: measurement-over-generalised` — and `FU-8` took it to **N=5** |
+| `FU-7` | no build reflection exists, so §15 check 6 cannot be run | `closed` — cause recorded in `HANDOFF-021`'s handback and in this spec's Reflection Q1. The build session ended without finishing its cycle; the orchestrator finished the mechanical remainder per `DEC-004` rule 1. Nothing to fix, everything to remember |
+| `FU-8` | the doc comment's alarm claim generalised one simulated future to all of them — under `FU-1` **as specified**, the alarm never fires | `fixed` at ship — doc comment narrowed to the measured three-future table; `DEC-013` and the signal both corrected to `N=5` |
+| `FU-9` | `is_active()` (`scripts/decisions-audit.sh:152`) reads only `superseded_by`, never `status`, so a **rejected** decision still "governs" its `affected_scope` | `spec: SPEC-010` — and per the reviewer, **fix the verb, not the filter**: that surfacing is currently the only mechanical signpost from `tools.rs` to `DEC-013`'s explanation |
+| `FU-10` | `DEC-013` said the ledger "is now `N=4`" while `signals.yaml` still read `N=3` | `fixed` at ship — signal updated to `N=5` with both new instances and `last_touched` bumped |
+| `FU-11` | round 1's recorded `8,500,000` vs the independently reproduced `10,203,870`; the correction lived only in `signals.yaml` with nothing pointing at it from the spec | `fixed` at ship — recorded in Reflection Q2 below, where the spec's own cost data is read |
+
+**11 findings + 1 ship-blocker · 4 `fixed` · 2 `closed` · 2 `signal` · 4 → `SPEC-010`.**
+
 ## Reflection
+
+**1. What would I do differently next time?**
+
+**Not let a build cycle end without its handback.** The build reported done,
+then asked the orchestrator to run `/cost` — a client-side command the assistant
+cannot execute, and which would have measured the *orchestrator's* session
+rather than the build's. It also never branched or committed, so ~1,600 lines
+sat unversioned in a shared checkout. The orchestrator finished the mechanical
+remainder per `DEC-004` rule 1 and recovered the real figure from the build's own
+transcript — the method `SPEC-004/FU-18` established, whose premise ("no source
+exists") was wrong then and was wrong again here.
+
+The cost of that gap is `FU-7`: **there is no build reflection, so §15 check 6
+could not be run at all.** Two rounds of verify covered the code thoroughly and
+neither could tell us what the implementer learned. The handoff should say
+plainly that filling the handback is part of *doing* the cycle, not part of
+reporting it — `HANDOFF-021` said "before it reports done" and that was not
+enough.
+
+**And: apply the rule I had just applied to someone else.** `FU-8` is the one
+that stings. `DEC-013` was rejected partly for over-generalising a measurement,
+and the doc comment I wrote to *replace* it — in the same commit — claimed *"the
+day `FU-1` is fixed, `K3III.DNG` goes red here"* from **one** simulated future.
+The reviewer built `FU-1` as round 1 actually specified it and the alarm never
+fires. Knowing the rule, having just enforced it, and writing the correction did
+not prevent committing it. That is instance **5** of
+`measurement-over-generalised`, and it is why the codification has to be a
+*writing rule* rather than a checklist item — see Q2.
+
+**2. Does any template, constraint, or decision need updating?**
+
+**Yes — `measurement-over-generalised` is at `N=5` and past any reasonable bar.**
+`STAGE-001`'s close should codify it into AGENTS.md §16, and instance 5 dictates
+the *form*:
+
+> When a probe result becomes a claim, the sentence names the exact command AND
+> its scope, and any word that generalises beyond the run — "the day X happens",
+> "the boundary", "the class" — must either be deleted or be backed by a SECOND
+> measured point in a different direction.
+
+Instances 3, 4 and 5 would each have been caught by that rule *in the act of
+typing*. A checklist item would not have caught 5, because the person writing it
+had just applied the checklist to someone else.
+
+**`DEC-013` is `rejected`, not deleted**, with its original text preserved
+verbatim — a decision that quietly vanishes teaches nobody. It is the repo's
+first rejected decision, and it immediately found `FU-9`: `decisions-audit`'s
+`is_active()` reads only `superseded_by` and never `status`, so a rejected
+decision still reports as governing its `affected_scope`. The reviewer's ruling
+is right and worth repeating — **fix the verb, not the filter**, because that
+surfacing is the only mechanical path from `tools.rs` to the explanation of why
+its guard is gone.
+
+**Cost data (`FU-11`), read in this spec's own numbers.** The three metered
+sessions here are `30,114,705` (build) + `8,500,000` (verify 1) + `5,683,739`
+(verify 2). Two corrections belong on the record rather than only in
+`signals.yaml`:
+
+- **The model was wrong in the map, not in reality.** The build ran on
+  `claude-sonnet-5` against a `tier_map` saying `claude-opus-5`; both verify
+  rounds ran on Opus, as predicted. `tier_map` is **1 for 4**, and the reviewer
+  was right that this sharpens rather than softens the signal — a field wrong
+  every time gets checked; a field right three times in four gets trusted.
+  The `estimated_usd` consequence on the build session alone: `$13.55` at Sonnet
+  rates, `$67.74` at Opus (5.0×), `$198.76` at the repo's flat
+  `rate_per_mtok: 6.60` (**14.7×**).
+- **The "floor" convention under-reports by a measured margin.** Verify round 1
+  recorded `8,500,000`; the same transcript, measured after that session closed,
+  gives `10,203,870` over 74 distinct ids — **17% low**, and always in the same
+  direction. Reproduced independently by the reviewer. Not retro-fixed: the
+  number is the reporter's to state and the convention is repo-wide.
+
+**3. Is there a follow-up spec to write now?**
+
+**Yes — `SPEC-010`, framed, carrying `FU-1`, `FU-2`, `FU-4` and `FU-9`.**
+
+`FU-1` is the substantive one: the oracle cannot distinguish an **absent** tag
+from an **unparseable** one, so 5/5 garbled readings diff clean. Its fix is
+unusually cheap to specify because `FU-8` already **built and measured it** — a
+tri-state compared against `malformed_tags` keeps all 21 tests green, and the
+same tri-state *without* that comparison reds. `FU-2` shares the parse layer.
+`FU-4` and `FU-9` are small and adjacent.
+
+Worth stating plainly, because it is the whole point of the spec: **the oracle
+found its own defects.** `AC1` compares eleven fields on seven real files against
+two independent tools, and the interesting findings from both verify rounds were
+about the *comparator's* honesty rather than the reader's correctness. `src/` did
+not move a byte across four cycles — which is what a metadata oracle over a
+container reader that was already right ought to look like.
+
 
 *Appended during **ship**. Three questions, short answers.*
 

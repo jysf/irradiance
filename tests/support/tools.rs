@@ -307,20 +307,30 @@ impl std::fmt::Display for Mismatch {
 /// already agree and there is nothing to exempt.
 ///
 /// ⚠ **That agreement is an accident of `SPEC-005/FU-1`**, the defect where
-/// a shape-odd tool value is reclassified as absence. The day `FU-1` is
-/// fixed, `K3III.DNG` goes red here — and that is deliberate. Whoever fixes
-/// `FU-1` must then decide, with a test, whether a `DEC-012`-tolerated tag
-/// is exempt from this diff. Leaving the guard in place would have let that
-/// decision happen silently, by absorption, which is the one outcome
-/// `DEC-013` was trying to avoid and the one it would have caused.
+/// a shape-odd tool value is reclassified as absence. Whoever fixes `FU-1`
+/// must decide, with a test, whether a `DEC-012`-tolerated tag is exempt
+/// from this diff. Leaving the guard in place would have let that decision
+/// happen silently, by absorption.
 ///
-/// That alarm is **measured, not reasoned** (2026-08-22): with the `FU-1`
-/// fix simulated here — a one-element reading mapped to `Some([a, a])`
-/// instead of `None` — `metadata_matches_exiftool_on_every_corpus_file`
-/// fails immediately with
-/// `PENTAX-K3III-MONO/K3III.DNG: BlackLevelRepeatDim: ours=None,
-/// theirs=Some([1, 1])`. Mutation asserted applied and compiled; tree
-/// restored byte-identical.
+/// ⚠ **How far that claim actually reaches — narrowed 2026-08-22 by
+/// `SPEC-005/FU-8`, and the narrowing is the useful part.** Three futures
+/// were measured, each mutation asserted applied and compiled, tree restored
+/// byte-identical:
+///
+/// | patched into the tool-side parse | AC1 |
+/// |---|---|
+/// | one-element reading → `Some([a, a])` (a *partial* `FU-1` fix) | **reds**, naming `K3III.DNG` / `BlackLevelRepeatDim` / `ours=None` / `theirs=Some([1, 1])` |
+/// | a tri-state, `malformed_tags` not consulted | **reds** |
+/// | a tri-state **compared against `malformed_tags`** — `FU-1` *as round 1 specified it* | **21 green: the alarm never fires** |
+///
+/// So this is **not** an alarm that fires the day `FU-1` lands. Under `FU-1`'s
+/// specified fix it never fires, because that comparison *is* the generic
+/// guard, implemented on the side that actually holds the information. It
+/// fires only on a partial fix. Removal remains the right call — it is weakly
+/// dominant across all three futures and `DEC-013`'s three counts stand on
+/// their own — but the original wording here claimed a category from one
+/// measured point, which is [`measurement-over-generalised`] committed inside
+/// the very record that rejected a decision for committing it.
 pub fn diff(sensor: &Sensor, reading: &ToolReading) -> Vec<Mismatch> {
     let mut out = Vec::new();
 

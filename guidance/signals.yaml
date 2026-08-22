@@ -210,14 +210,37 @@ signals:
   - id: measurement-over-generalised
     type: lesson
     summary: "Running something proves what you ran, not the category it belongs to — over-generalised measurements read as `measured` and are wrong."
-    evidence: "N=3. (1) SPEC-002/F2 — measured eprintln! is captured, asserted 'loudness cannot live in the harness' (false; writeln!(stderr) escapes). (2) SPEC-004 — read the first lines of `pub struct Sensor` and asserted SPEC-003 'stops where geometry begins' (false; it already carried every tag). (3) SPEC-007 — mutated ONE structural tag, watched the test go red, asserted 'the boundary test has teeth'; the reviewer softened the other four and all 58 tests stayed green."
+    evidence: "N=5. (1) SPEC-002/F2 — measured eprintln! is captured, asserted 'loudness cannot live in the harness' (false; writeln!(stderr) escapes). (2) SPEC-004 — read the first lines of `pub struct Sensor` and asserted SPEC-003 'stops where geometry begins' (false; it already carried every tag). (3) SPEC-007 — mutated ONE structural tag, watched the test go red, asserted 'the boundary test has teeth'; the reviewer softened the other four and all 58 tests stayed green. (4) SPEC-005 build — DEC-013 recorded choosing a GENERIC malformed_tags exemption and shipped a single hardcoded tag; settled by test, not by reading (malformed BlackLevelRepeatDim diffs []; an identically malformed ActiveArea still reds). (5) SPEC-005/FU-8 — the ORCHESTRATOR, in the doc comment written to reject instance 4 for exactly this, measured ONE simulated future and wrote 'the day FU-1 is fixed, K3III.DNG goes red here'; the reviewer built FU-1 AS SPECIFIED and the alarm never fires."
     bar: "N=3 same-outcome"
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-18
+    last_touched: 2026-08-22
     raised_by: claude
     notes: |
+      ⚠ N=5 as of 2026-08-22 (SPEC-005), and instance 5 is the one that settles
+      how to codify this. It was committed BY THE ORCHESTRATOR, in the doc
+      comment written to reject instance 4 FOR THIS EXACT DEFECT, in the same
+      commit. Knowing the rule, having just applied it to someone else, and
+      writing the correction, did not prevent it. So the fix is NOT "be more
+      careful" and NOT a checklist item — it is a WRITING RULE, mechanical
+      enough to apply while tired:
+
+        When a probe result becomes a claim, the sentence names the exact
+        command AND its scope, and any word that generalises beyond the run
+        ("the day X happens", "the boundary", "the class") must either be
+        deleted or be backed by a SECOND measured point in a different
+        direction.
+
+      Instance 5 would have been caught by that rule in the act of typing:
+      "the day FU-1 is fixed, K3III.DNG goes red" generalises from one
+      simulated future to all of them, and the reviewer found the second point
+      (FU-1 as actually specified) in a single mutation. Instance 3 and
+      instance 4 would have been caught the same way.
+      CODIFY AT STAGE-001's CLOSE, which is now imminent — with the rule above,
+      quoted, into AGENTS.md §16 (Confidence Discipline) next to "measured
+      once, on one file is not 1.0".
+
       Distinct from [[unrun-docs-carry-errors]] and sharper: those docs were never
       executed. This one WAS executed, and was still wrong, because the conclusion
       was broader than the experiment. AT BAR (N=3) as of 2026-08-21 — codify at
