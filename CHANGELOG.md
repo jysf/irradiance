@@ -52,6 +52,35 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   red-proof.
   ⚠ CI **cannot** verify decode correctness — tier-B corpus files are never
   committed (DEC-003), so a green badge does not mean the decoder is bit-exact.
+- **The live metadata oracle** (`tests/metadata_oracle.rs`, `tests/support/tools.rs`,
+  SPEC-005) — `Sensor` is now diffed against `exiftool 13.55` and
+  `dnglab analyze --meta --json`, shelled out to fresh every run, replacing a
+  frozen hand-transcribed table. No new dependency: `exiftool -T` needs no
+  parser, and `dnglab`'s JSON is read by asserting the handful of keys this
+  oracle needs are unique in the document before trusting a match.
+  - `exiftool` cross-checks all eleven tag-level fields on all **7** corpus
+    files, absence included (an M Monochrom's missing `ActiveArea`, a Pentax
+    PEF's five absent DNG tags).
+  - `dnglab` cross-checks six scalars on the **6 DNG** files (excludes the PEF —
+    its values come from rawler's camera database, not the file, evidenced by
+    a `bitDepth` of 16 against the file's own `BitsPerSample` 14) and asserts,
+    rather than ignores, that its `cropArea.p` is sensor-absolute
+    (`ActiveArea` origin + `DefaultCropOrigin`) where ours and exiftool's are
+    DNG-relative.
+  - The Pentax DNG's malformed `BlackLevelRepeatDim` (`DEC-012`) is asserted
+    three ways in one test: exiftool reads a bare `1`, dnglab warns on stderr
+    and substitutes, and our reader reports `None` with `50713` recorded in
+    `malformed_tags`.
+  - **Proven red, both directions** (`oracle-must-be-shown-red`): a tier-A
+    pair replays a committed `exiftool` line through the real parsing code
+    with no tool and no corpus (CI's only reachable half) — clean on an
+    honest reading, exactly one named `Mismatch` on one perturbed field. A
+    tier-B pair patches `ActiveArea`'s payload bytes in an in-memory copy of a
+    real file (mutation asserted to have actually changed the buffer first),
+    diffs the patched reader against the tool reading of the *original* file,
+    and confirms re-running on the unpatched bytes is clean again.
+  - `just oracle-meta` runs this file alone; both tool-absence and
+    corpus-absence skip loudly, naming what is missing.
 
 ### Known gaps
 
@@ -102,3 +131,11 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   tag *says* costs that tag and is reported in `Sensor::malformed_tags`. No
   behaviour changed; `SPEC-004` widens the type model on top of this boundary and
   should not have had to guess it.
+- **`tests/ifd_reader.rs`'s hand-transcribed tag-value table is gone** (SPEC-005).
+  `EXPECTED` now carries only this reader's own structure claims — byte order,
+  IFD count, sensor-IFD index, opcode-list presence, malformed tags — none of
+  which any external tool reports. Every tag *value* (dimensions, levels,
+  geometry, orientation) is cross-checked live by `tests/metadata_oracle.rs`
+  instead of trusted from a table one past session typed by hand; the layer-0
+  packing check now compares against the file's own live `StripByteCounts`
+  rather than a second hand-typed copy of it.

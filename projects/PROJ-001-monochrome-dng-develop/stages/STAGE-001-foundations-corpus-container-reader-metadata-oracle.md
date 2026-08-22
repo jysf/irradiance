@@ -108,12 +108,12 @@ Run `just frame-stage STAGE-001` to promote these outlines into real specs.
 - [x] SPEC-003 (shipped on 2026-08-21) [L] TIFF/IFD reader — bounded, panic-free, cycle-guarded, SubIFD recursion — plus its fuzz target
 - [x] SPEC-004 (shipped on 2026-08-21) [M] DNG tag model and typed metadata extraction
 - [x] SPEC-006 (shipped on 2026-08-20) [S] Close the allow-attribute bypass in the panic-free gate — split from SPEC-002 at SPEC-001 ship; depends only on SPEC-001
-- [ ] SPEC-005 (design→build) [M] Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red — **the stage's own success criterion, and the last spec in this backlog.** Designed 2026-08-21; `HANDOFF-021` ready. Re-sized S→M at design: the probe found the two tools answer different questions, so the spec carries a per-tool scope, three asserted divergences and a two-tier red-proof.
+- [x] SPEC-005 (shipped on 2026-08-22) [M] Metadata oracle: diff parsed tags against `dnglab analyze --meta --json` and `exiftool`, and prove it goes red — **the stage's own success criterion, and the last spec in this backlog.** Designed 2026-08-21; `HANDOFF-021` ready. Re-sized S→M at design: the probe found the two tools answer different questions, so the spec carries a per-tool scope, three asserted divergences and a two-tier red-proof.
 
 - [x] SPEC-007 (shipped 2026-08-21) — extraction tolerance per DEC-012's amendment
 - [x] SPEC-008 (shipped on 2026-08-21) [S] Pin the Structure class with tests that fail when it is softened
 
-**Count:** 7 shipped / 1 active / 0 pending
+**Count:** 8 shipped / 0 active / 0 pending
 
 ## Design Notes
 

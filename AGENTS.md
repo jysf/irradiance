@@ -274,6 +274,13 @@ cargo test --all-features
 # test one   — a single test by name
 cargo test --all-features <test_name> -- --exact --nocapture
 
+# oracle-meta — the live metadata oracle only (SPEC-005): exiftool/dnglab
+#              cross-checks plus the red-proof. Tier-B half needs
+#              $IRRADIANCE_CORPUS_DIR and the tools on PATH; both skip loudly,
+#              naming what's missing, when absent. Tier-A red-proof needs
+#              neither and is the only half CI runs.
+cargo test --all-features --test metadata_oracle
+
 # lint       — BOTH halves; `just lint` runs them in this order
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
