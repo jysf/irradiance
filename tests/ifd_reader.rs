@@ -615,6 +615,9 @@ fn ifd_rejects_hostile_input() {
         // no sanity rule about where an IFD is allowed to live.
         "unknown-field-type",
         "malformed-black-level-repeat-dim",
+        // SPEC-007: DefaultCropSize as RATIONAL is DNG-legal and now read
+        // exactly, not merely tolerated.
+        "rational-default-crop-size",
         // Malformed identifying tags (SPEC-004 FU-11): the WALK still
         // succeeds — only sensor SELECTION is affected, and that is a
         // separate, dedicated pair of tests below.

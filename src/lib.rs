@@ -41,9 +41,12 @@
 //! container reader and its fuzz target; `SPEC-004` added the develop
 //! pipeline's remaining DNG integer tags (`BlackLevel`, `WhiteLevel`,
 //! `ActiveArea`, `DefaultCropOrigin`/`Size`, `Orientation`, opcode-list
-//! presence) as typed extraction. Still absent, by design: `RATIONAL`,
-//! `ASCII` and the signed field types (no DNG tag PROJ-001 reads needs them
-//! yet), and any pixel decode or unpack (STAGE-002).
+//! presence) as typed extraction; `SPEC-007` added `RATIONAL` and made the
+//! extraction path obey `DEC-012`'s structure/interpretation split — a
+//! malformed *interpretation* tag costs that field, never the plane. Still
+//! absent, by design: `ASCII` and the signed field types (no DNG tag
+//! PROJ-001 reads needs them yet), and any pixel decode or unpack
+//! (STAGE-002).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -128,6 +131,20 @@ pub enum Error {
         tag: u16,
     },
 
+    /// A `RATIONAL` value's shape is malformed: a zero denominator, or a
+    /// ratio that is not an integer. `SPEC-007`/`SPEC-004` FU-17 — DNG
+    /// permits `RATIONAL` for several tags this reader extracts, and reading
+    /// one exactly is preferred, but a malformed one costs only the field it
+    /// came from when the caller is an interpretation tag (`DEC-012`).
+    MalformedRationalValue {
+        /// The tag carrying the malformed ratio.
+        tag: u16,
+        /// The numerator as read from the file.
+        numerator: u32,
+        /// The denominator as read from the file.
+        denominator: u32,
+    },
+
     /// A tag declared more values than [`ifd::MAX_TAG_VALUES`]. Bounds
     /// allocation from a hostile `count` independently of the file's length.
     TagTooLarge {
@@ -210,6 +227,16 @@ impl fmt::Display for Error {
             }
             Error::ValueOverflow { tag } => {
                 write!(f, "tag {tag}: value size arithmetic overflowed")
+            }
+            Error::MalformedRationalValue {
+                tag,
+                numerator,
+                denominator,
+            } => {
+                write!(
+                    f,
+                    "tag {tag}: RATIONAL {numerator}/{denominator} is not a non-negative integer"
+                )
             }
             Error::TagTooLarge { tag, count, limit } => {
                 write!(

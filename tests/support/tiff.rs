@@ -163,6 +163,7 @@ pub const SAMPLES_PER_PIXEL: u16 = 277;
 pub const STRIP_BYTE_COUNTS: u16 = 279;
 pub const SUB_IFDS: u16 = 330;
 pub const BLACK_LEVEL_REPEAT_DIM: u16 = 50713;
+pub const DEFAULT_CROP_SIZE: u16 = 50720;
 pub const LINEAR_RAW: u16 = 34892;
 
 /// The entry list of a minimal but *valid* sensor IFD: 4 x 2, 14-bit, one
@@ -355,6 +356,33 @@ pub fn malformed_black_level_repeat_dim() -> Vec<u8> {
     tiff(Order::Little, 8, &[Ifd::new(8, entries, 0)])
 }
 
+/// A valid container whose `DefaultCropSize` is `RATIONAL` rather than the
+/// `LONG` every corpus file writes it as — legal under DNG, and `TYPE_RATIONAL`
+/// was not read at all before `SPEC-007`. The well-formed half of FU-17's
+/// boundary; the malformed half (zero denominator, non-integral ratio) lives
+/// as hand-built fixtures in `src/ifd.rs`'s own unit tests.
+pub fn rational_default_crop_size(order: Order) -> Vec<u8> {
+    let mut entries = sensor_entries(order);
+    entries.push(at_offset(DEFAULT_CROP_SIZE, 5, 2, 600));
+    let mut data = tiff(order, 8, &[Ifd::new(8, entries, 0)]);
+    if data.len() < 616 {
+        data.resize(616, 0);
+    }
+    // The Q2 Monochrom's real crop size (docs/measured-q2m-dng.md), 8368/1
+    // and 5584/1 — an exact integral RATIONAL rather than the LONG the
+    // corpus actually carries.
+    for (i, (num, den)) in [(8368u32, 1u32), (5584, 1)].iter().enumerate() {
+        let at = 600 + i * 8;
+        if let Some(slot) = data.get_mut(at..at + 4) {
+            slot.copy_from_slice(&order.u32(*num));
+        }
+        if let Some(slot) = data.get_mut(at + 4..at + 8) {
+            slot.copy_from_slice(&order.u32(*den));
+        }
+    }
+    data
+}
+
 /// A malformed `PhotometricInterpretation` on IFD0 — posing as a thumbnail —
 /// alongside a valid `SubIFD` carrying the real sensor plane.
 ///
@@ -441,6 +469,10 @@ pub fn all() -> Vec<(&'static str, Vec<u8>)> {
         (
             "malformed-black-level-repeat-dim",
             malformed_black_level_repeat_dim(),
+        ),
+        (
+            "rational-default-crop-size",
+            rational_default_crop_size(Order::Little),
         ),
         (
             "malformed-photometric-on-thumbnail",

@@ -141,6 +141,11 @@ pub const PHOTOMETRIC_LINEAR_RAW: u32 = 34892;
 const TYPE_BYTE: u16 = 1;
 const TYPE_SHORT: u16 = 3;
 const TYPE_LONG: u16 = 4;
+/// TIFF 6.0 §2: two `LONG`s, numerator then denominator. `SPEC-007` —
+/// several DNG tags this reader extracts (`BlackLevel`, `DefaultCropSize`
+/// among them) legally use this type; a zero denominator or a non-integral
+/// ratio is `Error::MalformedRationalValue`, read in [`Container::uints`].
+const TYPE_RATIONAL: u16 = 5;
 const TYPE_UNDEFINED: u16 = 7;
 const TYPE_IFD: u16 = 13;
 
@@ -781,16 +786,18 @@ impl<'a> Container<'a> {
 
     /// An entry's values widened to `u32`.
     ///
-    /// Handles `BYTE`, `SHORT`, `LONG`, `IFD` and `UNDEFINED` — every DNG tag
-    /// PROJ-001 reads. `RATIONAL`, the signed types and `ASCII` remain
+    /// Handles `BYTE`, `SHORT`, `LONG`, `IFD`, `UNDEFINED` and `RATIONAL` —
+    /// every DNG tag PROJ-001 reads. The signed types and `ASCII` remain
     /// unimplemented, still absent by design; asking for one here is a typed
-    /// [`Error::UnexpectedFieldType`] rather than a silent zero.
+    /// [`Error::UnexpectedFieldType`] rather than a silent zero. A `RATIONAL`
+    /// whose shape is malformed (zero denominator, non-integral ratio) is
+    /// [`Error::MalformedRationalValue`] — `SPEC-007`, `SPEC-004` FU-17.
     pub fn uints(&self, entry: &Entry) -> Result<Vec<u32>, Error> {
         // The field type is a property of the entry, so it is checked before
         // the buffer is touched: otherwise a RATIONAL that also happens to
         // point out of bounds reports `Truncated` and hides the real problem.
         match entry.field_type {
-            TYPE_BYTE | TYPE_UNDEFINED | TYPE_SHORT | TYPE_LONG | TYPE_IFD => {}
+            TYPE_BYTE | TYPE_UNDEFINED | TYPE_SHORT | TYPE_LONG | TYPE_IFD | TYPE_RATIONAL => {}
             other => {
                 return Err(Error::UnexpectedFieldType {
                     tag: entry.tag,
@@ -831,6 +838,41 @@ impl<'a> Container<'a> {
                         .try_into()
                         .map_err(|_| Error::ValueOverflow { tag: entry.tag })?;
                     out.push(self.byte_order.u32(raw));
+                }
+            }
+            TYPE_RATIONAL => {
+                // TIFF 6.0 §2: two LONGs, numerator then denominator. Reading
+                // this correctly (rather than just refusing it) is what
+                // closes `SPEC-004`'s FU-17 for the well-formed case.
+                for chunk in bytes.chunks_exact(8) {
+                    let num_bytes: [u8; 4] = chunk
+                        .get(0..4)
+                        .ok_or(Error::ValueOverflow { tag: entry.tag })?
+                        .try_into()
+                        .map_err(|_| Error::ValueOverflow { tag: entry.tag })?;
+                    let den_bytes: [u8; 4] = chunk
+                        .get(4..8)
+                        .ok_or(Error::ValueOverflow { tag: entry.tag })?
+                        .try_into()
+                        .map_err(|_| Error::ValueOverflow { tag: entry.tag })?;
+                    let numerator = self.byte_order.u32(num_bytes);
+                    let denominator = self.byte_order.u32(den_bytes);
+                    // `checked_div`/`checked_rem` both report zero
+                    // denominator as `None`, so that shape and a
+                    // non-integral ratio are the same malformed-value error.
+                    match (
+                        numerator.checked_div(denominator),
+                        numerator.checked_rem(denominator),
+                    ) {
+                        (Some(value), Some(0)) => out.push(value),
+                        _ => {
+                            return Err(Error::MalformedRationalValue {
+                                tag: entry.tag,
+                                numerator,
+                                denominator,
+                            })
+                        }
+                    }
                 }
             }
             // Unreachable given the guard above, and kept because the match
@@ -913,20 +955,37 @@ impl<'a> Container<'a> {
     ///
     /// Returns [`SensorMatch`], not `Result<bool, Error>` — see FU-11 below
     /// for why a `?`-shaped answer here was the defect, not the fix.
+    ///
+    /// Each identifying tag is read **and evaluated** before the next one is
+    /// even read (`SPEC-004` FU-20): a readable tag that already disqualifies
+    /// the IFD returns `No` immediately, rather than reading the remaining
+    /// tags and reporting `Unreadable` for an IFD that was never a candidate
+    /// in the first place. Reading all three unconditionally, then combining,
+    /// was the bug — an IFD with `NewSubfileType == 1` (a preview) is a
+    /// confident `No` even when its `Photometric` also happens to be
+    /// malformed.
     pub fn is_sensor_ifd(&self, ifd: &Ifd) -> SensorMatch {
         let subfile_type = match self.scalar(ifd, TAG_NEW_SUBFILE_TYPE) {
             Ok(v) => v.unwrap_or(0),
             Err(_) => return SensorMatch::Unreadable(TAG_NEW_SUBFILE_TYPE),
         };
+        if subfile_type != 0 {
+            return SensorMatch::No;
+        }
+
         let photometric = match self.scalar(ifd, TAG_PHOTOMETRIC) {
             Ok(v) => v,
             Err(_) => return SensorMatch::Unreadable(TAG_PHOTOMETRIC),
         };
+        if photometric != Some(PHOTOMETRIC_LINEAR_RAW) {
+            return SensorMatch::No;
+        }
+
         let samples = match self.scalar(ifd, TAG_SAMPLES_PER_PIXEL) {
             Ok(v) => v.unwrap_or(1),
             Err(_) => return SensorMatch::Unreadable(TAG_SAMPLES_PER_PIXEL),
         };
-        if subfile_type == 0 && photometric == Some(PHOTOMETRIC_LINEAR_RAW) && samples == 1 {
+        if samples == 1 {
             SensorMatch::Yes
         } else {
             SensorMatch::No
@@ -992,11 +1051,40 @@ impl<'a> Container<'a> {
         }
     }
 
+    /// `DEC-012`'s amendment, applied at the one place it was contradicted:
+    /// an **interpretation** tag's malformed read costs that field alone, and
+    /// must not be inherited by the composite accessor that invoked it.
+    ///
+    /// `scalar()`/`array()` (the leaf accessors) keep reporting a malformed
+    /// tag honestly, as `Err` — this is what catches that `Err` for an
+    /// interpretation-class call, records the tag, and continues, the same
+    /// shape [`Container::scan_sensor`] already applies to `SensorMatch`
+    /// per-IFD. `Ok(None)` (tag absent, or already recorded by `array()`'s own
+    /// count check) passes through unchanged.
+    fn cost_the_field<T>(
+        result: Result<Option<T>, Error>,
+        tag: u16,
+        malformed: &mut Vec<u16>,
+    ) -> Option<T> {
+        match result {
+            Ok(value) => value,
+            Err(_) => {
+                malformed.push(tag);
+                None
+            }
+        }
+    }
+
     /// The sensor plane's tags, as [`Sensor`].
     ///
     /// Reads tags only — this never touches `StripOffsets`' target, and it
     /// succeeds on compressed files too, so their tags are readable and their
     /// rejection is a separate, explicit [`Sensor::require_uncompressed`].
+    ///
+    /// `DEC-012`: fields below are commented **structural** (a malformed read
+    /// propagates via `?` and fails the whole file — "what exists" is the
+    /// plane) or **interpretation** (a malformed read costs that field alone,
+    /// via [`Container::cost_the_field`], and the file still reads).
     pub fn sensor(&self) -> Result<Sensor, Error> {
         let (matches, unreadable) = self.scan_sensor();
         let ifd_index = *matches
@@ -1006,49 +1094,103 @@ impl<'a> Container<'a> {
 
         let mut malformed: Vec<u16> = Vec::new();
 
-        // Orientation is an IFD0 tag in every DNG measured; the Pentax PEF
-        // puts the plane in IFD0 itself, so the fallback finds it there.
-        let orientation = match self.ifd0() {
-            Some(ifd0) => match self.scalar(ifd0, TAG_ORIENTATION)? {
-                Some(value) => Some(value),
-                None => self.scalar(ifd, TAG_ORIENTATION)?,
-            },
-            None => self.scalar(ifd, TAG_ORIENTATION)?,
+        // Interpretation: Orientation. `SPEC-004` FU-16 — sensor() used to
+        // read this from IFD0 with a bare `?`, so a malformed tag on a
+        // NON-SENSOR IFD discarded an already-located plane. IFD0 is tried
+        // first (every DNG measured carries it there); the sensor IFD is the
+        // fallback for a Pentax `.PEF`, where the plane IS IFD0.
+        let ifd0_orientation = match self.ifd0() {
+            Some(ifd0) => Self::cost_the_field(
+                self.scalar(ifd0, TAG_ORIENTATION),
+                TAG_ORIENTATION,
+                &mut malformed,
+            ),
+            None => None,
         };
+        let orientation = match ifd0_orientation {
+            Some(value) => Some(value),
+            None => Self::cost_the_field(
+                self.scalar(ifd, TAG_ORIENTATION),
+                TAG_ORIENTATION,
+                &mut malformed,
+            ),
+        };
+
+        // Interpretation: BlackLevel, WhiteLevel.
+        let black_level = Self::cost_the_field(
+            self.scalar(ifd, TAG_BLACK_LEVEL),
+            TAG_BLACK_LEVEL,
+            &mut malformed,
+        );
+        let white_level = Self::cost_the_field(
+            self.scalar(ifd, TAG_WHITE_LEVEL),
+            TAG_WHITE_LEVEL,
+            &mut malformed,
+        );
+
+        // Interpretation: BlackLevelRepeatDim, ActiveArea, DefaultCropOrigin,
+        // DefaultCropSize. `array()` already records a wrong-length payload
+        // itself; `cost_the_field` additionally catches a genuine read
+        // failure (wrong field type, malformed RATIONAL shape) that `array()`
+        // still reports honestly as `Err` — `SPEC-004` FU-17.
+        let black_level_repeat_dim = Self::cost_the_field(
+            self.array::<2>(ifd, TAG_BLACK_LEVEL_REPEAT_DIM, &mut malformed),
+            TAG_BLACK_LEVEL_REPEAT_DIM,
+            &mut malformed,
+        );
+        let active_area = Self::cost_the_field(
+            self.array::<4>(ifd, TAG_ACTIVE_AREA, &mut malformed),
+            TAG_ACTIVE_AREA,
+            &mut malformed,
+        )
+        .map(|[top, left, bottom, right]| ActiveArea {
+            top,
+            left,
+            bottom,
+            right,
+        });
+        let default_crop_origin = Self::cost_the_field(
+            self.array::<2>(ifd, TAG_DEFAULT_CROP_ORIGIN, &mut malformed),
+            TAG_DEFAULT_CROP_ORIGIN,
+            &mut malformed,
+        )
+        .map(|[x, y]| DefaultCropOrigin { x, y });
+        let default_crop_size = Self::cost_the_field(
+            self.array::<2>(ifd, TAG_DEFAULT_CROP_SIZE, &mut malformed),
+            TAG_DEFAULT_CROP_SIZE,
+            &mut malformed,
+        )
+        .map(|[width, height]| DefaultCropSize { width, height });
 
         Ok(Sensor {
             ifd_index,
+            // Structural: ImageWidth, ImageLength, BitsPerSample — "what
+            // exists" is the plane's dimensions.
             width: self.required_scalar(ifd, TAG_IMAGE_WIDTH)?,
             height: self.required_scalar(ifd, TAG_IMAGE_LENGTH)?,
             bits_per_sample: self.required_scalar(ifd, TAG_BITS_PER_SAMPLE)?,
+            // Structural: SamplesPerPixel — part of the identifying trio.
             samples_per_pixel: self.scalar(ifd, TAG_SAMPLES_PER_PIXEL)?.unwrap_or(1),
+            // Structural: Photometric — part of the identifying trio.
             photometric: self.required_scalar(ifd, TAG_PHOTOMETRIC)?,
-            // TIFF 6.0: Compression defaults to 1 (uncompressed) when absent.
+            // Structural: Compression. TIFF 6.0 defaults to 1 (uncompressed)
+            // when absent.
             compression: Compression::from_code(self.scalar(ifd, TAG_COMPRESSION)?.unwrap_or(1)),
+            // Structural: RowsPerStrip — maps strips to rows; without it a
+            // multi-strip plane cannot be assembled honestly. Inferable on a
+            // single-strip file, and every corpus file is single-strip, so
+            // this classification is untested by real data (`DEC-012`'s
+            // amendment; do not soften this without re-reading it).
             rows_per_strip: self.scalar(ifd, TAG_ROWS_PER_STRIP)?,
+            // Structural: StripOffsets, StripByteCounts.
             strip_offsets: self.values(ifd, TAG_STRIP_OFFSETS)?,
             strip_byte_counts: self.values(ifd, TAG_STRIP_BYTE_COUNTS)?,
-            black_level: self.scalar(ifd, TAG_BLACK_LEVEL)?,
-            white_level: self.scalar(ifd, TAG_WHITE_LEVEL)?,
-            black_level_repeat_dim: self.array::<2>(
-                ifd,
-                TAG_BLACK_LEVEL_REPEAT_DIM,
-                &mut malformed,
-            )?,
-            active_area: self.array::<4>(ifd, TAG_ACTIVE_AREA, &mut malformed)?.map(
-                |[top, left, bottom, right]| ActiveArea {
-                    top,
-                    left,
-                    bottom,
-                    right,
-                },
-            ),
-            default_crop_origin: self
-                .array::<2>(ifd, TAG_DEFAULT_CROP_ORIGIN, &mut malformed)?
-                .map(|[x, y]| DefaultCropOrigin { x, y }),
-            default_crop_size: self
-                .array::<2>(ifd, TAG_DEFAULT_CROP_SIZE, &mut malformed)?
-                .map(|[width, height]| DefaultCropSize { width, height }),
+            black_level,
+            white_level,
+            black_level_repeat_dim,
+            active_area,
+            default_crop_origin,
+            default_crop_size,
             orientation,
             opcode_lists: [
                 ifd.has(TAG_OPCODE_LIST_1),
@@ -1302,17 +1444,19 @@ mod tests {
 
     #[test]
     fn a_readable_type_this_module_does_not_widen_is_typed() {
-        // RATIONAL has a known size, so `payload` works; `uints` is what
-        // refuses, naming the type. RATIONAL/signed/ASCII remain unimplemented.
+        // SRATIONAL (10) has a known size, so `payload` works; `uints` is
+        // what refuses, naming the type. `SPEC-007` reads plain RATIONAL (5)
+        // — see `rational_default_crop_size_reads_or_costs_the_field` — but
+        // the signed types and ASCII remain unimplemented.
         let data = Build::new(false, 8)
-            .ifd(8, &[(TAG_BLACK_LEVEL, 5, 1, 200)], 0)
+            .ifd(8, &[(TAG_BLACK_LEVEL, 10, 1, 200)], 0)
             .done();
         let c = Container::parse(&data).unwrap();
         let entry = c.ifd0().unwrap().entry(TAG_BLACK_LEVEL).unwrap();
         assert_eq!(entry.byte_len(), Some(8));
         assert!(matches!(
             c.uints(entry),
-            Err(Error::UnexpectedFieldType { field_type: 5, .. })
+            Err(Error::UnexpectedFieldType { field_type: 10, .. })
         ));
     }
 
@@ -1442,6 +1586,37 @@ mod tests {
         assert!(matches!(c.sensor(), Err(Error::NoSensorIfd)));
     }
 
+    #[test]
+    fn candidates_malformed_names_only_candidates() {
+        // SPEC-004/FU-20: `is_sensor_ifd` used to read all three identifying
+        // tags before combining them, so an IFD with a READABLE, disqualifying
+        // `NewSubfileType == 1` (a preview) still reported `Unreadable` if its
+        // `Photometric` also happened to be malformed — even though it was
+        // never a real candidate. Two IFDs: index 0 is disqualified by a
+        // readable tag and must never be named; index 1 has no disqualifying
+        // tag and a genuinely unreadable `Photometric`, so it must be the
+        // only entry in `candidates`.
+        let b = Build::new(false, 8);
+        let data = b
+            .ifd(
+                8,
+                &[
+                    (TAG_NEW_SUBFILE_TYPE, TYPE_LONG, 1, 1),
+                    (TAG_PHOTOMETRIC, 250, 1, 0),
+                ],
+                200,
+            )
+            .ifd(200, &[(TAG_PHOTOMETRIC, 250, 1, 0)], 0)
+            .done();
+        let c = Container::parse(&data).unwrap();
+        match c.sensor() {
+            Err(Error::NoSensorIfdCandidatesMalformed { candidates }) => {
+                assert_eq!(candidates, vec![(1, TAG_PHOTOMETRIC)]);
+            }
+            other => panic!("expected NoSensorIfdCandidatesMalformed naming only the real candidate, got {other:?}"),
+        }
+    }
+
     // ── the sensor summary ──────────────────────────────────────────────────
 
     #[test]
@@ -1521,6 +1696,46 @@ mod tests {
     }
 
     #[test]
+    fn malformed_interpretation_tag_costs_only_the_field() {
+        // BlackLevel with a field type TIFF does not define at all — not a
+        // count mismatch, the broader class `DEC-012`'s amendment and
+        // `SPEC-004`/FU-17 are about. An interpretation tag's read failure of
+        // ANY kind costs that field, never the file.
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.push((TAG_BLACK_LEVEL, 250, 1, 0));
+        let data = b.ifd(8, &entries, 0).done();
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(s.black_level, None);
+        assert_eq!(s.malformed_tags, vec![TAG_BLACK_LEVEL]);
+        // and the rest of the plane still read
+        assert_eq!(s.width, 4);
+    }
+
+    #[test]
+    fn malformed_structural_tag_is_still_fatal() {
+        // The other direction of the same boundary: RowsPerStrip stays
+        // structural under `DEC-012`'s amendment, so the SAME kind of
+        // malformed-field-type read that costs BlackLevel above must fail
+        // the whole file here. Every corpus file is single-strip, so this
+        // classification is untested by real data — this fixture is the
+        // only evidence for it; do not soften it on the strength of a green
+        // corpus (HANDOFF-017).
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.push((TAG_ROWS_PER_STRIP, 250, 1, 0));
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        assert!(matches!(
+            c.sensor(),
+            Err(Error::UnexpectedFieldType {
+                tag: TAG_ROWS_PER_STRIP,
+                field_type: 250,
+            })
+        ));
+    }
+
+    #[test]
     fn a_well_formed_fixed_length_tag_is_reported() {
         let b = Build::new(false, 8);
         let mut entries = sensor(&b);
@@ -1542,6 +1757,77 @@ mod tests {
             })
         );
         assert!(s.malformed_tags.is_empty());
+    }
+
+    /// Write `values` as consecutive RATIONAL (numerator, denominator) pairs
+    /// starting at byte offset `at`, resizing `data` to fit.
+    fn write_rationals(data: &mut Vec<u8>, at: usize, values: &[(u32, u32)]) {
+        let end = at + values.len() * 8;
+        if data.len() < end {
+            data.resize(end, 0);
+        }
+        for (i, (num, den)) in values.iter().enumerate() {
+            let pair_at = at + i * 8;
+            data[pair_at..pair_at + 4].copy_from_slice(&num.to_le_bytes());
+            data[pair_at + 4..pair_at + 8].copy_from_slice(&den.to_le_bytes());
+        }
+    }
+
+    #[test]
+    fn rational_default_crop_size_reads_or_costs_the_field() {
+        // SPEC-004/FU-17: DNG permits DefaultCropSize as RATIONAL, and
+        // TYPE_RATIONAL was not read at all before SPEC-007. Both directions
+        // of the boundary, one fixture family: an exact integral RATIONAL
+        // reads correctly; a zero denominator costs the field alone — the
+        // file still reads.
+        let good = {
+            let b = Build::new(false, 8);
+            let mut entries = sensor(&b);
+            entries.push((TAG_DEFAULT_CROP_SIZE, TYPE_RATIONAL, 2, 600));
+            let mut data = b.ifd(8, &entries, 0).done();
+            // The Q2 Monochrom's real crop size (docs/measured-q2m-dng.md),
+            // read as RATIONAL rather than the LONG every corpus file uses.
+            write_rationals(&mut data, 600, &[(8368, 1), (5584, 1)]);
+            data
+        };
+        let s = Container::parse(&good).unwrap().sensor().unwrap();
+        assert_eq!(
+            s.default_crop_size,
+            Some(DefaultCropSize {
+                width: 8368,
+                height: 5584
+            })
+        );
+        assert!(s.malformed_tags.is_empty());
+
+        let malformed = {
+            let b = Build::new(false, 8);
+            let mut entries = sensor(&b);
+            entries.push((TAG_DEFAULT_CROP_SIZE, TYPE_RATIONAL, 2, 600));
+            let mut data = b.ifd(8, &entries, 0).done();
+            // Zero denominator — a malformed SHAPE, not a missing structure.
+            write_rationals(&mut data, 600, &[(5, 0), (5, 1)]);
+            data
+        };
+        let s = Container::parse(&malformed).unwrap().sensor().unwrap();
+        assert_eq!(s.default_crop_size, None);
+        assert_eq!(s.malformed_tags, vec![TAG_DEFAULT_CROP_SIZE]);
+        // and the rest of the plane still read
+        assert_eq!(s.width, 4);
+    }
+
+    #[test]
+    fn a_non_integral_rational_also_costs_the_field() {
+        // The other malformed shape criterion 3 names: denominator nonzero
+        // but the ratio is not a whole number (5/2, not 2 or 3).
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.push((TAG_DEFAULT_CROP_SIZE, TYPE_RATIONAL, 2, 600));
+        let mut data = b.ifd(8, &entries, 0).done();
+        write_rationals(&mut data, 600, &[(5, 2), (5, 1)]);
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(s.default_crop_size, None);
+        assert_eq!(s.malformed_tags, vec![TAG_DEFAULT_CROP_SIZE]);
     }
 
     #[test]
@@ -1574,6 +1860,35 @@ mod tests {
             .done();
         let s = Container::parse(&data).unwrap().sensor().unwrap();
         assert_eq!(s.orientation, Some(6));
+    }
+
+    #[test]
+    fn malformed_orientation_on_ifd0_keeps_the_plane() {
+        // SPEC-004/FU-16: sensor() used to read Orientation from IFD0 with a
+        // bare `?`, so a malformed tag on a NON-SENSOR IFD discarded an
+        // already-located plane. DEC-012: Orientation is interpretation-class
+        // — malformed costs the field, never the plane.
+        let b = Build::new(false, 8);
+        let plane = sensor(&b);
+        let data = b
+            .ifd(
+                8,
+                &[
+                    (TAG_NEW_SUBFILE_TYPE, TYPE_LONG, 1, 1),
+                    (TAG_ORIENTATION, 250, 1, 0), // unreadable field type
+                    (TAG_SUB_IFDS, TYPE_LONG, 1, 200),
+                ],
+                0,
+            )
+            .ifd(200, &plane, 0)
+            .done();
+        let c = Container::parse(&data).unwrap();
+        assert_eq!(c.sensor_candidates(), vec![1]);
+        let s = c.sensor().unwrap();
+        assert_eq!(s.orientation, None);
+        assert_eq!(s.malformed_tags, vec![TAG_ORIENTATION]);
+        // and the plane is still located and read
+        assert_eq!(s.width, 4);
     }
 
     #[test]
@@ -1619,6 +1934,11 @@ mod tests {
                 field_type: 250,
             },
             Error::ValueOverflow { tag: 1 },
+            Error::MalformedRationalValue {
+                tag: 1,
+                numerator: 5,
+                denominator: 0,
+            },
             Error::TagTooLarge {
                 tag: 1,
                 count: 2,
