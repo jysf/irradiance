@@ -165,7 +165,87 @@ The gate is the test. Both directions run with the CI-parity clippy:
 
 ## Verification (independent — KEPT)
 
-Patch lane keeps the independent verify (DEC-003). See `## Patch Completion`.
+Patch lane keeps the independent verify (DEC-003). Brief for the reviewer below.
+Record the verdict in `## Patch Completion`.
+
+**⚠ The orchestrator wrote both fixes, both red-proofs and this record.** That is
+why this verify is kept. `SPEC-005` round 2 is the precedent: the last two
+artefacts written by this author and self-graded were each wrong — `DEC-013` on
+three counts, and its replacement doc comment on a fourth.
+
+**State:** `main` at `96be26c`, **all nine CI jobs green** (run `32596678286`) —
+the first success in at least 13 runs. Confirm that yourself; do not take it from
+here.
+
+### FOUR claims you must not inherit
+
+**1. `as_chunks` is MSRV-safe.** The choice to fix rather than pin rests entirely
+on `as_chunks::<N>()` compiling on the pinned **1.90.0**. Reproduce:
+`~/.cargo/bin/rustc +1.90.0 --edition 2021` on a probe, then `just msrv`. If it
+does not hold, the whole fix is wrong and pinning was the answer.
+
+**2. Seven sites was all of them.** `grep -rn 'chunks_exact' --include='*.rs' src/
+tests/ examples/ fuzz/`. ⚠ The CI log originally showed only **four** — the other
+three hid behind `could not compile irradiance (lib)`. Satisfy yourself nothing
+is hiding behind *this* green the same way, including in targets CI builds but
+`just lint` might not.
+
+**3. The refactor is behaviour-preserving. This is the one that matters most.**
+It touched a **parse path** and a **hash**. Tests passing is necessary, not
+sufficient — convince yourself per site:
+- `src/ifd.rs` `TYPE_RATIONAL`: `chunks_exact(8)` + two `get(..)?.try_into()?`
+  became `as_chunks::<8>()` + `let [n0,n1,n2,n3,d0,d1,d2,d3] = *chunk;`. Is the
+  **byte order of the destructure** identical to the two 4-byte slices it
+  replaced?
+- `tests/support/corpus.rs:455`: `chunks_exact(BLOCK)` + `.remainder()` became
+  `as_chunks::<BLOCK>()`'s `(blocks, rest)`. **Are `rest` and `remainder()` the
+  same bytes in every case**, including an input that is an exact multiple of
+  `BLOCK`, and one shorter than `BLOCK`? A streaming hash that drops or
+  double-counts a tail byte is a silent wrong answer, and `DEC-003` pins corpus
+  files by `sha256` — a wrong hash makes every corpus file "corrupt".
+- Confirm `sha256_streaming_matches_one_shot` and the **published NIST vectors**
+  actually run (per-target `-- --list`, sum across targets — a zero-match
+  `cargo test <name>` exits 0) and that they would catch a mis-chunked boundary.
+  The existing comment claims a split at 4999; check that is still exercised.
+
+**4. The ANSI diagnosis.** Reproduce CI's condition locally:
+`CARGO_TERM_COLOR=always bash scripts/lint-red-proof.sh`. On the **pre-fix**
+script (`git show 96be26c^:scripts/lint-red-proof.sh`) that must exit **1 with no
+explanatory output**; on the current one, exit **0**. If the pre-fix script does
+*not* die, the diagnosis is wrong and the real cause is still out there.
+
+### The check I most want, and did not do
+
+**Does `|| true` weaken assertion 4?** It was added so a zero-match `grep` reaches
+the `die` instead of aborting mutely — but `|| true` is exactly how a real failure
+gets swallowed. **Force a genuine zero-match** (e.g. point `INJ_FIRST`/`INJ_LAST`
+outside the injected range, or inject nothing) and confirm the script now **fails
+loudly with its own message** rather than passing. If a real zero-match can now
+reach a green, that is a **ship-blocker** and worse than the bug it fixed.
+
+### Also
+
+- **Ten gates plus `just lint-ci`**, re-run by you, summed across all targets.
+- **`just lint-ci` must be the recipe it claims to be** — check the `PATH=`
+  prefix is present and that removing it drops you to 0.1.97. That is the whole
+  point of the recipe.
+- **Fuzz** — a parse path moved (§12 bar 2). The patch claims 12,633,398 runs /
+  61 s / zero artifacts.
+- **Scope:** anything in `96be26c^^..96be26c` that is not these two fixes or their
+  records is scope creep. Call it.
+- ⚠ **Do not re-litigate the pin-vs-fix decision** as a finding unless you think
+  it is *wrong*. The standing trade-off is deliberately filed as risk
+  `floating-toolchain-plus-deny-warnings` for the project close, with three
+  options; disagreeing with *that deferral* is fair game.
+
+**Findings:** `SB-N` / `FU-N`, numbered for **PATCH-001** from 1, each with which
+of §15's four dispositions you think it wants. Verdict: ✅ APPROVED (with SHA) /
+⚠ PUNCH LIST / ❌ REJECTED.
+
+**Cost:** record a real `tokens_total` **deduped by `message.id`** and say you
+deduped; compute `estimated_usd` per-component at the rates for the model that
+**actually ran** (`message.model`, not `tier_map` — it is 1 for 4). Capture as
+late as you can: the "floor" convention measured ~17% low on `SPEC-005`.
 
 ## Defect-catch stage
 
