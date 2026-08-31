@@ -6,10 +6,10 @@
 task:
   id: SPEC-010
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
-  complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
+  complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
@@ -27,12 +27,13 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # ⚠ DISPATCH HINT (SPEC-007/FU-6, 1 for 4) — the cycle
+                                   #   that runs corrects it to what ACTUALLY ran.
+  created_at: 2026-08-22
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
+  decisions: [DEC-012, DEC-013]                    # [DEC-NNN, DEC-MMM]
+  constraints: [oracle-must-be-shown-red, library-not-application, no-new-top-level-deps-without-decision]                  # [constraint-id-1, constraint-id-2]
   related_specs: [SPEC-005]        # [SPEC-NNN]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
@@ -47,7 +48,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-002's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "STAGE-005: an oracle that cannot tell absence from garbage cannot certify anything"
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -62,8 +63,17 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 14000000
+  sessions:
+    - cycle: design
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-08-22
+      notes: "main-loop, not separately metered (AGENTS.md §4). Design cycle PROBED the defect rather than describing it (§15 rule 4): added two throwaway tests to tests/support/tools.rs, measured that all FOUR multi-valued tags produce a byte-identical ToolReading for an absent tag and a garbled one, and that BlackLevel [512,999] reads Some(512); restored the file byte-identical and re-ran the suite to 87. Key design finding: the information is NOT MISSING — Field.values is already Option<Vec<u32>> and its own doc comment says None is exiftool's '-'; the distinction survives values_for and is DISCARDED in reading_from_fields, in three idioms across five lines. Sized M for AC5/AC6/AC7, not for the fix. HANDOFF-024 tells build to REPRODUCE SPEC-005/FU-8's already-measured three-configuration table rather than re-derive the design."
+
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -120,60 +130,154 @@ gone. Filtering rejected decisions out would silently remove it.
 
 ## Goal
 
-1–2 sentences. Unambiguous. If you can't write the goal in two
-sentences, split the spec.
+Give `ToolReading`'s optional fields a **tri-state** — absent / unreadable /
+value — and have `diff()` compare the unreadable case against
+`Sensor::malformed_tags`, so a garbled tool reading can no longer pass as
+agreement. Fix the same layer's silent head-truncation of multi-valued readings
+while it is open.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `tests/support/tools.rs` (the whole parse layer — `Field`,
+  `values_for`, `reading_from_fields`, `diff`); `tests/metadata_oracle.rs`;
+  `decisions/DEC-013-…md` (**`status: rejected`** — read *why*, it is this
+  spec's prehistory); `docs/oracle-contract.md`
+- **Related code paths:** `src/ifd.rs`'s `Sensor::malformed_tags` — its
+  documented contract at `:553-560` is what the unreadable arm compares against
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:** `tests/support/tools.rs` (the tri-state, `diff()`'s new
+  arm, `opt`/`req`); `tests/metadata_oracle.rs` (new tests + the fixture
+  reconcile); `tests/support/corpus.rs` only if the fixture reconcile needs it
+- **New type:** a tri-state over `ToolReading`'s optional fields. Shape is the
+  implementer's call, but it must preserve the **raw values** in the unreadable
+  arm so the mismatch message can print what the tool actually said
+- **`diff()` gains one arm**, not eleven — the comparison is per-*state*, not
+  per-tag. That is the whole difference from `DEC-013`'s rejected approach
+- **No new dependency.** `Cargo.toml` byte-identical
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] **AC1 — absent and unreadable are distinguishable.** For each of the four
+      multi-valued tags, a garbled reading and an absent one produce **different**
+      `ToolReading`s. Today they are byte-identical — measured, see below.
+- [ ] **AC2 — an unreadable tool reading is a mismatch UNLESS our reader also
+      recorded that tag in `malformed_tags`.** This is the generic guard
+      `DEC-013` chose and failed to implement, now on the side that holds the
+      information.
+- [ ] **AC3 — `K3III.DNG` stays green.** Its malformed `BlackLevelRepeatDim` is
+      `Unreadable` on the tool side and `50713` in our `malformed_tags`, so the
+      two agree *for a stated reason* rather than by both collapsing to `None`.
+- [ ] **AC4 — a multi-valued reading no longer truncates to its head.**
+      `BlackLevel = "512 999"` must not read `Some(512)`. Measured today: it does.
+- [ ] **AC5 — the tier-A fixture is reconciled against the live tool** whenever
+      the corpus and `exiftool` are both present, closing `SPEC-005/FU-4`'s rot
+      risk. When either is absent, skip — loudly.
+- [ ] **AC6 — red-proof, both directions with a control.** Removing the
+      `malformed_tags` comparison must turn `K3III.DNG` **red**; restoring it must
+      turn it green. ⚠ This is the exact mutant `SPEC-005/FU-8` already ran —
+      **reproduce it, do not re-derive it.**
+- [ ] **AC7 — `diff()`'s doc comment and `DEC-013` are brought true.** The doc
+      comment currently reasons about this future and says the alarm fires when
+      `FU-1` lands; `FU-8` measured that under this fix it does **not**. Decide
+      whether `DEC-013`'s rejected conclusion now deserves a **successor decision
+      that is true**, and either write it or say why not.
+- [ ] **AC8 — ten gates plus `just lint-ci` and `just oracle-meta`**, and **CI
+      observed green on the shipping SHA** — `constraints.yaml` now requires the
+      observation, not the assertion.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+⚠ A zero-match `cargo test <name>` **exits 0**. Confirm each name exists via
+per-target `-- --list` and **sum across targets**.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`tests/metadata_oracle.rs`**
+  - `an_absent_tag_and_a_garbled_one_are_not_the_same_reading` — AC1
+  - `a_garbled_tool_reading_is_a_mismatch_when_we_read_the_tag_fine` — AC2
+  - `a_garbled_tool_reading_agrees_when_we_also_recorded_it_malformed` — AC2/AC3
+  - `k3iii_dng_black_level_repeat_dim_agrees_for_a_stated_reason` — AC3, tier B
+  - `a_multivalued_reading_does_not_truncate_to_its_head` — AC4
+  - `the_frozen_fixture_still_matches_the_live_tool` — AC5, tier B
+  - `removing_the_malformed_comparison_turns_k3iii_red` — AC6 red-proof
+  - `the_malformed_comparison_control_is_green` — AC6 control
 
 ## Non-Goals
 
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
+- **Any `src/` change.** This is entirely `tests/`. If you believe `src/` must
+  move, that is a finding to hand back.
+- **Re-opening `DEC-012`'s tolerance.** It is correct and untouched.
+- **The `dnglab` side.** Its scalars are extracted with asserted-unique keys and
+  are not part of this defect.
+- **Adding a dependency.** The probe that shaped `SPEC-005` already showed none
+  is needed. If you conclude otherwise, **stop and ask**.
 
-- ...
+## Implementation Context
 
-## Notes for the Implementer
+> **Measured 2026-08-22 by the orchestrator**, by adding two probe tests to
+> `tests/support/tools.rs`, running them, and restoring the file byte-identical.
+> Reproduce before trusting.
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+### The collapse, measured — 4 of 4
 
----
+`reading_from_fields` produces a **byte-identical** `ToolReading` for an absent
+tag and a garbled one, on every multi-valued tag:
+
+| tag | garbled input | absent == garbled? |
+|---|---|---|
+| `BlackLevelRepeatDim` | `[1]` | **true** |
+| `ActiveArea` | `[0, 0, 5632]` | **true** |
+| `DefaultCropOrigin` | `[12]` | **true** |
+| `DefaultCropSize` | `[8368, 5584, 99]` | **true** |
+
+And `BlackLevel = [512, 999]` → **`Some(512)`** — `AC4`'s defect, measured.
+
+### ⚠ The information is not missing — it is *discarded*
+
+`Field.values` is already `Option<Vec<u32>>`, and its doc comment already says
+*"`None` is exiftool's `-` — a tag reported absent."* `values_for` preserves that.
+The distinction survives all the way to `reading_from_fields` and dies there, in
+three idioms:
+
+- `opt()` / `req()` — `.and_then(|v| v.first().copied())` (drops the tail: `AC4`)
+- `BlackLevelRepeatDim` — `.and_then(|v| <[u32; 2]>::try_from(..).ok())`
+- `ActiveArea` / `DefaultCropOrigin` / `DefaultCropSize` — `match v.as_slice() { [..] => Some(..), _ => None }`
+
+**So this is a five-line change plus a type.** It is `M` not `S` because of
+`AC5`, `AC6` and `AC7`, not because the fix is hard.
+
+### The fix is already built and measured — reproduce, do not re-derive
+
+`SPEC-005/FU-8` implemented it during verify round 2 and measured three
+configurations. That table is this spec's specification:
+
+| patched into `diff()` | AC1 suite |
+|---|---|
+| a partial fix (one-element → `Some([a, a])`) | **red** on `K3III.DNG` |
+| tri-state, `malformed_tags` **not** consulted | **red** |
+| tri-state **compared against** `malformed_tags` | **21 green** |
+
+The third row is the target state. The second is `AC6`'s red-proof: it is the
+same code with one comparison removed, so the red-proof costs nothing to build.
+
+### Why `DEC-013` is `rejected` and this is not the same thing
+
+`DEC-013` exempted a tag **by number**, hardcoded, on the *tool* side — dead code
+that suppressed a case which could not arise. This compares **states**, on the
+side that knows whether the value was readable, and it is exercised by a real
+corpus file on every run. Read `DEC-013`'s rejection before designing the arm;
+`AC7` asks you to decide whether its conclusion now deserves a true successor.
+
+### Traps carried in
+
+- `just lint-ci` before every push, and **read CI** — a job that exists and has
+  never passed is a deleted job (`constraints.yaml`, amended at STAGE-001's close).
+- AGENTS.md §16's three rules apply directly here: the **writing rule** (this
+  spec's numbers name their command and scope), **assert your match count**, and
+  **a gate fails through its own `die`**.
+- Sum across **all six** targets. Tier-B tests currently pass whether or not the
+  corpus is present — 87 either way — so a green tells you nothing about coverage
+  unless you ran `just test`, which names the missing files first.
 
 ## Reflection
 
