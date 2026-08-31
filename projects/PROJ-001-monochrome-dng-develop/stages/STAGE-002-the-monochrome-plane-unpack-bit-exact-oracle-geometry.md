@@ -98,15 +98,82 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 Run `just frame-stage STAGE-002` to promote these outlines into real specs.
 
-- [ ] SPEC-009 (frame) [S] **Pin the Structure-class MEMBERSHIP, table-driven over all eleven tags — FIRST, before the unpack.** Carries `SPEC-008/FU-1`, `FU-2`, `FU-3`, `FU-5`. ⚠ Measured by the orchestrator 2026-08-21 (mutation asserted applied by `diff`, suite summed across all five targets, tree restored byte-identical): `is_structural_tag()` at `src/ifd.rs:188-203` has **eleven** memberships and exactly **one** — `TAG_SUB_IFDS` — is enforced by any test. Deleting the other ten leaves **66/66 green**. The hazard lands squarely on THIS stage: a `Compression` encoded `RATIONAL 2/2` reads `1`, `require_uncompressed()` passes, and the unpack reads JPEG bytes as raw samples — a wrong image from a file that parsed cleanly. It is here rather than in STAGE-001 because that is where the hazard bites, and because STAGE-001's close is the forcing function for three `lesson` signals already at or past their bar.
-- [ ] (not yet written) [M] Strip location and sample unpack, with the StripByteCounts assertion. ⚠ **TWO PATHS, per DEC-008** — sub-byte samples (14-bit) are a MSB-first bit stream; byte-aligned samples (16-bit) are plain integers in the FILE's byte order. SPIKE-002 found the single-path version produced a byte-swapped plane on a 16-bit file. Keep the `max > WhiteLevel` assertion: it is what caught it. Both paths need their own fuzz coverage — one target exercising only 14-bit recreates the exact blind spot.
-- [ ] (not yet written) [S] Bit-exact plane oracle against `dnglab analyze --raw-checksum`, plus a red-on-injected-fault test
-- [ ] (not yet written) [M] Black/white level normalization, ActiveArea → DefaultCrop, and orientation
-- [ ] (not yet written) [S] **Analytic levels/geometry oracle (DEC-004)** — assert normalization maps BlackLevel→0 and WhiteLevel→1 on tags READ FROM THE FILE, plus crop dimensions and orientation on both a rotated and an unrotated frame. ⚠ SPIKE-001 proved the plane checksum is structurally blind to a levels error and the develop oracle misses one up to +256 (50%). Without this spec, levels ship with NO oracle coverage.
+- [ ] SPEC-009 (frame) [S] Pin the Structure-class membership, table-driven over all eleven tags
+- [ ] SPEC-012 (frame) [M] Strip location and sample unpack, two paths per DEC-008
+- [ ] SPEC-013 (frame) [S] Bit-exact plane oracle against dnglab raw-checksum, with its red-proof
+- [ ] SPEC-014 (frame) [M] Level normalization, ActiveArea to DefaultCrop, and orientation
+- [ ] SPEC-015 (frame) [S] Analytic levels and geometry oracle
 
-**Count:** 0 shipped / 1 framed / 4 pending
+⚠ **`SPEC-010` and `SPEC-011` were framed against this stage and have been MOVED
+to `STAGE-005`.** Both are STAGE-001 debt, not plane work; leaving them here made
+this stage eight specs and blurred what it is for. Neither blocks the plane.
+
+**Count:** 0 shipped / 5 active / 0 pending
 
 ## Design Notes
+
+### Per-spec context — the detail deliberately kept OUT of the backlog titles
+
+`just frame-stage` derives each spec's **filename** from its backlog summary, so
+summaries stay short and the constraints live here.
+
+**Pin the Structure-class membership (`SPEC-009`) — FIRST, before the unpack.**
+Carries `SPEC-008/FU-1`, `FU-2`, `FU-3`, `FU-5`. ⚠ Measured 2026-08-21 (mutation
+asserted applied by `diff`, suite summed across all five targets, tree restored
+byte-identical): `is_structural_tag()` (`src/ifd.rs:188-203`) has **eleven**
+memberships and exactly **one** — `TAG_SUB_IFDS` — is enforced by any test.
+Deleting the other ten leaves **66/66 green**. The hazard is *this stage's*:
+`Compression` encoded `RATIONAL 2/2` reads `1`, `require_uncompressed()` passes,
+and the unpack reads **JPEG bytes as raw samples** — a wrong image from a file
+that parsed cleanly. ⚠ The fixing test must **not** derive its table from
+`is_structural_tag()`; a test that reads the list it checks is a tautology, and
+deleting a tag would delete its own coverage.
+
+**Strip location and sample unpack.** ⚠ **TWO PATHS, per `DEC-008`** — sub-byte
+samples (14-bit) are an MSB-first bit stream; byte-aligned samples (16-bit) are
+plain integers in the **file's** byte order. `SPIKE-002` found the single-path
+version produced a **byte-swapped plane** on a 16-bit file. Keep the
+`max > WhiteLevel` assertion — that is what caught it. Both paths need their own
+fuzz coverage; one target exercising only 14-bit recreates the exact blind spot.
+The corpus holds both shapes: `L1021223.DNG` is 14-bit, `L1000622.DNG` is 16-bit.
+
+**Bit-exact plane oracle.** `docs/oracle-contract.md` has the contract, verified
+on two frames: `--raw-checksum` is the **MD5 of the uncropped `u16` plane, native
+little-endian, 14-bit values zero-extended, no black subtraction, no crop**. The
+comparison attaches **before** the three-stage crop. Every corpus entry already
+carries its `raw_checksum` in the manifest, so the oracle pins both the file and
+the tool. ⚠ Single-sourced: matching `--raw-checksum` proves we match **rawler**,
+not that we are correct — acceptable for the plane, and the layer-0 packing
+arithmetic (`width × height × bits == StripByteCounts × 8`) is the independent
+check to keep.
+
+**Level normalization and geometry.** Three-stage crop:
+`8424×5632 → ActiveArea → DefaultCrop 8368×5584 → Rotate 90 CW`. ⚠ `Orientation`
+is **per-frame, not a camera constant** — `L1026016.DNG` reads `6` where its two
+siblings read `1`. That single file is why `unrun-docs-carry-errors` exists; keep
+it in every geometry test.
+
+**Analytic levels and geometry oracle (`DEC-004`).** ⚠ `SPIKE-001` measured that
+the plane checksum is **structurally blind** to a levels error and the develop
+oracle misses one up to **+256 (50%)**. Without this spec, levels ship with **no**
+oracle coverage. Assert normalization maps `BlackLevel→0` and `WhiteLevel→1` on
+tags **read from the file**, plus crop dimensions and orientation on both a
+rotated and an unrotated frame.
+
+### Two things STAGE-001 learned that bind this stage
+
+1. **`just lint-ci` before every push, and read CI.** `PATCH-001` found the
+   panic-free gate had been dark for 17 consecutive runs across the whole of
+   STAGE-001 while every verify honestly reported "ten gates green" — locally.
+   `constraints.yaml` now says a job that exists and has never passed is a
+   deleted job, and claiming the constraint requires having **observed** the job
+   green on the SHA claimed for.
+2. **The three rules codified into AGENTS.md §16** — the writing rule for
+   measurements, assert-your-match-count, and a gate must fail through its own
+   `die`. This stage writes a bit unpacker and two oracles; all three apply
+   directly.
+
+
 
 **The comparison attaches to the UNCROPPED full frame.** `--raw-checksum`
 hashes the 8424×5632 plane before ActiveArea and before DefaultCrop, in native

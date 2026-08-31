@@ -4,9 +4,9 @@
 # implementer lives in handoffs/HANDOFF-*.md, not in the spec itself.
 
 task:
-  id: SPEC-011
+  id: SPEC-015
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                    # frame | design | build | verify | ship
+  cycle: frame                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -21,7 +21,7 @@ task:
 
 project:
   id: PROJ-001
-  stage: STAGE-005
+  stage: STAGE-002
 repo:
   id: irradiance
 
@@ -70,39 +70,19 @@ cost:
     session_count: 0
 ---
 
-# SPEC-011: Lint the fuzz crate — the second cargo graph sits outside every -D warnings gate
+# SPEC-015: (not yet written) Analytic levels and geometry oracle
+
+> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
+> siblings can declare `depends_on: [SPEC-015]`. Capture **scope** (Context /
+> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
+> just-in-time when this moves to `design`. Do not pre-design it here.
 
 ## Context
 
-> **Framed 2026-08-22, not designed.** Destination for `PATCH-001/FU-4`.
-> ⚠ Numbered **011**, not 010: `just new-spec` assigned 010, which already
-> belongs to a spec on the unmerged `feat/spec-005-metadata-oracle` branch —
-> see the Notes at the bottom.
-
-**`fuzz/` is linted by nothing.** Measured: `cargo clippy --all-targets
---all-features` at the repo root mentions `irradiance-fuzz` **0 times**, because
-`DEC-011` deliberately keeps the fuzz crate outside the library's cargo graph so
-`[dependencies]` stays empty.
-
-This is **exactly** the shape `no-copyleft-dependencies` already had, and its
-history is the argument for fixing it: `cargo deny` covered only the library
-graph until `SPEC-003`'s verify found a hand-written table standing in for the
-missing invocation — *and it was wrong on the one crate it existed to sanction*.
-The fix was one flag, `--manifest-path fuzz/Cargo.toml`, and the rule written
-into `constraints.yaml` was **"if a graph is not covered, add the invocation — do
-not write down the answer."** The lint policy is now in the position the licence
-policy was in then.
-
-⚠ **It needs its own red-proof.** `oracle-must-be-shown-red` was widened by
-`SPEC-003/FU-14` to cover **gates**, not just oracles, so a new lint gate ships
-with a deliberate-fault proof and a negative control. That is why this is a spec
-and not a line in `PATCH-001`.
-
-Open question for design, not to be settled here: whether the fuzz crate should
-carry the same five-lint panic-free policy as the library. It is dev-only and
-never shipped, so the answer is plausibly *no* — but `DEC-011` put it outside the
-graph for **dependency hygiene**, not to exempt it from review, and nobody has
-decided.
+Why does this spec exist? What problem does it solve? Link to:
+- The parent `STAGE-002` and this spec's place in its backlog
+- The project `PROJ-001`
+- Any related discussions, issues, or prior decisions
 
 ## Goal
 
@@ -155,15 +135,6 @@ expand this one.
 - ...
 
 ## Notes for the Implementer
-
-⚠ **This spec's own ID is a finding.** `just new-spec` assigned it **010** —
-already taken by `SPEC-010-distinguish-an-unparseable-tool-reading-…`, which
-exists only on the unmerged `feat/spec-005-metadata-oracle` branch. The script
-scans the working tree, so an ID minted while a branch is in flight can collide
-with one minted on that branch, and `AGENTS.md` §2 says IDs are *globally unique
-and continuous across the repo*. Renamed to **011** by hand before it landed.
-Recorded as a signal (`spec-ids-collide-across-unmerged-branches`); the fix
-belongs upstream in the template, not here.
 
 Gotchas, style preferences, reuse opportunities. Keep short — the full
 context graph lives in the handoff file.

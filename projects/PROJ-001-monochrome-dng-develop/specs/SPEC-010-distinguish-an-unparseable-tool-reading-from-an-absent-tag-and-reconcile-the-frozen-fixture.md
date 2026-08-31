@@ -21,7 +21,7 @@ task:
 
 project:
   id: PROJ-001
-  stage: STAGE-002
+  stage: STAGE-005
 repo:
   id: irradiance
 
