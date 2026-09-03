@@ -68,3 +68,17 @@ tests/corpus/tier-b/
 
 # Private commercial / positioning notes (crustyimg's `business/` precedent)
 business/
+
+# Generated reports — `just report-daily` / `just report-weekly` regenerate
+# these from the specs, stages and cost data that ARE committed, so the file is
+# a view, not a source. Committing them adds a diff on every run and a merge
+# conflict on every parallel branch, for a document any checkout can rebuild.
+# `.gitkeep` keeps both directories present.
+#   ⚠ Two .md files here are already TRACKED and stay so: reports/daily/2026-04-21.md
+#   and reports/weekly/2026-W17.md, both dated before this repo existed. They are
+#   the TEMPLATE's own example reports — scaffold residue, the same class as the
+#   seeded example DEC and the app-shaped constraints deleted at scaffold time
+#   (feedback/2026-08-15-irradiance-scaffold.md). gitignore does not untrack; if
+#   you want them gone that is `git rm`, and it is a separate decision.
+reports/daily/*.md
+reports/weekly/*.md
