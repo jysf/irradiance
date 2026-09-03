@@ -345,6 +345,23 @@ applied to this AC6.
   **`spec: <not yet created>`** — a one-file, one-fix change ("fix the verb,
   not the filter" per the spec's own Context), not a class worth a signal.
 
+### AC8 — CI observed green on the shipping SHA
+
+Pushed `feat/spec-010-tri-state-tool-reading` and watched it with `gh run
+watch`, not asserted from the laptop:
+
+```
+$ git rev-parse HEAD
+23e413fbe25c7bb396354c7e2bd4142d8e820893
+$ gh run view 33819622306 --json headSha,conclusion,status
+{"conclusion":"success","headSha":"23e413fbe25c7bb396354c7e2bd4142d8e820893","status":"completed"}
+```
+
+`headSha` matches `HEAD` exactly. All 9 CI jobs green: license policy
+(library graph), license policy (fuzz graph), cost-capture audit, `fmt
+--check`, panic-free policy (`--lib`, no `#[allow]` escape), lint policy
+red-proof, `clippy -D warnings`, `test`, MSRV (1.90.0).
+
 ### Reflection (§15)
 
 1. **What would I do differently next time?** Stage or `git stash` a file's
