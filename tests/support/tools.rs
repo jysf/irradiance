@@ -20,7 +20,11 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-use irradiance::ifd::{ActiveArea, DefaultCropOrigin, DefaultCropSize, Sensor};
+use irradiance::ifd::{
+    ActiveArea, DefaultCropOrigin, DefaultCropSize, Sensor, TAG_ACTIVE_AREA, TAG_BLACK_LEVEL,
+    TAG_BLACK_LEVEL_REPEAT_DIM, TAG_DEFAULT_CROP_ORIGIN, TAG_DEFAULT_CROP_SIZE, TAG_ORIENTATION,
+    TAG_WHITE_LEVEL,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Errors
@@ -166,6 +170,53 @@ pub fn values_for<'a>(fields: &'a [Field], bare_tag: &str) -> Option<&'a Vec<u32
         .and_then(|f| f.values.as_ref())
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// The tri-state — `SPEC-010`, closing `SPEC-005/FU-1` and `FU-2`
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One of `ToolReading`'s optional fields, in the state exiftool actually
+/// reported it in — not collapsed to `Option<T>` the way [`reading_from_fields`]
+/// used to.
+///
+/// Before `SPEC-010`, "tag absent" (`-`) and "tag present but the wrong shape"
+/// (e.g. a count-1 `BlackLevelRepeatDim` where DNG requires 2) both produced
+/// `None`, byte-identically, for all four multi-valued tags — measured
+/// `SPEC-005/FU-1`. A garbled tool reading then silently *agreed* with our own
+/// reader dropping the same tag ([`Sensor::malformed_tags`]), because both
+/// sides read `None`. This type keeps the two apart, and [`Unreadable`]
+/// preserves exiftool's raw values so a mismatch message can print what it
+/// actually said instead of just "wrong shape".
+///
+/// [`Unreadable`]: ToolValue::Unreadable
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolValue<T> {
+    /// exiftool printed `-` — the tag is not in the file.
+    Absent,
+    /// The tag is present, but its value count didn't match what this field
+    /// requires (e.g. one element where `ActiveArea` needs four). The raw
+    /// `u32`s are exiftool's, unmodified — this is `FU-1`'s "the information
+    /// is not missing, it is discarded" finding, kept rather than dropped a
+    /// second time here.
+    Unreadable(Vec<u32>),
+    /// The tag parsed cleanly into `T`.
+    Value(T),
+}
+
+/// Classify one field's raw exiftool values into a [`ToolValue`]: absent when
+/// `raw` is `None`, `Value` when `build` accepts the shape, `Unreadable`
+/// (raw values preserved) when it does not. The single place every optional
+/// field in [`reading_from_fields`] goes through, so "what counts as absent
+/// vs. unreadable" is answered once.
+fn tri_state<T>(raw: Option<&Vec<u32>>, build: impl FnOnce(&[u32]) -> Option<T>) -> ToolValue<T> {
+    match raw {
+        None => ToolValue::Absent,
+        Some(v) => match build(v.as_slice()) {
+            Some(t) => ToolValue::Value(t),
+            None => ToolValue::Unreadable(v.clone()),
+        },
+    }
+}
+
 /// The eleven sensor-IFD tags [`exiftool_reading`] requests, in a fixed order
 /// shared with `tests/oracle-fixtures/`.
 const SENSOR_TAGS: &[&str] = &[
@@ -195,20 +246,28 @@ pub fn sensor_reading_tags(group: &str) -> Vec<String> {
 
 /// Everything `exiftool` says about one sensor IFD, typed to compare
 /// directly against `irradiance::ifd::Sensor` ([`diff`]).
-#[derive(Debug, Clone)]
+///
+/// The four required fields (`width`..`photometric`) are always
+/// single-valued on this corpus and stay plain `u32` — a missing one is a
+/// hard [`ToolError::Parse`] in [`reading_from_fields`], not a state `diff`
+/// needs to reason about. Every optional field is a [`ToolValue`]
+/// (`SPEC-010`): absent, unreadable (present but the wrong shape, raw values
+/// kept), or a parsed value — never collapsed to `Option<T>` before `diff`
+/// gets to see which one it was.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolReading {
     pub width: u32,
     pub height: u32,
     pub bits_per_sample: u32,
     pub compression: u32,
     pub photometric: u32,
-    pub black_level: Option<u32>,
-    pub white_level: Option<u32>,
-    pub black_level_repeat_dim: Option<[u32; 2]>,
-    pub active_area: Option<ActiveArea>,
-    pub default_crop_origin: Option<DefaultCropOrigin>,
-    pub default_crop_size: Option<DefaultCropSize>,
-    pub orientation: Option<u32>,
+    pub black_level: ToolValue<u32>,
+    pub white_level: ToolValue<u32>,
+    pub black_level_repeat_dim: ToolValue<[u32; 2]>,
+    pub active_area: ToolValue<ActiveArea>,
+    pub default_crop_origin: ToolValue<DefaultCropOrigin>,
+    pub default_crop_size: ToolValue<DefaultCropSize>,
+    pub orientation: ToolValue<u32>,
 }
 
 /// Run `exiftool` over the sensor IFD (`group`, e.g. `"SubIFD"` or `"IFD0"`)
@@ -223,6 +282,14 @@ pub fn exiftool_reading(path: &Path, group: &str) -> Result<ToolReading, ToolErr
 /// Build a [`ToolReading`] from parsed fields — shared by [`exiftool_reading`]
 /// (the real tool) and the tier-A fixture test (AC5), so the red-proof
 /// exercises the exact parsing code a real run would use.
+///
+/// `req` truncates a multi-valued reading to its head (`.first()`) — kept,
+/// because every required tag here is genuinely single-valued on this
+/// corpus (`BitsPerSample`'s own doc comment on [`Sensor`] says the same:
+/// "the first value; monochrome planes have exactly one"). `SPEC-010`'s
+/// truncation fix (`SPEC-005/FU-2`, AC4) is scoped to the OPTIONAL fields,
+/// via [`tri_state`]: a multi-valued `BlackLevel` is `Unreadable`, not
+/// silently `Value` of its first element.
 pub fn reading_from_fields(fields: &[Field]) -> Result<ToolReading, ToolError> {
     let req = |tag: &str| -> Result<u32, ToolError> {
         values_for(fields, tag)
@@ -232,7 +299,14 @@ pub fn reading_from_fields(fields: &[Field]) -> Result<ToolReading, ToolError> {
                 message: format!("{tag} is required but exiftool reported it absent"),
             })
     };
-    let opt = |tag: &str| values_for(fields, tag).and_then(|v| v.first().copied());
+    // A single-valued optional tag: `Value` only for exactly one element —
+    // AC4, `a_multivalued_reading_does_not_truncate_to_its_head`.
+    let scalar = |tag: &str| -> ToolValue<u32> {
+        tri_state(values_for(fields, tag), |v| match v {
+            [x] => Some(*x),
+            _ => None,
+        })
+    };
 
     Ok(ToolReading {
         width: req("ImageWidth")?,
@@ -240,11 +314,12 @@ pub fn reading_from_fields(fields: &[Field]) -> Result<ToolReading, ToolError> {
         bits_per_sample: req("BitsPerSample")?,
         compression: req("Compression")?,
         photometric: req("PhotometricInterpretation")?,
-        black_level: opt("BlackLevel"),
-        white_level: opt("WhiteLevel"),
-        black_level_repeat_dim: values_for(fields, "BlackLevelRepeatDim")
-            .and_then(|v| <[u32; 2]>::try_from(v.as_slice()).ok()),
-        active_area: values_for(fields, "ActiveArea").and_then(|v| match v.as_slice() {
+        black_level: scalar("BlackLevel"),
+        white_level: scalar("WhiteLevel"),
+        black_level_repeat_dim: tri_state(values_for(fields, "BlackLevelRepeatDim"), |v| {
+            <[u32; 2]>::try_from(v).ok()
+        }),
+        active_area: tri_state(values_for(fields, "ActiveArea"), |v| match v {
             [top, left, bottom, right] => Some(ActiveArea {
                 top: *top,
                 left: *left,
@@ -253,20 +328,18 @@ pub fn reading_from_fields(fields: &[Field]) -> Result<ToolReading, ToolError> {
             }),
             _ => None,
         }),
-        default_crop_origin: values_for(fields, "DefaultCropOrigin").and_then(|v| {
-            match v.as_slice() {
-                [x, y] => Some(DefaultCropOrigin { x: *x, y: *y }),
-                _ => None,
-            }
+        default_crop_origin: tri_state(values_for(fields, "DefaultCropOrigin"), |v| match v {
+            [x, y] => Some(DefaultCropOrigin { x: *x, y: *y }),
+            _ => None,
         }),
-        default_crop_size: values_for(fields, "DefaultCropSize").and_then(|v| match v.as_slice() {
+        default_crop_size: tri_state(values_for(fields, "DefaultCropSize"), |v| match v {
             [width, height] => Some(DefaultCropSize {
                 width: *width,
                 height: *height,
             }),
             _ => None,
         }),
-        orientation: opt("Orientation"),
+        orientation: scalar("Orientation"),
     })
 }
 
@@ -294,44 +367,59 @@ impl std::fmt::Display for Mismatch {
 }
 
 /// Compare a container's [`Sensor`] against exiftool's reading of the same
-/// IFD, field by field (AC1). **Every one of the eleven fields is compared
-/// unconditionally** — there is no exemption for a tag recorded in
-/// `Sensor::malformed_tags`.
+/// IFD, field by field (AC1): [`diff_with_malformed`] with `sensor`'s own
+/// `malformed_tags` — the real, shipped comparison.
 ///
-/// `SPEC-005` shipped with one (`DEC-013`, now `rejected`) and it was dead
-/// code: removing it left all 21 oracle tests green, because the case it
-/// suppressed cannot currently arise. `exiftool` reports `K3III.DNG`'s
-/// malformed `BlackLevelRepeatDim` as a bare `1`,
-/// [`reading_from_fields`]'s `<[u32; 2]>::try_from(..).ok()` degrades that
-/// to `None`, and `DEC-012` independently gives us `None` — so the two
-/// already agree and there is nothing to exempt.
+/// The four required fields (dimensions, `BitsPerSample`, `Compression`,
+/// `PhotometricInterpretation`) are compared directly and unconditionally.
+/// Every optional field goes through [`compare_optional`] — **one generic
+/// arm, not seven per-tag ones** — so "what counts as agreement" is stated
+/// once (`SPEC-010`):
 ///
-/// ⚠ **That agreement is an accident of `SPEC-005/FU-1`**, the defect where
-/// a shape-odd tool value is reclassified as absence. Whoever fixes `FU-1`
-/// must decide, with a test, whether a `DEC-012`-tolerated tag is exempt
-/// from this diff. Leaving the guard in place would have let that decision
-/// happen silently, by absorption.
+/// - `theirs = Absent` agrees only if `ours` is also absent.
+/// - `theirs = Value(v)` agrees only if `ours == Some(v)`.
+/// - `theirs = Unreadable(_)` agrees **only if `sensor.malformed_tags`**
+///   **names the same DNG tag** — never unconditionally, and never because
+///   both sides happen to be `None`.
 ///
-/// ⚠ **How far that claim actually reaches — narrowed 2026-08-22 by
-/// `SPEC-005/FU-8`, and the narrowing is the useful part.** Three futures
-/// were measured, each mutation asserted applied and compiled, tree restored
-/// byte-identical:
+/// ## Why this is not `DEC-013` again
 ///
-/// | patched into the tool-side parse | AC1 |
-/// |---|---|
-/// | one-element reading → `Some([a, a])` (a *partial* `FU-1` fix) | **reds**, naming `K3III.DNG` / `BlackLevelRepeatDim` / `ours=None` / `theirs=Some([1, 1])` |
-/// | a tri-state, `malformed_tags` not consulted | **reds** |
-/// | a tri-state **compared against `malformed_tags`** — `FU-1` *as round 1 specified it* | **21 green: the alarm never fires** |
+/// `DEC-013` (`rejected`) exempted `BlackLevelRepeatDim` **by hardcoded tag
+/// number**, on **our own** side, and was dead code: removing it left all 21
+/// oracle tests green, because `SPEC-005/FU-1`'s collapse made `Unreadable`
+/// and `Absent` indistinguishable, so `None == None` on every corpus file —
+/// there was nothing to exempt. The comparison here is the opposite shape on
+/// every count that mattered: it reads `malformed_tags` **generically**
+/// (`compare_optional` takes a tag number, not a name), it is exercised by a
+/// real corpus file on every run (`K3III.DNG`'s `BlackLevelRepeatDim`), and
+/// it sits on the side — the *tool's* reading — that actually knows whether
+/// a value was present-but-wrong-shape rather than absent. `DEC-014` records
+/// this as `DEC-013`'s true successor.
 ///
-/// So this is **not** an alarm that fires the day `FU-1` lands. Under `FU-1`'s
-/// specified fix it never fires, because that comparison *is* the generic
-/// guard, implemented on the side that actually holds the information. It
-/// fires only on a partial fix. Removal remains the right call — it is weakly
-/// dominant across all three futures and `DEC-013`'s three counts stand on
-/// their own — but the original wording here claimed a category from one
-/// measured point, which is [`measurement-over-generalised`] committed inside
-/// the very record that rejected a decision for committing it.
+/// **Measured, not assumed** (`SPEC-005/FU-8`, reproduced by `SPEC-010`'s
+/// `removing_the_malformed_comparison_turns_k3iii_red` /
+/// `the_malformed_comparison_control_is_green` in
+/// `tests/metadata_oracle.rs`): dropping the `malformed_tags` check —
+/// equivalent to calling `diff_with_malformed(sensor, reading, &[])` — turns
+/// `K3III.DNG` red on `BlackLevelRepeatDim`; consulting the real list (this
+/// function) keeps it green, for the stated reason, not by accident.
 pub fn diff(sensor: &Sensor, reading: &ToolReading) -> Vec<Mismatch> {
+    diff_with_malformed(sensor, reading, &sensor.malformed_tags)
+}
+
+/// [`diff`], with the malformed-tags guard's input made an explicit
+/// parameter instead of always reading `sensor.malformed_tags`.
+///
+/// This exists so AC6's red-proof can reproduce `SPEC-005/FU-8`'s measured
+/// "comparison not consulted" mutant — `diff_with_malformed(sensor, reading,
+/// &[])` — **by calling the real, shipped comparator**, not a hand-written
+/// re-derivation of it. `diff` itself is the one-line case
+/// `malformed_tags == &sensor.malformed_tags`.
+pub fn diff_with_malformed(
+    sensor: &Sensor,
+    reading: &ToolReading,
+    malformed_tags: &[u16],
+) -> Vec<Mismatch> {
     let mut out = Vec::new();
 
     if (sensor.width, sensor.height) != (reading.width, reading.height) {
@@ -362,57 +450,85 @@ pub fn diff(sensor: &Sensor, reading: &ToolReading) -> Vec<Mismatch> {
             theirs: reading.photometric.to_string(),
         });
     }
-    if sensor.black_level != reading.black_level {
-        out.push(Mismatch {
-            field: "BlackLevel",
-            ours: format!("{:?}", sensor.black_level),
-            theirs: format!("{:?}", reading.black_level),
-        });
-    }
-    if sensor.white_level != reading.white_level {
-        out.push(Mismatch {
-            field: "WhiteLevel",
-            ours: format!("{:?}", sensor.white_level),
-            theirs: format!("{:?}", reading.white_level),
-        });
-    }
-    if sensor.black_level_repeat_dim != reading.black_level_repeat_dim {
-        out.push(Mismatch {
-            field: "BlackLevelRepeatDim",
-            ours: format!("{:?}", sensor.black_level_repeat_dim),
-            theirs: format!("{:?}", reading.black_level_repeat_dim),
-        });
-    }
-    if sensor.active_area != reading.active_area {
-        out.push(Mismatch {
-            field: "ActiveArea",
-            ours: format!("{:?}", sensor.active_area),
-            theirs: format!("{:?}", reading.active_area),
-        });
-    }
-    if sensor.default_crop_origin != reading.default_crop_origin {
-        out.push(Mismatch {
-            field: "DefaultCropOrigin",
-            ours: format!("{:?}", sensor.default_crop_origin),
-            theirs: format!("{:?}", reading.default_crop_origin),
-        });
-    }
-    if sensor.default_crop_size != reading.default_crop_size {
-        out.push(Mismatch {
-            field: "DefaultCropSize",
-            ours: format!("{:?}", sensor.default_crop_size),
-            theirs: format!("{:?}", reading.default_crop_size),
-        });
-    }
-    if sensor.orientation != reading.orientation {
-        out.push(Mismatch {
-            field: "Orientation",
-            ours: format!("{:?}", sensor.orientation),
-            theirs: format!("{:?}", reading.orientation),
-        });
-    }
+
+    out.extend(compare_optional(
+        "BlackLevel",
+        TAG_BLACK_LEVEL,
+        sensor.black_level,
+        &reading.black_level,
+        malformed_tags,
+    ));
+    out.extend(compare_optional(
+        "WhiteLevel",
+        TAG_WHITE_LEVEL,
+        sensor.white_level,
+        &reading.white_level,
+        malformed_tags,
+    ));
+    out.extend(compare_optional(
+        "BlackLevelRepeatDim",
+        TAG_BLACK_LEVEL_REPEAT_DIM,
+        sensor.black_level_repeat_dim,
+        &reading.black_level_repeat_dim,
+        malformed_tags,
+    ));
+    out.extend(compare_optional(
+        "ActiveArea",
+        TAG_ACTIVE_AREA,
+        sensor.active_area,
+        &reading.active_area,
+        malformed_tags,
+    ));
+    out.extend(compare_optional(
+        "DefaultCropOrigin",
+        TAG_DEFAULT_CROP_ORIGIN,
+        sensor.default_crop_origin,
+        &reading.default_crop_origin,
+        malformed_tags,
+    ));
+    out.extend(compare_optional(
+        "DefaultCropSize",
+        TAG_DEFAULT_CROP_SIZE,
+        sensor.default_crop_size,
+        &reading.default_crop_size,
+        malformed_tags,
+    ));
+    out.extend(compare_optional(
+        "Orientation",
+        TAG_ORIENTATION,
+        sensor.orientation,
+        &reading.orientation,
+        malformed_tags,
+    ));
 
     out
+}
+
+/// The one generic arm every optional field goes through (AC1/AC2/AC3) —
+/// see [`diff`]'s doc comment for the three-way rule. Returns `Some(Mismatch)`
+/// on disagreement, `None` on agreement, so call sites read as
+/// `out.extend(compare_optional(...))`.
+fn compare_optional<T: Copy + PartialEq + std::fmt::Debug>(
+    field: &'static str,
+    tag: u16,
+    ours: Option<T>,
+    theirs: &ToolValue<T>,
+    malformed_tags: &[u16],
+) -> Option<Mismatch> {
+    let agrees = match theirs {
+        ToolValue::Absent => ours.is_none(),
+        ToolValue::Value(v) => ours == Some(*v),
+        ToolValue::Unreadable(_) => malformed_tags.contains(&tag),
+    };
+    if agrees {
+        None
+    } else {
+        Some(Mismatch {
+            field,
+            ours: format!("{ours:?}"),
+            theirs: format!("{theirs:?}"),
+        })
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

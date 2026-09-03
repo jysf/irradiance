@@ -6,7 +6,7 @@
 task:
   id: SPEC-010
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -73,6 +73,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-08-22
       notes: "main-loop, not separately metered (AGENTS.md §4). Design cycle PROBED the defect rather than describing it (§15 rule 4): added two throwaway tests to tests/support/tools.rs, measured that all FOUR multi-valued tags produce a byte-identical ToolReading for an absent tag and a garbled one, and that BlackLevel [512,999] reads Some(512); restored the file byte-identical and re-ran the suite to 87. Key design finding: the information is NOT MISSING — Field.values is already Option<Vec<u32>> and its own doc comment says None is exiftool's '-'; the distinction survives values_for and is DISCARDED in reading_from_fields, in three idioms across five lines. Sized M for AC5/AC6/AC7, not for the fix. HANDOFF-024 tells build to REPRODUCE SPEC-005/FU-8's already-measured three-configuration table rather than re-derive the design."
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 24318132
+      estimated_usd: 160.50
+      duration_minutes: 25
+      recorded_at: 2026-09-03
+      notes: "Run directly in this CLI session (not a sub-agent), per HANDOFF-024 and this repo's delegate-cycles-to-cli-sessions convention. tokens_total deduped by message.id (102 unique) from this session's own transcript, summed input+output+cache_creation+cache_read (AGENTS.md §4: one combined number), captured immediately before this commit — see HANDOFF-024's handback notes for the full method and the acknowledged undercount. HANDOFF-024's to_agent hint (claude-opus-5) was corrected to claude-sonnet-5, the model every message in this session's own transcript actually reports."
 
   totals:
     tokens_total: 0

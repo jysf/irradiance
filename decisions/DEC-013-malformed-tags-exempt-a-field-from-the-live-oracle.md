@@ -43,6 +43,19 @@ tags:
 > kept — not deleted — because *why* it was wrong is the useful part, and
 > because a decision that quietly vanishes teaches nobody. The original text is
 > preserved verbatim below the line.
+>
+> ⚠ **`DEC-014` (2026-09-03, `SPEC-010`, `AC7`) is this record's true
+> successor** — kept as `superseded_by: null` here because `status: rejected`
+> already says this record was wrong on three independent counts (below), not
+> merely later improved on; `decisions-audit` enforces that
+> `superseded_by`/`status` agree, and `superseded` would understate why this
+> was rejected. `FU-1` was fixed as `SPEC-005/FU-8` specified — a tri-state on
+> the tool side, compared against `malformed_tags` generically — and the
+> guard this record predicted would then become necessary (see "Why the guard
+> was REMOVED rather than made generic" below) **is** necessary: `DEC-014`'s
+> red-proof shows removing it turns `K3III.DNG` red. `DEC-014` is the
+> deliberate decision this record's own text asked `FU-1`'s fixer to make;
+> read it for the current, true state.
 
 ## What was decided instead
 
