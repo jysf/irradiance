@@ -4,12 +4,12 @@
 # implementer lives in handoffs/HANDOFF-*.md, not in the spec itself.
 
 task:
-  id: SPEC-012
+  id: SPEC-013
   type: story                      # epic | story | task | bug | chore
   cycle: frame                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
-  complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
+  complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
@@ -70,10 +70,10 @@ cost:
     session_count: 0
 ---
 
-# SPEC-012: (not yet written) Strip location and sample unpack, two paths per DEC-008
+# SPEC-013: Bit-exact plane oracle against dnglab raw-checksum, with its red-proof
 
 > **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-012]`. Capture **scope** (Context /
+> siblings can declare `depends_on: [SPEC-013]`. Capture **scope** (Context /
 > Goal / Non-Goals) and **dependencies** only — the *approach* is designed
 > just-in-time when this moves to `design`. Do not pre-design it here.
 
