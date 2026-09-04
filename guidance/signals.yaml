@@ -229,7 +229,7 @@ signals:
   - id: measurement-over-generalised
     type: lesson
     summary: "Running something proves what you ran, not the category it belongs to — over-generalised measurements read as `measured` and are wrong."
-    evidence: "N=5. (1) SPEC-002/F2 — measured eprintln! is captured, asserted 'loudness cannot live in the harness' (false; writeln!(stderr) escapes). (2) SPEC-004 — read the first lines of `pub struct Sensor` and asserted SPEC-003 'stops where geometry begins' (false; it already carried every tag). (3) SPEC-007 — mutated ONE structural tag, watched the test go red, asserted 'the boundary test has teeth'; the reviewer softened the other four and all 58 tests stayed green. (4) SPEC-005 build — DEC-013 recorded choosing a GENERIC malformed_tags exemption and shipped a single hardcoded tag; settled by test, not by reading (malformed BlackLevelRepeatDim diffs []; an identically malformed ActiveArea still reds). (5) SPEC-005/FU-8 — the ORCHESTRATOR, in the doc comment written to reject instance 4 for exactly this, measured ONE simulated future and wrote 'the day FU-1 is fixed, K3III.DNG goes red here'; the reviewer built FU-1 AS SPECIFIED and the alarm never fires."
+    evidence: "N=5. (1) SPEC-002/F2 — measured eprintln! is captured, asserted 'loudness cannot live in the harness' (false; writeln!(stderr) escapes). (2) SPEC-004 — read the first lines of `pub struct Sensor` and asserted SPEC-003 'stops where geometry begins' (false; it already carried every tag). (3) SPEC-007 — mutated ONE structural tag, watched the test go red, asserted 'the boundary test has teeth'; the reviewer softened the other four and all 58 tests stayed green. (4) SPEC-005 build — DEC-013 recorded choosing a GENERIC malformed_tags exemption and shipped a single hardcoded tag; settled by test, not by reading (malformed BlackLevelRepeatDim diffs []; an identically malformed ActiveArea still reds). (5) SPEC-005/FU-8 — the ORCHESTRATOR, in the doc comment written to reject instance 4 for exactly this, measured ONE simulated future and wrote 'the day FU-1 is fixed, K3III.DNG goes red here'; the reviewer built FU-1 AS SPECIFIED and the alarm never fires. (6) SPEC-009/FU-1 — the orchestrator again, AFTER codification: 'the fix's shape has no one point left to be narrow at' is true of the rejection direction and false of the acceptance direction the same spec added, which is pinned at one tag."
     bar: "N=3 same-outcome"
     status: codified
     disposition_at: stage-close
@@ -237,6 +237,23 @@ signals:
     last_touched: 2026-08-22
     raised_by: claude
     notes: |
+      ⚠ INSTANCE 6, 2026-09-04 (SPEC-009/FU-1) — AFTER codification, and that is
+      the interesting part. SPEC-009's Context repeated SPEC-008's claim that the
+      recursion terminates because the fix's shape "has no one point left to be
+      narrow at". Verify measured that this is true of the REJECTION direction
+      (all eleven pinned) and NOT of the ACCEPTANCE direction the same spec added
+      alongside it: adding TAG_DEFAULT_CROP_ORIGIN to is_structural_tag() stays
+      green, while TAG_BLACK_LEVEL and TAG_DEFAULT_CROP_SIZE go red — one of the
+      three legally-RATIONAL DNG tags the predicate's own doc comment names.
+      Written by the orchestrator, in a spec whose whole subject is a guard being
+      one point wide, four days after landing the rule in §16.
+      NOT re-opened: the rule as codified is right and instance 6 is evidence FOR
+      it, not against it. What it shows is that the rule catches a sentence you
+      are WRITING and not a sentence you are QUOTING — SPEC-009's Context
+      inherited the claim from SPEC-008's reflection rather than composing it.
+      Worth one clause at the next stage close: a quoted claim is a claim, and
+      carrying one forward re-asserts it.
+
       ══ STAGE-001 CLOSE, 2026-08-22: CODIFIED at N=5. ══
       Landed in AGENTS.md §16 as a WRITING RULE, which is the form instance 5
       dictated: it was committed by an agent who knew the rule, had just enforced
@@ -279,14 +296,25 @@ signals:
   - id: cost-field-has-two-owners
     type: process-debt
     summary: "AGENTS.md §15 tells the agent to write cost.sessions; DEC-013 says handback-sync transcribes it."
-    evidence: "N=2. (1) SPEC-006 F-5 — cost.sessions was empty after verify because each side could assume the other had it. (2) SPEC-007/FU-7 — HANDOFF-017's whole `handback:` block was null while handoff.status was `completed`; the number survived only because the build wrote cost.sessions directly, i.e. the same ambiguity firing from the OTHER side."
+    evidence: "N=3. (1) SPEC-006 F-5 — cost.sessions was empty after verify because each side could assume the other had it. (2) SPEC-007/FU-7 — HANDOFF-017's whole `handback:` block was null while handoff.status was `completed`; the number survived only because the build wrote cost.sessions directly, i.e. the same ambiguity firing from the OTHER side. (3) SPEC-009/FU-2 — a THIRD direction: the build wrote a null-numeric build session AND handback-sync appended the orchestrator-recovered figure BESIDE it, so one cycle carried two sessions. Unlike SPEC-010's duplicate the total was right (one entry was null) and the record was still wrong."
     bar: null
     status: open
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-21
+    last_touched: 2026-09-04
     raised_by: claude
     notes: |
+      ⚠ N=3 as of 2026-09-04, and the third instance shows the fix is narrower
+      than "pick an owner". SPEC-009's build could not self-report, wrote a
+      null-with-note entry (correct, per AGENTS.md §4), and handback-sync then
+      appended the orchestrator's recovered figure BESIDE it rather than INTO
+      it. Neither side did anything wrong by its own rules; the script simply
+      has no notion of "this cycle already has a session". So the concrete fix
+      is one line in handback-sync: key on (spec, cycle, handoff) and UPDATE an
+      existing session for that cycle instead of appending. That also closes
+      SPEC-003's long-standing double-append warning and SPEC-010/FU-2's
+      duplicate, which are the same bug from two other angles.
+
       Both cannot be authoritative. `handback-sync` is the better owner (it is
       idempotent, it stamps synced_at, and it cannot fat-finger a number), so
       AGENTS.md §15 should say "fill the handback; the orchestrator syncs" rather
