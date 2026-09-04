@@ -6,10 +6,10 @@
 task:
   id: SPEC-009
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
-  complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
+  complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
@@ -27,12 +27,12 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # ⚠ DISPATCH HINT (SPEC-007/FU-6 — 1 for 5). Correct it.
+  created_at: 2026-09-03
 
 references:
   decisions: [DEC-012]             # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
+  constraints: [oracle-must-be-shown-red, test-before-implementation, library-not-application]                  # [constraint-id-1, constraint-id-2]
   related_specs: [SPEC-007, SPEC-008]  # [SPEC-NNN]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
@@ -62,8 +62,17 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 16000000
+  sessions:
+    - cycle: design
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-09-03
+      notes: "main-loop, not separately metered (AGENTS.md §4). Design cycle RE-MEASURED all four carried SPEC-008 findings on main at 024eaae rather than inheriting them — each mutation asserted applied by diff, tree restored byte-identical: FU-1 (ten of eleven memberships deleted) 96 passed 0 failed; FU-2 (combined malformed.push split per erroring read) compiles, 96 passed 0 failed; FU-5 the test still contains ZERO sensor_candidates assertions. They were raised against a 66-test suite and the suite is now 96 — thirty tests added and not one touches these paths, which is the argument for doing this now rather than trusting accumulation. KEY DESIGN INPUT the findings could not have known: DEC-014 changed AC4's stakes. malformed_tags is no longer just a report — diff() now treats a tag named in it as EXEMPT from comparison with the tool, so Option A (record what was ignored) would widen the oracle's blind spot. Recommended B and narrowing the contract text instead, offered as input rather than as the answer; the DEC is build's to write either way. HANDOFF-026 ready."
+
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -151,62 +160,142 @@ delay that close for a hazard that has no consumer today.
 
 ## Goal
 
-Make every one of `is_structural_tag()`'s eleven memberships load-bearing: a
-table-driven test that turns red when any single membership is deleted, plus
-fixtures for the two unguarded `Orientation` paths and a decision on what a
-swallowed malformed sensor-IFD read should record.
+Make every one of `is_structural_tag()`'s eleven memberships load-bearing with a
+**table-driven test that carries its own list**, and close the three smaller
+`SPEC-008` findings that share its shape: a fix whose guard is one point wide.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:** `src/ifd.rs` — `is_structural_tag()` (`:188-203`), the
+  per-tag `TYPE_RATIONAL` gate in `uints()` (`:841`), `sensor()`'s `Orientation`
+  fallback (`:1155-1173`), `Sensor::malformed_tags`' documented contract
+  (`:553-560`); `tests/support/tiff.rs` (the hand-built fixture builder)
+- **Decisions:** `DEC-012` (the Structure/Interpretation split and its amended
+  table), `DEC-014` (what `malformed_tags` now *means* to the oracle — read this
+  before deciding `AC4`)
+- **Related:** `SPEC-008`'s `## Follow-ups` table — this spec is its `spec:` row
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:** `src/ifd.rs` — new `#[cfg(test)]` tests, and **at most one
+  behaviour change** (`AC4`, only if the decision goes that way);
+  `tests/support/tiff.rs` if a fixture shape is missing
+- **New decision:** a `DEC-*` recording `AC4`'s answer, whichever way it goes.
+  ⚠ It is a decision *even if the answer is "keep current behaviour"* — the
+  contract and the code currently disagree and nobody has said which wins
+- **No new dependency**, no new public API. `Cargo.toml` byte-identical
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] **AC1 — the membership list is pinned, table-driven, over all eleven
+      tags.** Deleting **any single** membership must turn the suite red.
+      ⚠ **The test carries its own list of eleven, written out.** It must **not**
+      iterate `is_structural_tag()` — a test that reads the list it checks is a
+      tautology, and deleting a tag would delete its own coverage.
+- [ ] **AC2 — both directions per tag.** Each of the eleven **rejects** a
+      `RATIONAL` entry with `Error::UnexpectedFieldType`; a paired
+      **interpretation** tag still **accepts** one (`SPEC-007`'s widening must
+      survive). A test that only proves rejection would pass if `uints()`
+      rejected `RATIONAL` universally, which would silently undo `SPEC-007`.
+- [ ] **AC3 — "costed at most once" is guarded on the path where it can fail.**
+      A fixture with a malformed `Orientation` on **both** `IFD0` and the SubIFD
+      plane, asserting `malformed_tags == [TAG_ORIENTATION]` — **one** element.
+      Measured today: splitting the combined push into one per erroring read
+      compiles and leaves all 96 tests green.
+- [ ] **AC4 — the swallowed malformed sensor read is DECIDED and pinned.**
+      Today a well-formed `IFD0` `Orientation` with an **erroring** sensor-IFD
+      read yields `Some(v)` and an **empty** `malformed_tags`. Choose, write a
+      `DEC-*`, and pin the chosen behaviour with a test. See the analysis below —
+      it is not a free choice any more.
+- [ ] **AC5 — `wellformed_orientation_is_not_recorded_malformed` asserts its own
+      precondition.** Measured: it contains **zero** `sensor_candidates`
+      assertions and holds only because `IFD0` carries `NewSubfileType = 1`.
+      One line.
+- [ ] **AC6 — red-proof with a control**, per `oracle-must-be-shown-red` as
+      widened to gates. For `AC1` that is the eleven-way mutation itself: each
+      membership deleted in turn must fail, and the unmutated tree must pass.
+      **Watch it, do not reason about it.**
+- [ ] **AC7 — eleven gates plus `just lint-ci`**, and **CI observed green on the
+      shipping SHA**.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+⚠ A zero-match `cargo test <name>` **exits 0**; confirm each exists per-target
+and **sum across all six targets**.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`src/ifd.rs` `#[cfg(test)]`**
+  - `every_structural_tag_rejects_a_rational` — AC1/AC2
+  - `an_interpretation_tag_still_accepts_a_rational` — AC2's other direction
+  - `orientation_malformed_on_both_ifds_is_costed_once` — AC3
+  - `a_malformed_sensor_orientation_with_a_good_ifd0_value_is_<decided>` — AC4,
+    named for whichever behaviour the `DEC` chooses
+  - `wellformed_orientation_test_pins_its_own_precondition` — AC5
 
 ## Non-Goals
 
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
+- **Re-opening `DEC-012`'s classification.** Which tags are structural is
+  settled; this spec pins that the *code* enforces what the *table* says.
+- **The unpack.** `SPEC-012` owns pixels. This spec exists so that spec's inputs
+  cannot lie to it.
+- **Widening `is_structural_tag()`.** Adding a twelfth tag is the *strict*
+  direction and is not the hazard.
 
-- ...
+## Implementation Context
 
-## Notes for the Implementer
+> **Measured 2026-09-03 on `main` at `024eaae`**, each mutation asserted applied
+> by `diff` and the tree restored byte-identical. All four findings were raised
+> against a 66-test suite; the suite is now **96** and every one still holds.
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+| finding | mutation | result |
+|---|---|---|
+| `FU-1` | `is_structural_tag()` reduced to `TAG_SUB_IFDS` alone — ten deleted | **96 passed, 0 failed** |
+| `FU-2` | the combined `malformed.push` split into one per erroring read | compiles, **96 passed, 0 failed** |
+| `FU-5` | — | the test contains **0** `sensor_candidates` assertions |
 
----
+**Thirty tests have been added since these were raised and not one of them
+touches these paths.** That is the argument for doing this now rather than
+trusting accumulation.
+
+### The hazard, and why it is STAGE-002's
+
+`Compression` encoded `RATIONAL 2/2` reads `1` → `require_uncompressed()` passes
+→ **the unpack reads JPEG bytes as raw samples.** A wrong image from a file that
+parsed cleanly, which is this project's signature failure shape. `StripByteCounts`
+as `RATIONAL 28/2` silently reading `[14]` is the same defect against the plane's
+extent.
+
+### ⚠ AC4 is no longer a free choice — `DEC-014` changed the stakes
+
+When `SPEC-008/FU-3` raised this, `malformed_tags` was a *report*. Since
+`SPEC-010` and `DEC-014` it is also an **input to the oracle**: `diff()` treats a
+tag named in `malformed_tags` as *exempt* from comparison with the tool. So the
+two options are no longer symmetric:
+
+- **Option A — record what was ignored.** Push `TAG_ORIENTATION` whenever any
+  read errored, even when a value was found. Matches the field's documented
+  contract at `src/ifd.rs:553-560` — *"present but shaped wrong, recorded rather
+  than rejected"* — the tag **is** present and **is** shaped wrong.
+  ⚠ **But it widens the oracle's blind spot**: every tag it newly records becomes
+  one the metadata oracle stops checking.
+- **Option B — a value found means silence.** Current behaviour.
+  `malformed_tags` means *"this field's value was lost"*, which is what makes the
+  `DEC-014` exemption safe — you only stop comparing a field whose value you do
+  not have.
+
+**The orchestrator's read, offered as input and not as the answer:** B, and the
+contract text at `:553-560` should be narrowed to say *"present, shaped wrong,
+**and therefore dropped**"*. A is more faithful to the words as written and less
+faithful to what the field is now used for, and `DEC-014`'s exemption is only
+sound under B. **Build decides and writes the `DEC`** — including if it disagrees.
+
+### Traps
+
+- ⚠ **Do not derive the test's table from `is_structural_tag()`.** `AGENTS.md`
+  §16 rule 1: a claim must be backed by a second measured point in a different
+  direction, and a self-referential table has none.
+- `just lint-ci`, not `just lint` — and **read CI**.
+- Sum across **all six** targets. Tier-B tests pass whether or not the corpus is
+  present; only `just test` names what is missing.
 
 ## Reflection
 
