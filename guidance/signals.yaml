@@ -644,14 +644,23 @@ signals:
   - id: flat-rate-overstates-cached-sessions
     type: process-debt
     summary: "rate_per_mtok: 6.60 applied flat computes 2.7x the true cost on a 97.5%-cache-read session."
-    evidence: "SPEC-007 verify: $19.35 computed per-component at published Opus rates vs $51.06 at the repo's flat rate. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them, always in the same direction."
+    evidence: "N=3, three sessions and two models, always the same direction. (1) SPEC-007 verify: $19.35 per-component at published Opus rates vs $51.06 flat — 2.6x. (2) PATCH-001, SPEC-005's build on claude-sonnet-5: $13.55 actual vs $198.76 flat — 14.7x, because the flat rate ALSO ignores which model ran. (3) SPEC-010 verify: $21.33 vs $68.39 — 3.2x. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them."
     bar: null
     status: open
     disposition_at: project-close
     first_flagged: 2026-08-21
-    last_touched: 2026-08-21
+    last_touched: 2026-09-03
     raised_by: claude
     notes: |
+      ⚠ THIRD MEASUREMENT 2026-09-03 (SPEC-010/FU-4), and the spread across the
+      three is the argument: 2.6x, 3.2x — and 14.7x on the one session that ran
+      on a DIFFERENT MODEL than the flat rate assumes. So the error is not a
+      constant a correction factor could absorb; it is the product of two
+      independent wrongnesses, cache composition and model, and it compounds
+      with [[tier-map-predicts-what-it-should-record]] because that is the field
+      that says which model. Any close that fixes one and not the other leaves
+      a figure nobody should use.
+
       Compounds [[token-counts-not-comparable]]: the token counts are already
       basis-dependent, and estimated_usd then multiplies them by a rate that
       ignores cache tiers entirely. AGENTS.md §4 does say the estimate is

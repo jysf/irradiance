@@ -6,14 +6,14 @@
 task:
   id: SPEC-010
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: punch-list             # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -73,11 +73,36 @@ cost:
       duration_minutes: null
       recorded_at: 2026-08-22
       notes: "main-loop, not separately metered (AGENTS.md §4). Design cycle PROBED the defect rather than describing it (§15 rule 4): added two throwaway tests to tests/support/tools.rs, measured that all FOUR multi-valued tags produce a byte-identical ToolReading for an absent tag and a garbled one, and that BlackLevel [512,999] reads Some(512); restored the file byte-identical and re-ran the suite to 87. Key design finding: the information is NOT MISSING — Field.values is already Option<Vec<u32>> and its own doc comment says None is exiftool's '-'; the distinction survives values_for and is DISCARDED in reading_from_fields, in three idioms across five lines. Sized M for AC5/AC6/AC7, not for the fix. HANDOFF-024 tells build to REPRODUCE SPEC-005/FU-8's already-measured three-configuration table rather than re-derive the design."
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 24318132
+      estimated_usd: 160.50
+      duration_minutes: 25
+      recorded_at: 2026-09-03
+      notes: "Run directly in this CLI session (not a sub-agent), per HANDOFF-024 and this repo's delegate-cycles-to-cli-sessions convention. tokens_total deduped by message.id (102 unique) from this session's own transcript, summed input+output+cache_creation+cache_read (AGENTS.md §4: one combined number), captured immediately before this commit — see HANDOFF-024's handback notes for the full method and the acknowledged undercount. HANDOFF-024's to_agent hint (claude-opus-5) was corrected to claude-sonnet-5, the model every message in this session's own transcript actually reports."
 
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 10362360
+      estimated_usd: 21.33
+      duration_minutes: 15
+      recorded_at: 2026-09-03
+      notes: "VERDICT ⚠ PUNCH LIST — one ship-blocker (SB-1), one new follow-up (FU-3),
+    - cycle: ship
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-09-03
+      notes: "main-loop, not separately metered (AGENTS.md §4). Ship cycle: reconciled the build and verify handbacks against git and disk, reproduced the three-arm mutation table byte-for-byte before accepting SB-1, applied the reviewer's tier-A test and red-proofed it MYSELF in the no-corpus/no-tool configuration (honest 30 passed; Absent => true 1 FAILED — that configuration was green in both directions before). Also reproduced FU-3 directly: corpus-status prints '7/7 present — no tier-B test will skip' while 29 tests skip in 0.01s. ⚠ REMOVED A DUPLICATE BUILD COST SESSION: the build hand-wrote one and handback-sync appended a second (24,318,132 counted twice), which is exactly the hazard SPEC-003's build measured and warned about — synced_at null plus a hand-written entry. Kept the handback-sync entry, which names its dedup method."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 34680492
+    estimated_usd: 181.83
+    session_count: 4
+shipped_at: 2026-09-03
 ---
 
 # SPEC-010: Distinguish an unparseable tool reading from an absent tag and reconcile the frozen fixture
@@ -279,7 +304,79 @@ corpus file on every run. Read `DEC-013`'s rejection before designing the arm;
   corpus is present — 87 either way — so a green tells you nothing about coverage
   unless you ran `just test`, which names the missing files first.
 
+## Follow-ups
+
+| id | finding | disposition |
+|---|---|---|
+| `SB-1` | `compare_optional`'s **`Absent` arm has no test that dies** — `Absent => true` left 29 green with the full corpus, and without a corpus the arm was dead in **both** directions, so the tier-A half CI runs had never exercised it at all | `fixed` — `3d2c94e`. The reviewer's ten-line **tier-A** test, red-proofed by the orchestrator in the no-corpus/no-tool configuration: honest tree 30 passed, `Absent => true` **1 FAILED**. That configuration was green either way before |
+| `FU-1` | (raised at build, resolved in the same cycle) | `fixed` — in `23e413f` |
+| `FU-2` | `req()` truncates a multi-valued **required** tag: `BitsPerSample "8 8 8"` reads `8` and `diff()` returns `[]`. Latent on a mono corpus, **live at `SamplesPerPixel > 1`** | `spec: SPEC-016` — ⚠ **re-dispositioned. This is the orchestrator's error, not the build's.** `SPEC-005/FU-2` was sent to `SPEC-010` and `SPEC-010` did not close it, because `AC4` as written was narrower than the finding it carried. The build's `closed` had a trigger of *"someone remembering at PROJ-002"*, which AGENTS.md §15 names as a **bad close** — a close's trigger must be a test that fails, not a memory |
+| `FU-3` | `corpus-status` prints *"corpus: 7/7 present — no tier-B test will skip"* while every tier-B test skips, when the corpus is present but `exiftool` is off `PATH` | `spec: SPEC-016` — reproduced by the orchestrator: 29 tests skip in **0.01 s** under that exact line. Worse than `SPEC-005/FU-3`, where the surface was merely silent; here it makes a **positive claim it is not entitled to make**. `corpus-status` knows about the corpus, not the tools |
+| `FU-4` | the blended `rate_per_mtok` overstates this cache-heavy cycle **3.2×** — `$68.39` vs `$21.33` per-component | `signal: flat-rate-overstates-cached-sessions` — a **third** independent measurement, now spanning three different sessions and two models |
+
+**1 ship-blocker + 4 follow-ups · 2 `fixed` · 1 `signal` · 2 → `SPEC-016`.**
+
+⚠ **Also carried, not this spec's:** `SPEC-005/FU-9` (`is_active()` ignores `status`)
+was confirmed still open and correctly **flagged rather than fixed** — it is outside
+this spec's `tests/`-only scope. It stays dispositioned to `SPEC-011`.
+
 ## Reflection
+
+**1. What would I do differently next time?**
+
+**Write the acceptance criterion as wide as the finding it carries.** `AC4` said
+*"`BlackLevel = "512 999"` must not read `Some(512)`"* — true, testable, and only
+the **optional** half of `SPEC-005/FU-2`, whose stated hazard was *"live at
+`SamplesPerPixel > 1`"*. The build met `AC4` exactly and closed `FU-2`, and the
+finding survived both. That is my error twice over: I dispositioned `FU-2` to this
+spec, then wrote a criterion that could pass without closing it.
+
+The general form is worth more than the instance: **a follow-up routed to a spec
+is not owned by that spec unless an AC would fail if it were left undone.** A
+disposition of `spec: SPEC-NNN` should be checked against SPEC-NNN's criteria, not
+just its title. Nothing in §15 says that yet.
+
+**And stage before you mutate.** The build's own lesson, self-caught and
+disclosed: `git checkout -- tests/support/tools.rs` during red-proof work wiped its
+entire change because nothing was staged, and the shipped code is a
+*reconstruction*. Nothing was lost — verify walked every AC against the code —
+but it was luck that nothing was, and the handoff had to be rewritten to say
+"treat every AC as unverified".
+
+**2. Does any template, constraint, or decision need updating?**
+
+- **`AGENTS.md` §15's four dispositions need a fifth line.** `closed` currently
+  says *"a close whose trigger is a test that will fail is a good close; a close
+  whose trigger is someone remembering is not"* — which the build violated in
+  good faith. The missing rule is the one above: **`spec: SPEC-NNN` requires an
+  AC in SPEC-NNN that fails if the finding is left undone.** Recorded as a
+  candidate for STAGE-002's close rather than landed mid-stage.
+- **`DEC-014` supersedes nothing and that is deliberate.** Verify confirmed the
+  `DEC-013`-`rejected` / `DEC-014`-`accepted` pair sound: `decisions-audit`
+  reports 0 structural errors and one *nudge* toward `superseded`, which is the
+  **worse** answer — `superseded` would understate "wrong on three counts", and
+  both records genuinely govern the same file for different reasons. The
+  mechanical suggestion is not the right one here, and the record says why.
+- **`tier_map` is now 1 for 5.** The build ran on `claude-sonnet-5` against a
+  hint saying `claude-opus-5`; the verify hint was right. Both cycles corrected
+  `to_agent` themselves, which is the safeguard working — but it is working
+  because two sessions remembered, not because anything enforces it.
+
+**3. Is there a follow-up spec to write now?**
+
+**`SPEC-016`, framed**, carrying `FU-2` and `FU-3` — both instances of *the
+harness asserting more than it checked*. `FU-3` is the sharper of the two:
+`corpus-status` prints *"7/7 present — no tier-B test will skip"* while 29 tests
+skip in 0.01 s, which is worse than `SPEC-005/FU-3` because that surface was
+merely silent and this one is **wrong out loud**.
+
+Worth stating plainly: **the defect this spec existed to fix, it reproduced.**
+`DEC-013` was rejected because *"a guard that nothing dies without is a guard
+nobody knows works"*, and `SPEC-010` shipped its replacement guard with the same
+property in a different arm — caught only because `HANDOFF-025` asked the
+reviewer to mutate each arm in turn, and they did. The comparator was correct
+throughout; what was missing, both times, was the proof.
+
 
 *Appended during **ship**. Three questions, short answers.*
 

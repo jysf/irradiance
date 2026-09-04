@@ -346,6 +346,57 @@ fn malformed_black_level_repeat_dim_reads_three_different_ways() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SPEC-010 AC3, tier B — K3III.DNG's malformed BlackLevelRepeatDim agrees
+// with our reader FOR A STATED REASON, not by the SPEC-005/FU-1 collapse
+// (absent == garbled) this spec closes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn k3iii_dng_black_level_repeat_dim_agrees_for_a_stated_reason() {
+    if !tools::exiftool_available() {
+        eprintln!(
+            "SKIP k3iii_dng_black_level_repeat_dim_agrees_for_a_stated_reason — exiftool not on \
+             PATH"
+        );
+        return;
+    }
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
+    let root = CorpusRoot::resolve();
+    let file = manifest
+        .get("PENTAX-K3III-MONO/K3III.DNG")
+        .expect("manifest must carry PENTAX-K3III-MONO/K3III.DNG");
+    let Some((path, sensor)) = sensor_at(&root, file) else {
+        return;
+    };
+    let reading = tools::exiftool_reading(&path, "SubIFD")
+        .unwrap_or_else(|e| panic!("K3III.DNG: exiftool failed: {e}"));
+
+    // The "stated reason": exiftool's BlackLevelRepeatDim must classify as
+    // Unreadable (present, wrong shape) — never Absent. If it read Absent,
+    // any agreement below would be SPEC-005/FU-1's collapse, not AC2's guard.
+    assert!(
+        matches!(
+            reading.black_level_repeat_dim,
+            tools::ToolValue::Unreadable(_)
+        ),
+        "K3III.DNG: exiftool's BlackLevelRepeatDim must read Unreadable, not Absent — got {:?}",
+        reading.black_level_repeat_dim
+    );
+    assert!(
+        sensor.malformed_tags.contains(&TAG_BLACK_LEVEL_REPEAT_DIM),
+        "K3III.DNG: tag 50713 must be recorded in malformed_tags, got {:?}",
+        sensor.malformed_tags
+    );
+
+    let mismatches = tools::diff(&sensor, &reading);
+    assert!(
+        !mismatches.iter().any(|m| m.field == "BlackLevelRepeatDim"),
+        "K3III.DNG: BlackLevelRepeatDim must agree (our malformed_tags names the same tag), got \
+         {mismatches:?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AC5, tier A — the comparator's red-proof: runs everywhere, no tool, no
 // corpus. Replays a COMMITTED sample of exiftool's real output for
 // LEICA-Q2-MONO/L1021223.DNG (measured 2026-08-21) through the exact parsing
@@ -414,6 +465,216 @@ fn oracle_names_the_one_field_that_was_perturbed() {
         "exactly one field must disagree, got {mismatches:?}"
     );
     assert_eq!(mismatches[0].field, "BitsPerSample");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-010 AC1, AC2, AC4 — the tri-state, tier A: no tool, no corpus. Varies
+// ONE column of the committed fixture line at a time, through the SAME
+// parsing code a real run uses — same technique as
+// `oracle_names_the_one_field_that_was_perturbed` above, applied to the
+// TOOL side instead of the sensor side.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Column indices into [`FIXTURE_LINE`]'s tab-separated fields — the order
+/// [`tools::sensor_reading_tags`] requests them in (`SENSOR_TAGS`, then
+/// `IFD0:Orientation`).
+const COL_BLACK_LEVEL: usize = 5;
+const COL_BLACK_LEVEL_REPEAT_DIM: usize = 7;
+const COL_ACTIVE_AREA: usize = 8;
+const COL_DEFAULT_CROP_ORIGIN: usize = 9;
+const COL_DEFAULT_CROP_SIZE: usize = 10;
+
+/// [`FIXTURE_LINE`] with column `column`'s raw text replaced by
+/// `replacement`, parsed through the exact code a live `exiftool_reading`
+/// run would use. Every OTHER column stays the honest fixture value, so a
+/// resulting mismatch is attributable to the one column that changed.
+fn reading_with_column(column: usize, replacement: &str) -> tools::ToolReading {
+    let mut columns: Vec<&str> = FIXTURE_LINE.trim_end_matches('\n').split('\t').collect();
+    *columns
+        .get_mut(column)
+        .expect("column index must be within the fixture line") = replacement;
+    let line = columns.join("\t");
+    let tags = tools::sensor_reading_tags("SubIFD");
+    let fields = tools::parse_fields(&tags, &line).expect("fixture-derived line parses");
+    tools::reading_from_fields(&fields).expect("fixture-derived fields build a ToolReading")
+}
+
+#[test]
+fn an_absent_tool_reading_is_a_mismatch_when_we_read_a_value() {
+    // `SPEC-010/SB-1`. `fixture_sensor()`'s `ActiveArea` is `Some(..)` — exiftool
+    // saying the tag is NOT IN THE FILE must disagree with that. This is
+    // `compare_optional`'s `Absent` arm in its DISCRIMINATING direction, and
+    // nothing else exercises it: verify measured that replacing
+    // `ToolValue::Absent => ours.is_none()` with `=> true` left all 29 oracle
+    // tests green WITH the full corpus, and that without a corpus the arm is
+    // dead in BOTH directions — so CI had never run it at all.
+    //
+    // ⚠ Tier A on purpose: no corpus, no tool. The half CI runs is the half
+    // that had no coverage. `an_absent_tag_and_a_garbled_one_are_not_the_same_reading`
+    // proves the two READINGS differ; it never proves the COMPARATOR acts on
+    // the difference. That gap is what `DEC-013` was rejected for — "a guard
+    // that nothing dies without is a guard nobody knows works" — reappearing in
+    // the arm `SPEC-010` shipped to replace it.
+    let sensor = fixture_sensor();
+    let mut reading = fixture_reading();
+    reading.active_area = reading_with_column(COL_ACTIVE_AREA, "-").active_area;
+    assert_eq!(reading.active_area, tools::ToolValue::Absent);
+
+    let mismatches = tools::diff(&sensor, &reading);
+    assert_eq!(
+        mismatches.len(),
+        1,
+        "exactly one field must disagree, got {mismatches:?}"
+    );
+    assert_eq!(mismatches[0].field, "ActiveArea");
+}
+
+#[test]
+fn an_absent_tag_and_a_garbled_one_are_not_the_same_reading() {
+    // Garbled inputs measured 2026-08-22 (SPEC-010 Implementation Context) —
+    // one shape-wrong value per tag, reproduced here rather than re-derived.
+    let black_level_repeat_dim_absent = reading_with_column(COL_BLACK_LEVEL_REPEAT_DIM, "-");
+    let black_level_repeat_dim_garbled = reading_with_column(COL_BLACK_LEVEL_REPEAT_DIM, "1");
+    assert_ne!(
+        black_level_repeat_dim_absent.black_level_repeat_dim,
+        black_level_repeat_dim_garbled.black_level_repeat_dim,
+        "BlackLevelRepeatDim: an absent tag and a garbled one must not read the same"
+    );
+    assert_eq!(
+        black_level_repeat_dim_absent.black_level_repeat_dim,
+        tools::ToolValue::Absent
+    );
+    assert!(matches!(
+        black_level_repeat_dim_garbled.black_level_repeat_dim,
+        tools::ToolValue::Unreadable(_)
+    ));
+
+    let active_area_absent = reading_with_column(COL_ACTIVE_AREA, "-");
+    let active_area_garbled = reading_with_column(COL_ACTIVE_AREA, "0 0 5632");
+    assert_ne!(
+        active_area_absent.active_area, active_area_garbled.active_area,
+        "ActiveArea: an absent tag and a garbled one must not read the same"
+    );
+
+    let default_crop_origin_absent = reading_with_column(COL_DEFAULT_CROP_ORIGIN, "-");
+    let default_crop_origin_garbled = reading_with_column(COL_DEFAULT_CROP_ORIGIN, "12");
+    assert_ne!(
+        default_crop_origin_absent.default_crop_origin,
+        default_crop_origin_garbled.default_crop_origin,
+        "DefaultCropOrigin: an absent tag and a garbled one must not read the same"
+    );
+
+    let default_crop_size_absent = reading_with_column(COL_DEFAULT_CROP_SIZE, "-");
+    let default_crop_size_garbled = reading_with_column(COL_DEFAULT_CROP_SIZE, "8368 5584 99");
+    assert_ne!(
+        default_crop_size_absent.default_crop_size, default_crop_size_garbled.default_crop_size,
+        "DefaultCropSize: an absent tag and a garbled one must not read the same"
+    );
+}
+
+#[test]
+fn a_garbled_tool_reading_is_a_mismatch_when_we_read_the_tag_fine() {
+    // fixture_sensor()'s ActiveArea is Some(..) and its malformed_tags is
+    // empty — "we read the tag fine" (AC2's premise).
+    let sensor = fixture_sensor();
+    let mut reading = fixture_reading();
+    reading.active_area = reading_with_column(COL_ACTIVE_AREA, "0 0 5632").active_area;
+
+    let mismatches = tools::diff(&sensor, &reading);
+    assert_eq!(
+        mismatches.len(),
+        1,
+        "exactly one field must disagree, got {mismatches:?}"
+    );
+    assert_eq!(mismatches[0].field, "ActiveArea");
+}
+
+#[test]
+fn a_garbled_tool_reading_agrees_when_we_also_recorded_it_malformed() {
+    // DEC-012: a malformed optional tag costs the tag, not the file — the
+    // value is dropped and the tag number recorded, exactly what this test
+    // simulates on top of the otherwise-honest fixture.
+    let mut sensor = fixture_sensor();
+    sensor.active_area = None;
+    sensor.malformed_tags = vec![TAG_ACTIVE_AREA];
+
+    let mut reading = fixture_reading();
+    reading.active_area = reading_with_column(COL_ACTIVE_AREA, "0 0 5632").active_area;
+
+    let mismatches = tools::diff(&sensor, &reading);
+    assert!(
+        mismatches.is_empty(),
+        "a garbled reading our own reader ALSO recorded as malformed must agree, got \
+         {mismatches:?}"
+    );
+}
+
+#[test]
+fn a_multivalued_reading_does_not_truncate_to_its_head() {
+    // Measured 2026-08-22 (SPEC-010 Implementation Context): a garbled
+    // two-value BlackLevel used to read Some(512) via `.first()` — silently
+    // dropping the "999" instead of flagging the reading as wrong-shaped.
+    let reading = reading_with_column(COL_BLACK_LEVEL, "512 999");
+    assert_eq!(
+        reading.black_level,
+        tools::ToolValue::Unreadable(vec![512, 999]),
+        "a two-valued BlackLevel must not truncate to its head"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-010 AC5, tier B — reconcile the frozen fixture (SPEC-005/FU-4): both
+// halves of the tier-A literal above — the hand-typed `fixture_sensor()`
+// AND the committed `FIXTURE_LINE` text — checked against a LIVE run on the
+// same real file, closing the rot risk `SPEC-005`'s own `## Context`
+// indicted the old `Expected` table for.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn the_frozen_fixture_still_matches_the_live_tool() {
+    if !tools::exiftool_available() {
+        eprintln!("SKIP the_frozen_fixture_still_matches_the_live_tool — exiftool not on PATH");
+        return;
+    }
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
+    let root = CorpusRoot::resolve();
+    let file = manifest
+        .get("LEICA-Q2-MONO/L1021223.DNG")
+        .expect("manifest must carry LEICA-Q2-MONO/L1021223.DNG");
+    let Some((path, live_sensor)) = sensor_at(&root, file) else {
+        return;
+    };
+    let live_reading = tools::exiftool_reading(&path, "SubIFD")
+        .unwrap_or_else(|e| panic!("L1021223.DNG: exiftool failed: {e}"));
+
+    // Half 1: the committed exiftool-l1021223-sensor.txt text must still
+    // match what a LIVE exiftool run says, field for field.
+    assert_eq!(
+        live_reading,
+        fixture_reading(),
+        "tests/oracle-fixtures/exiftool-l1021223-sensor.txt no longer matches a LIVE exiftool \
+         run of LEICA-Q2-MONO/L1021223.DNG — SPEC-005/FU-4: reconcile the frozen fixture rather \
+         than trusting it stale"
+    );
+
+    // Half 2: the hand-typed fixture_sensor() literal must still match the
+    // live tool reading — diff() itself does the field-by-field check.
+    let frozen_mismatches = tools::diff(&fixture_sensor(), &live_reading);
+    assert!(
+        frozen_mismatches.is_empty(),
+        "fixture_sensor()'s hand-typed literal no longer matches the live tool reading: \
+         {frozen_mismatches:?}"
+    );
+
+    // And our own live reader must agree with the live tool too — the
+    // reconcile's whole point is that all three (frozen sensor, frozen
+    // fixture text, and the real reader) still tell the same story.
+    let live_mismatches = tools::diff(&live_sensor, &live_reading);
+    assert!(
+        live_mismatches.is_empty(),
+        "{}: live reader disagrees with live exiftool: {live_mismatches:?}",
+        file.path
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -498,6 +759,71 @@ fn oracle_goes_red_on_a_patched_tag_in_a_real_file() {
     assert!(
         clean_mismatches.is_empty(),
         "re-running on the unpatched bytes must be clean, got {clean_mismatches:?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-010 AC6 — the malformed_tags comparison's own red-proof, with a
+// control (DEC-009's discipline). Reproduces SPEC-005/FU-8's measured mutant
+// — "the malformed_tags comparison not consulted" — by calling the REAL,
+// shipped `tools::diff_with_malformed` with an empty slice, rather than a
+// hand-written re-derivation of `diff`'s logic. `diff_with_malformed(sensor,
+// reading, &[])` is exactly "removing the malformed_tags comparison": with
+// an empty slice, `malformed_tags.contains(&tag)` can never be true, so the
+// `Unreadable` arm always disagrees — byte-for-byte the effect of deleting
+// that arm's guard from `diff`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn removing_the_malformed_comparison_turns_k3iii_red() {
+    if !tools::exiftool_available() {
+        eprintln!("SKIP removing_the_malformed_comparison_turns_k3iii_red — exiftool not on PATH");
+        return;
+    }
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
+    let root = CorpusRoot::resolve();
+    let file = manifest
+        .get("PENTAX-K3III-MONO/K3III.DNG")
+        .expect("manifest must carry PENTAX-K3III-MONO/K3III.DNG");
+    let Some((path, sensor)) = sensor_at(&root, file) else {
+        return;
+    };
+    let reading = tools::exiftool_reading(&path, "SubIFD")
+        .unwrap_or_else(|e| panic!("K3III.DNG: exiftool failed: {e}"));
+
+    let mismatches = tools::diff_with_malformed(&sensor, &reading, &[]);
+    assert!(
+        mismatches.iter().any(|m| m.field == "BlackLevelRepeatDim"),
+        "removing the malformed_tags comparison must turn K3III.DNG red on \
+         BlackLevelRepeatDim, got {mismatches:?}"
+    );
+}
+
+#[test]
+fn the_malformed_comparison_control_is_green() {
+    if !tools::exiftool_available() {
+        eprintln!("SKIP the_malformed_comparison_control_is_green — exiftool not on PATH");
+        return;
+    }
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
+    let root = CorpusRoot::resolve();
+    let file = manifest
+        .get("PENTAX-K3III-MONO/K3III.DNG")
+        .expect("manifest must carry PENTAX-K3III-MONO/K3III.DNG");
+    let Some((path, sensor)) = sensor_at(&root, file) else {
+        return;
+    };
+    let reading = tools::exiftool_reading(&path, "SubIFD")
+        .unwrap_or_else(|e| panic!("K3III.DNG: exiftool failed: {e}"));
+
+    // The negative control: the SAME command, on the SAME real file and
+    // tool run, with the real malformed_tags restored, must be clean — so
+    // the red above is attributable to the removed comparison and nothing
+    // else about this file or this run (DEC-009).
+    let mismatches = tools::diff_with_malformed(&sensor, &reading, &sensor.malformed_tags);
+    assert!(
+        mismatches.is_empty(),
+        "the control run (malformed_tags consulted) must be green, got {mismatches:?}"
     );
 }
 
