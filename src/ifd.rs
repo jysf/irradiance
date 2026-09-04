@@ -550,13 +550,22 @@ pub struct Sensor {
     /// Presence of `OpcodeList1`/`2`/`3`. Presence only — decoding the opcode
     /// streams is STAGE-003.
     pub opcode_lists: [bool; 3],
-    /// Tags that are **present but shaped wrong**, recorded rather than
-    /// rejected.
+    /// Tags that are **present, shaped wrong, and therefore dropped** — not
+    /// every tag any read of which ever errored.
     ///
     /// A shipping Pentax K-3 III Monochrome writes `BlackLevelRepeatDim` with
     /// `count = 1` where DNG requires 2 — `dnglab` itself warns about it. A
     /// malformed optional tag must not cost the file: it is dropped from its
     /// typed field, listed here, and the walk continues.
+    ///
+    /// **Recorded only when the field's value was actually lost** (`DEC-015`,
+    /// `SPEC-009` AC4). `Orientation` is read from `IFD0` first and falls back
+    /// to the sensor IFD when `IFD0` yields nothing; a well-formed value from
+    /// either source means this field is *not* listed here, even if the
+    /// OTHER source's read of the same tag errored. This is what keeps
+    /// `DEC-014`'s oracle exemption sound: a tag named here is a tag whose
+    /// value this reader genuinely does not have, never a tag it recovered
+    /// from a second source.
     pub malformed_tags: Vec<u16>,
 }
 
@@ -2140,7 +2149,16 @@ mod tests {
             )
             .ifd(200, &plane, 0)
             .done();
-        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        let c = Container::parse(&data).unwrap();
+        // `SPEC-009`/AC5: this test's whole premise is that the SENSOR PLANE
+        // is the SubIFD at index 1, not IFD0 — IFD0's `NewSubfileType = 1`
+        // disqualifies it as a candidate. Unasserted, that premise could
+        // silently rot (e.g. if `NewSubfileType`'s value stopped disqualifying
+        // IFD0) and this test would still pass for the wrong reason: IFD0's
+        // own malformed `Orientation` would then BE the plane's read, with no
+        // recovery happening at all.
+        assert_eq!(c.sensor_candidates(), vec![1]);
+        let s = c.sensor().unwrap();
         assert_eq!(s.orientation, Some(6));
         assert!(s.malformed_tags.is_empty());
     }
@@ -2209,5 +2227,181 @@ mod tests {
         for e in &errors {
             assert!(!e.to_string().is_empty(), "{e:?} has an empty Display");
         }
+    }
+
+    #[test]
+    fn every_structural_tag_rejects_a_rational() {
+        // `SPEC-009` AC1/AC2 — `DEC-012`'s amended Structure row, written out
+        // HERE independently of `is_structural_tag()`. `SPEC-008` measured
+        // that exactly one of the eleven (`TAG_SUB_IFDS`) was enforced by any
+        // test: deleting the other ten from `is_structural_tag()` left 66/66
+        // (now 96/96) green. `AGENTS.md` §16 rule 1: this list must NOT be
+        // derived by iterating `is_structural_tag()` — that would make
+        // deleting a tag delete its own coverage, which is the exact defect
+        // this test exists to close.
+        //
+        // Ten tags are `sensor()`-plane entries (`sensor()`'s uints() call is
+        // interpret-phase); `TAG_SUB_IFDS` is walk-phase — its `uints()` call
+        // happens INSIDE `Container::parse` itself, before there is ever a
+        // `Container` to read an `Entry` back out of — so it is checked
+        // separately below, against `Container::parse`'s own error.
+        const STRUCTURAL_TAGS: [u16; 11] = [
+            TAG_NEW_SUBFILE_TYPE,
+            TAG_IMAGE_WIDTH,
+            TAG_IMAGE_LENGTH,
+            TAG_BITS_PER_SAMPLE,
+            TAG_COMPRESSION,
+            TAG_PHOTOMETRIC,
+            TAG_STRIP_OFFSETS,
+            TAG_SAMPLES_PER_PIXEL,
+            TAG_ROWS_PER_STRIP,
+            TAG_STRIP_BYTE_COUNTS,
+            TAG_SUB_IFDS,
+        ];
+
+        for &tag in &STRUCTURAL_TAGS {
+            if tag == TAG_SUB_IFDS {
+                let b = Build::new(false, 8);
+                let plane = sensor(&b);
+                let mut data = b
+                    .ifd(
+                        8,
+                        &[
+                            (TAG_NEW_SUBFILE_TYPE, TYPE_LONG, 1, 1),
+                            (TAG_SUB_IFDS, TYPE_RATIONAL, 1, 600),
+                        ],
+                        0,
+                    )
+                    .ifd(200, &plane, 0)
+                    .done();
+                // A valid-looking offset (400/2 = 200, the real plane's
+                // offset) — exactly `SPEC-007/FU-4`'s measured hazard: a
+                // RATIONAL `SubIFDs` that decodes to a plausible value.
+                write_rationals(&mut data, 600, &[(400, 2)]);
+                assert!(
+                    matches!(
+                        Container::parse(&data),
+                        Err(Error::UnexpectedFieldType {
+                            tag: TAG_SUB_IFDS,
+                            field_type: TYPE_RATIONAL,
+                        })
+                    ),
+                    "TAG_SUB_IFDS did not reject a RATIONAL entry"
+                );
+                continue;
+            }
+
+            let b = Build::new(false, 8);
+            let mut entries = sensor(&b);
+            let mut replaced = false;
+            for e in entries.iter_mut() {
+                if e.0 == tag {
+                    *e = (tag, TYPE_RATIONAL, 1, 600);
+                    replaced = true;
+                    break;
+                }
+            }
+            if !replaced {
+                // `TAG_ROWS_PER_STRIP` is optional and absent from `sensor()`'s
+                // baseline entries — add it rather than replace it.
+                entries.push((tag, TYPE_RATIONAL, 1, 600));
+            }
+            let mut data = b.ifd(8, &entries, 0).done();
+            write_rationals(&mut data, 600, &[(2, 2)]);
+
+            let c = Container::parse(&data).unwrap();
+            let entry = c.ifd0().unwrap().entry(tag).unwrap();
+            let result = c.uints(entry);
+            assert!(
+                matches!(
+                    result,
+                    Err(Error::UnexpectedFieldType { tag: t, field_type: TYPE_RATIONAL }) if t == tag
+                ),
+                "tag {tag} did not reject a RATIONAL entry via uints(): {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_interpretation_tag_still_accepts_a_rational() {
+        // `SPEC-009` AC2's other direction. A test that only proves rejection
+        // would also pass if `uints()` rejected RATIONAL universally — which
+        // would silently undo `SPEC-007`'s widening. `TAG_BLACK_LEVEL` is
+        // `DEC-012` Interpretation class and is not in `is_structural_tag()`.
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.push((TAG_BLACK_LEVEL, TYPE_RATIONAL, 1, 600));
+        let mut data = b.ifd(8, &entries, 0).done();
+        write_rationals(&mut data, 600, &[(510, 2)]);
+        let c = Container::parse(&data).unwrap();
+        let entry = c.ifd0().unwrap().entry(TAG_BLACK_LEVEL).unwrap();
+        assert_eq!(c.uints(entry).unwrap(), vec![255]);
+    }
+
+    #[test]
+    fn orientation_malformed_on_both_ifds_is_costed_once() {
+        // `SPEC-009` AC3 / `SPEC-008` FU-2: a malformed `Orientation` on BOTH
+        // `IFD0` and the SubIFD plane — the one path `SPEC-008/FU-1`'s fix
+        // never had a fixture for. Measured (`SPEC-009` Implementation
+        // Context): splitting the combined `malformed.push` into one push per
+        // erroring read reproduces `SPEC-007/FU-1`'s exact `[274, 274]` defect
+        // and leaves all 96 tests green, because every existing fixture has
+        // at most ONE of the two reads error. `malformed_tags` must carry
+        // `TAG_ORIENTATION` exactly ONCE.
+        let b = Build::new(false, 8);
+        let mut plane = sensor(&b);
+        plane.push((TAG_ORIENTATION, 250, 1, 0)); // malformed, on the SubIFD plane too
+        let data = b
+            .ifd(
+                8,
+                &[
+                    (TAG_NEW_SUBFILE_TYPE, TYPE_LONG, 1, 1),
+                    (TAG_ORIENTATION, 250, 1, 0), // malformed, on IFD0
+                    (TAG_SUB_IFDS, TYPE_LONG, 1, 200),
+                ],
+                0,
+            )
+            .ifd(200, &plane, 0)
+            .done();
+        let c = Container::parse(&data).unwrap();
+        assert_eq!(c.sensor_candidates(), vec![1]);
+        let s = c.sensor().unwrap();
+        assert_eq!(s.orientation, None);
+        assert_eq!(s.malformed_tags, vec![TAG_ORIENTATION]);
+        // and the plane is still located and read
+        assert_eq!(s.width, 4);
+    }
+
+    #[test]
+    fn a_malformed_sensor_orientation_with_a_good_ifd0_value_is_silently_dropped() {
+        // `SPEC-009` AC4 / `SPEC-008` FU-3, decided by `DEC-015`: a
+        // well-formed `IFD0` `Orientation` with an ERRORING sensor-IFD read
+        // yields `Some(v)` and an EMPTY `malformed_tags` — Option B, "a value
+        // found means silence". `malformed_tags` names a field whose value
+        // was actually lost, not every tag any read of which ever errored;
+        // that is what keeps `DEC-014`'s oracle exemption sound (recording
+        // this tag would make the live oracle stop checking `Orientation` on
+        // a file where our reader actually HAS a value for it).
+        let b = Build::new(false, 8);
+        let mut plane = sensor(&b);
+        plane.push((TAG_ORIENTATION, 250, 1, 0)); // malformed, on the SubIFD plane
+        let word = b.short_word(6);
+        let data = b
+            .ifd(
+                8,
+                &[
+                    (TAG_NEW_SUBFILE_TYPE, TYPE_LONG, 1, 1),
+                    (TAG_ORIENTATION, TYPE_SHORT, 1, word), // well-formed, on IFD0
+                    (TAG_SUB_IFDS, TYPE_LONG, 1, 200),
+                ],
+                0,
+            )
+            .ifd(200, &plane, 0)
+            .done();
+        let c = Container::parse(&data).unwrap();
+        assert_eq!(c.sensor_candidates(), vec![1]);
+        let s = c.sensor().unwrap();
+        assert_eq!(s.orientation, Some(6));
+        assert!(s.malformed_tags.is_empty());
     }
 }
