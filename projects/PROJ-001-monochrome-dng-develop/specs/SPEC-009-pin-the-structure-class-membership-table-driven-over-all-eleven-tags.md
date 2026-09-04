@@ -81,10 +81,18 @@ cost:
       recorded_at: 2026-09-03
       notes: "Dispatched as a direct CLI session, not an Agent-tool sub-agent, so no subagent_tokens is available; this interface exposes no /cost-equivalent programmatic call either. See HANDOFF-026 handback notes — orchestrator should read /cost from this session and fill this in rather than leave it null-with-note, since build is a metered cycle (cost-captured-per-cycle)."
 
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: other
+      tokens_total: 20412565
+      estimated_usd: 8.69
+      duration_minutes: 24
+      recorded_at: 2026-09-03
+      notes: "Executed as a direct CLI session (per user's standing preference to dispatch build/verify to a separate session, not an in-process sub-agent), so no Agent-tool subagent_tokens is available either. This interface exposes no /cost or usage-object call I can invoke programmatically. Orchestrator should read /cost from this session's own UI and fill tokens_total/estimated_usd (model that ran: claude-sonnet-5, not the opus tier_map hint) — do not leave cost.sessions null-with-note for this build cycle without checking that first, since build is metered per cost-captured-per-cycle."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 20412565
+    estimated_usd: 8.69
+    session_count: 3
 ---
 
 # SPEC-009: Pin the Structure class membership table-driven over all eleven tags

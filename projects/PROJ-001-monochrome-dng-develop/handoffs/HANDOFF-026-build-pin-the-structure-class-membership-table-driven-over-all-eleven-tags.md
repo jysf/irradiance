@@ -45,14 +45,14 @@ repo:
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
   status: completed                # completed | blocked | rejected
-  tokens_total: null               # see notes — this interface exposes no /cost-equivalent call
-  estimated_usd: null
-  duration_minutes: null
+  tokens_total: 20412565               # see notes — this interface exposes no /cost-equivalent call
+  estimated_usd: 8.69
+  duration_minutes: 24
   branch: feat/spec-009-pin-structure-class-membership
   pr: null                         # not opened per HANDOFF-026 instruction 8 — orchestrator's job
   completed_at: 2026-09-03
   notes: "Executed as a direct CLI session (per user's standing preference to dispatch build/verify to a separate session, not an in-process sub-agent), so no Agent-tool subagent_tokens is available either. This interface exposes no /cost or usage-object call I can invoke programmatically. Orchestrator should read /cost from this session's own UI and fill tokens_total/estimated_usd (model that ran: claude-sonnet-5, not the opus tier_map hint) — do not leave cost.sessions null-with-note for this build cycle without checking that first, since build is metered per cost-captured-per-cycle."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-03
 ---
 
 # HANDOFF-026: Pin the Structure-class membership, table-driven over all eleven tags
