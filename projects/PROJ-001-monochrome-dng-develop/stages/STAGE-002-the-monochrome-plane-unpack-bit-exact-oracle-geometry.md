@@ -98,7 +98,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 Run `just frame-stage STAGE-002` to promote these outlines into real specs.
 
-- [ ] SPEC-009 (frame) [S] Pin the Structure-class membership, table-driven over all eleven tags
+- [x] SPEC-009 (shipped on 2026-09-04) [S] Pin the Structure-class membership, table-driven over all eleven tags
 - [ ] SPEC-012 (frame) [M] Strip location and sample unpack, two paths per DEC-008
 - [ ] SPEC-013 (frame) [S] Bit-exact plane oracle against dnglab raw-checksum, with its red-proof
 - [ ] SPEC-014 (frame) [M] Level normalization, ActiveArea to DefaultCrop, and orientation
@@ -108,7 +108,7 @@ Run `just frame-stage STAGE-002` to promote these outlines into real specs.
 to `STAGE-005`.** Both are STAGE-001 debt, not plane work; leaving them here made
 this stage eight specs and blurred what it is for. Neither blocks the plane.
 
-**Count:** 0 shipped / 5 active / 0 pending
+**Count:** 1 shipped / 4 active / 0 pending
 
 ## Design Notes
 

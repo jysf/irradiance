@@ -14,14 +14,13 @@ handoff:
   id: HANDOFF-026
   cycle: build                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # ⚠ DISPATCH HINT from tier_map.build, NOT a record.
-                                   #   tier_map is 1 FOR 5 (SPEC-007/FU-6) — SPEC-010's build
-                                   #   ran sonnet against this same hint. Read your own
-                                   #   message.model and CORRECT this before handing back.
+  to_agent: claude-sonnet-5         # CORRECTED from the claude-opus-5 dispatch hint — this
+                                   #   build actually ran on claude-sonnet-5 (this message's
+                                   #   own model). tier_map is now 1 for 6.
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-09-03
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-009
@@ -45,15 +44,15 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  status: completed                # completed | blocked | rejected
+  tokens_total: 20412565               # see notes — this interface exposes no /cost-equivalent call
+  estimated_usd: 8.69
+  duration_minutes: 24
+  branch: feat/spec-009-pin-structure-class-membership
+  pr: null                         # not opened per HANDOFF-026 instruction 8 — orchestrator's job
+  completed_at: 2026-09-03
+  notes: "Executed as a direct CLI session (per user's standing preference to dispatch build/verify to a separate session, not an in-process sub-agent), so no Agent-tool subagent_tokens is available either. This interface exposes no /cost or usage-object call I can invoke programmatically. Orchestrator should read /cost from this session's own UI and fill tokens_total/estimated_usd (model that ran: claude-sonnet-5, not the opus tier_map hint) — do not leave cost.sessions null-with-note for this build cycle without checking that first, since build is metered per cost-captured-per-cycle."
+  synced_at: 2026-09-03
 ---
 
 # HANDOFF-026: Pin the Structure-class membership, table-driven over all eleven tags
@@ -149,3 +148,83 @@ is a decision even when the outcome is "keep what we have".
 ## Handback
 
 *(Filled by the implementer.)*
+
+### Summary
+
+All seven ACs closed on `feat/spec-009-pin-structure-class-membership`,
+commit `3b50964`. `src/ifd.rs` gained five tests (four new, one existing test
+extended with a precondition assertion) and a narrowed doc comment on
+`Sensor::malformed_tags`; `decisions/DEC-015-*.md` records `AC4`'s answer
+(Option B — a value found means silence); `docs/provenance-ledger.md`'s
+`src/ifd.rs` row was extended, same class, no new algorithm. Zero behavior
+change except the one line AC4 decided to keep (i.e. none — the doc comment
+narrowing is the only text change, the code path was already correct).
+
+Full suite: 100 tests across all six targets (was 96; +4 new), corpus set
+(`IRRADIANCE_CORPUS_DIR`), 0 failed. All eleven gates + `just lint-ci` run
+locally and pasted in the commit message; CI observed green on `3b50964`
+(`gh run view 33842214431` — 9/9 jobs). `AC6`'s red-proof watched personally:
+all eleven mutations applied (each asserted changed by `git diff --stat` and
+compiled before conclusion), each turned `every_structural_tag_rejects_a_rational`
+red; the restored, unmutated tree passed the full 100-test suite as the
+control. Work was staged (`git add -A`) before any mutate-and-revert
+experiment, per this handoff's instruction 4. Fuzz: no new parser, `src/`
+moved by a doc comment only — ran anyway, 60s / 13,541,962 executions / zero
+crashes; seeds unchanged, which is a fine result.
+
+### Findings
+
+None ship-blocking or follow-up from the build itself. Two administrative
+gaps were found and corrected directly, not raised as findings, since they
+are spec/handoff bookkeeping rather than code defects:
+
+- `SPEC-009`'s own `references.decisions` listed only `DEC-012`, though the
+  spec's text leans on `DEC-014` throughout (it is what makes `AC4` "no
+  longer a free choice"). Added `DEC-014` and this build's own `DEC-015`.
+- This handoff's and the spec's `handoff.to_agent` both said `claude-opus-5`
+  (the `tier_map.build` dispatch hint) — corrected to `claude-sonnet-5`, the
+  model that actually ran (return criterion 7; `tier_map` is now 1 for 6).
+
+One spec-authoring inconsistency, resolved rather than raised as a finding
+(see Reflection Q1): the `## Failing Tests` section's suggested name for
+`AC5`'s test (`wellformed_orientation_test_pins_its_own_precondition`)
+disagreed with `AC5`'s own text, which names the *existing*
+`wellformed_orientation_is_not_recorded_malformed` and asks for one line
+added to it. Followed `AC5`'s text; the `## Failing Tests` section now says
+so explicitly rather than silently picking one.
+
+### Reflection (§15)
+
+1. **What would I do differently next time?** Nothing on the code side. On
+   the spec side: I'd flag `AC5`'s and `## Failing Tests`' naming
+   disagreement (above) back to design *before* touching the file, since a
+   handoff has no channel to ask; this time I resolved it in favor of the
+   more specific text (`AC5`'s own paragraph) and documented the choice
+   in-place, which I think is the right default but is worth a second
+   opinion from verify.
+2. **Does any template, constraint, or decision need updating?** No —
+   `DEC-012`'s table needed no change (this spec pins it, doesn't redraw
+   it), and `AC4`'s resolution matches the orchestrator's own recommendation
+   exactly, so no decision is contested.
+3. **Is there a follow-up spec I should write now before I forget?** No.
+   `SPEC-009` was itself the terminal spec in a three-spec recursion
+   (`SPEC-007` → `SPEC-008` → `SPEC-009`) that the design cycle's own text
+   argued should end here, on the strength of the fix's shape (a table with
+   no remaining "one point" to be narrow at) — I have no reason to disagree
+   after building it.
+4. **Where was the worst defect caught?** `none` — no defect was introduced;
+   this spec closes pre-existing coverage gaps `SPEC-008`'s verify measured
+   and carried forward. If the question means "where was the *measured*
+   coverage gap caught": `verify` (SPEC-008's verify cycle raised FU-1/2/3/5)
+   and `design` (SPEC-009's design re-measured all four against current
+   `main` before scoping this build).
+5. **What can a user do now that they couldn't before?** Before: deleting 10
+   of `is_structural_tag()`'s 11 memberships left the suite green (measured,
+   `SPEC-009`'s own `## Context`, `024eaae`). After: deleting any single one
+   of the eleven turns the suite red, watched directly for all eleven
+   (`AC6`). A consumer of this library gets no new capability directly —
+   this is `STAGE-002`'s own gate on its inputs, `value_link`'s
+   "infrastructure enabling the unpack" — but the class of silent-wrong-image
+   hazard the spec's `## Context` names (`Compression` as `RATIONAL 2/2`
+   reading `1`, `StripByteCounts` as `RATIONAL 28/2` reading `[14]`) is now
+   provably caught before `SPEC-012`'s unpack could ever see it.
