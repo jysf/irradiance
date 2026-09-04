@@ -6,7 +6,7 @@
 task:
   id: SPEC-009
   type: story                      # epic | story | task | bug | chore
-  cycle: design                     # frame | design | build | verify | ship
+  cycle: verify                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,11 +27,11 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: claude-opus-5          # ⚠ DISPATCH HINT (SPEC-007/FU-6 — 1 for 5). Correct it.
+  to_agent: claude-sonnet-5        # CORRECTED — build ran on claude-sonnet-5, not the opus hint.
   created_at: 2026-09-03
 
 references:
-  decisions: [DEC-012]             # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-012, DEC-014, DEC-015]  # DEC-014 drives AC4's stakes; DEC-015 is this build's own
   constraints: [oracle-must-be-shown-red, test-before-implementation, library-not-application]                  # [constraint-id-1, constraint-id-2]
   related_specs: [SPEC-007, SPEC-008]  # [SPEC-NNN]
 
@@ -72,6 +72,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-09-03
       notes: "main-loop, not separately metered (AGENTS.md §4). Design cycle RE-MEASURED all four carried SPEC-008 findings on main at 024eaae rather than inheriting them — each mutation asserted applied by diff, tree restored byte-identical: FU-1 (ten of eleven memberships deleted) 96 passed 0 failed; FU-2 (combined malformed.push split per erroring read) compiles, 96 passed 0 failed; FU-5 the test still contains ZERO sensor_candidates assertions. They were raised against a 66-test suite and the suite is now 96 — thirty tests added and not one touches these paths, which is the argument for doing this now rather than trusting accumulation. KEY DESIGN INPUT the findings could not have known: DEC-014 changed AC4's stakes. malformed_tags is no longer just a report — diff() now treats a tag named in it as EXEMPT from comparison with the tool, so Option A (record what was ignored) would widen the oracle's blind spot. Recommended B and narrowing the contract text instead, offered as input rather than as the answer; the DEC is build's to write either way. HANDOFF-026 ready."
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-09-03
+      notes: "Dispatched as a direct CLI session, not an Agent-tool sub-agent, so no subagent_tokens is available; this interface exposes no /cost-equivalent programmatic call either. See HANDOFF-026 handback notes — orchestrator should read /cost from this session and fill this in rather than leave it null-with-note, since build is a metered cycle (cost-captured-per-cycle)."
 
   totals:
     tokens_total: 0
@@ -187,36 +195,50 @@ Make every one of `is_structural_tag()`'s eleven memberships load-bearing with a
 
 ## Acceptance Criteria
 
-- [ ] **AC1 — the membership list is pinned, table-driven, over all eleven
+- [x] **AC1 — the membership list is pinned, table-driven, over all eleven
       tags.** Deleting **any single** membership must turn the suite red.
       ⚠ **The test carries its own list of eleven, written out.** It must **not**
       iterate `is_structural_tag()` — a test that reads the list it checks is a
       tautology, and deleting a tag would delete its own coverage.
-- [ ] **AC2 — both directions per tag.** Each of the eleven **rejects** a
+      — `every_structural_tag_rejects_a_rational` (`src/ifd.rs`), an 11-entry
+      `const` array written out independently of `is_structural_tag()`.
+- [x] **AC2 — both directions per tag.** Each of the eleven **rejects** a
       `RATIONAL` entry with `Error::UnexpectedFieldType`; a paired
       **interpretation** tag still **accepts** one (`SPEC-007`'s widening must
       survive). A test that only proves rejection would pass if `uints()`
       rejected `RATIONAL` universally, which would silently undo `SPEC-007`.
-- [ ] **AC3 — "costed at most once" is guarded on the path where it can fail.**
+      — rejection: same test as `AC1`. Acceptance:
+      `an_interpretation_tag_still_accepts_a_rational` (`TAG_BLACK_LEVEL`).
+- [x] **AC3 — "costed at most once" is guarded on the path where it can fail.**
       A fixture with a malformed `Orientation` on **both** `IFD0` and the SubIFD
       plane, asserting `malformed_tags == [TAG_ORIENTATION]` — **one** element.
       Measured today: splitting the combined push into one per erroring read
       compiles and leaves all 96 tests green.
-- [ ] **AC4 — the swallowed malformed sensor read is DECIDED and pinned.**
+      — `orientation_malformed_on_both_ifds_is_costed_once` (`src/ifd.rs`).
+- [x] **AC4 — the swallowed malformed sensor read is DECIDED and pinned.**
       Today a well-formed `IFD0` `Orientation` with an **erroring** sensor-IFD
       read yields `Some(v)` and an **empty** `malformed_tags`. Choose, write a
       `DEC-*`, and pin the chosen behaviour with a test. See the analysis below —
       it is not a free choice any more.
-- [ ] **AC5 — `wellformed_orientation_is_not_recorded_malformed` asserts its own
+      — Decided **B** (silence), `DEC-015`. Zero behaviour change; doc comment
+      on `Sensor::malformed_tags` narrowed. Pinned by
+      `a_malformed_sensor_orientation_with_a_good_ifd0_value_is_silently_dropped`.
+- [x] **AC5 — `wellformed_orientation_is_not_recorded_malformed` asserts its own
       precondition.** Measured: it contains **zero** `sensor_candidates`
       assertions and holds only because `IFD0` carries `NewSubfileType = 1`.
       One line.
-- [ ] **AC6 — red-proof with a control**, per `oracle-must-be-shown-red` as
+      — added `assert_eq!(c.sensor_candidates(), vec![1])`.
+- [x] **AC6 — red-proof with a control**, per `oracle-must-be-shown-red` as
       widened to gates. For `AC1` that is the eleven-way mutation itself: each
       membership deleted in turn must fail, and the unmutated tree must pass.
       **Watch it, do not reason about it.**
-- [ ] **AC7 — eleven gates plus `just lint-ci`**, and **CI observed green on the
+      — all eleven mutations applied (asserted by `git diff`), compiled, and
+      turned `every_structural_tag_rejects_a_rational` red; the restored,
+      unmutated tree passed the full 100-test suite as the control.
+- [x] **AC7 — eleven gates plus `just lint-ci`**, and **CI observed green on the
       shipping SHA**.
+      — all run locally (§ Return Criteria below); CI green on `3b50964`
+      (`gh run view 33842214431`).
 
 ## Failing Tests
 
@@ -227,9 +249,13 @@ and **sum across all six targets**.
   - `every_structural_tag_rejects_a_rational` — AC1/AC2
   - `an_interpretation_tag_still_accepts_a_rational` — AC2's other direction
   - `orientation_malformed_on_both_ifds_is_costed_once` — AC3
-  - `a_malformed_sensor_orientation_with_a_good_ifd0_value_is_<decided>` — AC4,
-    named for whichever behaviour the `DEC` chooses
-  - `wellformed_orientation_test_pins_its_own_precondition` — AC5
+  - `a_malformed_sensor_orientation_with_a_good_ifd0_value_is_silently_dropped`
+    — AC4, `DEC-015` decided B
+  - AC5: **not a new test** — `AC5`'s own text names the existing
+    `wellformed_orientation_is_not_recorded_malformed` and asks for one line
+    added to it, which is what happened; this section's suggested name
+    (`wellformed_orientation_test_pins_its_own_precondition`) disagreed with
+    `AC5`'s own text and was not followed.
 
 ## Non-Goals
 
