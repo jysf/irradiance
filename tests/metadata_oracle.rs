@@ -500,6 +500,36 @@ fn reading_with_column(column: usize, replacement: &str) -> tools::ToolReading {
 }
 
 #[test]
+fn an_absent_tool_reading_is_a_mismatch_when_we_read_a_value() {
+    // `SPEC-010/SB-1`. `fixture_sensor()`'s `ActiveArea` is `Some(..)` — exiftool
+    // saying the tag is NOT IN THE FILE must disagree with that. This is
+    // `compare_optional`'s `Absent` arm in its DISCRIMINATING direction, and
+    // nothing else exercises it: verify measured that replacing
+    // `ToolValue::Absent => ours.is_none()` with `=> true` left all 29 oracle
+    // tests green WITH the full corpus, and that without a corpus the arm is
+    // dead in BOTH directions — so CI had never run it at all.
+    //
+    // ⚠ Tier A on purpose: no corpus, no tool. The half CI runs is the half
+    // that had no coverage. `an_absent_tag_and_a_garbled_one_are_not_the_same_reading`
+    // proves the two READINGS differ; it never proves the COMPARATOR acts on
+    // the difference. That gap is what `DEC-013` was rejected for — "a guard
+    // that nothing dies without is a guard nobody knows works" — reappearing in
+    // the arm `SPEC-010` shipped to replace it.
+    let sensor = fixture_sensor();
+    let mut reading = fixture_reading();
+    reading.active_area = reading_with_column(COL_ACTIVE_AREA, "-").active_area;
+    assert_eq!(reading.active_area, tools::ToolValue::Absent);
+
+    let mismatches = tools::diff(&sensor, &reading);
+    assert_eq!(
+        mismatches.len(),
+        1,
+        "exactly one field must disagree, got {mismatches:?}"
+    );
+    assert_eq!(mismatches[0].field, "ActiveArea");
+}
+
+#[test]
 fn an_absent_tag_and_a_garbled_one_are_not_the_same_reading() {
     // Garbled inputs measured 2026-08-22 (SPEC-010 Implementation Context) —
     // one shape-wrong value per tag, reproduced here rather than re-derived.
