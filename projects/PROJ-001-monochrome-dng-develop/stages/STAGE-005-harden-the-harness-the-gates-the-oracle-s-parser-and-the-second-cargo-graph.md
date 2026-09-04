@@ -119,11 +119,12 @@ lying quietly.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-010 (frame) [M] Distinguish an unparseable tool reading from an absent tag
+- [x] SPEC-010 (shipped on 2026-09-03) [M] Distinguish an unparseable tool reading from an absent tag
 - [ ] SPEC-011 (frame) [S] Lint the fuzz crate — the second cargo graph
+- [ ] SPEC-016 (frame) [S] The harness stops claiming what it has not checked
 - [ ] (not yet written) [S] Audit every gate script for the mute-death shape
 
-**Count:** 0 shipped / 2 framed / 1 pending
+**Count:** 1 shipped / 2 active / 1 pending
 
 ## Design Notes
 

@@ -65,7 +65,7 @@ handback:
     published list rate' — no independently verified per-model Sonnet-5 rate
     was available to cross-check, so this is the order-of-magnitude estimate
     AGENTS.md §4 asks for, not a billing figure."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-03
 ---
 
 # HANDOFF-024: Distinguish an unparseable tool reading from an absent tag

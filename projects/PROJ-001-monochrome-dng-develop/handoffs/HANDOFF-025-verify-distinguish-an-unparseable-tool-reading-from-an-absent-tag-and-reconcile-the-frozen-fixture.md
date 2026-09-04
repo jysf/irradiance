@@ -68,7 +68,7 @@ handback:
     prices 98% cache-read traffic as if it were fresh input. Raised as FU-4.
     duration_minutes is the transcript's own first->last delta (14.4 min), not
     wall-clock. `just handback-sync` NOT run and PR NOT opened, per return criteria 8."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-03
 ---
 
 # HANDOFF-025: Verify SPEC-010 — the tri-state tool reading, at `f4841b3`
