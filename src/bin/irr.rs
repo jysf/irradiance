@@ -24,9 +24,17 @@
 //!   "maximum resident set size" for the whole process, caller's buffer
 //!   included — see `docs/provenance-ledger.md`'s `src/plane.rs` row for the
 //!   measured number.
+//! - `irr develop <file>` — unpack, then normalize levels and apply the
+//!   `ActiveArea` -> `DefaultCrop` -> `Orientation` geometry (`SPEC-014`,
+//!   `DEC-018`/`DEC-019`), and print the resolved geometry plus the
+//!   developed min/max. This is the surface `SPEC-014` acceptance criterion
+//!   7's peak-RSS measurement runs through — see `docs/provenance-ledger.md`'s
+//!   `src/develop.rs` row for the measured number, which is TWO buffers now
+//!   (the raw plane AND the developed image), unlike `irr unpack`'s one.
 //!
-//! `irr ifd`/`irr unpack` read a file, which the library never does — the
-//! library takes bytes. The I/O is here, on purpose, and stays here.
+//! `irr ifd`/`irr unpack`/`irr develop` read a file, which the library never
+//! does — the library takes bytes. The I/O is here, on purpose, and stays
+//! here.
 
 use std::process::ExitCode;
 
@@ -36,8 +44,9 @@ const USAGE: &str = "\
 irr — irradiance's internal dev/oracle binary
 
 usage:
-  irr ifd    [--entries] <file>   walk the TIFF/IFD container and report the sensor plane
-  irr unpack <file>               unpack the sensor plane and report samples/min/max
+  irr ifd     [--entries] <file>   walk the TIFF/IFD container and report the sensor plane
+  irr unpack  <file>               unpack the sensor plane and report samples/min/max
+  irr develop <file>               unpack, normalize levels, apply the crop and orientation
 ";
 
 fn main() -> ExitCode {
@@ -47,6 +56,7 @@ fn main() -> ExitCode {
     match refs.as_slice() {
         ["ifd", rest @ ..] => cmd_ifd(rest),
         ["unpack", rest @ ..] => cmd_unpack(rest),
+        ["develop", rest @ ..] => cmd_develop(rest),
         [] | ["-h"] | ["--help"] => {
             print!("{USAGE}");
             ExitCode::SUCCESS
@@ -244,6 +254,81 @@ fn cmd_unpack(args: &[&str]) -> ExitCode {
         sensor.white_level.map(|w| format!("{max} <= {w}"))
     );
     println!("plane_bytes     {}", plane.len() * 2);
+
+    ExitCode::SUCCESS
+}
+
+fn cmd_develop(args: &[&str]) -> ExitCode {
+    let Some(path) = args.first().copied() else {
+        eprintln!("irr develop: expected a file\n\n{USAGE}");
+        return ExitCode::FAILURE;
+    };
+
+    let data = match std::fs::read(path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("irr develop: cannot read {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let container = match Container::parse(&data) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("irr develop: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let sensor = match container.sensor() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("irr develop: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    println!("file            {path}");
+    println!("raw_dimensions  {} x {}", sensor.width, sensor.height);
+
+    // `unwrap()`/`expect()` are fine here — see the module doc's panic-policy
+    // note. Both buffers are the caller-owned allocations `DEC-016`/`DEC-018`
+    // put on US; neither `unpack_into` nor `develop_into` allocates.
+    let raw_pixel_count = usize::try_from(u64::from(sensor.width) * u64::from(sensor.height))
+        .expect("plane too large for this host");
+    let mut plane = vec![0u16; raw_pixel_count];
+    if let Err(e) =
+        irradiance::plane::unpack_into(&sensor, container.byte_order(), &data, &mut plane)
+    {
+        eprintln!("irr develop: {path}: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    let (out_width, out_height) = match irradiance::develop::output_dimensions(&sensor) {
+        Ok(dims) => dims,
+        Err(e) => {
+            eprintln!("irr develop: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!("out_dimensions  {out_width} x {out_height}");
+
+    let out_pixel_count =
+        usize::try_from(u64::from(out_width) * u64::from(out_height)).expect("fits this host");
+    let mut developed = vec![0u16; out_pixel_count];
+    if let Err(e) = irradiance::develop::develop_into(&sensor, &plane, &mut developed) {
+        eprintln!("irr develop: {path}: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    let head: Vec<u16> = developed.iter().take(8).copied().collect();
+    let min = developed.iter().min().copied().unwrap_or(0);
+    let max = developed.iter().max().copied().unwrap_or(0);
+    println!("samples[0..8]   {head:?}");
+    println!("min             {min}");
+    println!("max             {max}");
+    println!("raw_plane_bytes {}", plane.len() * 2);
+    println!("developed_bytes {}", developed.len() * 2);
 
     ExitCode::SUCCESS
 }

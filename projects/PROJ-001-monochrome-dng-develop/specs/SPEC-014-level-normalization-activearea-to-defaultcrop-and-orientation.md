@@ -6,7 +6,7 @@
 task:
   id: SPEC-014
   type: story                      # epic | story | task | bug | chore
-  cycle: design                     # frame | design | build | verify | ship
+  cycle: verify                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,7 +27,9 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: claude-opus-5          # ⚠ DISPATCH HINT — the BUILD hint is 0 for 7. Correct it.
+  to_agent: claude-sonnet-5        # CORRECTED — the build hint predicted opus (0 for 8 now);
+                                   # this build actually ran on Sonnet 5, per this session's own
+                                   # system prompt (`message.model` = claude-sonnet-5).
   created_at: 2026-09-05
 
 references:
@@ -124,33 +126,45 @@ comparison oracle can see it.
 
 ## Acceptance Criteria
 
-- [ ] **AC1 — levels normalize analytically.** `BlackLevel → 0`, `WhiteLevel →
+- [x] **AC1 — levels normalize analytically.** `BlackLevel → 0`, `WhiteLevel →
       full scale`, on values **read from the file**, not constants. Q2M is
       `512 → 0`, `16383 → max`; M Monochrom is `220 → 0`, `16383 → max`. Assert
       both endpoints and at least one interior point per file.
-- [ ] **AC2 — values below `BlackLevel` and above `WhiteLevel` are handled
+      `black_and_white_levels_map_to_the_endpoints` (`tests/develop.rs`).
+- [x] **AC2 — values below `BlackLevel` and above `WhiteLevel` are handled
       explicitly and the choice is written down.** Measured: the Q2M plane's
       `min` is **2**, far below `BlackLevel 512`, and its `max` is **16383 ==
       WhiteLevel** exactly. So both edges are live on real data on the first
       file. Clamp or saturate — but decide it, test it, and record it.
-- [ ] **AC3 — the three-stage crop, asserted numerically.**
+      **Clamped** (`DEC-018`); `values_outside_the_level_range_are_handled_as_decided`.
+- [x] **AC3 — the three-stage crop, asserted numerically.**
       `8424×5632 → ActiveArea 8392×5632 → DefaultCrop 8368×5584`, and
       `5216×3472 → (no ActiveArea) → 5212×3468`.
-- [ ] **AC4 — `DefaultCropOrigin` is applied RELATIVE TO `ActiveArea`, and a
+      `the_three_stage_crop_produces_the_measured_dimensions`.
+- [x] **AC4 — `DefaultCropOrigin` is applied RELATIVE TO `ActiveArea`, and a
       hand-built fixture proves it.** ⚠ **No decodable corpus file can tell the
       two readings apart** — see below. A tier-A fixture with a **non-zero
       ActiveArea origin** is the only thing that can, and without it this spec
       ships an untestable assumption.
-- [ ] **AC5 — orientation is applied, and the per-frame case is covered.**
+      `crop_origin_is_relative_to_active_area_not_the_raw_plane`
+      (`src/develop.rs` unit tests — `DEC-019`).
+- [x] **AC5 — orientation is applied, and the per-frame case is covered.**
       `L1026016.DNG` reads `Orientation 6` where its two siblings read `1`;
       output dimensions must swap for 6. ⚠ `Orientation` is **per-frame, not a
       camera constant** — the fact that produced the `unrun-docs-carry-errors`
       signal. Every geometry test uses **both** a rotated and an unrotated frame.
-- [ ] **AC6 — panic-free.** `DefaultCropSize` larger than `ActiveArea`, crop
+      `orientation_six_swaps_the_output_dimensions` /
+      `an_unrotated_sibling_keeps_its_dimensions`.
+- [x] **AC6 — panic-free.** `DefaultCropSize` larger than `ActiveArea`, crop
       origin outside the plane, zero dimensions, absent tags, an orientation
       value outside 1–8. Typed errors, and the fuzz target reaches them.
-- [ ] **AC7 — memory is measured, not assumed.** `SPEC-012` measured 182 MB peak
+      `hostile_geometry_does_not_panic`; `fuzz/fuzz_targets/develop.rs` ran
+      14,562,321 executions (61s), zero crashes.
+- [x] **AC7 — memory is measured, not assumed.** `SPEC-012` measured 182 MB peak
       for a decode; state what this adds and whether the transform is in-place.
+      Measured via `irr develop` on `L1021223.DNG`: peak RSS **275,890,176
+      bytes** = `SPEC-012`'s 182,435,840 + the 93,453,824-byte developed
+      buffer. **Not in-place** (`DEC-018`).
 - [ ] **AC8 — eleven gates + `just lint-ci`**, CI **observed** green.
 
 ## Failing Tests

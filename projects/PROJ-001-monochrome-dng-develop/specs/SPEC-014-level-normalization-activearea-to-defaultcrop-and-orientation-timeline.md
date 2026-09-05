@@ -15,6 +15,12 @@ Cycle prompts live in `prompts/SPEC-014-<cycle>.md`.
   see it. Also measured that both files carry samples **below** `BlackLevel` and
   reach `WhiteLevel` **exactly**, so `AC2` is live on the first file. Eight ACs,
   seven failing tests, one `DEC` required. `HANDOFF-032` ready.
-- [ ] **build** — `HANDOFF-032`. Dispatch to a separate CLI session.
+- [x] **build** — 2026-09-05, `HANDOFF-032`, dispatched to this CLI session
+  (Sonnet 5 — the map predicted opus, corrected on hand-back). `src/develop.rs`
+  added: levels normalization (clamped, `DEC-018`) and the `ActiveArea` →
+  `DefaultCrop` (`DEC-019`) → `Orientation` geometry. Seven failing tests now
+  pass; fuzz target `develop` ran 14,562,321 executions (61s), zero crashes;
+  `SPEC-013`'s plane oracle re-run untouched. Branch
+  `feat/spec-014-level-normalization-geometry-orientation`.
 - [ ] **verify** — handoff written after build hands back.
 - [ ] **ship**

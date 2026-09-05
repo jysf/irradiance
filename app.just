@@ -165,9 +165,19 @@ fuzz-plane seconds="60":
     PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run plane \
         fuzz/corpus/plane fuzz/seeds/plane -- -max_total_time={{seconds}}
 
+# Run the DEVELOP fuzz target (SPEC-014, AGENTS.md §12 bar 2) — levels
+# normalization and the ActiveArea -> DefaultCrop -> Orientation geometry's
+# new input surface over attacker-controlled crop origin, crop size,
+# ActiveArea and orientation. Same `+toolchain` trap and two-corpus-dirs
+# reasoning as `just fuzz`/`just fuzz-plane` above.
+fuzz-develop seconds="60":
+    mkdir -p fuzz/corpus/develop
+    PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run develop \
+        fuzz/corpus/develop fuzz/seeds/develop -- -max_total_time={{seconds}}
+
 # Regenerate the committed fuzz seed corpus from tests/support/tiff.rs (`ifd`
-# target) and examples/fuzz-seeds.rs's own plane fixtures (`plane` target), so
-# a fixture added to either hostile-input lane lands in its fuzz lane too.
+# target) and examples/fuzz-seeds.rs's own plane/develop fixtures, so a
+# fixture added to any hostile-input lane lands in its fuzz lane too.
 fuzz-seeds:
     cargo run --quiet --all-features --example fuzz-seeds
 

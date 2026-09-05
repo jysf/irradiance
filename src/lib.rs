@@ -46,10 +46,13 @@
 //! malformed *interpretation* tag costs that field, never the plane;
 //! `SPEC-012` added [`plane`], the sensor-plane unpacker (`DEC-008`'s
 //! two-path rule, selected by `bits_per_sample % 8`) — the first spec that
-//! produces pixels rather than tags. Still absent, by design: `ASCII` and the
-//! signed field types (no DNG tag PROJ-001 reads needs them yet), levels/crop/
-//! orientation application (`SPEC-014`), and any compressed-plane decode
-//! (PROJ-003).
+//! produces pixels rather than tags. `SPEC-014` added [`develop`], turning
+//! that plane into an image: levels normalization (`DEC-018`) and the
+//! `ActiveArea` → `DefaultCrop` (`DEC-019`) → `Orientation` geometry — the
+//! first spec with no oracle at all (`DEC-004`; `SPEC-015` is the analytic
+//! oracle that will cover it). Still absent, by design: `ASCII` and the
+//! signed field types (no DNG tag PROJ-001 reads needs them yet), and any
+//! compressed-plane decode (PROJ-003).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -60,6 +63,7 @@
     clippy::arithmetic_side_effects
 )]
 
+pub mod develop;
 pub mod ifd;
 pub mod plane;
 
@@ -259,6 +263,79 @@ pub enum Error {
         /// `WhiteLevel`, from the sensor IFD.
         white_level: u32,
     },
+
+    /// `SPEC-014`. `ActiveArea` is empty, inverted (`right <= left` or
+    /// `bottom <= top`), or extends past the raw plane's own dimensions.
+    InvalidActiveArea {
+        /// `ActiveArea`'s top edge (or 0, if the tag was absent and this
+        /// error came from the plane-sized default somehow not fitting).
+        top: u32,
+        /// `ActiveArea`'s left edge.
+        left: u32,
+        /// `ActiveArea`'s bottom edge (exclusive).
+        bottom: u32,
+        /// `ActiveArea`'s right edge (exclusive).
+        right: u32,
+        /// The raw plane's `ImageWidth`.
+        plane_width: u32,
+        /// The raw plane's `ImageLength`.
+        plane_height: u32,
+    },
+
+    /// `SPEC-014`. The three-stage crop does not fit: `DefaultCropSize` is
+    /// zero in either dimension, or `DefaultCropOrigin + DefaultCropSize`
+    /// exceeds `ActiveArea` (`AC4`: the origin is relative to `ActiveArea`,
+    /// `DEC-019`).
+    InvalidDefaultCrop {
+        /// `DefaultCropOrigin.x`, relative to `ActiveArea`.
+        origin_x: u32,
+        /// `DefaultCropOrigin.y`, relative to `ActiveArea`.
+        origin_y: u32,
+        /// `DefaultCropSize.width`.
+        crop_width: u32,
+        /// `DefaultCropSize.height`.
+        crop_height: u32,
+        /// `ActiveArea`'s resolved width (or the raw plane's, if absent).
+        active_width: u32,
+        /// `ActiveArea`'s resolved height (or the raw plane's, if absent).
+        active_height: u32,
+    },
+
+    /// `SPEC-014`. `Orientation` is present but outside the eight values
+    /// TIFF/Exif define (`1..=8`).
+    UnsupportedOrientation {
+        /// The `Orientation` value found.
+        orientation: u32,
+    },
+
+    /// `SPEC-014`. `BlackLevel >= WhiteLevel`, so normalization has no valid
+    /// range to map onto.
+    InvalidLevels {
+        /// `BlackLevel`, resolved (0 if absent).
+        black_level: u32,
+        /// `WhiteLevel`, resolved (`2^BitsPerSample - 1` if absent).
+        white_level: u32,
+    },
+
+    /// `SPEC-014`. [`develop::develop_into`]'s `src` does not hold exactly
+    /// `sensor.width * sensor.height` samples — the other end of the pipeline
+    /// from [`Error::PlaneBufferWrongLength`].
+    SourcePlaneWrongLength {
+        /// `width * height`, the required length.
+        expected: u64,
+        /// `src.len()` as given.
+        actual: usize,
+    },
+
+    /// `SPEC-014`. [`develop::develop_into`]'s `dst` does not hold exactly
+    /// the developed image's `width * height` samples (post-crop,
+    /// post-orientation — see [`develop::output_dimensions`]).
+    DevelopBufferWrongLength {
+        /// The developed image's `width * height`, the required length.
+        expected: u64,
+        /// `dst.len()` as given.
+        actual: usize,
+    },
 }
 
 impl fmt::Display for Error {
@@ -371,6 +448,58 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "sample {index} is {sample}, which exceeds WhiteLevel {white_level}"
+                )
+            }
+            Error::InvalidActiveArea {
+                top,
+                left,
+                bottom,
+                right,
+                plane_width,
+                plane_height,
+            } => {
+                write!(
+                    f,
+                    "ActiveArea ({top}, {left}, {bottom}, {right}) is empty, inverted, or \
+                     exceeds the raw plane ({plane_width} x {plane_height})"
+                )
+            }
+            Error::InvalidDefaultCrop {
+                origin_x,
+                origin_y,
+                crop_width,
+                crop_height,
+                active_width,
+                active_height,
+            } => {
+                write!(
+                    f,
+                    "DefaultCrop origin ({origin_x}, {origin_y}) size {crop_width}x{crop_height} \
+                     does not fit inside ActiveArea {active_width}x{active_height}"
+                )
+            }
+            Error::UnsupportedOrientation { orientation } => {
+                write!(f, "Orientation {orientation} is not one of the eight values TIFF/Exif define (1..=8)")
+            }
+            Error::InvalidLevels {
+                black_level,
+                white_level,
+            } => {
+                write!(
+                    f,
+                    "BlackLevel {black_level} is not less than WhiteLevel {white_level}"
+                )
+            }
+            Error::SourcePlaneWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "source plane holds {actual} sample(s), expected {expected}"
+                )
+            }
+            Error::DevelopBufferWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "destination image buffer holds {actual} sample(s), expected {expected}"
                 )
             }
         }
