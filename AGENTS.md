@@ -253,7 +253,9 @@ block below — `just build` / `just test` / `just lint` / `just typecheck` /
 `just deny` / `just lint-red-proof`, plus `just install` / `just dev`;
 `SPEC-006` added `just lint-no-allow`; `SPEC-003` added `just fuzz` /
 `just fuzz-seeds`, and its punch-list round added `just deny-fuzz` and
-`just msrv`. Every recipe's commands appear in the block below and nothing in
+`just msrv`; `SPEC-012` added `just fuzz-plane` (the sensor-plane unpacker's
+own fuzz target — `just fuzz-seeds` now regenerates both targets' seeds).
+Every recipe's commands appear in the block below and nothing in
 the block is unrunnable: that correspondence is acceptance criterion 8, so a
 recipe that gains a command gains a line here in the same change.
 
@@ -363,7 +365,14 @@ mkdir -p fuzz/corpus/ifd
 PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ifd \
     fuzz/corpus/ifd fuzz/seeds/ifd -- -max_total_time=60
 
+# fuzz-plane — the sensor-plane unpacker's fuzz target (SPEC-012). Same
+#              +toolchain trap and seed/corpus split as `fuzz` above.
+mkdir -p fuzz/corpus/plane
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run plane \
+    fuzz/corpus/plane fuzz/seeds/plane -- -max_total_time=60
+
 # fuzz-seeds — regenerate the committed seed corpus from tests/support/tiff.rs
+#              (ifd target) and examples/fuzz-seeds.rs's own fixtures (plane target)
 cargo run --quiet --all-features --example fuzz-seeds
 ```
 

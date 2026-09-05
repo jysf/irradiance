@@ -6,14 +6,14 @@
 task:
   id: SPEC-012
   type: story                      # epic | story | task | bug | chore
-  cycle: design                     # frame | design | build | verify | ship
+  cycle: ship                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved             # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -27,11 +27,11 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: claude-opus-5          # ⚠ DISPATCH HINT — tier_map is 1 for 6. Correct it.
+  to_agent: claude-sonnet-5        # CORRECTED — build actually ran on Sonnet 5, not the opus dispatch hint.
   created_at: 2026-09-04
 
 references:
-  decisions: [DEC-002, DEC-008, DEC-012]                    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-002, DEC-008, DEC-012, DEC-016]                    # [DEC-NNN, DEC-MMM]
   constraints: [no-panics-on-untrusted-input, oracle-must-be-shown-red, library-not-application, provenance-recorded-per-algorithm]                  # [constraint-id-1, constraint-id-2]
   related_specs: [SPEC-003, SPEC-009, SPEC-013]                # [SPEC-NNN]
 
@@ -72,11 +72,36 @@ cost:
       duration_minutes: null
       recorded_at: 2026-09-04
       notes: "main-loop, not separately metered (AGENTS.md §4). Design cycle did a real BYTE-LEVEL probe (§15 rule 4) rather than describing one: read the strip head of both corpus shapes, hand-unpacked 14-bit MSB-first and 16-bit little-endian, and cross-checked BOTH against dnglab --raw-pixel's own plane. They agree EXACTLY — [746,725,711,752,...] and [4761,4591,4622,4363,...] — so the spec can pin first-sample values as measured fact and the builder gets a first-pixel checkpoint instead of an opaque whole-plane MD5 mismatch. Also measured the WRONG paths (43019 and 39186, both impossible against WhiteLevel 16383), which is what AC3 asserts. Confirmed the decodable set is 4 of 7 — the other three are Compression 7 or 65535. Surfaced the allocation question (94,887,936 bytes of plane) as a DEC the build must write, recommending unpack_into as the primitive since DEC-002 is unresolved, offered as input rather than as the answer. ALSO FIXED a scaffolding error of my own: all four STAGE-002 specs framed by just frame-stage carried '(not yet written)' in their filenames and titles, inherited from backlog summaries I wrote with that prefix. Renamed before more artifacts inherited it."
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 29580529
+      estimated_usd: 89
+      duration_minutes: 35
+      recorded_at: 2026-09-04
+      notes: "Real number, deduped by message.id, summed from this session's own transcript (~/.claude/projects/<slug>/<session-id>.jsonl usage objects — 104 distinct messages: 208 input + 130,788 output + 350,561 cache-creation + 29,098,972 cache-read = 29,580,529). estimated_usd is a DELIBERATE OVERESTIMATE per AGENTS.md §4 (tokens_total x list rate, no cache discount): ~$3/MTok assumed Sonnet list rate x 29.58M ~= $89; a cache-aware accounting (98% of tokens were cache reads at a fraction of that rate) would land closer to $12. HANDOFF-028 return criterion 7 applies: to_agent corrected above, handback-sync NOT run by this session, PR NOT opened by this session — both left for the orchestrator per that instruction."
 
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 13821765
+      estimated_usd: 33.22
+      duration_minutes: 18
+      recorded_at: 2026-09-04
+      notes: "Verdict ✅ APPROVED at 1606d4b (code-identical to branch tip 0f4cc38; that commit touches only the two handoff .md files). Real tokens_total deduped by message.id from this session's own transcript. ⚠ The spec's `cost.sessions` verify entry is deliberately NOT hand-written by this session, unlike HANDOFF-028's build: that hand-write is exactly what forced the orchestrator to hand-stamp HANDOFF-028's synced_at to avoid a fifth duplicate-entry occurrence. Leaving cost.sessions empty for verify means `just handback-sync SPEC-012` can be run ONCE, cleanly, from this block. handback-sync NOT run and PR NOT opened, per return criterion 7. Five follow-ups (FU-1..FU-5), no ship-blockers. tokens_total 13,821,765 = 91 distinct message.id records: 182 input + 56,338 output + 184,656 cache-creation + 13,580,589 cache-read; message.model reports claude-opus-5 on all 151 assistant records. estimated_usd is a DELIBERATE OVERESTIMATE per AGENTS.md §4 (tokens_total x list rate, no cache discount) AND the rate itself is ASSUMED, not confirmed: ~$15/MTok Opus-tier input list rate x 13.82M ~= $207. 98% of those tokens were cache reads, so a cache-aware figure lands closer to $25. Treat $207 as an order-of-magnitude ceiling."
+    - cycle: ship
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-09-04
+      notes: "main-loop, not separately metered (AGENTS.md §4). Ship: verified the whole plane against dnglab --raw-checksum on all four decodable files BEFORE verify ran (4/4, both DEC-008 paths, every digest equal to the manifest's pinned value), which redirected the verify round away from hunting a wrong plane and toward what a checksum cannot see. Confirmed FU-1 independently (zero test hits for bits 8 and 12) and the shipped `>` operator at src/plane.rs:323. Corrected estimated_usd from a self-declared $207 ceiling to $33.22 per-component. Prevented a FOURTH handback-sync duplicate by hand-stamping HANDOFF-028 rather than merging one after the fact."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 43402294
+    estimated_usd: 122.22
+    session_count: 4
+shipped_at: 2026-09-04
 ---
 
 # SPEC-012: Strip location and sample unpack, two paths per DEC-008
@@ -136,36 +161,85 @@ first samples pinned against the oracle.
 
 ## Acceptance Criteria
 
-- [ ] **AC1 — the 14-bit path is bit-exact on its first samples.** Unpacking
+- [x] **AC1 — the 14-bit path is bit-exact on its first samples.** Unpacking
       `L1021223.DNG` yields `[746, 725, 711, 752, 646, 705, 772, 686]` as
       samples 0–7. **Measured against `dnglab`'s own plane** — see below.
-- [ ] **AC2 — the 16-bit path is bit-exact on its first samples**, and is **not**
+      Confirmed: `tests/plane_unpack.rs::unpacks_fourteen_bit_msb_first_samples`
+      against the real file, and `irr unpack` reproduces the same eight values.
+- [x] **AC2 — the 16-bit path is bit-exact on its first samples**, and is **not**
       a bit stream. `L1000622.DNG` yields `[4761, 4591, 4622, 4363, 4542, 4383,
-      4608, 4286]`.
-- [ ] **AC3 — each path FAILS on the other's data**, asserted with the measured
+      4608, 4286]`. Confirmed:
+      `tests/plane_unpack.rs::unpacks_sixteen_bit_in_file_byte_order` against
+      the real file, and `irr unpack` reproduces the same eight values.
+- [x] **AC3 — each path FAILS on the other's data**, asserted with the measured
       wrong values, not merely "differs". Reading the 14-bit strip as 16-bit LE
       gives `43019` for sample 0; reading the 16-bit strip as big-endian gives
       `39186`. **Both exceed `WhiteLevel 16383` and are therefore impossible** —
-      that is the assertion, and it is the one that caught `SPIKE-002`.
-- [ ] **AC4 — `max > WhiteLevel` is asserted on every decode**, as a loud error,
+      that is the assertion, and it is the one that caught `SPIKE-002`. Confirmed:
+      `tests/plane_unpack.rs::each_path_produces_impossible_values_on_the_others_data`
+      (hand-built fixtures carrying the real strip bytes, no `WhiteLevel` tag so
+      the wrong values decode without tripping AC4, and are asserted directly).
+- [x] **AC4 — `max > WhiteLevel` is asserted on every decode**, as a loud error,
       not a debug assert. It is the check that found the byte-swap when the
-      length, the arithmetic and the decode all looked right.
-- [ ] **AC5 — layer-0 holds and is enforced**:
+      length, the arithmetic and the decode all looked right. Confirmed:
+      `tests/plane_unpack.rs::a_plane_whose_max_exceeds_white_level_is_an_error`
+      — same fixture as AC3's first case, now with `WhiteLevel: Some(16383)`,
+      returns `Error::SampleExceedsWhiteLevel { index: 0, sample: 43019,
+      white_level: 16383 }`. Unconditional whenever `sensor.white_level` is
+      present — not behind `cfg(debug_assertions)` (`src/plane.rs::unpack_into`).
+      Real files (AC1/AC2) are the negative control: both carry a real
+      `WhiteLevel` and decode clean, proving the check does not misfire on
+      honest data (`oracle-must-be-shown-red`'s negative-control half).
+- [x] **AC5 — layer-0 holds and is enforced**:
       `width × height × bits == StripByteCounts × 8`. Measured:
       `8424×5632×14 = 664,215,552` and `5216×3472×16 = 289,759,232`, both equal
-      to their `StripByteCounts × 8`.
-- [ ] **AC6 — the three compressed files are rejected cleanly**, by typed error,
+      to their `StripByteCounts × 8`. Confirmed:
+      `tests/plane_unpack.rs::layer0_arithmetic_is_enforced` — tier A (a
+      hand-built mismatch: `5×2×14 = 140` bits declared against a 14-byte/112-bit
+      strip returns `Error::PackedSizeMismatch { expected_bits: 140,
+      strip_bits: 112 }`) **and** tier B (asserts `Sensor::packed_bits()` equals
+      `StripByteCounts × 8` on both real decodable files).
+- [x] **AC6 — the three compressed files are rejected cleanly**, by typed error,
       with no allocation of a plane: `M2462362.DNG` and `K3III.DNG`
       (`Compression 7`), `K3III.PEF` (`65535`). The decodable set is **4 of 7**.
-- [ ] **AC7 — panic-free on hostile input.** Truncated strips, `StripByteCounts`
+      Confirmed: `tests/plane_unpack.rs::compressed_files_are_rejected_without_decoding`
+      calls `unpack_into` with an **empty** `dst: [u16; 0]` for all three —
+      proving `Error::UnsupportedCompression` fires before the length check
+      (`PlaneBufferWrongLength`) would, i.e. before any plane-sized buffer
+      would even need to exist. `irr unpack` on `K3III.DNG` confirms the same
+      end to end (`compression 7 is not supported by this library`, no plane
+      printed).
+- [x] **AC7 — panic-free on hostile input.** Truncated strips, `StripByteCounts`
       larger than the file, zero/absurd dimensions, `bits` outside {8,12,14,16}.
-      All typed errors. The fuzz target reaches **both** paths.
-- [ ] **AC8 — peak memory for a 47 MP decode is MEASURED and recorded**, not
+      All typed errors. The fuzz target reaches **both** paths. Confirmed:
+      `tests/plane_unpack.rs::hostile_strip_bounds_do_not_panic` (four
+      sub-cases: truncated strip → `Error::Truncated`; zero dimensions → `Ok`
+      on an empty plane; `width = height = u32::MAX` → a typed `Err` via the
+      buffer-length check; `bits = 10` → `Error::UnsupportedBitDepth`). Fuzzed
+      `fuzz/fuzz_targets/plane.rs` — see AC9 below for run counts and how both
+      paths are known to be reached.
+- [x] **AC8 — peak memory for a 47 MP decode is MEASURED and recorded**, not
       assumed (STAGE-002 success criterion 5). `8424 × 5632 × 2 = 94,887,936`
       bytes of plane alone; state what the decode actually peaks at and where
-      the rest goes.
-- [ ] **AC9 — eleven gates + `just lint-ci`**, and **CI observed green** on the
-      shipping SHA.
+      the rest goes. **Measured**, `/usr/bin/time -l` on macOS (darwin),
+      `target/release/irr unpack`, this machine, this build:
+      `L1021223.DNG` (14-bit, 47 MP) — **182,435,840 bytes (174 MiB) maximum
+      resident set size**. Accounted for: the ~85.8 MB input file read whole
+      into a `Vec<u8>` by `irr` (I/O the library never does) + the 94,887,936-byte
+      output plane `irr` allocates as `unpack_into`'s caller (`DEC-016` —
+      the library itself allocates nothing) ≈ 180.7 MB, matching the measured
+      182.4 MB peak within run-to-run noise. `L1000622.DNG` (16-bit, 18 MP,
+      smaller input) peaked at 74,399,744 bytes for comparison. Method is
+      necessarily one-machine, one-build evidence (§16 confidence discipline) —
+      re-measure before relying on it elsewhere.
+- [x] **AC9 — eleven gates + `just lint-ci`**, and **CI observed green** on the
+      shipping SHA. All eleven local gates + `lint-ci` green (see Handback for
+      the full list, including a real local/CI clippy-version gap found and
+      fixed by `lint-ci` itself). Pushed `feat/spec-012-strip-location-and-sample-unpack`
+      to `origin` and **observed CI green** on `731a89171bfff9001af692fd0dfc291968eceafd` —
+      all nine CI jobs passed (clippy, fmt, license policy x2, test, MSRV,
+      lint-policy red-proof, panic-free policy, cost-capture audit):
+      https://github.com/jysf/irradiance/actions/runs/33932904592
 
 ## Failing Tests
 
@@ -279,7 +353,69 @@ either way, including if you disagree.**
 - Sum across **all six** targets; tier-B tests pass whether or not the corpus is
   present, and only `just test` names what is missing.
 
+
+## Follow-ups
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | `SUPPORTED_BITS` declares **four** depths; `8` and `12` have **zero** fuzz executions and **zero** tests while being reachable from untrusted input | `spec: SPEC-016` — ⚠ **and SPEC-016 gained an acceptance criterion for it at this ship**, so the disposition is real rather than a redirect. Verify drove both through the real API and both are **correct** (`8-bit → [1,2,3,4]`; `12-bit AB CD EF → [2748, 3567]`, hand-derived) — test debt, which is why nothing would ever have found it |
+| `FU-2` | the fuzz target never exercises `SampleExceedsWhiteLevel` — `DEC-008`'s load-bearing assertion — because `plane_fixture` lacks the `white_level` field its test-side twin has | `spec: SPEC-016`, same AC. `AC4` covers the *behaviour* and verify proved that test has teeth; the **fuzz** claim was overstated |
+| `FU-3` | `DEC-002` is still `proposed` with no note that a shipped spec depends on it | `fixed` at ship — `DEC-002` now records that `DEC-016` chose a caller-owned buffer *because* this is unresolved |
+| `FU-4` | peak RSS 182,435,840 reproduced to the byte: the file is held **whole** alongside the plane, and it is the **API contract** — `unpack_into` indexes absolute offsets, so callers need whole-file addressability, `mmap` being the undocumented escape | `fixed` at ship — recorded in **both** `DEC-016` (the contract is wider than the signature says) and `DEC-002` (a constraint that decision must account for). This was the orchestrator's `AC8` question, answered |
+| `FU-5` | `Error::Truncated`'s `at` is file-relative at `:308` and strip-relative at `:112` | `closed` — the `BitReader` arm is **unreachable while layer-0 is enforced**, and the trigger is mechanical rather than memory: if layer-0 enforcement is ever relaxed, `AC5`'s test fails before this inconsistency can be observed |
+
+**5 follow-ups · 2 `fixed` · 2 → `SPEC-016` · 1 `closed` · 0 ship-blockers.**
+
 ## Reflection
+
+**1. What would I do differently next time?**
+
+**Ship the whole-plane check with the unpacker, not one spec later.** The spec
+said *"not the MD5 oracle — that is `SPEC-013`"* and gave the builder first-sample
+values instead. That was right for scoping and wrong for evidence: the artifact
+went to verify carrying proof of **eight samples**, while both the orchestrator
+and the reviewer independently discovered that the **whole plane on four files**
+was already bit-exact. Two sessions each built a throwaway probe to learn
+something the repo could have asserted on every run.
+
+The split was defensible — `SPEC-013` owns the *oracle*, its red-proof, and the
+manifest pinning. But a one-file digest comparison is not an oracle, and holding
+it back meant the strongest available evidence lived outside the repo twice.
+
+**2. Does any template, constraint, or decision need updating?**
+
+- **`handback-sync` must key on `(spec, cycle, handoff)`, not `synced_at` alone.**
+  This was the **fourth** occurrence and the first one *prevented*: the build had
+  already hand-written its cost session, so the orchestrator hand-stamped
+  `synced_at` rather than letting a second identical entry land. The reviewer
+  then deliberately left the verify entry **empty** so the script could run once
+  cleanly — and it did. That two sessions had to route around the same script
+  is the argument.
+- **`DEC-002` and `DEC-016` both gained the whole-file-addressability contract.**
+  `unpack_into` allocates nothing and still requires the caller to hold 86 MB
+  addressable beside a 94.9 MB plane. That is a real constraint on the `no_std`
+  question and it was written nowhere until `FU-4`.
+- **The `estimated_usd` ceiling was corrected to per-component**: the reviewer
+  reported `$207` at a flat $15/MTok and said plainly it was a *ceiling, not an
+  estimate*. Measured per-component on a 98.3 %-cache-read session it is
+  **$33.22** — 6.2× lower. Honest labelling, still the wrong number to leave in
+  a field named `estimated_usd`; `flat-rate-overstates-cached-sessions` gains a
+  fourth data point.
+
+**3. Is there a follow-up spec to write now?**
+
+**No new spec.** `FU-1` and `FU-2` join `SPEC-016`, and — per the rule this
+project added after `SPEC-010` shipped without closing a follow-up routed to it —
+**`SPEC-016` gained an acceptance criterion for them at this ship**, written so
+that adding a fifth depth to `SUPPORTED_BITS` without a test *fails* it. A
+disposition that names a spec but no criterion is a redirect, not an owner.
+
+Worth stating plainly: **`irradiance` now decodes a 47 MP Leica Q2 Monochrom
+frame bit-for-bit identically to the reference decoder**, on both of `DEC-008`'s
+paths, across two camera bodies — verified twice, independently, against
+`dnglab`'s own checksum and the digests pinned in the manifest since `SPEC-002`.
+The project stopped being speculative in this spec.
+
 
 *Appended during **ship**. Three questions, short answers.*
 
