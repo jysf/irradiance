@@ -6,10 +6,10 @@
 task:
   id: SPEC-013
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
-  complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
+  complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
@@ -27,13 +27,13 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # ⚠ DISPATCH HINT — the BUILD hint is 0 for 6. Correct it.
+  created_at: 2026-09-04
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  decisions: [DEC-003, DEC-008, DEC-010, DEC-016]                    # [DEC-NNN, DEC-MMM]
+  constraints: [oracle-must-be-shown-red, provenance-recorded-per-algorithm, no-new-top-level-deps-without-decision, library-not-application]                  # [constraint-id-1, constraint-id-2]
+  related_specs: [SPEC-002, SPEC-012]                # [SPEC-NNN]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -62,8 +62,17 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 18000000
+  sessions:
+    - cycle: design
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-09-04
+      notes: "main-loop, not separately metered (AGENTS.md §4). Design probe produced ONE finding worth more than the number it was chasing: an injected off-by-one CHANGED THE FILE and COMPILED and was a SEMANTIC NO-OP — the plane digest came back byte-identical. remaining.min(bits_left).max(1) differs only when the min is zero, which never happens. That means the rule this repo wrote after five occurrences of 'concluding from a mutation that never applied' — assert it changed the file and compiled — IS NOT SUFFICIENT, and the design session followed it exactly while producing a false red-proof. AC4 therefore requires a third clause: assert the OUTPUT changed, control digest != mutant digest, before concluding anything. ⚠ NOT MEASURED: a genuine faulty digest. Two re-runs were killed by session timeouts on a 95 MB plane; no faulty number is quoted in the spec because none was obtained, and producing it is the build's job. Also settled: MD5 must be implemented from RFC 1321 rather than depended on or shelled out to, following sha256's FIPS 180-4 precedent exactly, because the tier-A half is the only half CI runs."
+
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -79,67 +88,165 @@ cost:
 
 ## Context
 
-Why does this spec exist? What problem does it solve? Link to:
-- The parent `STAGE-002` and this spec's place in its backlog
-- The project `PROJ-001`
-- Any related discussions, issues, or prior decisions
+**The plane is already bit-exact. This spec makes that a fact the repo asserts
+rather than one two sessions discovered by hand.**
+
+`SPEC-012` shipped an unpacker whose whole-plane MD5 matches
+`dnglab analyze --raw-checksum` on all four decodable corpus files — verified
+**twice, independently**, by the orchestrator before verify ran and by the
+reviewer during it. Both used a **throwaway probe built outside the repo**,
+because `SPEC-012` deliberately scoped the oracle here.
+
+That is the debt this spec pays: the strongest evidence the project has lived
+outside the tree twice, and `SPEC-012`'s own reflection names it as the thing to
+do differently. The digests are already pinned in `tests/corpus/manifest.toml`
+(since `SPEC-002`) — nothing needs discovering, only wiring and red-proofing.
 
 ## Goal
 
-1–2 sentences. Unambiguous. If you can't write the goal in two
-sentences, split the spec.
+Compare our unpacked plane's MD5 against the manifest's pinned `raw_checksum` on
+every run, **prove the comparison can go red**, and make a mismatch **locatable**
+rather than merely detectable.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- `src/plane.rs` (`unpack_into`), `tests/support/corpus.rs` — especially its
+  hand-written `sha256`, which is the precedent this spec follows
+- `docs/oracle-contract.md` — the plane contract, and the `--raw-pixel` route
+  that makes a mismatch locatable
+- `tests/corpus/manifest.toml` — `[file.oracle] raw_checksum`, already pinned
+- `DEC-010` (why a hash is implemented, not depended on), `DEC-016`
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **MD5 in `tests/support/`** — dev-only, never in the library
+- `tests/plane_oracle.rs` — the oracle and both red-proof halves
+- **A provenance-ledger row** for MD5: class **1 — specification**, RFC 1321
+- `docs/oracle-contract.md` gains the "this is now a test" note
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] **AC1 — MD5 is implemented from RFC 1321 and proven against its own
+      published test vectors** (the RFC ships a suite: `""` →
+      `d41d8cd98f00b204e9800998ecf8427e`, `"abc"` →
+      `900150983cd24fb0d6963f7d28e17f72`, and five more). Dev-only, in
+      `tests/support/`. ⚠ **This follows `sha256`'s precedent exactly** — written
+      from the published standard, not from any implementation, class 1, with
+      `DEC-010` already recording why a hash is not a dependency. **No new
+      dependency.** If you conclude otherwise, **stop and ask**.
+- [ ] **AC2 — the oracle runs on all four decodable files** and compares
+      `md5(plane)` to the manifest's `raw_checksum`. The three compressed files
+      are **skipped by name with a stated reason**, not silently.
+- [ ] **AC3 — a mismatch is LOCATABLE.** On failure the oracle reports the
+      **first differing sample index and both values**, not "digests differ".
+      MD5 says *different*, never *where*, and `SPEC-014` will debug a 47 MP
+      plane against this. `docs/oracle-contract.md` documents the reference
+      route: `--raw-pixel | tail -c +20 | dd conv=swab`.
+- [ ] **AC4 — the red-proof: an injected fault in the unpacker turns the oracle
+      red**, with the honest tree as the negative control.
+      ⚠⚠ **You must assert the injected fault CHANGED THE OUTPUT, not merely the
+      file** — see the warning below. This is the acceptance criterion this spec
+      exists to get right.
+- [ ] **AC5 — a tier-A half runs in CI**, with no corpus and no tools: the RFC
+      vectors, plus a hand-built fixture whose plane and digest are both known,
+      plus the locator from `AC3`. `DEC-003` means CI can never run the tier-B
+      half, so the tier-A half is the only half CI sees.
+- [ ] **AC6 — eleven gates + `just lint-ci`**, and **CI observed green** on the
+      shipping SHA.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+⚠ Zero-match `cargo test <name>` exits 0; confirm each exists per-target and sum
+across all targets.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- `md5_matches_the_rfc_1321_test_vectors` — AC1, tier A
+- `plane_md5_matches_the_pinned_raw_checksum` — AC2, tier B
+- `a_mismatch_names_the_first_differing_sample` — AC3, tier A
+- `an_injected_unpacker_fault_turns_the_oracle_red` — AC4
+- `the_honest_tree_is_the_negative_control` — AC4's control
+- `compressed_files_are_skipped_by_name` — AC2
 
 ## Non-Goals
 
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
+- **Levels, crop, orientation** — `SPEC-014`. This oracle attaches to the
+  **uncropped, un-normalised** plane, which is what `--raw-checksum` compares.
+- **Re-deriving the plane contract.** `docs/oracle-contract.md` verified it on
+  two frames; it is settled.
+- **Any `src/` change.** `SPEC-012`'s unpacker is correct and proven; this spec
+  only observes it.
+- **Shelling out for MD5.** `md5`/`md5sum` exist on both hosts, but the tier-A
+  half must be self-contained, and `sha256`'s precedent already settled this.
 
-- ...
+## Implementation Context
 
-## Notes for the Implementer
+> **Measured 2026-09-04.** The honest digests are not in question — they are in
+> the manifest and were confirmed 4/4 twice. What follows is what the *design
+> probe* found, including a mistake it made.
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+### The baseline, already established
 
----
+| file | shape | `raw_checksum` |
+|---|---|---|
+| `L1021223.DNG` | 8424×5632, 14-bit | `cb653b5bec24d166eef2fd258ee61ac4` |
+| `L1026016.DNG` | 8424×5632, 14-bit | `3f1851259f31…` |
+| `L1026192.DNG` | 8424×5632, 14-bit | `c7348179f042…` |
+| `L1000622.DNG` | 5216×3472, 16-bit | `b0f602b90db91f981bbd6802fd0e6edf` |
+
+All four already match, and all four are already pinned. **The oracle is
+expected to be green on day one** — which is exactly why `AC4` is the whole
+spec: a green oracle that cannot fail manufactures confidence.
+
+### ⚠⚠ The warning this spec exists for — and the design probe walked into it
+
+The design probe injected an "off-by-one" into the bit cursor:
+`remaining.min(bits_left)` → `remaining.min(bits_left).max(1)`.
+
+- `diff` confirmed **the file changed**. ✅
+- `cargo build` confirmed **it compiled**. ✅
+- The resulting plane digest was **byte-identical to the honest one.** ❌
+
+`.max(1)` differs only when the min is zero, which never happens here. **It was
+a semantic no-op that satisfied every check this repo's rules require.**
+
+This matters because *"concluding from a mutation that never applied"* is a
+failure this project has measured **five separate times**, and the rule written
+to stop it — *assert the mutation changed the file and compiled* — **is not
+sufficient**. The design session followed that rule exactly and still produced a
+false red-proof.
+
+**So `AC4` requires a third clause, and it is this spec's most important
+sentence:**
+
+> A red-proof must assert that the **output changed** — control digest ≠ mutant
+> digest — **before** concluding anything about what the test caught.
+
+⚠ **The design probe did NOT obtain a genuine faulty digest.** Two attempts to
+re-run with a real fault were killed by session timeouts on a 95 MB plane, and
+the number is not quoted here because it was not measured. **Producing it is
+your job**, and the clause above is how you will know you have it.
+
+### MD5, and why implement rather than depend
+
+`tests/support/corpus.rs` already hand-writes **SHA-256 from FIPS 180-4** —
+dev-only, class 1 provenance, proven against the published NIST vectors, with
+`DEC-010` recording why it is not a dependency. MD5 from RFC 1321 is the same
+shape (~60 lines) and RFC 1321 ships its own vector suite.
+
+`md5` and `md5sum` both exist on this host and on CI's ubuntu image, so shelling
+out would work — but the tier-A half is the only half CI runs, and an oracle
+whose CI half depends on an external binary is one `PATH` change from silent.
+`SPEC-005/FU-3` and `SPEC-012` both measured what a tool-gated test does when the
+tool is absent: it passes, quietly.
+
+### Traps
+
+- ⚠ **A test that skips is a test that passed.** Tier-B tests pass whether or not
+  the corpus is present. `just test` names what is missing; a bare `cargo test`
+  does not.
+- `just lint-ci`, not `just lint`, and **read CI**.
+- The plane is 94.9 MB and `unpack_into` needs the **whole file addressable**
+  (`DEC-016`, amended at `SPEC-012`'s ship). Peak RSS ≈ 182 MB per decode; four
+  files in one test run is a real consideration.
 
 ## Reflection
 
