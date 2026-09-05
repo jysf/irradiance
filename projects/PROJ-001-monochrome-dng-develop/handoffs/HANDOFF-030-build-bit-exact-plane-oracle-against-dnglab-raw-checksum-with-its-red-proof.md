@@ -53,7 +53,7 @@ handback:
   pr: null                         # not opened, per this handoff's return criterion 7
   completed_at: 2026-09-04
   notes: "CI observed green (9/9 jobs) on f162a39d50280d2e9990477a0d93d38ba45d87de: https://github.com/jysf/irradiance/actions/runs/33945147658"
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-05
 ---
 
 # HANDOFF-030: Bit-exact plane oracle against dnglab raw-checksum, with its red-proof
