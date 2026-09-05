@@ -20,16 +20,17 @@ handoff:
   id: HANDOFF-034
   cycle: ship                  # build | verify | (ship — see the note above)
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # ⚠ PREDICTION from tier_map, not a measurement
-                                    # (signal `tier-map-predicts-what-it-should-record`).
-                                    # CORRECT THIS to whatever your own system prompt
-                                    # reports as `message.model` before handing back.
-                                    # Standing record: 0-for-9 on the build hint,
-                                    # right once on verify (HANDOFF-033).
+  to_agent: claude-sonnet-5         # CORRECTED — 128/128 unique assistant messages in this
+                                    # session's own transcript report message.model =
+                                    # claude-sonnet-5, matching the system prompt's own
+                                    # "You are powered by the model named Sonnet 5"
+                                    # statement exactly. Standing record: 0-for-9 on the
+                                    # build hint (now 0-for-10), right once on verify
+                                    # (HANDOFF-033).
   from_role: architect
   to_role: implementer          # implementer | verifier
   created_at: 2026-09-05
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-014
@@ -41,14 +42,14 @@ repo:
   id: irradiance
 
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — see the cycle note above
-  estimated_usd: null
-  duration_minutes: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 30600000           # transcript floor 25,514,157 deduped by message.id, rounded UP 20% — see ## Handback
+  estimated_usd: 12.19             # per-component at sonnet rates, same uplift
+  duration_minutes: 40
   branch: feat/spec-014-level-normalization-geometry-orientation
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null
+  completed_at: 2026-09-05
+  notes: "Six follow-ups discharged (FU-2..FU-7), no code-behavior change. Test count 141 -> 143. CI observed green: run 33993780818, 9/9 jobs, SHA 626073220c0c64bf96265a80c1480190b57c4e92. This IS a metered ship round (delegated, not main-loop) per this handoff's own front-matter note — the real tokens_total above is correct, not a violation of AGENTS.md §4's 'ship is not metered' (that applies to the orchestrator's own main-loop ship bookkeeping, not this delegated round)."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -278,35 +279,136 @@ reconstruct it.*
 
 ### Execution notes
 
-- **Branch / SHA:**
-- **Completed at:** YYYY-MM-DD
-- **All six follow-ups discharged?** yes/no — one line each
-- **Test count:** was 141, now ___
-- **CI:** run id, job count, SHA
+- **Branch / SHA:** `feat/spec-014-level-normalization-geometry-orientation` at
+  **`626073220c0c64bf96265a80c1480190b57c4e92`** (pushed, local == remote).
+- **Completed at:** 2026-09-05
+- **All six follow-ups discharged?**
+  - `FU-2` — yes. `examples/fuzz-seeds.rs`'s `black-level-at-white-level` fixture raised
+    both levels from 100 to 30,000 (the fixture's fixed byte pattern peaks at sample
+    24,414, so 100 let `plane::unpack_into` reject it before `develop_into` was ever
+    reached). `just fuzz-seeds` regenerated all seeds; only this one `.tiff` changed.
+    Proved with a throwaway scratch example (`examples/prove_fu2_scratch.rs`, deleted
+    after use): `unpack_into: OK, plane min=256 max=24414` then
+    `develop_into: REACHED, returned InvalidLevels { black_level: 30000, white_level: 30000 }`.
+  - `FU-3` — yes. Added `develop_into_applies_orientation_to_pixels_not_only_dimensions`
+    (`tests/develop.rs`, tier A) — see Red-proofs below.
+  - `FU-4` — yes. Pinned the interior-point assertion to its exact value (`32765`) and
+    added `normalize_rounds_to_nearest_rather_than_truncating` (`src/develop.rs`), which
+    asserts sample 516 rounds to 17, not 16. Recorded the rounding rule in `DEC-018`'s
+    `## Decision` and added a `## Consequences` line naming the 50%-of-domain disagreement
+    with truncation, for `SPEC-015`.
+  - `FU-5` — yes. `SPEC-014` `AC7` reworded from `=` to `≈275,906,560 bytes, to within a
+    page`. Reproduced independently: 10 runs across this and two prior sessions split
+    7×275,906,560 / 3×275,890,176 — one 16 KiB page apart, never a third value.
+  - `FU-6` — yes. `tests/corpus/manifest.toml`'s note now says the Q2M `ActiveArea` "IS
+    present but has a ZERO origin" instead of "non-zero `ActiveArea`" — confirmed via
+    `irr ifd` on all three Q2M frames myself: `top 0, left 0, right 8392 < width 8424`.
+  - `FU-7` — yes (evidence added, not a fix, per its `signal:` disposition). Reproduced
+    with the corpus unset: `cargo test --test develop` → 7 passed, 4 with zero executing
+    assertions (named), added as evidence to `ci-cannot-prove-bit-exactness` in
+    `guidance/signals.yaml`, noting that `FU-3`'s new test is corpus-free and now covers
+    one more of AC5 without the corpus, even though the four dimension-only tests still
+    carry no CI evidence.
+- **Test count:** was 141, now **143** (66 lib + 0 irr + 9 corpus_manifest + 7 develop +
+  12 ifd_reader + 30 metadata_oracle + 12 plane_oracle + 7 plane_unpack + 0 doc).
+- **CI:** run **`33993780818`**, **9/9 jobs** green (panic-free policy, license policy x2,
+  MSRV, clippy -D warnings, test, fmt --check, lint policy red-proof, cost-capture audit),
+  SHA `626073220c0c64bf96265a80c1480190b57c4e92` — the exact SHA pushed above.
+
+### Eleven gates + `just lint-ci`, run by me
+
+| # | gate | result |
+|---|---|---|
+| 1 | `cargo fmt --check` | exit 0 |
+| 2 | `cargo test --all-features` | **143 passed, 0 failed**, summed across 9 targets, corpus present 7/7 |
+| 3 | `just lint-no-allow` | exit 0 |
+| 4 | `just deny` | `licenses ok` |
+| 5 | `just deny-fuzz` | `licenses ok` |
+| 6 | `just msrv` (`+1.90.0`) | exit 0 |
+| 7 | `just lint-red-proof` | `✓ lint policy red-proof` — control clean → injection rejected → all five lints fired; `src/lib.rs` untouched afterward |
+| 8 | `just fuzz-develop 60` | **12,748,045 runs / 61 s, zero crashes**, `fuzz/artifacts/develop` empty |
+| 9 | **`just lint-ci`** | exit 0, asserted version: **clippy 0.1.98 (88d9e12ae1)**, not local 0.1.97 |
+| 10 | `just decisions-audit` | **0 structural errors**, 5 scope warnings (unchanged baseline) |
+| 11 | `just decisions-audit --changed` | flags DEC-003/004/008/011/018/019 as governing my touched paths; read each, no contradiction |
+| + | `just validate` | 17 artifacts valid |
+| + | `just cost-audit` | clean |
 
 ### Red-proofs watched
 
-- **`FU-3`** — mutation applied, test red, output delta:
-- **`FU-4`** — `+ half` removed, assertion red:
+- **`FU-3`** — applied the exact mutation quoted in this handoff (`let _ = crop_source_coords(...); let (crop_x, crop_y) = (out_x, out_y);`). File changed (md5 `3887b741...` → `7c17e0da...`), compiled, and `develop_into_applies_orientation_to_pixels_not_only_dimensions` went red:
+  `left: [0, 1, 10, 11, 0, 0]` (mutant) vs `right: [10, 0, 11, 1, 12, 2]` (honest) — every
+  other test in the suite stayed green. Reverted via `git checkout --`, md5-verified
+  byte-identical to the pre-mutation backup and to the staged index.
+- **`FU-4`** — removed the `+ half` rounding term (`scaled = numerator.checked_div(denominator)`).
+  File changed (md5 `8c2fc59a...` → `f26d4567...`), compiled, and
+  `normalize_rounds_to_nearest_rather_than_truncating` went red: `left: 16, right: 17`.
+  `normalize_maps_the_endpoints_and_an_interior_point` (the midpoint pin) stayed green —
+  confirming the band it replaced could never have caught this. Reverted via
+  `git checkout --`, md5-verified byte-identical.
+- Both mutations were staged (`git add -A`) before mutating, per the SPEC-010 lesson, and
+  both reverts were confirmed with `git diff --exit-code` clean in addition to md5.
 
 ### Cost self-report
 
-- **Tokens (total):**
-- **Estimated USD:**
-- **Duration (minutes):**
-- **Source of the number:**
+- **Tokens (total): 30,600,000**
+- **Estimated USD: $12.19**
+- **Duration (minutes): ~40**
+- **Source of the number:** this session's own transcript
+  (`~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-irradiance/1600fcb0-173b-43a7-a240-21fb2c66a001.jsonl`
+  — its UUID matches this session's own scratchpad directory, confirming it, not a
+  guess), **deduped by `message.id`**: 128 unique usage-bearing messages, all reporting
+  `message.model = claude-sonnet-5`, matching the system prompt exactly.
+
+  | Component | Tokens (measured floor) | Rate (sonnet, per M) | Cost |
+  |---|---:|---:|---:|
+  | `input_tokens` | 256 | $3.00 | $0.00 |
+  | `output_tokens` | 76,845 | $15.00 | $1.15 |
+  | `cache_creation_input_tokens` | 240,881 | $6.00 (1-hour TTL) | $1.45 |
+  | `cache_read_input_tokens` | 25,196,175 | $0.30 | $7.56 |
+  | **Measured floor** | **25,514,157** | — | **$10.16** |
+  | **Reported, +20%** | **30,600,000** | — | **$12.19** |
+
+  **Rounded up per this handoff's own instruction (§ front-matter, "measured here: 9.9%
+  and 15.4% low").** One thing worth naming precisely rather than glossing over: this
+  repo's project directory holds a second, EARLIER transcript
+  (`e078417d-f832-4765-bc7b-2b8493e01419.jsonl`) that also mentions `develop_into`,
+  `crop_source_coords` and `HANDOFF-034` and reports `message.model = claude-opus-5` on
+  all 106 of its unique messages — clearly a prior attempt at this same delegation,
+  predating the `/clear` + `/model` reset that opened this conversation, on a different
+  model. I excluded it: it precedes the session boundary this delegation actually started
+  from, I have no visibility into what it did, and the system prompt for this session says
+  plainly "You are powered by the model named Sonnet 5" — which the measured
+  `1600fcb0` transcript confirms 128-for-128. Naming this rather than silently picking a
+  number is the point of `measurement-over-generalised`: the floor above is scoped to
+  exactly one file, one dedup key, one boundary, stated here.
 
 ### New findings
 
-- `FU-8` … (or "none")
+- `FU-8` — none. Nothing found here rises to a new AC-affecting finding; the prior
+  transcript-boundary oddity above is a session/environment observation, not a defect in
+  `SPEC-014`'s shipped surface, and I have not proposed a disposition for it.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing in the spec/handoff itself. The one real friction was outside it: locating
+   *this* session's own transcript file for the cost self-report. `~/.claude/projects/.../`
+   holds many `.jsonl` files sharing this repo's cwd and branch, including one from an
+   apparently earlier, pre-`/clear` attempt at this exact delegation on a different model
+   (`claude-opus-5`) that text-matches heavily on `develop_into`/`HANDOFF-034`. The
+   system-prompt-stated scratchpad directory UUID turned out to be the reliable anchor —
+   it names the correct session file directly — but nothing in `AGENTS.md`/this handoff
+   says to use it that way, and I found it by trial after mismatched grep results.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Not a constraint, but worth recording for the next delegated round with a cost
+   handback: when `/clear` restarts a conversation mid-task, the project's transcript
+   directory can retain an orphaned prior-attempt file that text-matches the new one
+   closely enough to be picked up by grep alone. A future self-report should anchor on the
+   scratchpad-directory UUID from the system prompt, not on content matching, to avoid
+   silently summing a different model's tokens into this cycle's report.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Verify the transcript file identity (scratchpad UUID match) BEFORE doing any token
+   arithmetic, rather than after noticing the model mismatch partway through. It would
+   have saved re-deriving the aggregate twice.
