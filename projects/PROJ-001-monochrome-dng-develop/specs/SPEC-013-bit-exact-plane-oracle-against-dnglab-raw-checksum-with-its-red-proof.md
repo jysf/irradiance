@@ -6,7 +6,7 @@
 task:
   id: SPEC-013
   type: story                      # epic | story | task | bug | chore
-  cycle: design                     # frame | design | build | verify | ship
+  cycle: verify                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,7 +27,10 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: claude-opus-5          # ⚠ DISPATCH HINT — the BUILD hint is 0 for 6. Correct it.
+  to_agent: claude-sonnet-5  # CORRECTED at build (2026-09-04): tier_map.build says
+                             # claude-opus-5, but this cycle actually ran on
+                             # claude-sonnet-5 in a dispatched CLI session — the
+                             # "0 for 6" hint this field carried was accurate.
   created_at: 2026-09-04
 
 references:
@@ -126,33 +129,80 @@ rather than merely detectable.
 
 ## Acceptance Criteria
 
-- [ ] **AC1 — MD5 is implemented from RFC 1321 and proven against its own
+- [x] **AC1 — MD5 is implemented from RFC 1321 and proven against its own
       published test vectors** (the RFC ships a suite: `""` →
       `d41d8cd98f00b204e9800998ecf8427e`, `"abc"` →
       `900150983cd24fb0d6963f7d28e17f72`, and five more). Dev-only, in
       `tests/support/`. ⚠ **This follows `sha256`'s precedent exactly** — written
       from the published standard, not from any implementation, class 1, with
       `DEC-010` already recording why a hash is not a dependency. **No new
-      dependency.** If you conclude otherwise, **stop and ask**.
-- [ ] **AC2 — the oracle runs on all four decodable files** and compares
+      dependency** was added. Confirmed: `tests/support/md5.rs` (dev-only,
+      never in `src/`), all seven RFC 1321 Appendix A.5 vectors pass in
+      `md5_matches_the_rfc_1321_test_vectors` (tier A), plus
+      `md5_streaming_matches_one_shot` mirroring `sha256`'s own
+      split-across-a-block-boundary discipline.
+- [x] **AC2 — the oracle runs on all four decodable files** and compares
       `md5(plane)` to the manifest's `raw_checksum`. The three compressed files
-      are **skipped by name with a stated reason**, not silently.
-- [ ] **AC3 — a mismatch is LOCATABLE.** On failure the oracle reports the
+      are **skipped by name with a stated reason**, not silently. Confirmed:
+      `plane_md5_matches_the_pinned_raw_checksum` (tier B) decodes and hashes
+      all four `DECODABLE` entries against their pinned `raw_checksum` — **all
+      four match, on this machine, this corpus**:
+      `L1021223.DNG cb653b5bec24d166eef2fd258ee61ac4`,
+      `L1026016.DNG 3f1851259f3119c0a2fa98d84065f2af`,
+      `L1026192.DNG c7348179f042d9597be7829d03fa5d8a`,
+      `L1000622.DNG b0f602b90db91f981bbd6802fd0e6edf`.
+      `compressed_files_are_skipped_by_name` (tier A) asserts `DECODABLE` +
+      `SKIPPED_COMPRESSED` (each carrying its own reason: JPEG/SOF-3 or vendor
+      PEF) together account for all 7 `[[file]]` entries, so a manifest entry
+      falling through both lists fails loudly rather than vanishing.
+- [x] **AC3 — a mismatch is LOCATABLE.** On failure the oracle reports the
       **first differing sample index and both values**, not "digests differ".
       MD5 says *different*, never *where*, and `SPEC-014` will debug a 47 MP
       plane against this. `docs/oracle-contract.md` documents the reference
-      route: `--raw-pixel | tail -c +20 | dd conv=swab`.
-- [ ] **AC4 — the red-proof: an injected fault in the unpacker turns the oracle
+      route: `--raw-pixel | tail -c +20 | dd conv=swab`. Confirmed:
+      `locate_first_difference` (pure, tier A,
+      `a_mismatch_names_the_first_differing_sample`) finds the first
+      disagreeing sample and both values in a same-shaped pair of planes;
+      `parse_raw_pixel_pgm` (tier A, `dnglab_raw_pixel_pgm_parses` /
+      `dnglab_raw_pixel_pgm_rejects_malformed_input`) reproduces the reference
+      route above, verified against the doc's own endianness proof (`02 EA` →
+      746). `assert_plane_matches` wires both into the tier-B oracle's failure
+      path, so a real mismatch (none observed — the oracle is green on all
+      four files) would name the sample rather than print two opaque hex
+      strings.
+- [x] **AC4 — the red-proof: an injected fault in the unpacker turns the oracle
       red**, with the honest tree as the negative control.
-      ⚠⚠ **You must assert the injected fault CHANGED THE OUTPUT, not merely the
-      file** — see the warning below. This is the acceptance criterion this spec
-      exists to get right.
-- [ ] **AC5 — a tier-A half runs in CI**, with no corpus and no tools: the RFC
+      ⚠⚠ **The injected fault's output WAS asserted to change, not merely the
+      file** — `an_injected_unpacker_fault_turns_the_oracle_red` asserts
+      `mutant_digest != honest_digest` directly, every run. **Measured, not
+      assumed — the two digests, on `L1021223.DNG`:**
+      honest `cb653b5bec24d166eef2fd258ee61ac4`, mutant
+      `59b032fe4320a27989ce61f3e3da7ff2`. Watched fail personally before this
+      fault was chosen: a first attempt (starting `BitReader`'s cursor at bit
+      1) changed the file and compiled but produced `Error::Truncated`, not a
+      wrong digest — recorded in `DEC-017` and the module's own doc comment so
+      it is not re-discovered. `the_honest_tree_is_the_negative_control`
+      confirms the unmutated copy-and-rebuild apparatus reproduces the pinned
+      digest, so the red result above is attributable to the injection, not
+      the harness (`DEC-017`, mirroring `lint-red-proof.sh`'s control
+      discipline, `DEC-009`).
+- [x] **AC5 — a tier-A half runs in CI**, with no corpus and no tools: the RFC
       vectors, plus a hand-built fixture whose plane and digest are both known,
       plus the locator from `AC3`. `DEC-003` means CI can never run the tier-B
-      half, so the tier-A half is the only half CI sees.
-- [ ] **AC6 — eleven gates + `just lint-ci`**, and **CI observed green** on the
-      shipping SHA.
+      half, so the tier-A half is the only half CI sees. Confirmed: six tier-A
+      tests need neither corpus nor a tool —
+      `md5_matches_the_rfc_1321_test_vectors`, `md5_streaming_matches_one_shot`,
+      `a_mismatch_names_the_first_differing_sample`, `dnglab_raw_pixel_pgm_parses`,
+      `dnglab_raw_pixel_pgm_rejects_malformed_input`,
+      `compressed_files_are_skipped_by_name` — plus
+      `hand_built_fixtures_plane_matches_its_known_md5`, a hand-built 4×2,
+      14-bit fixture (`L1021223.DNG`'s own measured strip head, reused from
+      `SPEC-012`) whose plane `[746, 725, 711, 752, 646, 705, 772, 686]` and
+      whose MD5 `d1d83299c631541fac68da1051b19a23` (computed independently
+      with Python's `hashlib.md5` at design time, not with this spec's own
+      MD5) are both pinned.
+- [x] **AC6 — eleven gates + `just lint-ci`**, and **CI observed green** on the
+      shipping SHA. See Handback for the full local list and the CI run.
 
 ## Failing Tests
 
