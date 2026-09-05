@@ -672,14 +672,23 @@ signals:
   - id: flat-rate-overstates-cached-sessions
     type: process-debt
     summary: "rate_per_mtok: 6.60 applied flat computes 2.7x the true cost on a 97.5%-cache-read session."
-    evidence: "N=3, three sessions and two models, always the same direction. (1) SPEC-007 verify: $19.35 per-component at published Opus rates vs $51.06 flat — 2.6x. (2) PATCH-001, SPEC-005's build on claude-sonnet-5: $13.55 actual vs $198.76 flat — 14.7x, because the flat rate ALSO ignores which model ran. (3) SPEC-010 verify: $21.33 vs $68.39 — 3.2x. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them."
+    evidence: "N=4, four sessions and two models, always the same direction. (1) SPEC-007 verify: $19.35 per-component at published Opus rates vs $51.06 flat — 2.6x. (2) PATCH-001, SPEC-005's build on claude-sonnet-5: $13.55 actual vs $198.76 flat — 14.7x, because the flat rate ALSO ignores which model ran. (3) SPEC-010 verify: $21.33 vs $68.39 — 3.2x. (4) SPEC-012 verify, 2026-09-04: the reviewer reported $207 at a flat $15/MTok and SAID PLAINLY it was "a ceiling, not an estimate"; measured per-component on a 98.3% cache-read session it is $33.22 — 6.2x. Honest labelling, and still the wrong number to leave in a field named estimated_usd. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them."
     bar: null
     status: open
     disposition_at: project-close
     first_flagged: 2026-08-21
-    last_touched: 2026-09-03
+    last_touched: 2026-09-04
     raised_by: claude
     notes: |
+      ⚠ FOURTH MEASUREMENT 2026-09-04, and it is the one that shows documenting
+      the flaw is not enough. SPEC-012's reviewer knew the rate was wrong, wrote
+      "ceiling, not estimate" beside it, and the field still went to the spec
+      carrying $207 against a true $33.22. A number a reader must un-believe from
+      a footnote is a number that will be believed. Whatever the project close
+      decides, the option "keep the flat rate and document it" is now measured as
+      insufficient — it has been documented since 2026-08-21 and produced a 6.2x
+      error four sessions later.
+
       ⚠ THIRD MEASUREMENT 2026-09-03 (SPEC-010/FU-4), and the spread across the
       three is the argument: 2.6x, 3.2x — and 14.7x on the one session that ran
       on a DIFFERENT MODEL than the flat rate assumes. So the error is not a

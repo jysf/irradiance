@@ -46,6 +46,16 @@ function never grows, shrinks, or replaces the buffer. A convenience that
 returns an owned `Vec<u16>` is not provided by this spec and can be added
 later as a thin wrapper without changing this signature.
 
+> ⚠ **Amended at ship (`SPEC-012/FU-4`), because the contract is wider than the
+> signature says.** `unpack_into` allocates nothing — but it indexes `file` at
+> **absolute offsets taken from the IFD**, so the caller must keep the *whole
+> file* addressable for the duration of the call, not merely the strip. Verify
+> reproduced the consequence to the byte: peak RSS **182,435,840** for a 47 MP
+> decode, which is the 94.9 MB plane plus the 86 MB file held together. `mmap`
+> is the escape and this record is the first place it is written down. A future
+> `unpack_into` that took only the strip slice would drop the requirement — that
+> is a real alternative and it was not considered here.
+
 ## Context
 
 `SPEC-012` is the first spec that produces pixels. A Q2 Monochrom plane is

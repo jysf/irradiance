@@ -34,6 +34,19 @@ tags:
 
 # DEC-002: target surface, parallelism, and determinism — decided together
 
+> ⚠ **A shipped spec now depends on this being unresolved.** `SPEC-012`'s
+> `DEC-016` chose a caller-owned buffer (`unpack_into(&mut [u16])`, no allocation
+> in the library) **specifically because this decision is still `proposed`** — a
+> `Vec`-returning primitive would commit the library to allocating 95 MB on the
+> caller's behalf before the `no_std`/`alloc` question is settled.
+>
+> ⚠ **And `SPEC-012`'s verify measured a second constraint this decision must
+> account for** (`SPEC-012/FU-4`): peak RSS for a 47 MP decode is **182,435,840
+> bytes**, reproduced to the byte, because `unpack_into` indexes the whole file
+> at **absolute offsets** — so the caller must hold the entire file addressable
+> alongside the 94.9 MB plane. `mmap` is the escape and is currently
+> undocumented. Whichever way this decision lands, that contract is part of it.
+
 ## Decision
 
 **Proposed, not accepted.** Three questions that look separate are one question,

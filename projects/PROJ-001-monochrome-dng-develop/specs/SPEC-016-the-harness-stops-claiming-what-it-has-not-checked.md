@@ -113,6 +113,33 @@ small, and both live in the same lane. Fixing one and not the other would leave
 the stage's own success criterion — *"no gate can exit non-zero without printing
 its own reason"* — half true in the other direction.
 
+**`SPEC-012/FU-1` and `FU-2` join this spec**, and they are the same sentence as
+the two above: *the harness claiming what it has not checked.*
+
+- **`FU-1` — `SUPPORTED_BITS = [8, 12, 14, 16]` declares four depths; two are
+  executed by nothing.** Measured at `SPEC-012`'s verify: `bits = 8` and
+  `bits = 12` have **zero** fuzz executions and **zero** tests, while being
+  reachable from untrusted input. No corpus file uses either, so no oracle will
+  ever cover them. This is `SPIKE-001`'s *"the parameter was always 14"* one
+  level up — the list declares support the suite has never once exercised.
+  ⚠ Verify drove both through the real API and they are **correct**:
+  `8-bit → [1, 2, 3, 4]`, `12-bit AB CD EF → [2748, 3567]` (hand-derived as
+  `0xABC` / `0xDEF`, byte order correctly irrelevant). **Test debt, not a
+  defect** — which is exactly why nothing will find it later.
+- **`FU-2` — the fuzz target never exercises `SampleExceedsWhiteLevel`**, the one
+  assertion `DEC-008` calls load-bearing, because `examples/fuzz-seeds.rs`'s
+  `plane_fixture` lacks the `white_level` field its test-side twin has. `AC4`
+  covers the behaviour and verify proved that test has teeth; the **fuzz claim**
+  is what was overstated.
+
+**AC (added at `SPEC-012`'s ship, so the `spec:` disposition is real):** every
+value in `SUPPORTED_BITS` is exercised by at least one test **and** reachable by
+the fuzz target, asserted by enumeration rather than by inspection — and the
+plane fuzz seeds carry `white_level`, so `SampleExceedsWhiteLevel` is reachable.
+⚠ Written so that **adding a fifth depth to `SUPPORTED_BITS` without a test fails
+this criterion**; a list and a test-set that can drift apart is the defect, not
+the current gap.
+
 Design question, not settled here: whether `corpus-status` should **check tool
 availability** (and rename its claim) or merely **stop making the claim**. The
 first is more useful and more code; the second is honest and is one line.

@@ -6,14 +6,14 @@
 task:
   id: SPEC-012
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                     # frame | design | build | verify | ship
+  cycle: ship                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved             # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -81,10 +81,27 @@ cost:
       recorded_at: 2026-09-04
       notes: "Real number, deduped by message.id, summed from this session's own transcript (~/.claude/projects/<slug>/<session-id>.jsonl usage objects — 104 distinct messages: 208 input + 130,788 output + 350,561 cache-creation + 29,098,972 cache-read = 29,580,529). estimated_usd is a DELIBERATE OVERESTIMATE per AGENTS.md §4 (tokens_total x list rate, no cache discount): ~$3/MTok assumed Sonnet list rate x 29.58M ~= $89; a cache-aware accounting (98% of tokens were cache reads at a fraction of that rate) would land closer to $12. HANDOFF-028 return criterion 7 applies: to_agent corrected above, handback-sync NOT run by this session, PR NOT opened by this session — both left for the orchestrator per that instruction."
 
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 13821765
+      estimated_usd: 33.22
+      duration_minutes: 18
+      recorded_at: 2026-09-04
+      notes: "Verdict ✅ APPROVED at 1606d4b (code-identical to branch tip 0f4cc38; that commit touches only the two handoff .md files). Real tokens_total deduped by message.id from this session's own transcript. ⚠ The spec's `cost.sessions` verify entry is deliberately NOT hand-written by this session, unlike HANDOFF-028's build: that hand-write is exactly what forced the orchestrator to hand-stamp HANDOFF-028's synced_at to avoid a fifth duplicate-entry occurrence. Leaving cost.sessions empty for verify means `just handback-sync SPEC-012` can be run ONCE, cleanly, from this block. handback-sync NOT run and PR NOT opened, per return criterion 7. Five follow-ups (FU-1..FU-5), no ship-blockers. tokens_total 13,821,765 = 91 distinct message.id records: 182 input + 56,338 output + 184,656 cache-creation + 13,580,589 cache-read; message.model reports claude-opus-5 on all 151 assistant records. estimated_usd is a DELIBERATE OVERESTIMATE per AGENTS.md §4 (tokens_total x list rate, no cache discount) AND the rate itself is ASSUMED, not confirmed: ~$15/MTok Opus-tier input list rate x 13.82M ~= $207. 98% of those tokens were cache reads, so a cache-aware figure lands closer to $25. Treat $207 as an order-of-magnitude ceiling."
+    - cycle: ship
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-09-04
+      notes: "main-loop, not separately metered (AGENTS.md §4). Ship: verified the whole plane against dnglab --raw-checksum on all four decodable files BEFORE verify ran (4/4, both DEC-008 paths, every digest equal to the manifest's pinned value), which redirected the verify round away from hunting a wrong plane and toward what a checksum cannot see. Confirmed FU-1 independently (zero test hits for bits 8 and 12) and the shipped `>` operator at src/plane.rs:323. Corrected estimated_usd from a self-declared $207 ceiling to $33.22 per-component. Prevented a FOURTH handback-sync duplicate by hand-stamping HANDOFF-028 rather than merging one after the fact."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 43402294
+    estimated_usd: 122.22
+    session_count: 4
+shipped_at: 2026-09-04
 ---
 
 # SPEC-012: Strip location and sample unpack, two paths per DEC-008
@@ -336,7 +353,69 @@ either way, including if you disagree.**
 - Sum across **all six** targets; tier-B tests pass whether or not the corpus is
   present, and only `just test` names what is missing.
 
+
+## Follow-ups
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | `SUPPORTED_BITS` declares **four** depths; `8` and `12` have **zero** fuzz executions and **zero** tests while being reachable from untrusted input | `spec: SPEC-016` — ⚠ **and SPEC-016 gained an acceptance criterion for it at this ship**, so the disposition is real rather than a redirect. Verify drove both through the real API and both are **correct** (`8-bit → [1,2,3,4]`; `12-bit AB CD EF → [2748, 3567]`, hand-derived) — test debt, which is why nothing would ever have found it |
+| `FU-2` | the fuzz target never exercises `SampleExceedsWhiteLevel` — `DEC-008`'s load-bearing assertion — because `plane_fixture` lacks the `white_level` field its test-side twin has | `spec: SPEC-016`, same AC. `AC4` covers the *behaviour* and verify proved that test has teeth; the **fuzz** claim was overstated |
+| `FU-3` | `DEC-002` is still `proposed` with no note that a shipped spec depends on it | `fixed` at ship — `DEC-002` now records that `DEC-016` chose a caller-owned buffer *because* this is unresolved |
+| `FU-4` | peak RSS 182,435,840 reproduced to the byte: the file is held **whole** alongside the plane, and it is the **API contract** — `unpack_into` indexes absolute offsets, so callers need whole-file addressability, `mmap` being the undocumented escape | `fixed` at ship — recorded in **both** `DEC-016` (the contract is wider than the signature says) and `DEC-002` (a constraint that decision must account for). This was the orchestrator's `AC8` question, answered |
+| `FU-5` | `Error::Truncated`'s `at` is file-relative at `:308` and strip-relative at `:112` | `closed` — the `BitReader` arm is **unreachable while layer-0 is enforced**, and the trigger is mechanical rather than memory: if layer-0 enforcement is ever relaxed, `AC5`'s test fails before this inconsistency can be observed |
+
+**5 follow-ups · 2 `fixed` · 2 → `SPEC-016` · 1 `closed` · 0 ship-blockers.**
+
 ## Reflection
+
+**1. What would I do differently next time?**
+
+**Ship the whole-plane check with the unpacker, not one spec later.** The spec
+said *"not the MD5 oracle — that is `SPEC-013`"* and gave the builder first-sample
+values instead. That was right for scoping and wrong for evidence: the artifact
+went to verify carrying proof of **eight samples**, while both the orchestrator
+and the reviewer independently discovered that the **whole plane on four files**
+was already bit-exact. Two sessions each built a throwaway probe to learn
+something the repo could have asserted on every run.
+
+The split was defensible — `SPEC-013` owns the *oracle*, its red-proof, and the
+manifest pinning. But a one-file digest comparison is not an oracle, and holding
+it back meant the strongest available evidence lived outside the repo twice.
+
+**2. Does any template, constraint, or decision need updating?**
+
+- **`handback-sync` must key on `(spec, cycle, handoff)`, not `synced_at` alone.**
+  This was the **fourth** occurrence and the first one *prevented*: the build had
+  already hand-written its cost session, so the orchestrator hand-stamped
+  `synced_at` rather than letting a second identical entry land. The reviewer
+  then deliberately left the verify entry **empty** so the script could run once
+  cleanly — and it did. That two sessions had to route around the same script
+  is the argument.
+- **`DEC-002` and `DEC-016` both gained the whole-file-addressability contract.**
+  `unpack_into` allocates nothing and still requires the caller to hold 86 MB
+  addressable beside a 94.9 MB plane. That is a real constraint on the `no_std`
+  question and it was written nowhere until `FU-4`.
+- **The `estimated_usd` ceiling was corrected to per-component**: the reviewer
+  reported `$207` at a flat $15/MTok and said plainly it was a *ceiling, not an
+  estimate*. Measured per-component on a 98.3 %-cache-read session it is
+  **$33.22** — 6.2× lower. Honest labelling, still the wrong number to leave in
+  a field named `estimated_usd`; `flat-rate-overstates-cached-sessions` gains a
+  fourth data point.
+
+**3. Is there a follow-up spec to write now?**
+
+**No new spec.** `FU-1` and `FU-2` join `SPEC-016`, and — per the rule this
+project added after `SPEC-010` shipped without closing a follow-up routed to it —
+**`SPEC-016` gained an acceptance criterion for them at this ship**, written so
+that adding a fifth depth to `SUPPORTED_BITS` without a test *fails* it. A
+disposition that names a spec but no criterion is a redirect, not an owner.
+
+Worth stating plainly: **`irradiance` now decodes a 47 MP Leica Q2 Monochrom
+frame bit-for-bit identically to the reference decoder**, on both of `DEC-008`'s
+paths, across two camera bodies — verified twice, independently, against
+`dnglab`'s own checksum and the digests pinned in the manifest since `SPEC-002`.
+The project stopped being speculative in this spec.
+
 
 *Appended during **ship**. Three questions, short answers.*
 

@@ -56,7 +56,7 @@ handback:
   pr: null                         # NOT opened — return criterion 7 leaves it to the orchestrator
   completed_at: 2026-09-04         # YYYY-MM-DD
   notes: "Verdict ✅ APPROVED at 1606d4b (code-identical to branch tip 0f4cc38; that commit touches only the two handoff .md files). Real tokens_total deduped by message.id from this session's own transcript. ⚠ The spec's `cost.sessions` verify entry is deliberately NOT hand-written by this session, unlike HANDOFF-028's build: that hand-write is exactly what forced the orchestrator to hand-stamp HANDOFF-028's synced_at to avoid a fifth duplicate-entry occurrence. Leaving cost.sessions empty for verify means `just handback-sync SPEC-012` can be run ONCE, cleanly, from this block. handback-sync NOT run and PR NOT opened, per return criterion 7. Five follow-ups (FU-1..FU-5), no ship-blockers. tokens_total 13,821,765 = 91 distinct message.id records: 182 input + 56,338 output + 184,656 cache-creation + 13,580,589 cache-read; message.model reports claude-opus-5 on all 151 assistant records. estimated_usd is a DELIBERATE OVERESTIMATE per AGENTS.md §4 (tokens_total x list rate, no cache discount) AND the rate itself is ASSUMED, not confirmed: ~$15/MTok Opus-tier input list rate x 13.82M ~= $207. 98% of those tokens were cache reads, so a cache-aware figure lands closer to $25. Treat $207 as an order-of-magnitude ceiling."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-04
 ---
 
 # HANDOFF-029: Verify SPEC-012 — the unpack, at `1606d4b`
