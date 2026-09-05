@@ -103,12 +103,12 @@ signals:
   - id: ci-cannot-prove-bit-exactness
     type: risk
     summary: "CI cannot run tier-B tests, so a green badge does not mean the decoder is correct."
-    evidence: "DEC-003 — real camera files are never committed, so the bit-exact oracle runs only on a machine holding the corpus."
+    evidence: "DEC-003 — real camera files are never committed, so the bit-exact oracle runs only on a machine holding the corpus. SPEC-014/FU-7 (2026-09-05): `cargo test --all-features --test develop` with IRRADIANCE_CORPUS_DIR unset — 7 passed in 0.01s, but 4 of them (`black_and_white_levels_map_to_the_endpoints`, `the_three_stage_crop_produces_the_measured_dimensions`, `orientation_six_swaps_the_output_dimensions`, `an_unrotated_sibling_keeps_its_dimensions`) return before asserting anything and report `ok` anyway, so AC1, AC3 and AC5 carry zero evidence in the one gate `no-panics-on-untrusted-input` requires to be observed green — a no-oracle spec concentrates this signal's loss precisely where DEC-004 already says nothing else will catch it. Only 3 of the 7 carry real corpus-free assertions (`values_outside_the_level_range_are_handled_as_decided`'s tier-A half, `hostile_geometry_does_not_panic`, and the tier-A test SPEC-014/FU-3 added), and the same fix pattern SPEC-013/FU-1 proved — move a tier-B assertion onto a hand-built fixture — is what closed FU-3's specific gap."
     bar: null
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-18
+    last_touched: 2026-09-05
     raised_by: claude
     notes: |
       Accepted deliberately, not overlooked — the alternative was unlicensed
@@ -296,7 +296,7 @@ signals:
   - id: cost-field-has-two-owners
     type: process-debt
     summary: "AGENTS.md §15 tells the agent to write cost.sessions; DEC-013 says handback-sync transcribes it."
-    evidence: "N=3. (1) SPEC-006 F-5 — cost.sessions was empty after verify because each side could assume the other had it. (2) SPEC-007/FU-7 — HANDOFF-017's whole `handback:` block was null while handoff.status was `completed`; the number survived only because the build wrote cost.sessions directly, i.e. the same ambiguity firing from the OTHER side. (3) SPEC-009/FU-2 — a THIRD direction: the build wrote a null-numeric build session AND handback-sync appended the orchestrator-recovered figure BESIDE it, so one cycle carried two sessions. Unlike SPEC-010's duplicate the total was right (one entry was null) and the record was still wrong."
+    evidence: "N=3. (1) SPEC-006 F-5 — cost.sessions was empty after verify because each side could assume the other had it. (2) SPEC-007/FU-7 — HANDOFF-017's whole `handback:` block was null while handoff.status was `completed`; the number survived only because the build wrote cost.sessions directly, i.e. the same ambiguity firing from the OTHER side. (3) SPEC-009/FU-2 — a THIRD direction: the build wrote a null-numeric build session AND handback-sync appended the orchestrator-recovered figure BESIDE it, so one cycle carried two sessions. Unlike SPEC-010's duplicate the total was right (one entry was null) and the record was still wrong. SPEC-014/FU-10 (2026-09-05): a THIRD owner appeared — the delegated ship round wrote cost.totals itself, despite HANDOFF-034 listing cost.totals under Out of Scope in as many words, and wrote it WRONG: 58,245,024 across 3 sessions, omitting its own 30,600,000 ship session because handback-sync had not run yet. handback-sync's write_cost_totals (scripts/handback-sync.sh:123) then silently overwrote it with the correct 88,845,024 / 4. The error was invisible and self-correcting ONLY because the orchestrator happened to sync after the agent wrote; in the other order the shipped total ships 34% low with nothing to catch it. The field has two documented owners and one undocumented last-writer-wins tiebreak."
     bar: null
     status: open
     disposition_at: project-close
@@ -417,6 +417,34 @@ signals:
       wrong paved road is worse than none.
 
   # --- process-debt: to_agent is a prediction read as a measurement ------------
+  - id: orchestrator-transcript-looks-like-a-prior-attempt
+    type: process-debt
+    summary: "A delegated session reading its own project transcript directory finds the ORCHESTRATOR's live transcript beside it, and the natural inference — 'a prior attempt on a different model' — is wrong."
+    evidence: "SPEC-014/FU-8 (2026-09-05, HANDOFF-034's ship round). Every handback in this repo is required to compute tokens_total from ~/.claude/projects/<slug>/<session-id>.jsonl. That directory also holds the ORCHESTRATOR's transcript, which is live at the same moment, runs a different model, and text-matches the delegation on every distinctive term — because the orchestrator WROTE the handoff. The implementer found e078417d-f832-4765-bc7b-2b8493e01419.jsonl (claude-opus-5, 120 messages, 20,263,224 tokens) next to its own 1600fcb0 (claude-sonnet-5, 149 messages), and concluded 'a prior attempt at this same delegation, predating a /clear + /model reset'. There was no /clear and no prior attempt: e078417d is the orchestrator session, confirmed by its uuid matching the orchestrator's scratchpad (holding develop.rs.orig/.v2/.v3, the three mutation backups) and by timestamps that ENCLOSE the implementer's — 16:57:57->22:22:54 UTC around 21:16:59->21:51:16. A prior attempt cannot still be writing 31 minutes after its replacement finished. THE EXCLUSION WAS CORRECT AND THE NUMBER IS RIGHT; only the recorded reasoning was wrong, and it shipped into a handback until the orchestrator caught it. The cheap discriminator nobody is told to use: compare the transcript's time span against your own, and check whether its uuid is your scratchpad path or someone else's."
+    bar: 2
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-09-05
+    last_touched: 2026-09-05
+    raised_by: claude
+    notes: |
+      N=1. Filed at bar 2 rather than acted on, because one instance cannot tell
+      a repeatable trap from a one-off misreading — the same discipline
+      `measurement-over-generalised` asks for. But the STRUCTURE says it will
+      recur: the instruction to read the transcript directory is in every build,
+      verify and ship handoff this repo writes, and the orchestrator's transcript
+      is in that directory every time, always on a different model whenever the
+      tier_map dispatch differs. It cost nothing this round because the
+      implementer named the anomaly instead of silently picking a number — which
+      is exactly the behaviour the handback contract asks for and the reason this
+      was catchable at all.
+
+      Cheapest fix if it recurs: one line in the handoff template's cost section
+      — "the project transcript directory also holds the ORCHESTRATOR's live
+      session; identify yours by the uuid in your own scratchpad path, not by
+      content match." Related: [tier-map-predicts-what-it-should-record]
+      (same family — a plausible-looking value standing in for a measured one).
+
   - id: tier-map-predicts-what-it-should-record
     type: process-debt
     summary: "tier_map stamps a PREDICTED model into handoff.to_agent, which handback-sync copies into a field downstream reads as measured fact."

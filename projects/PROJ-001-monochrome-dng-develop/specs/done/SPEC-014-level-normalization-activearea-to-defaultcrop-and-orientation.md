@@ -6,14 +6,14 @@
 task:
   id: SPEC-014
   type: story                      # epic | story | task | bug | chore
-  cycle: design                     # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -27,7 +27,9 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: claude-opus-5          # ⚠ DISPATCH HINT — the BUILD hint is 0 for 7. Correct it.
+  to_agent: claude-sonnet-5        # CORRECTED — the build hint predicted opus (0 for 8 now);
+                                   # this build actually ran on Sonnet 5, per this session's own
+                                   # system prompt (`message.model` = claude-sonnet-5).
   created_at: 2026-09-05
 
 references:
@@ -73,10 +75,35 @@ cost:
       recorded_at: 2026-09-05
       notes: "main-loop, not separately metered (AGENTS.md §4). Design probe measured the geometry and levels of all four decodable files and found the finding that shapes the spec: ON EVERY DECODABLE FILE ActiveArea's origin is (0,0) or the tag is absent. The only file with a non-zero origin (K3III.DNG, top 34 left 26) is Compression 7 and undecodable — so 'DefaultCropOrigin is relative to ActiveArea' and 'relative to the raw plane' give IDENTICAL output on 100% of files this spec can run on, and an implementation ignoring the origin passes every corpus test. SPIKE-001's 'always 14' shape, with SPIKE-002 as the precedent for the cost. AC4's hand-built fixture is therefore the only thing that can observe the distinction. Also measured: both real files contain samples BELOW BlackLevel (min 2 and 108) and both reach WhiteLevel EXACTLY, so AC2's out-of-range handling fires on the first file rather than being hypothetical. And cited the independent evidence for the relative reading — dnglab prints cropArea.p sensor-absolute, (26,34)+(28,24)=(54,58) on K3III.DNG, while exiftool prints the file's own 28 24."
 
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 44845024
+      estimated_usd: 17.13
+      duration_minutes: 35
+      recorded_at: 2026-09-05
+      notes: "single main-loop CLI session, not a sub-agent; see ## Handback for the per-component token breakdown"
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 13400000
+      estimated_usd: 31.15
+      duration_minutes: 25
+      recorded_at: 2026-09-05
+      notes: "VERDICT: APPROVED at 52e6ecf (src/ byte-identical to 1404aac). 0 ship-blockers, 6 follow-ups FU-2..FU-7. Corpus PRESENT 7/7, ZERO SKIP lines. Rounded up 20% (above both measured misses, 9.9% and 15.4%) to cover the handback turns."
+    - cycle: ship
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 30600000
+      estimated_usd: 12.19
+      duration_minutes: 40
+      recorded_at: 2026-09-05
+      notes: "Six follow-ups discharged (FU-2..FU-7), no code-behavior change. Test count 141 -> 143. CI observed green on the code commit: run 33993780818, 9/9 jobs, SHA 626073220c0c64bf96265a80c1480190b57c4e92. This handback commit (the actual branch head this handoff ships at) is ALSO observed green: run 33993921847, 9/9 jobs, SHA 701fc0d9c94d9f629a105ad5beeb5b3554cb290e. This IS a metered ship round (delegated, not main-loop) per this handoff's own front-matter note — the real tokens_total above is correct, not a violation of AGENTS.md §4's 'ship is not metered' (that applies to the orchestrator's own main-loop ship bookkeeping, not this delegated round)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 88845024
+    estimated_usd: 60.47
+    session_count: 4
+shipped_at: 2026-09-05
 ---
 
 # SPEC-014: Level normalization, ActiveArea to DefaultCrop, and orientation
@@ -124,34 +151,57 @@ comparison oracle can see it.
 
 ## Acceptance Criteria
 
-- [ ] **AC1 — levels normalize analytically.** `BlackLevel → 0`, `WhiteLevel →
+- [x] **AC1 — levels normalize analytically.** `BlackLevel → 0`, `WhiteLevel →
       full scale`, on values **read from the file**, not constants. Q2M is
       `512 → 0`, `16383 → max`; M Monochrom is `220 → 0`, `16383 → max`. Assert
       both endpoints and at least one interior point per file.
-- [ ] **AC2 — values below `BlackLevel` and above `WhiteLevel` are handled
+      `black_and_white_levels_map_to_the_endpoints` (`tests/develop.rs`).
+- [x] **AC2 — values below `BlackLevel` and above `WhiteLevel` are handled
       explicitly and the choice is written down.** Measured: the Q2M plane's
       `min` is **2**, far below `BlackLevel 512`, and its `max` is **16383 ==
       WhiteLevel** exactly. So both edges are live on real data on the first
       file. Clamp or saturate — but decide it, test it, and record it.
-- [ ] **AC3 — the three-stage crop, asserted numerically.**
+      **Clamped** (`DEC-018`); `values_outside_the_level_range_are_handled_as_decided`.
+- [x] **AC3 — the three-stage crop, asserted numerically.**
       `8424×5632 → ActiveArea 8392×5632 → DefaultCrop 8368×5584`, and
       `5216×3472 → (no ActiveArea) → 5212×3468`.
-- [ ] **AC4 — `DefaultCropOrigin` is applied RELATIVE TO `ActiveArea`, and a
+      `the_three_stage_crop_produces_the_measured_dimensions`.
+- [x] **AC4 — `DefaultCropOrigin` is applied RELATIVE TO `ActiveArea`, and a
       hand-built fixture proves it.** ⚠ **No decodable corpus file can tell the
       two readings apart** — see below. A tier-A fixture with a **non-zero
       ActiveArea origin** is the only thing that can, and without it this spec
       ships an untestable assumption.
-- [ ] **AC5 — orientation is applied, and the per-frame case is covered.**
+      `crop_origin_is_relative_to_active_area_not_the_raw_plane`
+      (`src/develop.rs` unit tests — `DEC-019`).
+- [x] **AC5 — orientation is applied, and the per-frame case is covered.**
       `L1026016.DNG` reads `Orientation 6` where its two siblings read `1`;
       output dimensions must swap for 6. ⚠ `Orientation` is **per-frame, not a
       camera constant** — the fact that produced the `unrun-docs-carry-errors`
       signal. Every geometry test uses **both** a rotated and an unrotated frame.
-- [ ] **AC6 — panic-free.** `DefaultCropSize` larger than `ActiveArea`, crop
+      `orientation_six_swaps_the_output_dimensions` /
+      `an_unrotated_sibling_keeps_its_dimensions`.
+- [x] **AC6 — panic-free.** `DefaultCropSize` larger than `ActiveArea`, crop
       origin outside the plane, zero dimensions, absent tags, an orientation
       value outside 1–8. Typed errors, and the fuzz target reaches them.
-- [ ] **AC7 — memory is measured, not assumed.** `SPEC-012` measured 182 MB peak
+      `hostile_geometry_does_not_panic`; `fuzz/fuzz_targets/develop.rs` ran
+      14,562,321 executions (61s), zero crashes.
+- [x] **AC7 — memory is measured, not assumed.** `SPEC-012` measured 182 MB peak
       for a decode; state what this adds and whether the transform is in-place.
-- [ ] **AC8 — eleven gates + `just lint-ci`**, CI **observed** green.
+      Measured via `irr develop` on `L1021223.DNG`: peak RSS **≈275,906,560
+      bytes** — `SPEC-012`'s 182,435,840 + the 93,453,824-byte developed
+      buffer, **to within a page** (`FU-5`). Ten runs across three sessions:
+      seven landed on 275,906,560, three on 275,890,176 — one 16 KiB
+      (16,384-byte) page apart, never a third value. Peak RSS is
+      page-granular and includes binary/stack/allocator overhead in neither
+      buffer, so the accounting is approximate by construction; a residual of
+      a few hundred bytes (or a page) carries no information. The buffers
+      themselves are exact, and `irr develop` prints them. **Not in-place**
+      (`DEC-018`).
+- [x] **AC8 — eleven gates + `just lint-ci`**, CI **observed** green.
+      Observed at `1404aaca7a354b44b580ca9d84c03343c8449a59` —
+      https://github.com/jysf/irradiance/actions/runs/33954732964 (all 9 CI
+      jobs green: fmt, clippy, test, licenses x2, MSRV, cost-capture audit,
+      lint-red-proof, lint-no-allow).
 
 ## Failing Tests
 
@@ -251,36 +301,88 @@ must make that assertion expressible.
 - A tier-B test passes whether or not the corpus is present; only `just test`
   names what is missing.
 
+## Follow-ups
+
+Every finding raised against `SPEC-014` across every cycle, with its disposition
+(§15). None crosses this ship undecided.
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | `tests/corpus/manifest.toml`'s note mislabelled `L1000622.DNG`'s `DefaultCropOrigin`/`Size` as `"ActiveArea 2 2 5212 3468"` | `fixed` — `tests/corpus/manifest.toml:190-194`, build cycle (`1404aac`) |
+| `FU-2` | `black-level-at-white-level.tiff` never reached `develop_into` — `unpack_into` rejected it first, so 9 of 10 seeds exercised the geometry surface | `fixed` — `examples/fuzz-seeds.rs:376-386`, levels raised 100 → 30,000 above the fixture's 24,414 max (`6260732`) |
+| `FU-3` | **`develop_into`'s orientation pixel path was asserted by nothing** — a call-site identity fault changed the output and left 141/141 green | `fixed` — `develop_into_applies_orientation_to_pixels_not_only_dimensions`, `tests/develop.rs:304`, tier A. Watched red by two sessions **with the corpus absent** |
+| `FU-4` | `normalize`'s round-to-nearest was unpinned and unrecorded; the interior point pinned was the midpoint, the one sample where round and truncate agree | `fixed` — `normalize_rounds_to_nearest_rather_than_truncating` (`src/develop.rs:446`) + `DEC-018` `## Decision` and `## Consequences` |
+| `FU-5` | `AC7` stated peak RSS as an exact equation; the measurement is page-granular | `fixed` — `AC7` reworded `=` → `≈275,906,560`, "to within a page", with the 10-run 7/3 split recorded |
+| `FU-6` | `FU-1`'s own fix introduced a new error — "against a non-zero ActiveArea", where every Q2M frame's origin is `(0,0)` | `fixed` — `tests/corpus/manifest.toml:193-197`, measured via `irr ifd` on all three Q2M frames |
+| `FU-7` | With the corpus absent, four of six `tests/develop.rs` tests executed zero assertions, so `AC1`/`AC3`/`AC5` carried no evidence in CI | `signal: ci-cannot-prove-bit-exactness` — evidence added, `last_touched: 2026-09-05`. `FU-3`'s tier-A test is the concrete part and is `fixed` above |
+| `FU-8` | The ship round's handback recorded the **orchestrator's own concurrent transcript** as "a prior attempt at this same delegation, predating a `/clear` + `/model` reset". The exclusion was right; the reason was invented | `signal: orchestrator-transcript-looks-like-a-prior-attempt` — new, `bar: 2`, `status: open`. Correction recorded inline in `HANDOFF-034`'s cost section |
+| `FU-9` | `docs/conformance-matrix.md:13` repeated `FU-1`'s error a **third** time — the M Monochrom credited with "the only non-zero `ActiveArea` origin (2 2 5212 3468)" on a file whose `active_area` is `None`. Line 36's separate claim was **correct** but implied a usable origin; `K3III.DNG`'s is `Compression 7` | `fixed` — both lines, `docs/conformance-matrix.md:13,36`, this ship cycle. Found by §15's own "confirm the ledger and matrix are current" step |
+| `FU-10` | The ship round wrote `cost.totals` despite the handoff putting it explicitly Out of Scope, and wrote it **wrong** — `58,245,024` / 3 sessions, omitting its own `30,600,000`. `handback-sync` silently overwrote it correctly | `signal: cost-field-has-two-owners` — evidence added. Harmless only because the sync ran after; the shipped total would have been 34% low the other way round |
+
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended at **ship**, 2026-09-05.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — **Name the corroborating source at design, not at verify.** The design
+   probe measured the blind spot correctly and `AC4`'s fixture was specified
+   because of it — that part worked, and the build was clean first try. What
+   design did *not* do was say **how the eight `Orientation` values would be
+   corroborated**. They shipped hand-derived and self-checked against a worked
+   example written by the same session, and six of the eight had no independent
+   point anywhere in the repo until verify went and got one from ImageMagick.
+   That was luck of a thorough reviewer, not a spec requirement. A spec that
+   hand-derives a table should name its second source in the acceptance
+   criterion, the way `AC4` named its fixture.
+
+   Second: the token estimate was **26,000,000** and the actual was
+   **88,845,024** — **3.42×**. Nothing gates on that, and it should not, but it
+   is the largest miss recorded so far and it came almost entirely from cycles
+   the estimate did not model: a verify that found six follow-ups and a fourth
+   delegated round to close them.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — Three, all recorded rather than done here:
+   - `oracle-must-be-shown-red` has **no subject** on a spec with no oracle.
+     Verify judged it *inapplicable, not evaded*, and that reading is right —
+     but the constraint's text does not say what happens when a spec ships a
+     whole surface with no oracle by prior decision (`DEC-004`). It read as
+     satisfied because nothing triggered it. Worth a sentence.
+   - `just new-handoff` refuses a `ship` cycle
+     (`scripts/new-handoff.sh:31` — "design/frame/ship stay with the
+     orchestrator"), but §15 explicitly lets a `fixed` disposition be discharged
+     *at ship*. When that work is delegated — as it was here — the tooling has
+     no path and `HANDOFF-034` had to be hand-written, including a warning that
+     its real `tokens_total` is not a violation of §4's "ship is not metered".
+   - Two new signals filed this cycle
+     (`orchestrator-transcript-looks-like-a-prior-attempt`, and fresh evidence
+     on `cost-field-has-two-owners`), both about cost provenance, both found by
+     reconciling rather than by any gate.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new one. `SPEC-015` (the analytic oracle) is framed and closes
+   `STAGE-002`; `DEC-018` now carries the sentence it most needs — that
+   round-to-nearest and truncation differ on **50.0 %** of in-range samples, so
+   an "independent" oracle deriving the obvious truncating formula would be
+   pinned to the wrong rule on half the domain. `SPEC-011` and `SPEC-016` sit
+   unblocked in `STAGE-005`; `FU-7`'s and `FU-10`'s signals are `SPEC-016`'s
+   natural material when it is designed.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?** — `verify`
+   *(`FU-3`: `develop_into`'s orientation pixel path was asserted by nothing —
+   a real, output-changing fault left 141/141 green. The build was clean on its
+   own terms and the code was correct; the hole was in the tests, and only a
+   reviewer running a mutation the spec never asked for found it. Not `build`,
+   because nothing was wrong with what was built. Not `escaped`, because it
+   never reached a consumer.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before: a consumer could get an uncropped, un-normalised `u16` plane
+   (`SPEC-012`) and nothing else. After: `develop::develop_into` turns that
+   plane into the image a consumer would display — black subtracted, white
+   normalized to full `u16` scale, and the real `ActiveArea` → `DefaultCrop` →
+   `Orientation` geometry applied — confirmed on both decodable files
+   (`8368×5584` and `5212×3468`), on the rotated frame whose `Orientation 6`
+   swaps them, and on the one shape no real file can prove: a non-zero
+   `ActiveArea` origin, where a hand-built fixture is measurably the only test
+   in the repository that can tell the correct reading from the wrong one.

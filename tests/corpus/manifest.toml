@@ -187,8 +187,16 @@ Why it is the most valuable third-party file we have:
   - a THIRD bit depth (16, vs the Q2M's 14) — the first real exercise of the
     unpacker's `bits` parameter, which has only ever run with 14
   - BlackLevel 220, not 512 — catches a hardcoded level
-  - ActiveArea 2 2 5212 3468 — a NON-ZERO origin, where every Q2M frame is
-    0 0 5632 8392. The ActiveArea crop has never actually moved anything.
+  - ActiveArea is ABSENT (measured, SPEC-014 design probe, corrected
+    2026-09-05 — this note previously mislabelled DefaultCropOrigin/Size as
+    "ActiveArea"). DefaultCropOrigin 2 2 / DefaultCropSize 5212 3468 IS
+    non-zero, where every Q2M frame's crop origin is 12 24 against an
+    ActiveArea that IS present but has a ZERO origin (measured via `irr ifd`
+    on all three Q2M frames: top 0, left 0, right 8392 < width 8424 — present
+    and width-cropping, but not offset) — a different axis of variation, not
+    the same one, and corrected again 2026-09-05 (SPEC-014/FU-6): the first
+    correction's own replacement text asserted a non-zero ActiveArea origin
+    that no decodable Q2M file has
   - NO OpcodeList tags at all — exercises the no-opcodes path
 """
 

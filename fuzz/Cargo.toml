@@ -32,3 +32,10 @@ path = "fuzz_targets/plane.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "develop"
+path = "fuzz_targets/develop.rs"
+test = false
+doc = false
+bench = false

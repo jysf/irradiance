@@ -14,13 +14,13 @@ handoff:
   id: HANDOFF-032
   cycle: build                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # ⚠ DISPATCH HINT. The BUILD hint is 0 FOR 7 while the
-                                   #   verify hint is 2 for 2. Read your own message.model
-                                   #   and CORRECT this before handing back.
+  to_agent: claude-sonnet-5        # CORRECTED — read from this session's own system prompt
+                                   # (message.model = claude-sonnet-5). The build hint is now
+                                   # 0 for 8; the tier_map prediction (opus) did not match again.
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-09-05
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-014
@@ -44,15 +44,15 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  status: completed                # completed | blocked | rejected
+  tokens_total: 44845024           # deduped by message.id, this session's own transcript — see ## Handback
+  estimated_usd: 17.13             # per-component at Sonnet 5's published list rate — see ## Handback
+  duration_minutes: 35
+  branch: feat/spec-014-level-normalization-geometry-orientation
+  pr: null                         # not opened, per this handoff's Return Criteria 7
+  completed_at: 2026-09-05
+  notes: "single main-loop CLI session, not a sub-agent; see ## Handback for the per-component token breakdown"
+  synced_at: 2026-09-05
 ---
 
 # HANDOFF-032: Level normalization, ActiveArea to DefaultCrop, and orientation
@@ -138,4 +138,127 @@ expressible.
 
 ## Handback
 
-*(Filled by the implementer.)*
+### Summary
+
+Built `src/develop.rs`: `output_dimensions`/`develop_into`, taking `&Sensor`
+plus the caller-owned raw plane (`plane::unpack_into`'s output) and writing a
+caller-owned developed image — the same no-allocation shape `DEC-016` chose,
+now extended by `DEC-018` (output representation) and `DEC-019` (crop-origin
+convention). All seven failing tests from the spec now pass, plus a
+comprehensive unit-test suite in `src/develop.rs` itself (13 tests) covering
+the internal geometry resolution, all eight `Orientation` transforms
+(hand-derived and independently verified against a worked example), and every
+hostile shape `AC6` names.
+
+### Gates (all run by me, this session, `IRRADIANCE_CORPUS_DIR` set)
+
+1. `cargo fmt --check` — clean.
+2. `cargo clippy --all-targets --all-features -- -D warnings` — clean.
+3. `cargo test --all-features` — **141 tests pass** across `src/lib.rs`'s unit
+   tests (65, incl. `develop::tests` x13), `tests/corpus_manifest.rs` (9),
+   `tests/develop.rs` (6, new), `tests/ifd_reader.rs` (12),
+   `tests/metadata_oracle.rs` (30), `tests/plane_oracle.rs` (12, **`SPEC-013`'s
+   oracle re-run untouched — `plane_md5_matches_the_pinned_raw_checksum`
+   still green**), `tests/plane_unpack.rs` (7). Zero failures, zero skips
+   (corpus present).
+4. `just lint-no-allow` — clean.
+5. `just deny` / `just deny-fuzz` — `licenses ok` on both graphs.
+6. `~/.cargo/bin/cargo +1.90.0 check --all-targets --all-features` (MSRV) — clean.
+7. `just lint-red-proof` — `✓ lint policy red-proof` (control clean, injection
+   rejected, fires without `-D warnings` too) — unaffected by this build's
+   changes, re-run to confirm.
+8. `just fuzz-develop 60` (new target, `fuzz/fuzz_targets/develop.rs`) —
+   **14,562,321 executions in 61s, zero crashes.** Reaches every geometry
+   rejection `AC6` names via 10 hand-built seeds
+   (`fuzz/seeds/develop/`) plus libFuzzer's own mutation.
+9. `PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy --all-targets --all-features -- -D warnings`
+   (`just lint-ci`'s exact invocation) — clean.
+10. `just msrv` — clean (same as #6, listed once).
+11. `just decisions-audit` — 0 structural errors. `DEC-018`/`DEC-019` sharing
+    `affected_scope: src/develop.rs` is flagged as a same-scope warning by
+    design (the tool's own message: "confirm they don't contradict") — they
+    don't; same pattern as the pre-existing `DEC-012`/`DEC-015` pair.
+
+**CI**: pushed to `feat/spec-014-level-normalization-geometry-orientation`,
+observed green at `1404aaca7a354b44b580ca9d84c03343c8449a59` —
+https://github.com/jysf/irradiance/actions/runs/33954732964 (`conclusion:
+success`, all 9 jobs: fmt, clippy -D warnings, test, licenses, licenses-fuzz,
+MSRV, cost-capture audit, lint-policy-red-proof, lint-policy-no-allow).
+
+### Memory (AC7)
+
+`irr develop` on `L1021223.DNG` (release build): peak RSS **275,890,176
+bytes**. `SPEC-012`'s already-measured 182,435,840 (file + raw plane) plus
+the 93,453,824-byte developed buffer (8368×5584×2) accounts for essentially
+all of it — `develop_into`'s own working memory is `O(1)`. **Not in-place**:
+a second buffer is unavoidable (the crop is smaller than the source and may
+swap dimensions).
+
+### Findings (`SB-N`/`FU-N`)
+
+- `FU-1` — **`tests/corpus/manifest.toml`'s note for `L1000622.DNG`
+  mislabelled its `DefaultCropOrigin`/`Size` as `"ActiveArea 2 2 5212
+  3468"`.** Directly measured via `irr ifd` while gathering `AC1`/`AC3`
+  evidence: `active_area` is actually `None` on this file (matching
+  `SPEC-014`'s own design-time probe); the non-zero values are
+  `DefaultCropOrigin (2, 2)` / `DefaultCropSize (5212, 3468)`. Would have
+  misled a future reader into believing a decodable file with a non-zero
+  `ActiveArea` origin exists, when none does (the whole reason `AC4`'s
+  hand-built fixture is load-bearing). **Disposition: `fixed`** —
+  `tests/corpus/manifest.toml:190-192`, this build.
+
+No ship-blockers found.
+
+### Reflection (§15's ship-cycle questions, answered here per this handoff's
+### Return Criterion 9 — `SPEC-014` has not shipped yet)
+
+1. **What would I do differently next time?** Nothing structural — the
+   design-time probe (already in `## Implementation Context`) meant build
+   really did collapse to near-transcription, as AGENTS.md §12 predicts. The
+   one thing I'd front-load earlier next time: verifying a corpus doc's
+   claims (the manifest note above) the moment I read past them, rather than
+   after using them for something else — I only caught it because `AC1`'s
+   test needed the real `black_level`/`white_level` values and I cross-checked
+   with `irr ifd` directly instead of trusting the note.
+2. **Does any template/constraint/decision need updating?** No — the
+   handoff/spec process worked as designed for a spec with no oracle: `DEC-004`
+   already told me not to look for one, and the design-time probe already
+   handed me the exact geometry table.
+3. **Is there a follow-up spec to write now?** No new one — `SPEC-015` (the
+   analytic oracle) is already framed and is exactly the follow-up this spec
+   was missing.
+4. **Where was the worst defect caught?** `none` — clean first try; all seven
+   failing tests passed without needing a fix-and-recheck loop, and the fuzz
+   target found zero crashes on its first run.
+5. **What can a user do now that they couldn't before?** Before: a consumer
+   of this library could get an uncropped, un-normalised `u16` plane
+   (`SPEC-012`) and nothing else. After: `develop::develop_into` turns that
+   plane into the actual displayable image — black subtracted, white
+   normalized to full `u16` scale, the real `ActiveArea` → `DefaultCrop` →
+   `Orientation` geometry applied — confirmed on both real decodable files
+   (`8368×5584` and `5212×3468`) and the one shape no real file can prove
+   (`AC4`'s non-zero `ActiveArea` origin fixture).
+
+### Token accounting
+
+Computed from this session's own transcript
+(`~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-irradiance/2a8063c7-df8a-4c92-9dc4-86383047d490.jsonl`),
+deduped by `message.id` (142 unique assistant turns with usage), all on
+`claude-sonnet-5` — no sub-agent, so no `subagent_tokens` split. Session span
+07:40:32 → 08:16:00 UTC = **35 minutes**.
+
+| Component | Tokens | Rate (Sonnet, published list) | Cost |
+|---|---:|---:|---:|
+| `input_tokens` | 284 | $3.00 / MTok | $0.00 |
+| `output_tokens` | 155,261 | $15.00 / MTok | $2.33 |
+| `cache_creation_input_tokens` | 405,107 | $3.75 / MTok | $1.52 |
+| `cache_read_input_tokens` | 44,284,372 | $0.30 / MTok | $13.29 |
+| **Total** | **44,845,024** | — | **≈ $17.13** |
+
+Priced per-component, not a flat rate (this handoff's Return Criterion 6) —
+`cache_read_input_tokens` dominates both the token count and, at its much
+lower per-token rate, a smaller-than-naive share of the cost. The per-token
+rates are the standard published Sonnet-tier list prices; not independently
+re-verified against a Sonnet-5-specific published rate card, so treat
+`estimated_usd` as the order-of-magnitude estimate AGENTS.md §4 asks for, not
+an invoiced number.
