@@ -16,7 +16,7 @@
 //!
 //! This same file is also embedded verbatim (`include_str!`) into the
 //! red-proof's synthesized probe binary (`tests/plane_oracle.rs`,
-//! `PROBE_MD5_SOURCE`), so the mutated-crate build and this test binary run
+//! `MD5_SOURCE`), so the mutated-crate build and this test binary run
 //! the exact same hasher — one implementation, never two to keep in sync.
 
 /// RFC 1321 §3.4 Step 4 — one 32-bit additive constant per round step,

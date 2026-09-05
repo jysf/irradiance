@@ -143,6 +143,62 @@ fn compressed_files_are_skipped_by_name() {
         );
         assert!(!reason.trim().is_empty(), "{path} has an empty skip reason");
     }
+
+    // `SPEC-013/FU-2`: everything above proves the two lists COVER the manifest.
+    // None of it proves the split is TRUE. Verify measured the consequence:
+    // moving a decodable file into SKIPPED_COMPRESSED with a fabricated reason
+    // drops oracle coverage 4 -> 3 and the suite stays green, because the only
+    // thing asserted about a reason is that it is non-empty.
+    //
+    // So assert the PARTITION against the files themselves. Corpus-gated by
+    // necessity -- the claim is about real bytes -- while every assertion above
+    // stays corpus-free.
+    let root = CorpusRoot::resolve();
+    let mut checked = 0usize;
+    for path in DECODABLE {
+        let entry = manifest.get(path).expect("in manifest");
+        let Some(p) = entry.require(&root) else {
+            continue;
+        };
+        let bytes = std::fs::read(&p).expect("read corpus file");
+        let sensor = Container::parse(&bytes)
+            .expect("parses")
+            .sensor()
+            .expect("has a sensor plane");
+        assert!(
+            sensor.require_uncompressed().is_ok(),
+            "{path} is in DECODABLE but its Compression is {:?} -- the list is a claim about \
+             the file and this one is false",
+            sensor.compression
+        );
+        checked += 1;
+    }
+    for (path, _) in SKIPPED_COMPRESSED {
+        let entry = manifest.get(path).expect("in manifest");
+        let Some(p) = entry.require(&root) else {
+            continue;
+        };
+        let bytes = std::fs::read(&p).expect("read corpus file");
+        let sensor = Container::parse(&bytes)
+            .expect("parses")
+            .sensor()
+            .expect("has a sensor plane");
+        assert!(
+            sensor.require_uncompressed().is_err(),
+            "{path} is in SKIPPED_COMPRESSED but it is UNCOMPRESSED -- it would decode, and \
+             excluding it silently drops oracle coverage"
+        );
+        checked += 1;
+    }
+    if checked > 0 {
+        assert_eq!(
+            checked,
+            manifest.files.len(),
+            "the corpus is present, so every manifest entry must have been classified against \
+             its real Compression tag; only {checked} of {} were",
+            manifest.files.len()
+        );
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -726,6 +782,63 @@ fn build_and_run_probe(dir: &Path, file: &Path) -> String {
         .expect("probe stdout is not UTF-8")
         .trim()
         .to_string()
+}
+
+#[test]
+fn an_injected_fault_turns_the_fixture_oracle_red_without_a_corpus() {
+    // `SPEC-013/FU-1`. The corpus-gated red-proof below is the real one, and it
+    // is also the ONLY proof that this oracle can fail — so on a machine with no
+    // corpus (which is every CI runner, `DEC-003`) it skips, and the half CI
+    // runs contains no evidence that the oracle is capable of going red.
+    //
+    // Verify measured the accurate version of that, and it is narrower than
+    // "CI has no protection": CI's tier-A half DOES catch a broken unpacker —
+    // injecting this same fault into the real `src/plane.rs` with no corpus
+    // turns `hand_built_fixtures_plane_matches_its_known_md5` red. What CI
+    // lacked was not protection but **proof of that protection**.
+    //
+    // This closes it with no corpus and no tools: the same mutated-copy
+    // apparatus, driven against the hand-built fixture already in this file.
+    let data = hand_built_fixture();
+    let dir = TempDir::new("mutant-fixture");
+    let fixture_path = dir.0.join("fixture.tiff");
+    std::fs::create_dir_all(&dir.0).expect("temp dir");
+    std::fs::write(&fixture_path, &data).expect("write fixture");
+
+    stage_probe_crate(&dir.0, true);
+    let mutant_digest = build_and_run_probe(&dir.0, &fixture_path);
+
+    // The third clause, on the half CI can see: assert the OUTPUT changed.
+    assert_ne!(
+        mutant_digest, FIXTURE_PLANE_MD5,
+        "the injected fault did NOT change the hand-built fixture's plane MD5 -- it is a \
+         semantic no-op, and this red-proof has caught NOTHING"
+    );
+
+    eprintln!(
+        "RED-PROOF (hand-built fixture, no corpus): honest={FIXTURE_PLANE_MD5} \
+         mutant={mutant_digest} -- the injected fault turned the oracle red"
+    );
+}
+
+#[test]
+fn the_fixture_oracle_control_is_green_without_a_corpus() {
+    // `SPEC-013/FU-1`'s negative control. Without this, a red above could be
+    // the copy-and-rebuild apparatus rather than the injection -- the same
+    // distinction `lint-red-proof.sh` exists for (`DEC-009`).
+    let data = hand_built_fixture();
+    let dir = TempDir::new("control-fixture");
+    let fixture_path = dir.0.join("fixture.tiff");
+    std::fs::create_dir_all(&dir.0).expect("temp dir");
+    std::fs::write(&fixture_path, &data).expect("write fixture");
+
+    stage_probe_crate(&dir.0, false);
+    let apparatus_digest = build_and_run_probe(&dir.0, &fixture_path);
+
+    assert_eq!(
+        apparatus_digest, FIXTURE_PLANE_MD5,
+        "the UNMUTATED copy-and-rebuild apparatus must reproduce the fixture's known digest"
+    );
 }
 
 #[test]
