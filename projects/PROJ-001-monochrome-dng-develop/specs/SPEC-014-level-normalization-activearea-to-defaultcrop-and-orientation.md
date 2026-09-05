@@ -165,7 +165,11 @@ comparison oracle can see it.
       Measured via `irr develop` on `L1021223.DNG`: peak RSS **275,890,176
       bytes** = `SPEC-012`'s 182,435,840 + the 93,453,824-byte developed
       buffer. **Not in-place** (`DEC-018`).
-- [ ] **AC8 — eleven gates + `just lint-ci`**, CI **observed** green.
+- [x] **AC8 — eleven gates + `just lint-ci`**, CI **observed** green.
+      Observed at `1404aaca7a354b44b580ca9d84c03343c8449a59` —
+      https://github.com/jysf/irradiance/actions/runs/33954732964 (all 9 CI
+      jobs green: fmt, clippy, test, licenses x2, MSRV, cost-capture audit,
+      lint-red-proof, lint-no-allow).
 
 ## Failing Tests
 

@@ -45,9 +45,9 @@ repo:
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
   status: completed                # completed | blocked | rejected
-  tokens_total: PENDING            # filled last — see ## Handback below for the computation
-  estimated_usd: PENDING
-  duration_minutes: PENDING
+  tokens_total: 44845024           # deduped by message.id, this session's own transcript — see ## Handback
+  estimated_usd: 17.13             # per-component at Sonnet 5's published list rate — see ## Handback
+  duration_minutes: 35
   branch: feat/spec-014-level-normalization-geometry-orientation
   pr: null                         # not opened, per this handoff's Return Criteria 7
   completed_at: 2026-09-05
@@ -179,8 +179,11 @@ hostile shape `AC6` names.
     design (the tool's own message: "confirm they don't contradict") — they
     don't; same pattern as the pre-existing `DEC-012`/`DEC-015` pair.
 
-**CI**: pushed to `feat/spec-014-level-normalization-geometry-orientation`;
-_(SHA and run status appended below once observed — Return Criterion 1)_.
+**CI**: pushed to `feat/spec-014-level-normalization-geometry-orientation`,
+observed green at `1404aaca7a354b44b580ca9d84c03343c8449a59` —
+https://github.com/jysf/irradiance/actions/runs/33954732964 (`conclusion:
+success`, all 9 jobs: fmt, clippy -D warnings, test, licenses, licenses-fuzz,
+MSRV, cost-capture audit, lint-policy-red-proof, lint-policy-no-allow).
 
 ### Memory (AC7)
 
@@ -238,6 +241,24 @@ No ship-blockers found.
 
 ### Token accounting
 
-_(computed last, from this session's own transcript, deduped by
-`message.id`, per this handoff's Return Criterion 6 — see the `handback:`
-front-matter block above once filled)_
+Computed from this session's own transcript
+(`~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-irradiance/2a8063c7-df8a-4c92-9dc4-86383047d490.jsonl`),
+deduped by `message.id` (142 unique assistant turns with usage), all on
+`claude-sonnet-5` — no sub-agent, so no `subagent_tokens` split. Session span
+07:40:32 → 08:16:00 UTC = **35 minutes**.
+
+| Component | Tokens | Rate (Sonnet, published list) | Cost |
+|---|---:|---:|---:|
+| `input_tokens` | 284 | $3.00 / MTok | $0.00 |
+| `output_tokens` | 155,261 | $15.00 / MTok | $2.33 |
+| `cache_creation_input_tokens` | 405,107 | $3.75 / MTok | $1.52 |
+| `cache_read_input_tokens` | 44,284,372 | $0.30 / MTok | $13.29 |
+| **Total** | **44,845,024** | — | **≈ $17.13** |
+
+Priced per-component, not a flat rate (this handoff's Return Criterion 6) —
+`cache_read_input_tokens` dominates both the token count and, at its much
+lower per-token rate, a smaller-than-naive share of the cost. The per-token
+rates are the standard published Sonnet-tier list prices; not independently
+re-verified against a Sonnet-5-specific published rate card, so treat
+`estimated_usd` as the order-of-magnitude estimate AGENTS.md §4 asks for, not
+an invoiced number.
