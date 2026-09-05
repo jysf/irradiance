@@ -130,6 +130,21 @@ When a comparison fails, `--raw-pixel | tail -c +20 | dd conv=swab` hands you th
 reference bytes to diff, and the PGM header gives you width and height to convert
 a byte offset into a pixel coordinate.
 
+### ⚠ This is now a test — `SPEC-013`
+
+The comparison above no longer lives only in this document or in a throwaway
+probe: `tests/plane_oracle.rs` runs it on every `cargo test`, hashing our
+unpacked plane with an MD5 implemented from RFC 1321
+(`tests/support/md5.rs`, dev-only, `DEC-010`'s precedent) and comparing it to
+`tests/corpus/manifest.toml`'s pinned `raw_checksum` — tier B, skips loudly
+without the corpus. The oracle carries its own red-proof (`DEC-017`): a
+mutated copy of `src/plane.rs`, built and run separately, proven to produce a
+**different** digest, with the unmutated copy run as a negative control. A
+mismatch is made locatable (this document's `--raw-pixel | tail -c +20 | dd
+conv=swab` route, reimplemented as `parse_raw_pixel_pgm` +
+`locate_first_difference`) rather than left as "digests differ" — the surface
+`SPEC-014` will use to debug a 47-megapixel plane against this oracle.
+
 ## ⚠ This oracle is single-sourced
 
 `--raw-checksum` and `--srgb` both come from **rawler**. Bit-exact agreement proves we match
