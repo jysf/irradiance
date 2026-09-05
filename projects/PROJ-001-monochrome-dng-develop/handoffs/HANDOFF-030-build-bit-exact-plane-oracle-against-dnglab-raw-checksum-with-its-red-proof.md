@@ -195,7 +195,10 @@ fuzz graph, panic-free policy — no `#[allow]` escape):
 <https://github.com/jysf/irradiance/actions/runs/33945147658>. This satisfies
 `constraints.yaml`'s "observed, not merely run locally" bar — `AC6` is checked
 in the spec on the strength of this observation, not a self-report of the
-local run alone.
+local run alone. Also green on the tip `1f1bbbcd6a3b6da32ced09d707ee97967c177ec6`
+(run `33945244633`, same nine jobs) — that commit only fills in this
+handback's own numbers, so re-observing it was a confirmation, not a
+requirement.
 
 ### 2. The red-proof, watched fail personally — both digests
 
