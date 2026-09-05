@@ -50,7 +50,19 @@ handback:
   pr: null                         # NOT opened — return criterion 7 says leave this to the orchestrator
   completed_at: 2026-09-04               # YYYY-MM-DD
   notes: "Real tokens_total deduped by message.id, summed from this session's own ~/.claude/projects/<slug>/<session-id>.jsonl (104 distinct messages). Nine gates + lint-no-allow + lint-red-proof + lint-ci all green locally; fuzz (both ifd and the new plane target) clean at ~19.2M combined runs. Pushed the branch and read CI — see the Handback section below for the SHA and run link. handback-sync NOT run and PR NOT opened, per return criterion 7."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-04            # ⚠ HAND-STAMPED by the orchestrator, NOT by
+                                   #   handback-sync, and deliberately so. The build
+                                   #   already hand-wrote this cycle's cost.sessions
+                                   #   entry with the same real figure; running the
+                                   #   script would APPEND A SECOND identical entry,
+                                   #   because it keys idempotence on synced_at alone
+                                   #   and has no notion of "this cycle already has a
+                                   #   session". That is the bug SPEC-003 first warned
+                                   #   about, SPEC-010/FU-2 hit with two identical
+                                   #   figures, and SPEC-009/FU-2 hit with a null beside
+                                   #   a real one — FOURTH occurrence. Prevented here
+                                   #   rather than merged after the fact. Precedent:
+                                   #   HANDOFF-011/012/013/014, stamped the same way.
 ---
 
 # HANDOFF-028: Strip location and sample unpack — two paths per DEC-008
