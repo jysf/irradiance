@@ -216,6 +216,14 @@ across all targets.
 - `the_honest_tree_is_the_negative_control` — AC4's control
 - `compressed_files_are_skipped_by_name` — AC2
 
+Added at build, beyond this minimum (all in `tests/plane_oracle.rs`):
+`md5_streaming_matches_one_shot` (AC1, tier A — mirrors `sha256`'s own
+split-across-a-block-boundary discipline), `dnglab_raw_pixel_pgm_parses` /
+`dnglab_raw_pixel_pgm_rejects_malformed_input` (AC3, tier A — the reference
+route's parser, unit-tested directly), `hand_built_fixtures_plane_matches_its_known_md5`
+(AC5, tier A — the hand-built fixture named in AC5's text but not in this
+list's original six).
+
 ## Non-Goals
 
 - **Levels, crop, orientation** — `SPEC-014`. This oracle attaches to the
