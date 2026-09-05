@@ -49,7 +49,7 @@ handback:
   branch: feat/spec-014-level-normalization-geometry-orientation
   pr: null
   completed_at: 2026-09-05
-  notes: "Six follow-ups discharged (FU-2..FU-7), no code-behavior change. Test count 141 -> 143. CI observed green: run 33993780818, 9/9 jobs, SHA 626073220c0c64bf96265a80c1480190b57c4e92. This IS a metered ship round (delegated, not main-loop) per this handoff's own front-matter note — the real tokens_total above is correct, not a violation of AGENTS.md §4's 'ship is not metered' (that applies to the orchestrator's own main-loop ship bookkeeping, not this delegated round)."
+  notes: "Six follow-ups discharged (FU-2..FU-7), no code-behavior change. Test count 141 -> 143. CI observed green on the code commit: run 33993780818, 9/9 jobs, SHA 626073220c0c64bf96265a80c1480190b57c4e92. This handback commit (the actual branch head this handoff ships at) is ALSO observed green: run 33993921847, 9/9 jobs, SHA 701fc0d9c94d9f629a105ad5beeb5b3554cb290e. This IS a metered ship round (delegated, not main-loop) per this handoff's own front-matter note — the real tokens_total above is correct, not a violation of AGENTS.md §4's 'ship is not metered' (that applies to the orchestrator's own main-loop ship bookkeeping, not this delegated round)."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -313,7 +313,10 @@ reconstruct it.*
   12 ifd_reader + 30 metadata_oracle + 12 plane_oracle + 7 plane_unpack + 0 doc).
 - **CI:** run **`33993780818`**, **9/9 jobs** green (panic-free policy, license policy x2,
   MSRV, clippy -D warnings, test, fmt --check, lint policy red-proof, cost-capture audit),
-  SHA `626073220c0c64bf96265a80c1480190b57c4e92` — the exact SHA pushed above.
+  on the code SHA `626073220c0c64bf96265a80c1480190b57c4e92`. This handback commit (the
+  actual branch head, docs-only) is **also** observed green: run **`33993921847`**, **9/9
+  jobs**, SHA `701fc0d9c94d9f629a105ad5beeb5b3554cb290e` — no job is path-filtered off a
+  docs commit, so both ran the full set (`HANDOFF-033`'s own precedent).
 
 ### Eleven gates + `just lint-ci`, run by me
 
