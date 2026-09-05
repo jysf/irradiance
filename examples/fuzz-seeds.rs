@@ -376,9 +376,14 @@ fn develop_seeds() -> Vec<(&'static str, Vec<u8>)> {
             develop_fixture(8, 6, None, None, None, Some(9), None, None),
         ),
         (
-            // AC6: BlackLevel >= WhiteLevel.
+            // AC6: BlackLevel >= WhiteLevel. `FU-2`: the plane's max sample
+            // is 24,414 (this fixture's fixed `(i % 256)` byte pattern over
+            // 8x6 pixels) — both levels must sit above that, or
+            // `plane::unpack_into` rejects the sample as exceeding
+            // `WhiteLevel` before `develop_into` is ever reached, and the
+            // seed never exercises the branch it names.
             "black-level-at-white-level",
-            develop_fixture(8, 6, None, None, None, None, Some(100), Some(100)),
+            develop_fixture(8, 6, None, None, None, None, Some(30_000), Some(30_000)),
         ),
     ]
 }

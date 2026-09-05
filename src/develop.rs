@@ -435,10 +435,32 @@ mod tests {
     fn normalize_maps_the_endpoints_and_an_interior_point() {
         assert_eq!(normalize(512, 512, 16383), 0);
         assert_eq!(normalize(16383, 512, 16383), u16::MAX);
-        // Interior: exactly the midpoint rounds to the midpoint.
+        // Interior: exactly the midpoint. Pinned to its exact value, not a
+        // band — but the midpoint is precisely where round-to-nearest and
+        // truncation AGREE (both give 32765), so this alone cannot pin the
+        // rounding rule. See `normalize_rounds_to_nearest_rather_than_truncating`.
         let mid = 512u32.checked_add(16383).unwrap() / 2;
         let got = normalize(u16::try_from(mid).unwrap(), 512, 16383);
-        assert!((32000..=33500).contains(&got), "got {got}");
+        assert_eq!(got, 32765, "got {got}");
+    }
+
+    /// `FU-4` — the doc comment on [`normalize`] claims round-to-nearest, but
+    /// nothing asserted it: the interior point pinned above is the midpoint,
+    /// the one sample where round-to-nearest and truncation give the same
+    /// answer. Measured over Q2M's own levels (`black 512`, `white 16383`):
+    /// the two rules disagree on 7,935 of 15,872 in-range samples — 50.0% —
+    /// and `516` is the first one. This test fails if someone "simplifies"
+    /// away the `+ half` in [`normalize`], because truncation gives `16`
+    /// where round-to-nearest gives `17`.
+    #[test]
+    fn normalize_rounds_to_nearest_rather_than_truncating() {
+        let truncated = (u32::from(516u16) - 512) * u32::from(u16::MAX) / (16383 - 512);
+        assert_eq!(truncated, 16, "truncation would give 16 at this sample");
+        assert_eq!(
+            normalize(516, 512, 16383),
+            17,
+            "normalize must round to nearest (17), not truncate (16)"
+        );
     }
 
     #[test]

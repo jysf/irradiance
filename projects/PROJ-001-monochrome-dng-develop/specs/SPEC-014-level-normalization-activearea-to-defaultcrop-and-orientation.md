@@ -178,9 +178,16 @@ comparison oracle can see it.
       14,562,321 executions (61s), zero crashes.
 - [x] **AC7 — memory is measured, not assumed.** `SPEC-012` measured 182 MB peak
       for a decode; state what this adds and whether the transform is in-place.
-      Measured via `irr develop` on `L1021223.DNG`: peak RSS **275,890,176
-      bytes** = `SPEC-012`'s 182,435,840 + the 93,453,824-byte developed
-      buffer. **Not in-place** (`DEC-018`).
+      Measured via `irr develop` on `L1021223.DNG`: peak RSS **≈275,906,560
+      bytes** — `SPEC-012`'s 182,435,840 + the 93,453,824-byte developed
+      buffer, **to within a page** (`FU-5`). Ten runs across three sessions:
+      seven landed on 275,906,560, three on 275,890,176 — one 16 KiB
+      (16,384-byte) page apart, never a third value. Peak RSS is
+      page-granular and includes binary/stack/allocator overhead in neither
+      buffer, so the accounting is approximate by construction; a residual of
+      a few hundred bytes (or a page) carries no information. The buffers
+      themselves are exact, and `irr develop` prints them. **Not in-place**
+      (`DEC-018`).
 - [x] **AC8 — eleven gates + `just lint-ci`**, CI **observed** green.
       Observed at `1404aaca7a354b44b580ca9d84c03343c8449a59` —
       https://github.com/jysf/irradiance/actions/runs/33954732964 (all 9 CI

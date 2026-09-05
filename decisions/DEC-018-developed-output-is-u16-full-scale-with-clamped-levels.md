@@ -44,7 +44,9 @@ buffer, full-scale at `u16::MAX` (65535)** — not `f32` in `[0, 1]`. A sample
 outside `[BlackLevel, WhiteLevel]` is **clamped** to that range before
 scaling (`AC2`), so it lands at exactly 0 or exactly `u16::MAX` rather than
 wrapping, saturating past the type's own range, or being surfaced as an
-error.
+error. The affine scale from `[BlackLevel, WhiteLevel]` to `[0, u16::MAX]`
+**rounds to nearest** (`(numerator + denominator/2) / denominator`), not
+truncates — `SPEC-014/FU-4`.
 
 ## Context
 
@@ -128,6 +130,13 @@ the first file a caller develops, not on some adversarial edge case.
 - **Neutral.** A future `f32` develop path (if PROJ-002/PROJ-003 ever need
   one) is a new function, not a breaking change to this one — the reverse of
   `DEC-016`'s own note about `unpack_into`/`unpack`.
+- **Negative.** Round-to-nearest vs. truncation is exactly where `SPEC-015`'s
+  analytic oracle can disagree with this module: measured on Q2M's own levels
+  (`black 512`, `white 16383`), the two rules give different answers on 7,935
+  of 15,872 in-range samples (50.0%). `SPEC-015` must derive its expected
+  values against **round-to-nearest**, not the more obvious truncating
+  formula, or its "independent" oracle will be pinned to the wrong rule on
+  half the domain.
 
 ## Validation
 

@@ -256,6 +256,78 @@ fn an_unrotated_sibling_keeps_its_dimensions() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AC5 (FU-3, tier A) — develop_into applies orientation to PIXELS, not just
+// dimensions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `crop_source_coords_matches_the_worked_example_for_all_eight_orientations`
+/// (`src/develop.rs`) pins the MAPPER in isolation. It does not observe
+/// whether `develop_into`'s inner loop actually calls it and uses the
+/// result: a mutation that resolves the mapper and then discards it —
+/// binding `(crop_x, crop_y) = (out_x, out_y)` instead — leaves that unit
+/// test, and all of this file's tier-B dimension checks, green: every one of
+/// them either asserts a dimension only, or runs at `Orientation 1`, where
+/// the mapper degenerates to the identity. This test goes through
+/// `develop_into` itself on a plane whose samples name their own `(x, y)`,
+/// so a wrong SOURCE PIXEL — not just a wrong output shape — is directly
+/// observable. Tier A: a hand-built `Sensor`, no corpus file needed.
+#[test]
+fn develop_into_applies_orientation_to_pixels_not_only_dimensions() {
+    // 3 wide x 2 tall, no ActiveArea/crop tags touched, so the crop
+    // rectangle is the whole plane. sample(x, y) = 10*y + x — the value at a
+    // coordinate names its own source position, the same technique
+    // `crop_origin_is_relative_to_active_area_not_the_raw_plane`
+    // (src/develop.rs) uses for AC4.
+    //   row 0: (0,0)=0  (1,0)=1  (2,0)=2
+    //   row 1: (0,1)=10 (1,1)=11 (2,1)=12
+    let src: [u16; 6] = [0, 1, 2, 10, 11, 12];
+
+    // BlackLevel 0, WhiteLevel u16::MAX makes `normalize` the identity for
+    // every u16 sample: the numerator (sample * 65535) is an exact multiple
+    // of the denominator (65535), and the `+ half` rounding term (32767)
+    // never crosses an integer boundary. So `dst` carries the raw source
+    // values unchanged, and this test needs no access to the private
+    // `normalize` function to state its expectation.
+    let mut sensor = minimal_sensor(3, 2);
+    sensor.black_level = Some(0);
+    sensor.white_level = Some(u32::from(u16::MAX));
+
+    // Orientation 6 — TIFF/Exif tag 274, "Rotate 90 CW". Physically rotating
+    // the 3x2 grid above 90 degrees clockwise swaps the dimensions to 2x3
+    // and moves the original bottom-left corner to the new top-left.
+    // Derived by hand from EXIF's own semantics (confirmed independently
+    // against a plain rotation of the grid), not from this module's
+    // internal `crop_source_coords` table.
+    sensor.orientation = Some(6);
+    let mut dst_rotated = [0u16; 6];
+    develop_into(&sensor, &src, &mut dst_rotated).expect("3x2 develops under Orientation 6");
+    assert_eq!(
+        dst_rotated,
+        [10, 0, 11, 1, 12, 2],
+        "Orientation 6 must rotate the PIXELS 90 CW, not merely report swapped dimensions"
+    );
+    assert_ne!(
+        dst_rotated, src,
+        "identity pixels under a rotating orientation would mean the transform was never applied"
+    );
+
+    // Orientation 2 — "Mirror horizontal": dimensions do NOT swap, every row
+    // is reversed left-to-right.
+    sensor.orientation = Some(2);
+    let mut dst_mirrored = [0u16; 6];
+    develop_into(&sensor, &src, &mut dst_mirrored).expect("3x2 develops under Orientation 2");
+    assert_eq!(
+        dst_mirrored,
+        [2, 1, 0, 12, 11, 10],
+        "Orientation 2 must mirror the PIXELS left-right, not merely pass dimensions through"
+    );
+    assert_ne!(
+        dst_mirrored, src,
+        "identity pixels under a flipping orientation would mean the transform was never applied"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AC6 — hostile geometry is a typed error, never a panic
 // ─────────────────────────────────────────────────────────────────────────────
 
