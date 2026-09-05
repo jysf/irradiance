@@ -52,7 +52,7 @@ handback:
   pr: null                         # not opened, per this handoff's Return Criteria 7
   completed_at: 2026-09-05
   notes: "single main-loop CLI session, not a sub-agent; see ## Handback for the per-component token breakdown"
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-05
 ---
 
 # HANDOFF-032: Level normalization, ActiveArea to DefaultCrop, and orientation

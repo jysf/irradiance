@@ -75,10 +75,18 @@ cost:
       recorded_at: 2026-09-05
       notes: "main-loop, not separately metered (AGENTS.md §4). Design probe measured the geometry and levels of all four decodable files and found the finding that shapes the spec: ON EVERY DECODABLE FILE ActiveArea's origin is (0,0) or the tag is absent. The only file with a non-zero origin (K3III.DNG, top 34 left 26) is Compression 7 and undecodable — so 'DefaultCropOrigin is relative to ActiveArea' and 'relative to the raw plane' give IDENTICAL output on 100% of files this spec can run on, and an implementation ignoring the origin passes every corpus test. SPIKE-001's 'always 14' shape, with SPIKE-002 as the precedent for the cost. AC4's hand-built fixture is therefore the only thing that can observe the distinction. Also measured: both real files contain samples BELOW BlackLevel (min 2 and 108) and both reach WhiteLevel EXACTLY, so AC2's out-of-range handling fires on the first file rather than being hypothetical. And cited the independent evidence for the relative reading — dnglab prints cropArea.p sensor-absolute, (26,34)+(28,24)=(54,58) on K3III.DNG, while exiftool prints the file's own 28 24."
 
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 44845024
+      estimated_usd: 17.13
+      duration_minutes: 35
+      recorded_at: 2026-09-05
+      notes: "single main-loop CLI session, not a sub-agent; see ## Handback for the per-component token breakdown"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 44845024
+    estimated_usd: 17.13
+    session_count: 2
 ---
 
 # SPEC-014: Level normalization, ActiveArea to DefaultCrop, and orientation
