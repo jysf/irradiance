@@ -103,6 +103,7 @@ cost:
     tokens_total: 88845024
     estimated_usd: 60.47
     session_count: 4
+shipped_at: 2026-09-05
 ---
 
 # SPEC-014: Level normalization, ActiveArea to DefaultCrop, and orientation

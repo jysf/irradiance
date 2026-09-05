@@ -101,14 +101,14 @@ Run `just frame-stage STAGE-002` to promote these outlines into real specs.
 - [x] SPEC-009 (shipped on 2026-09-04) [S] Pin the Structure-class membership, table-driven over all eleven tags
 - [x] SPEC-012 (shipped on 2026-09-04) [M] Strip location and sample unpack, two paths per DEC-008
 - [x] SPEC-013 (shipped on 2026-09-05) [S] Bit-exact plane oracle against dnglab raw-checksum, with its red-proof
-- [ ] SPEC-014 (frame) [M] Level normalization, ActiveArea to DefaultCrop, and orientation
+- [x] SPEC-014 (shipped on 2026-09-05) [M] Level normalization, ActiveArea to DefaultCrop, and orientation
 - [ ] SPEC-015 (frame) [S] Analytic levels and geometry oracle
 
 ⚠ **`SPEC-010` and `SPEC-011` were framed against this stage and have been MOVED
 to `STAGE-005`.** Both are STAGE-001 debt, not plane work; leaving them here made
 this stage eight specs and blurred what it is for. Neither blocks the plane.
 
-**Count:** 3 shipped / 2 active / 0 pending
+**Count:** 4 shipped / 1 active / 0 pending
 
 ## Design Notes
 
