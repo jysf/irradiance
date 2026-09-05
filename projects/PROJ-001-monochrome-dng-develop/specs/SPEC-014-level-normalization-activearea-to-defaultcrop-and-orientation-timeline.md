@@ -22,5 +22,15 @@ Cycle prompts live in `prompts/SPEC-014-<cycle>.md`.
   pass; fuzz target `develop` ran 14,562,321 executions (61s), zero crashes;
   `SPEC-013`'s plane oracle re-run untouched. Branch
   `feat/spec-014-level-normalization-geometry-orientation`.
-- [ ] **verify** — handoff written after build hands back.
+- [ ] **verify** — `HANDOFF-033`, at `80913a3` (branch head now `b4c56f6`, the
+  reconciliation commit). Orchestrator reconciled the build against git and disk
+  first (`DEC-004` rule 1): CI observed green on the shipping SHA itself
+  (`80913a3`, run `33954821798`, 9/9), 141 tests / 0 failed summed with zero
+  skips, `lint-ci`/`validate`/`cost-audit`/`decisions-audit` clean, all seven
+  named failing tests matched against the live test list. **`AC4` measured, not
+  inherited:** mutating `develop_into` to ignore the `ActiveArea` origin left
+  140 of 141 tests green — the only failure was `AC4`'s hand-built fixture, to
+  the exact wrong value the raw-plane reading gives. Seven checks handed on that
+  the orchestrator did not make, including the nightly fuzz run and a new error
+  introduced by `FU-1`'s own fix.
 - [ ] **ship**
