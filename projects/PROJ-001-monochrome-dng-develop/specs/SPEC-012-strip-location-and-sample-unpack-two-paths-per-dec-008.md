@@ -215,9 +215,14 @@ first samples pinned against the oracle.
       smaller input) peaked at 74,399,744 bytes for comparison. Method is
       necessarily one-machine, one-build evidence (§16 confidence discipline) —
       re-measure before relying on it elsewhere.
-- [ ] **AC9 — eleven gates + `just lint-ci`**, and **CI observed green** on the
-      shipping SHA. *(Local gates below; CI observation pending push — see
-      Handback.)*
+- [x] **AC9 — eleven gates + `just lint-ci`**, and **CI observed green** on the
+      shipping SHA. All eleven local gates + `lint-ci` green (see Handback for
+      the full list, including a real local/CI clippy-version gap found and
+      fixed by `lint-ci` itself). Pushed `feat/spec-012-strip-location-and-sample-unpack`
+      to `origin` and **observed CI green** on `731a89171bfff9001af692fd0dfc291968eceafd` —
+      all nine CI jobs passed (clippy, fmt, license policy x2, test, MSRV,
+      lint-policy red-proof, panic-free policy, cost-capture audit):
+      https://github.com/jysf/irradiance/actions/runs/33932904592
 
 ## Failing Tests
 

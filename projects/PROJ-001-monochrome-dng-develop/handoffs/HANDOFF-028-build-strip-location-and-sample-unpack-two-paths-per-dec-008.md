@@ -189,13 +189,16 @@ Corpus present for the tier-B half: `corpus-status` reported `7/7 present — no
 tier-B test will skip` — none of the above numbers hide a skip.
 
 **Push and CI**: pushed `feat/spec-012-strip-location-and-sample-unpack` to
-`origin`. *(Orchestrator/verify: run `gh run list --branch
-feat/spec-012-strip-location-and-sample-unpack` and `gh run view <id>` to
-observe it green on the shipping SHA — `constraints.yaml` requires the gate
-*observed*, not merely run locally, per AGENTS.md §13 note on
-`lint-policy-red-proof`'s 17-run dark streak. This session pushed but is not
-the one that should stamp AC9's checkbox from a self-report; see the AC9 line
-in the spec, left unchecked on purpose.)*
+`origin`, then **watched CI to completion and observed it green** on
+`731a89171bfff9001af692fd0dfc291968eceafd` — all nine CI jobs passed (`clippy
+-D warnings`, `fmt --check`, license policy x2 — library + fuzz graph, `test`,
+`MSRV (1.90.0)`, lint policy red-proof, panic-free policy — no `#[allow]`
+escape, cost-capture audit):
+<https://github.com/jysf/irradiance/actions/runs/33932904592>. This satisfies
+`constraints.yaml`'s "observed, not merely run locally" bar
+(AGENTS.md §13 note on `lint-policy-red-proof`'s 17-run dark streak) — AC9 is
+checked in the spec on the strength of this observation, not a self-report of
+the local run alone.
 
 ### 2. The local/CI clippy-version gap, caught before push
 
