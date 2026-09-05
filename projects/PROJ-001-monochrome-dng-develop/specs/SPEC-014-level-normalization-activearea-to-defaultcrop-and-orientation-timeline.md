@@ -22,15 +22,19 @@ Cycle prompts live in `prompts/SPEC-014-<cycle>.md`.
   pass; fuzz target `develop` ran 14,562,321 executions (61s), zero crashes;
   `SPEC-013`'s plane oracle re-run untouched. Branch
   `feat/spec-014-level-normalization-geometry-orientation`.
-- [ ] **verify** — `HANDOFF-033`, at `80913a3` (branch head now `b4c56f6`, the
-  reconciliation commit). Orchestrator reconciled the build against git and disk
-  first (`DEC-004` rule 1): CI observed green on the shipping SHA itself
-  (`80913a3`, run `33954821798`, 9/9), 141 tests / 0 failed summed with zero
-  skips, `lint-ci`/`validate`/`cost-audit`/`decisions-audit` clean, all seven
-  named failing tests matched against the live test list. **`AC4` measured, not
-  inherited:** mutating `develop_into` to ignore the `ActiveArea` origin left
-  140 of 141 tests green — the only failure was `AC4`'s hand-built fixture, to
-  the exact wrong value the raw-plane reading gives. Seven checks handed on that
-  the orchestrator did not make, including the nightly fuzz run and a new error
-  introduced by `FU-1`'s own fix.
+- [x] **verify** — 2026-09-05, `HANDOFF-033`, dispatched to this CLI session
+  (Opus 5 — the map predicted opus and was RIGHT this time). **✅ APPROVED at
+  `52e6ecf`**, 0 ship-blockers, 6 follow-ups (`FU-2`…`FU-7`). Corpus present
+  7/7, **zero SKIP lines**, 141 tests / 0 failed summed across 9 targets; eleven
+  gates + `lint-ci` (clippy 0.1.98 asserted) green; CI **observed** 9/9 on the
+  approved SHA itself (run `33980344540`). `AC4`'s fixture **watched red** under
+  the ActiveArea-origin mutation — 140/141, `left: 44` vs `right: 172` — and the
+  premise re-measured on all 7 files rather than inherited. Fuzz 12,167,207 runs
+  / 61 s, zero crashes, seeds byte-unchanged. **New this cycle:** the eight
+  `Orientation` values corroborated against **ImageMagick**, 48/48 cells
+  identical, closing the six that had no independent point; and a second
+  mutation showed **`develop_into`'s orientation pixel path is asserted by
+  nothing** (141/141 green while the output changed) — `FU-3`. `oracle-must-be-
+  shown-red` judged **inapplicable, not evaded** (no oracle, no gate; `DEC-004`
+  says why in advance), with its principle met for `AC4` and unmet for `AC5`.
 - [ ] **ship**

@@ -83,10 +83,18 @@ cost:
       duration_minutes: 35
       recorded_at: 2026-09-05
       notes: "single main-loop CLI session, not a sub-agent; see ## Handback for the per-component token breakdown"
+    - cycle: verify
+      agent: claude-opus-5
+      interface: claude-code
+      tokens_total: 13400000
+      estimated_usd: 31.15
+      duration_minutes: 25
+      recorded_at: 2026-09-05
+      notes: "VERDICT: APPROVED at 52e6ecf (src/ byte-identical to 1404aac). 0 ship-blockers, 6 follow-ups FU-2..FU-7. Corpus PRESENT 7/7, ZERO SKIP lines. Rounded up 20% (above both measured misses, 9.9% and 15.4%) to cover the handback turns."
   totals:
-    tokens_total: 44845024
-    estimated_usd: 17.13
-    session_count: 2
+    tokens_total: 58245024
+    estimated_usd: 48.28
+    session_count: 3
 ---
 
 # SPEC-014: Level normalization, ActiveArea to DefaultCrop, and orientation
