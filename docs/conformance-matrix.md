@@ -10,7 +10,7 @@ out of scope, here is the row."
 | Camera | Sensor | Bits | Container / mode | Corpus | Oracle | Target | Coverage |
 |---|---|---|---|---|---|---|---|
 | **Leica Q2 Monochrom** | **no CFA** (LinearRaw, 1 sample) | 14 | native DNG, **uncompressed**, single strip | held ×3 | ✔ dnglab decodes it | n/a (mono) | **PROJ-001** — reference body; container read end-to-end (SPEC-003) |
-| **Leica M Monochrom** | **no CFA** (LinearRaw, 1 sample) | **16** | native DNG, **uncompressed**, single strip | held (CC0) | ✔ dnglab decodes it | n/a (mono) | **PROJ-001** — container read end-to-end (SPEC-003). ⭐ The only *third-party* file that decodes today, and DEC-008's 16-bit branch evidence: a third bit depth, BlackLevel 220 not 512, and the only **non-zero `ActiveArea` origin** held (2 2 5212 3468), so the crop has somewhere to move. No `OpcodeList` tags at all — the no-opcodes path |
+| **Leica M Monochrom** | **no CFA** (LinearRaw, 1 sample) | **16** | native DNG, **uncompressed**, single strip | held (CC0) | ✔ dnglab decodes it | n/a (mono) | **PROJ-001** — container read end-to-end (SPEC-003). ⭐ The only *third-party* file that decodes today, and DEC-008's 16-bit branch evidence: a third bit depth, BlackLevel 220 not 512, and a **non-zero `DefaultCropOrigin`** (2 2, size 5212 3468) with **no `ActiveArea` tag at all** — measured via `irr ifd`, `SPEC-014/FU-9`; this row previously mislabelled those crop values as an `ActiveArea` origin, the same error `SPEC-014/FU-1` and `FU-6` fixed in `tests/corpus/manifest.toml`. **No decodable file has a non-zero `ActiveArea` origin** — that is why `SPEC-014` `AC4` needs a hand-built fixture. No `OpcodeList` tags at all — the no-opcodes path |
 | **Leica M Monochrom (Typ 246)** | **no CFA** (LinearRaw, 1 sample) | **12** | native DNG, **JPEG** (`Compression 7`), **`MM`** | held (CC0) | ✔ dnglab decodes it | n/a (mono) | **PROJ-001 container only** — tags read end-to-end (SPEC-003), plane rejected with `Error::UnsupportedCompression`. The corpus's **only big-endian file**, and its only 12-bit one. Decode waits on lossless JPEG SOF-3 → **PROJ-003** |
 | **Pentax K-3 III Monochrome** | **no CFA** (LinearRaw, 1 sample) | 14 | **two containers, same scene**: DNG **JPEG** (`Compression 7`) and native **PEF** (`Compression 65535`, vendor-private) | held ×2 (CC0) | ✔ dnglab decodes both | n/a (mono) | **PROJ-001 container only** — tags read end-to-end (SPEC-003), both planes rejected cleanly. A monochrome sensor from a different **make**. The PEF is the corpus's **only real IFD chain** (`IFD0→IFD1→IFD2`), has **no `SubIFDs` tag at all** (plane in `IFD0`), and the DNG carries the malformed `BlackLevelRepeatDim`. Decode → **PROJ-003**; PEF and SOF-3 are *different* problems |
 | Nikon P1100 (Coolpix) | Bayer | 12 | **NRW**, uncompressed | wanted | dnglab lists it, 12bit | no | PROJ-002 — bit-depth stress test |
@@ -33,7 +33,10 @@ Leica-shaped"* job the closing paragraph of this section calls STAGE-001's, and
 
 - a **third and fourth bit depth** (12 and 16, against the Q2M's 14),
 - the only **big-endian** file held, so byte-order handling has a real test,
-- a **non-zero `ActiveArea` origin**, so the crop has somewhere to move,
+- a **non-zero `ActiveArea` origin** — `K3III.DNG`'s `top 34, left 26`, the corpus's
+  only one. ⚠ It is `Compression 7` and **undecodable**, so the crop has nowhere to
+  move in `PROJ-001`: `SPEC-014` `AC4` had to hand-build a fixture instead,
+  and an implementation ignoring the origin passes every corpus test,
 - a file with **no `SubIFDs` tag**, which makes TIFF's *absent-means-0* default
   for `NewSubfileType` load-bearing rather than decorative,
 - the only **IFD chain** (`IFD0→IFD1→IFD2`) in the corpus,

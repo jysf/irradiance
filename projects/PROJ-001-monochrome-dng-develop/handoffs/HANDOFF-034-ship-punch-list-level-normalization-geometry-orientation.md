@@ -50,7 +50,7 @@ handback:
   pr: null
   completed_at: 2026-09-05
   notes: "Six follow-ups discharged (FU-2..FU-7), no code-behavior change. Test count 141 -> 143. CI observed green on the code commit: run 33993780818, 9/9 jobs, SHA 626073220c0c64bf96265a80c1480190b57c4e92. This handback commit (the actual branch head this handoff ships at) is ALSO observed green: run 33993921847, 9/9 jobs, SHA 701fc0d9c94d9f629a105ad5beeb5b3554cb290e. This IS a metered ship round (delegated, not main-loop) per this handoff's own front-matter note — the real tokens_total above is correct, not a violation of AGENTS.md §4's 'ship is not metered' (that applies to the orchestrator's own main-loop ship bookkeeping, not this delegated round)."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-05
 ---
 
 # HANDOFF-034: SPEC-014's ship punch list — six follow-ups, five to fix
@@ -384,6 +384,37 @@ reconstruct it.*
   `1600fcb0` transcript confirms 128-for-128. Naming this rather than silently picking a
   number is the point of `measurement-over-generalised`: the floor above is scoped to
   exactly one file, one dedup key, one boundary, stated here.
+
+  > **⚠ ORCHESTRATOR'S CORRECTION, 2026-09-05 — the exclusion was right, the reason
+  > was wrong.** `e078417d-f832-4765-bc7b-2b8493e01419.jsonl` is **not** a prior
+  > attempt at this delegation, and there was no `/clear` + `/model` reset. It is
+  > **the orchestrator's own concurrent session** — the one that wrote this handoff.
+  > Proof, measured rather than inferred:
+  >
+  > - its uuid is this repo's **orchestrator** scratchpad
+  >   (`/private/tmp/claude-501/…/e078417d-…/scratchpad`), which holds
+  >   `develop.rs.orig`, `develop.rs.v2`, `develop.rs.v3` — the three backups taken
+  >   across the build, verify and ship reconciliations;
+  > - it runs `claude-opus-5` because the orchestrator does;
+  > - it mentions `develop_into`, `crop_source_coords` and `HANDOFF-034` because it
+  >   **authored** HANDOFF-034 and ran the AC4/AC5 mutations quoted in it;
+  > - and the timestamps settle it: `e078417d` spans **16:57:57 → 22:22:54 UTC**,
+  >   which **encloses** this session's 21:16:59 → 21:51:16. A prior attempt cannot
+  >   still be writing 31 minutes after the session that replaced it finished.
+  >
+  > **Excluding it was correct** — orchestrator tokens are not this ship round's
+  > cost. The wrong reason is what is being corrected, because a shipped artifact
+  > should not record a session history that did not happen. Raised as `FU-8` and
+  > routed to a new signal: every delegated session in this repo reads a project
+  > transcript directory with the orchestrator's live transcript sitting in it, and
+  > "a prior attempt" is the natural, wrong inference. This one is repeatable.
+  >
+  > Also measured, and it is a result **for** the instruction: this session's
+  > settled total is **31,570,912** across 149 unique messages. The floor at
+  > time-of-writing was 25,514,157 — a **19.2 %** undercount, and the +20 % uplift
+  > this handoff mandated landed the report at 30,600,000, **3.1 %** low instead of
+  > the 9.9 % and 15.4 % misses that motivated the rule. The uplift works; the
+  > number stands as reported.
 
 ### New findings
 

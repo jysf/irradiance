@@ -37,7 +37,18 @@ Cycle prompts live in `prompts/SPEC-014-<cycle>.md`.
   nothing** (141/141 green while the output changed) — `FU-3`. `oracle-must-be-
   shown-red` judged **inapplicable, not evaded** (no oracle, no gate; `DEC-004`
   says why in advance), with its principle met for `AC4` and unmet for `AC5`.
-- [ ] **ship** — `HANDOFF-034`, the punch-list round, delegated. `SPEC-014` is
+- [x] **ship** — 2026-09-05. `HANDOFF-034`'s punch-list round (Sonnet 5 — the
+  map predicted opus; 0-for-10 on the non-verify hint) discharged all six
+  follow-ups; the orchestrator reconciled, found three more (`FU-8`, `FU-9`,
+  `FU-10`), and dispositioned all ten. **143 tests, 0 failed**, eleven gates +
+  `lint-ci` at clippy 0.1.98, CI 9/9 on `0129796`. Library code **byte-identical
+  to the approved SHA** — every change was a test, a doc, a seed or a decision.
+  Both red-proofs re-watched by the orchestrator **with the corpus absent**, so
+  `FU-3`'s new test closes its hole in the condition CI actually runs in.
+  `complexity_actual: L`; totals **88,845,024 / ≈$60.47** against a 26,000,000
+  estimate — **3.42×**, the largest miss recorded. Worst defect caught at
+  `verify`. Original entry, superseded:
+  `HANDOFF-034`, the punch-list round, delegated. `SPEC-014` is
   APPROVED and at `cycle: ship`; five of its six follow-ups carry a `fixed`
   disposition, which §15 lets ship discharge. `FU-3` (a tier-A integration test
   through `develop_into` — the mapper is pinned, its USE is not) and `FU-4` (pin
