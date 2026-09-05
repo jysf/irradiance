@@ -37,4 +37,15 @@ Cycle prompts live in `prompts/SPEC-014-<cycle>.md`.
   nothing** (141/141 green while the output changed) — `FU-3`. `oracle-must-be-
   shown-red` judged **inapplicable, not evaded** (no oracle, no gate; `DEC-004`
   says why in advance), with its principle met for `AC4` and unmet for `AC5`.
-- [ ] **ship**
+- [ ] **ship** — `HANDOFF-034`, the punch-list round, delegated. `SPEC-014` is
+  APPROVED and at `cycle: ship`; five of its six follow-ups carry a `fixed`
+  disposition, which §15 lets ship discharge. `FU-3` (a tier-A integration test
+  through `develop_into` — the mapper is pinned, its USE is not) and `FU-4` (pin
+  `normalize`'s rounding and record it in `DEC-018`, since round and truncate
+  differ on 50.0 % of in-range samples and the one point the test pins is where
+  they agree) are the two with real content; `FU-2`/`FU-5`/`FU-6` are a seed and
+  two docs, `FU-7` is a signal entry. ⚠ Non-standard: `new-handoff` refuses a
+  `ship` cycle, so `HANDOFF-034` was hand-written, and its cost session is a
+  **metered** ship — the exception §4's "not separately metered" does not cover.
+  Bookkeeping (Reflection, Follow-ups table, totals, archive) stays with the
+  orchestrator.
