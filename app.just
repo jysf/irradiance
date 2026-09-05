@@ -155,8 +155,19 @@ fuzz seconds="60":
     PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ifd \
         fuzz/corpus/ifd fuzz/seeds/ifd -- -max_total_time={{seconds}}
 
-# Regenerate the committed fuzz seed corpus from tests/support/tiff.rs, so a
-# fixture added to the hostile-input test lands in the fuzz lane too.
+# Run the PLANE fuzz target (SPEC-012, AGENTS.md §12 bar 2) — the sensor-plane
+# unpacker's new input surface over attacker-controlled `bits`, `width`,
+# `height` and strip bounds. Same `+toolchain` trap as `just fuzz` above;
+# same two-corpus-dirs reasoning (`fuzz/seeds/plane` committed, `fuzz/corpus/plane`
+# gitignored).
+fuzz-plane seconds="60":
+    mkdir -p fuzz/corpus/plane
+    PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run plane \
+        fuzz/corpus/plane fuzz/seeds/plane -- -max_total_time={{seconds}}
+
+# Regenerate the committed fuzz seed corpus from tests/support/tiff.rs (`ifd`
+# target) and examples/fuzz-seeds.rs's own plane fixtures (`plane` target), so
+# a fixture added to either hostile-input lane lands in its fuzz lane too.
 fuzz-seeds:
     cargo run --quiet --all-features --example fuzz-seeds
 

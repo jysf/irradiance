@@ -25,3 +25,10 @@ path = "fuzz_targets/ifd.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "plane"
+path = "fuzz_targets/plane.rs"
+test = false
+doc = false
+bench = false

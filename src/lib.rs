@@ -43,10 +43,13 @@
 //! `ActiveArea`, `DefaultCropOrigin`/`Size`, `Orientation`, opcode-list
 //! presence) as typed extraction; `SPEC-007` added `RATIONAL` and made the
 //! extraction path obey `DEC-012`'s structure/interpretation split — a
-//! malformed *interpretation* tag costs that field, never the plane. Still
-//! absent, by design: `ASCII` and the signed field types (no DNG tag
-//! PROJ-001 reads needs them yet), and any pixel decode or unpack
-//! (STAGE-002).
+//! malformed *interpretation* tag costs that field, never the plane;
+//! `SPEC-012` added [`plane`], the sensor-plane unpacker (`DEC-008`'s
+//! two-path rule, selected by `bits_per_sample % 8`) — the first spec that
+//! produces pixels rather than tags. Still absent, by design: `ASCII` and the
+//! signed field types (no DNG tag PROJ-001 reads needs them yet), levels/crop/
+//! orientation application (`SPEC-014`), and any compressed-plane decode
+//! (PROJ-003).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -58,6 +61,7 @@
 )]
 
 pub mod ifd;
+pub mod plane;
 
 use core::fmt;
 
@@ -193,6 +197,68 @@ pub enum Error {
         /// The TIFF `Compression` code found.
         compression: u32,
     },
+
+    /// `BitsPerSample` is not one of the widths [`plane::unpack_into`] knows —
+    /// `{8, 12, 14, 16}` (`SPEC-012`, `DEC-008`). A width outside that set is
+    /// refused rather than guessed at: `DEC-008`'s two-path rule is defined
+    /// for these four, and a fifth would need its own decision, not a
+    /// fallback.
+    UnsupportedBitDepth {
+        /// The `BitsPerSample` value found.
+        bits: u32,
+    },
+
+    /// The sensor IFD's `StripOffsets`/`StripByteCounts` do not describe
+    /// exactly one strip. `SPEC-012`'s unpacker reads a single strip only —
+    /// tiles and multi-strip planes are a non-goal (no corpus file needs
+    /// them, and supporting them safely needs its own bounds-checked
+    /// concatenation logic this spec does not write).
+    UnsupportedStripLayout {
+        /// `StripOffsets.len()`.
+        strip_offsets: usize,
+        /// `StripByteCounts.len()`.
+        strip_byte_counts: usize,
+    },
+
+    /// The layer-0 invariant does not hold: `width × height × bits_per_sample`
+    /// (in bits) does not equal `StripByteCounts × 8`. `AGENTS.md` §12 bar 3 —
+    /// this check is free, needs no oracle tooling, and is what `SPIKE-002`'s
+    /// byte-swapped plane would ALSO have passed had it been checked (the
+    /// byte-swap preserves total length; only [`Error::SampleExceedsWhiteLevel`]
+    /// catches that one). Both sides are carried in **bits**, matching
+    /// [`ifd::Sensor::packed_bits`].
+    PackedSizeMismatch {
+        /// `width × height × bits_per_sample`, in bits.
+        expected_bits: u64,
+        /// `StripByteCounts × 8`, in bits.
+        strip_bits: u64,
+    },
+
+    /// The caller's destination buffer does not hold exactly
+    /// `width × height` samples. `unpack_into` takes no allocator
+    /// (`library-not-application`; `DEC-002` is unresolved on `no_std` +
+    /// `alloc`) — the caller owns the buffer, and its length is the one
+    /// thing this error can check before writing into it.
+    PlaneBufferWrongLength {
+        /// `width × height`, the required length.
+        expected: u64,
+        /// `dst.len()` as given.
+        actual: usize,
+    },
+
+    /// A decoded sample exceeds `WhiteLevel`, which is impossible for a
+    /// correctly-unpacked linear RAW plane. `DEC-008`'s free assertion — the
+    /// one that caught `SPIKE-002`'s byte-swapped plane, which had the right
+    /// length, decoded without error, and passed the layer-0 check. Asserted
+    /// on every decode, unconditionally, not behind a debug assertion.
+    SampleExceedsWhiteLevel {
+        /// Index of the offending sample in the plane (row-major).
+        index: usize,
+        /// The decoded value.
+        sample: u16,
+        /// `WhiteLevel`, from the sensor IFD.
+        white_level: u32,
+    },
 }
 
 impl fmt::Display for Error {
@@ -263,6 +329,48 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "compression {compression} is not supported by this library"
+                )
+            }
+            Error::UnsupportedBitDepth { bits } => {
+                write!(
+                    f,
+                    "bits_per_sample {bits} is not one of the supported widths (8, 12, 14, 16)"
+                )
+            }
+            Error::UnsupportedStripLayout {
+                strip_offsets,
+                strip_byte_counts,
+            } => {
+                write!(
+                    f,
+                    "expected exactly one strip, found {strip_offsets} StripOffsets and \
+                     {strip_byte_counts} StripByteCounts"
+                )
+            }
+            Error::PackedSizeMismatch {
+                expected_bits,
+                strip_bits,
+            } => {
+                write!(
+                    f,
+                    "width x height x bits_per_sample is {expected_bits} bits, but \
+                     StripByteCounts x 8 is {strip_bits} bits"
+                )
+            }
+            Error::PlaneBufferWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "destination buffer holds {actual} sample(s), expected {expected}"
+                )
+            }
+            Error::SampleExceedsWhiteLevel {
+                index,
+                sample,
+                white_level,
+            } => {
+                write!(
+                    f,
+                    "sample {index} is {sample}, which exceeds WhiteLevel {white_level}"
                 )
             }
         }

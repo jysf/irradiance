@@ -6,7 +6,7 @@
 task:
   id: SPEC-012
   type: story                      # epic | story | task | bug | chore
-  cycle: design                     # frame | design | build | verify | ship
+  cycle: verify                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,11 +27,11 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: claude-opus-5          # ⚠ DISPATCH HINT — tier_map is 1 for 6. Correct it.
+  to_agent: claude-sonnet-5        # CORRECTED — build actually ran on Sonnet 5, not the opus dispatch hint.
   created_at: 2026-09-04
 
 references:
-  decisions: [DEC-002, DEC-008, DEC-012]                    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-002, DEC-008, DEC-012, DEC-016]                    # [DEC-NNN, DEC-MMM]
   constraints: [no-panics-on-untrusted-input, oracle-must-be-shown-red, library-not-application, provenance-recorded-per-algorithm]                  # [constraint-id-1, constraint-id-2]
   related_specs: [SPEC-003, SPEC-009, SPEC-013]                # [SPEC-NNN]
 
@@ -72,6 +72,14 @@ cost:
       duration_minutes: null
       recorded_at: 2026-09-04
       notes: "main-loop, not separately metered (AGENTS.md §4). Design cycle did a real BYTE-LEVEL probe (§15 rule 4) rather than describing one: read the strip head of both corpus shapes, hand-unpacked 14-bit MSB-first and 16-bit little-endian, and cross-checked BOTH against dnglab --raw-pixel's own plane. They agree EXACTLY — [746,725,711,752,...] and [4761,4591,4622,4363,...] — so the spec can pin first-sample values as measured fact and the builder gets a first-pixel checkpoint instead of an opaque whole-plane MD5 mismatch. Also measured the WRONG paths (43019 and 39186, both impossible against WhiteLevel 16383), which is what AC3 asserts. Confirmed the decodable set is 4 of 7 — the other three are Compression 7 or 65535. Surfaced the allocation question (94,887,936 bytes of plane) as a DEC the build must write, recommending unpack_into as the primitive since DEC-002 is unresolved, offered as input rather than as the answer. ALSO FIXED a scaffolding error of my own: all four STAGE-002 specs framed by just frame-stage carried '(not yet written)' in their filenames and titles, inherited from backlog summaries I wrote with that prefix. Renamed before more artifacts inherited it."
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 29580529
+      estimated_usd: 89
+      duration_minutes: 35
+      recorded_at: 2026-09-04
+      notes: "Real number, deduped by message.id, summed from this session's own transcript (~/.claude/projects/<slug>/<session-id>.jsonl usage objects — 104 distinct messages: 208 input + 130,788 output + 350,561 cache-creation + 29,098,972 cache-read = 29,580,529). estimated_usd is a DELIBERATE OVERESTIMATE per AGENTS.md §4 (tokens_total x list rate, no cache discount): ~$3/MTok assumed Sonnet list rate x 29.58M ~= $89; a cache-aware accounting (98% of tokens were cache reads at a fraction of that rate) would land closer to $12. HANDOFF-028 return criterion 7 applies: to_agent corrected above, handback-sync NOT run by this session, PR NOT opened by this session — both left for the orchestrator per that instruction."
 
   totals:
     tokens_total: 0
@@ -136,36 +144,80 @@ first samples pinned against the oracle.
 
 ## Acceptance Criteria
 
-- [ ] **AC1 — the 14-bit path is bit-exact on its first samples.** Unpacking
+- [x] **AC1 — the 14-bit path is bit-exact on its first samples.** Unpacking
       `L1021223.DNG` yields `[746, 725, 711, 752, 646, 705, 772, 686]` as
       samples 0–7. **Measured against `dnglab`'s own plane** — see below.
-- [ ] **AC2 — the 16-bit path is bit-exact on its first samples**, and is **not**
+      Confirmed: `tests/plane_unpack.rs::unpacks_fourteen_bit_msb_first_samples`
+      against the real file, and `irr unpack` reproduces the same eight values.
+- [x] **AC2 — the 16-bit path is bit-exact on its first samples**, and is **not**
       a bit stream. `L1000622.DNG` yields `[4761, 4591, 4622, 4363, 4542, 4383,
-      4608, 4286]`.
-- [ ] **AC3 — each path FAILS on the other's data**, asserted with the measured
+      4608, 4286]`. Confirmed:
+      `tests/plane_unpack.rs::unpacks_sixteen_bit_in_file_byte_order` against
+      the real file, and `irr unpack` reproduces the same eight values.
+- [x] **AC3 — each path FAILS on the other's data**, asserted with the measured
       wrong values, not merely "differs". Reading the 14-bit strip as 16-bit LE
       gives `43019` for sample 0; reading the 16-bit strip as big-endian gives
       `39186`. **Both exceed `WhiteLevel 16383` and are therefore impossible** —
-      that is the assertion, and it is the one that caught `SPIKE-002`.
-- [ ] **AC4 — `max > WhiteLevel` is asserted on every decode**, as a loud error,
+      that is the assertion, and it is the one that caught `SPIKE-002`. Confirmed:
+      `tests/plane_unpack.rs::each_path_produces_impossible_values_on_the_others_data`
+      (hand-built fixtures carrying the real strip bytes, no `WhiteLevel` tag so
+      the wrong values decode without tripping AC4, and are asserted directly).
+- [x] **AC4 — `max > WhiteLevel` is asserted on every decode**, as a loud error,
       not a debug assert. It is the check that found the byte-swap when the
-      length, the arithmetic and the decode all looked right.
-- [ ] **AC5 — layer-0 holds and is enforced**:
+      length, the arithmetic and the decode all looked right. Confirmed:
+      `tests/plane_unpack.rs::a_plane_whose_max_exceeds_white_level_is_an_error`
+      — same fixture as AC3's first case, now with `WhiteLevel: Some(16383)`,
+      returns `Error::SampleExceedsWhiteLevel { index: 0, sample: 43019,
+      white_level: 16383 }`. Unconditional whenever `sensor.white_level` is
+      present — not behind `cfg(debug_assertions)` (`src/plane.rs::unpack_into`).
+      Real files (AC1/AC2) are the negative control: both carry a real
+      `WhiteLevel` and decode clean, proving the check does not misfire on
+      honest data (`oracle-must-be-shown-red`'s negative-control half).
+- [x] **AC5 — layer-0 holds and is enforced**:
       `width × height × bits == StripByteCounts × 8`. Measured:
       `8424×5632×14 = 664,215,552` and `5216×3472×16 = 289,759,232`, both equal
-      to their `StripByteCounts × 8`.
-- [ ] **AC6 — the three compressed files are rejected cleanly**, by typed error,
+      to their `StripByteCounts × 8`. Confirmed:
+      `tests/plane_unpack.rs::layer0_arithmetic_is_enforced` — tier A (a
+      hand-built mismatch: `5×2×14 = 140` bits declared against a 14-byte/112-bit
+      strip returns `Error::PackedSizeMismatch { expected_bits: 140,
+      strip_bits: 112 }`) **and** tier B (asserts `Sensor::packed_bits()` equals
+      `StripByteCounts × 8` on both real decodable files).
+- [x] **AC6 — the three compressed files are rejected cleanly**, by typed error,
       with no allocation of a plane: `M2462362.DNG` and `K3III.DNG`
       (`Compression 7`), `K3III.PEF` (`65535`). The decodable set is **4 of 7**.
-- [ ] **AC7 — panic-free on hostile input.** Truncated strips, `StripByteCounts`
+      Confirmed: `tests/plane_unpack.rs::compressed_files_are_rejected_without_decoding`
+      calls `unpack_into` with an **empty** `dst: [u16; 0]` for all three —
+      proving `Error::UnsupportedCompression` fires before the length check
+      (`PlaneBufferWrongLength`) would, i.e. before any plane-sized buffer
+      would even need to exist. `irr unpack` on `K3III.DNG` confirms the same
+      end to end (`compression 7 is not supported by this library`, no plane
+      printed).
+- [x] **AC7 — panic-free on hostile input.** Truncated strips, `StripByteCounts`
       larger than the file, zero/absurd dimensions, `bits` outside {8,12,14,16}.
-      All typed errors. The fuzz target reaches **both** paths.
-- [ ] **AC8 — peak memory for a 47 MP decode is MEASURED and recorded**, not
+      All typed errors. The fuzz target reaches **both** paths. Confirmed:
+      `tests/plane_unpack.rs::hostile_strip_bounds_do_not_panic` (four
+      sub-cases: truncated strip → `Error::Truncated`; zero dimensions → `Ok`
+      on an empty plane; `width = height = u32::MAX` → a typed `Err` via the
+      buffer-length check; `bits = 10` → `Error::UnsupportedBitDepth`). Fuzzed
+      `fuzz/fuzz_targets/plane.rs` — see AC9 below for run counts and how both
+      paths are known to be reached.
+- [x] **AC8 — peak memory for a 47 MP decode is MEASURED and recorded**, not
       assumed (STAGE-002 success criterion 5). `8424 × 5632 × 2 = 94,887,936`
       bytes of plane alone; state what the decode actually peaks at and where
-      the rest goes.
+      the rest goes. **Measured**, `/usr/bin/time -l` on macOS (darwin),
+      `target/release/irr unpack`, this machine, this build:
+      `L1021223.DNG` (14-bit, 47 MP) — **182,435,840 bytes (174 MiB) maximum
+      resident set size**. Accounted for: the ~85.8 MB input file read whole
+      into a `Vec<u8>` by `irr` (I/O the library never does) + the 94,887,936-byte
+      output plane `irr` allocates as `unpack_into`'s caller (`DEC-016` —
+      the library itself allocates nothing) ≈ 180.7 MB, matching the measured
+      182.4 MB peak within run-to-run noise. `L1000622.DNG` (16-bit, 18 MP,
+      smaller input) peaked at 74,399,744 bytes for comparison. Method is
+      necessarily one-machine, one-build evidence (§16 confidence discipline) —
+      re-measure before relying on it elsewhere.
 - [ ] **AC9 — eleven gates + `just lint-ci`**, and **CI observed green** on the
-      shipping SHA.
+      shipping SHA. *(Local gates below; CI observation pending push — see
+      Handback.)*
 
 ## Failing Tests
 

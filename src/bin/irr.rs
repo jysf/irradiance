@@ -16,9 +16,17 @@
 //!   sensor plane's tags. This is the surface that makes `SPEC-003`'s parsed
 //!   fields *visible* (AGENTS.md §11, "ship the reader with the field"): a
 //!   tag nothing reports is a tag nobody can check against `exiftool`.
+//! - `irr unpack <file>` — locate the strip and unpack it into a linear
+//!   `u16` plane (`SPEC-012`, `DEC-008`), then print the first eight samples
+//!   and the decoded min/max. This is the surface `SPEC-012` acceptance
+//!   criterion 8's peak-RSS measurement runs through:
+//!   `/usr/bin/time -l target/release/irr unpack <file>` on macOS reports
+//!   "maximum resident set size" for the whole process, caller's buffer
+//!   included — see `docs/provenance-ledger.md`'s `src/plane.rs` row for the
+//!   measured number.
 //!
-//! `irr ifd` reads a file, which the library never does — the library takes
-//! bytes. The I/O is here, on purpose, and stays here.
+//! `irr ifd`/`irr unpack` read a file, which the library never does — the
+//! library takes bytes. The I/O is here, on purpose, and stays here.
 
 use std::process::ExitCode;
 
@@ -28,7 +36,8 @@ const USAGE: &str = "\
 irr — irradiance's internal dev/oracle binary
 
 usage:
-  irr ifd [--entries] <file>   walk the TIFF/IFD container and report the sensor plane
+  irr ifd    [--entries] <file>   walk the TIFF/IFD container and report the sensor plane
+  irr unpack <file>               unpack the sensor plane and report samples/min/max
 ";
 
 fn main() -> ExitCode {
@@ -37,6 +46,7 @@ fn main() -> ExitCode {
 
     match refs.as_slice() {
         ["ifd", rest @ ..] => cmd_ifd(rest),
+        ["unpack", rest @ ..] => cmd_unpack(rest),
         [] | ["-h"] | ["--help"] => {
             print!("{USAGE}");
             ExitCode::SUCCESS
@@ -169,6 +179,71 @@ fn cmd_ifd(args: &[&str]) -> ExitCode {
         Ok(()) => println!("unpackable      yes"),
         Err(e) => println!("unpackable      no — {e}"),
     }
+
+    ExitCode::SUCCESS
+}
+
+fn cmd_unpack(args: &[&str]) -> ExitCode {
+    let Some(path) = args.first().copied() else {
+        eprintln!("irr unpack: expected a file\n\n{USAGE}");
+        return ExitCode::FAILURE;
+    };
+
+    let data = match std::fs::read(path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("irr unpack: cannot read {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let container = match Container::parse(&data) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("irr unpack: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let sensor = match container.sensor() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("irr unpack: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    println!("file            {path}");
+    println!("dimensions      {} x {}", sensor.width, sensor.height);
+    println!("bits_per_sample {}", sensor.bits_per_sample);
+
+    // `unwrap()` is fine here — this binary runs on developer-controlled
+    // input, not attacker-influenced RAW bytes (module doc above). The
+    // library itself (`irradiance::plane::unpack_into`) allocates nothing;
+    // this `Vec` is the caller-owned buffer DEC-016 puts on US.
+    let pixel_count = usize::try_from(u64::from(sensor.width) * u64::from(sensor.height))
+        .expect("plane too large for this host");
+    let mut plane = vec![0u16; pixel_count];
+
+    match irradiance::plane::unpack_into(&sensor, container.byte_order(), &data, &mut plane) {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!("irr unpack: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    }
+
+    let head: Vec<u16> = plane.iter().take(8).copied().collect();
+    let min = plane.iter().min().copied().unwrap_or(0);
+    let max = plane.iter().max().copied().unwrap_or(0);
+    println!("samples[0..8]   {head:?}");
+    println!("min             {min}");
+    println!("max             {max}");
+    println!(
+        "white_level     {:?}",
+        sensor.white_level.map(|w| format!("{max} <= {w}"))
+    );
+    println!("plane_bytes     {}", plane.len() * 2);
 
     ExitCode::SUCCESS
 }
