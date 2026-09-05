@@ -45,14 +45,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # pending | accepted | completed | rejected
+  tokens_total: 39061192           # deduped by message.id, 142 distinct messages, all claude-sonnet-5
+  estimated_usd: 10.62             # per-component: $2.00/M in, $0.20/M cache-read, $4.00/M cache-write-1h, $10.00/M out
+  duration_minutes: 45
+  branch: feat/spec-013-bit-exact-plane-oracle-red-proof
+  pr: null                         # not opened, per this handoff's return criterion 7
+  completed_at: 2026-09-04
+  notes: "CI observed green (9/9 jobs) on f162a39d50280d2e9990477a0d93d38ba45d87de: https://github.com/jysf/irradiance/actions/runs/33945147658"
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -187,8 +187,15 @@ was touched this spec (no `src/` change at all — Non-Goals) but both were
 re-run in full per the return criteria, not skipped as "unaffected".
 
 **Push and CI**: pushed `feat/spec-013-bit-exact-plane-oracle-red-proof` to
-`origin`. **CI result and SHA to be filled in immediately below, before this
-handoff is reported done** — see the note at the end of this section.
+`origin`, then **watched CI to completion and observed it green** on
+`f162a39d50280d2e9990477a0d93d38ba45d87de` — all nine CI jobs passed (`MSRV
+(1.90.0)`, license policy — library graph, `fmt --check`, lint policy
+red-proof, cost-capture audit, `test`, `clippy -D warnings`, license policy —
+fuzz graph, panic-free policy — no `#[allow]` escape):
+<https://github.com/jysf/irradiance/actions/runs/33945147658>. This satisfies
+`constraints.yaml`'s "observed, not merely run locally" bar — `AC6` is checked
+in the spec on the strength of this observation, not a self-report of the
+local run alone.
 
 ### 2. The red-proof, watched fail personally — both digests
 
@@ -318,19 +325,18 @@ on the build cycle specifically). No ship-blockers.
    is proven able to fail — `59b032fe4320a27989ce61f3e3da7ff2` is a real,
    reproducible wrong answer the oracle catches, not a hypothetical one.
 
-### 8. Cost — tokens_total is a FLOOR, written before this session closes
+### 8. Cost
 
 Read from this session's own transcript
 (`~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-irradiance/67c1e250-1ea3-488c-b3ba-1918e609e6f0.jsonl`),
-**deduped by `message.id`**: 120 distinct usage-bearing messages, all
-`claude-sonnet-5`. Component breakdown (fresh input 242, cache-read
-30,541,076, cache-creation 333,090 — this session's 1-hour cache TTL, output
-132,693) **totals 31,007,101 tokens**, priced **per-component** at Sonnet 5's
+**deduped by `message.id`**: 142 distinct usage-bearing messages, all
+`claude-sonnet-5`. Component breakdown (fresh input 284, cache-read
+38,554,181, cache-creation 359,645 — this session's 1-hour cache TTL, output
+147,082) **totals 39,061,192 tokens**, priced **per-component** at Sonnet 5's
 published rates ($2.00/M input, $0.20/M cache-read, $4.00/M cache-write-1h,
-$10.00/M output) = **$8.77**. A flat-ceiling estimate (fresh+cache-read+cache-
+$10.00/M output) = **$10.62**. A flat-ceiling estimate (fresh+cache-read+cache-
 creation all at the $2.00/M input rate, output at $10.00/M, i.e. no cache
-discount at all) comes to $63.08 — **7.2× high** — which is the exact failure
+discount at all) comes to $79.35 — **7.5× high** — which is the exact failure
 mode this handoff's return criterion 6 warns against, reproduced here
 deliberately to confirm the per-component number rather than assumed correct.
-This total does not include the remaining work to close this handoff out
-(reading CI, final commit); the real figure will be slightly higher.
+Session ran ~04:00–~04:41 UTC plus this closing edit, ~45 minutes wall clock.
