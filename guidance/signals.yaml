@@ -103,12 +103,12 @@ signals:
   - id: ci-cannot-prove-bit-exactness
     type: risk
     summary: "CI cannot run tier-B tests, so a green badge does not mean the decoder is correct."
-    evidence: "DEC-003 — real camera files are never committed, so the bit-exact oracle runs only on a machine holding the corpus. SPEC-014/FU-7 (2026-09-05): `cargo test --all-features --test develop` with IRRADIANCE_CORPUS_DIR unset — 7 passed in 0.01s, but 4 of them (`black_and_white_levels_map_to_the_endpoints`, `the_three_stage_crop_produces_the_measured_dimensions`, `orientation_six_swaps_the_output_dimensions`, `an_unrotated_sibling_keeps_its_dimensions`) return before asserting anything and report `ok` anyway, so AC1, AC3 and AC5 carry zero evidence in the one gate `no-panics-on-untrusted-input` requires to be observed green — a no-oracle spec concentrates this signal's loss precisely where DEC-004 already says nothing else will catch it. Only 3 of the 7 carry real corpus-free assertions (`values_outside_the_level_range_are_handled_as_decided`'s tier-A half, `hostile_geometry_does_not_panic`, and the tier-A test SPEC-014/FU-3 added), and the same fix pattern SPEC-013/FU-1 proved — move a tier-B assertion onto a hand-built fixture — is what closed FU-3's specific gap."
+    evidence: "DEC-003 — real camera files are never committed, so the bit-exact oracle runs only on a machine holding the corpus. SPEC-014/FU-7 (2026-09-05): `cargo test --all-features --test develop` with IRRADIANCE_CORPUS_DIR unset — 7 passed in 0.01s, but 4 of them (`black_and_white_levels_map_to_the_endpoints`, `the_three_stage_crop_produces_the_measured_dimensions`, `orientation_six_swaps_the_output_dimensions`, `an_unrotated_sibling_keeps_its_dimensions`) return before asserting anything and report `ok` anyway, so AC1, AC3 and AC5 carry zero evidence in the one gate `no-panics-on-untrusted-input` requires to be observed green — a no-oracle spec concentrates this signal's loss precisely where DEC-004 already says nothing else will catch it. Only 3 of the 7 carry real corpus-free assertions (`values_outside_the_level_range_are_handled_as_decided`'s tier-A half, `hostile_geometry_does_not_panic`, and the tier-A test SPEC-014/FU-3 added), and the same fix pattern SPEC-013/FU-1 proved — move a tier-B assertion onto a hand-built fixture — is what closed FU-3's specific gap. SPEC-015/FU-10 (2026-09-06) puts a number on the CI half: run 34003871323's own log reads 'corpus: 0/7 present, 7 MISSING - tier-B tests over those file(s) will SKIP', so the ENTIRE real-data layer of the analytic oracle (AC1-AC4, 111,529,040 pixels locally) executes zero assertions in the only gate constraints.yaml requires observed green. What CI actually runs of SPEC-015 is two red-proofs and the tier-A properties. MEASURED CONSEQUENCE, not inferred: a wrong-permutation fault gated on crop_width > 100 corrupted 100% of a real frame and passed 150/150, because every positional test in the repo used a fixture of <=8 px. Closed up to 1024 px by SPEC-015/FU-10's new tier-A fixture (two tests, 1024x768 synthetic, ~0.16s each), which the orchestrator re-confirmed catches the same fault gated at >100 AND at >1000 with the corpus absent. RESIDUAL: a gate at >2000 still evades it, and FU-6's wrong-permutation limit is inherent to DEC-020 regardless of fixture size."
     bar: null
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-09-05
+    last_touched: 2026-09-06
     raised_by: claude
     notes: |
       Accepted deliberately, not overlooked — the alternative was unlicensed
@@ -749,6 +749,35 @@ signals:
 
   # --- lesson: a fast per-value dedup can silently drop the COUNT a --------
   # --- correctness check depended on -----------------------------------
+  - id: the-gate-count-is-not-defined-anywhere
+    type: process-debt
+    summary: "Specs and handoffs say ten / eleven / twelve gates and mean different sets; no named list exists, so every cycle re-derives it and some acceptance criteria are unsatisfiable as written."
+    evidence: "SPEC-015/FU-11, raised at verify 2026-09-05, confirmed by the orchestrator at ship. TWO enumerations differing by FOUR members are both cited in SHIPPED artifacts. HANDOFF-013's ten: fmt, clippy, test, msrv, deny, lint-red-proof, lint-no-allow, cost-audit, decisions-index, deny-fuzz. SPEC-013's verify eleven: test, fmt, clippy, lint-no-allow, lint-red-proof, typecheck, build, msrv, deny, deny-fuzz, fuzz. The first counts cost-audit and decisions-index and omits typecheck, build and fuzz; the second does the reverse. Grep across specs/done: 'ten gates' in SPEC-004 (AC), SPEC-005 (AC9), SPEC-008 (verify handback) and AGENTS.md:314; 'eleven gates' in SPEC-009 (AC7), SPEC-013 and SPEC-014 (AC8). SPEC-015 made the contradiction unsatisfiable: its AC9 said 'eleven gates' while its own Non-Goals excluded fuzz, the eleventh — so the build correctly ran ten and marked the criterion met, and the handoff needed a paragraph to explain why that was not a miss. Its verify then ran the twelve-item UNION rather than adjudicate, which is the right move for a reviewer and the wrong state for a repo; its ship round ran the same union and said so. Three cycles in one spec each spent real effort deciding what the number meant."
+    bar: 3
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-09-05
+    last_touched: 2026-09-06
+    raised_by: claude
+    notes: |
+      Past bar on arrival (three cycles in one spec, plus seven shipped
+      artifacts split across two counts), so filed open rather than watch.
+
+      The fix is one named list in AGENTS.md §6 with a count, referenced by id
+      from acceptance criteria instead of restated as a number — but that is a
+      REPO decision, deliberately not made inside SPEC-015's ship round, because
+      changing what "the gates" means retroactively reinterprets every shipped
+      AC that used the phrase. Whoever makes it should decide explicitly whether
+      the list is the CI job set, the local pre-push set, or both, since the two
+      genuinely differ: fuzz needs nightly and never runs in CI, and cost-audit
+      and decisions-index are CI jobs that no local "gates" list mentions.
+
+      ⚠ Cheap and worth doing regardless: a spec that names a count in an AC is
+      asserting something no gate checks. This is the same family as
+      [named-tests-can-pass-vacuously] — a criterion whose satisfaction cannot
+      be mechanically determined is a criterion someone will honestly mark [x]
+      on two different readings.
+
   - id: handback-sync-truncates-multi-line-scalars
     type: process-debt
     summary: "handback-sync transcribes only the FIRST physical line of a multi-line YAML scalar, leaving an unterminated quote that makes a spec's whole front matter unparseable — and every gate passes anyway."

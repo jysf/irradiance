@@ -14,7 +14,7 @@ task:
                                    #   design probe, which found the oracle needs THREE layers
                                    #   (property, per-pixel, tier-A red-proof), not one assertion.
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -104,10 +104,18 @@ cost:
       duration_minutes: 95
       recorded_at: 2026-09-05
       notes: "VERDICT APPROVED at a3f0063 (CI 9/9, run 34003871323); 8 follow-ups FU-4..FU-11, 0 ship-blockers. Cost is a transcript sum deduped by message.id from THIS session's own JSONL (d56874fe-79ae-4cbf-b1b9-c0e078c2dc7b.jsonl, identified by the scratchpad-dir uuid, not by content match): 184 usage objects / 103 unique ids, all message.model=claude-opus-5; raw combined 17,095,892 (input 206 / output 77,549 / cache-read 16,784,762 = 98.2% / cache-write-1h 233,375 / cache-write-5m 0), priced PER-COMPONENT at published Opus rates ($15/$75/$30-1h/$1.50-read) = $38.00, then BOTH figures rounded up 20% per this handoff's point 7 to cover the turns spent writing this handback. ⚠ THIS notes field is deliberately ONE LINE: the build's multi-line scalar is what handback-sync truncated into an unterminated quote in the spec's front matter — see FU-4, which must be fixed BEFORE this entry is synced."
+    - cycle: ship
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 21459636
+      estimated_usd: 9.05
+      duration_minutes: 25
+      recorded_at: 2026-09-06
+      notes: "FU-10's new work done: two tier-A positional tests at tests/develop_oracle.rs (1024x768, synthetic, orientations 6+2), 152 tests (was 150), all three mutations (M1 crop_width>100, M2 crop_width>1000, M3 transposed dimensions) watched RED in an isolated crate copy with file-changed+compiled+output-changed evidence, src/ 0 lines changed vs main (git diff --stat empty, md5s match HANDOFF-036's recorded values). FU-6/FU-7/FU-8/FU-9 discharged as fixed in DEC-020/DEC-021/the spec/the test comments; FU-11 not touched (Out of Scope, reported not resolved). Residual stated in the Handback prose: a >2000 gate still evades this fixture, only orientations 2+6 covered, FU-6's rank/frequency blind spot is untouched and inherent. Cost is a transcript sum deduped by message.id from THIS session's own JSONL (638c1488-fc61-4a2f-a31f-a8118ef08c7e.jsonl, identified by the scratchpad-dir uuid, not content match): 154 usage objects / 87 unique ids, all message.model=claude-sonnet-5, raw combined 17,883,030 (input 174 / output 59,055 / cache-read 17,594,660 / cache-write-1h 229,141 / cache-write-5m 0), priced per-component at published Sonnet rates ($3/$15/$6-1h/$0.30-read) = $7.54, both figures rounded up ~20% per this handoff's own point 7."
   totals:
-    tokens_total: 76739468
-    estimated_usd: 69.75
-    session_count: 3
+    tokens_total: 98199104          # 56,224,398 build + 20,515,070 verify + 21,459,636 ship
+    estimated_usd: 78.80            # 24.15 + 45.60 + 9.05 — order-of-magnitude, per AGENTS.md §4
+    session_count: 4                # design (null-with-note, main-loop) + 3 metered delegated cycles
 ---
 
 # SPEC-015: Analytic levels and geometry oracle
@@ -387,36 +395,84 @@ materialising a second full plane, and AC8 asks you to.
 - A tier-B test passes whether or not the corpus is present; only `just test`
   names what is missing.
 
+## Follow-ups
+
+Every finding raised against `SPEC-015` across every cycle, with its disposition
+(§15). Twelve, none crossing this ship undecided: **seven `fixed`, four
+`signal:`, one `closed`.**
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | This session's cost math reproduced the known flat-rate overstatement (~7×) | `signal: flat-rate-overstates-cached-sessions` — 5th data point |
+| `FU-2` | The build's first optimisation paired distinct values instead of full rank/count and could not see a count-shifting fault — **caught by its own honest-tree assertion** before handback | `signal: distinct-value-dedup-drops-multiplicity` — new, `watch`, N=1 |
+| `FU-3` | The oracle checks 3 decodable files, not `plane_oracle.rs`'s 4 (the 4th shares identical levels and geometry) | `closed` — justified in code at the point of exclusion; a 4th file adds no distinguishing case and `FU-9` shows it costs the whole `AC8` headroom |
+| `FU-4` | **`SPEC-015`'s front matter was not valid YAML from `c57f88d`** — `handback-sync` truncated a multi-line `notes:` scalar; every gate reported green | `fixed` — `5b89143`, note restored in full on one line |
+| `FU-5` | The class: `scripts/_lib.sh:301` was hardened against this exact breakage and the guard covers only the `#`-comment path | `signal: handback-sync-truncates-multi-line-scalars` — new, `bar: 2`, `open` |
+| `FU-6` | **The permutation blind spot is inherent.** Unconditional 6→8 passes all three tier-B tests; two orientations differing only in which corner maps to the origin cannot be separated by any value-based invariant, because that correspondence *is* the table | `fixed` — `DEC-020` `## Consequences` states the limit as inherent, and its `## Validation` corrected: the remedy it gestured at (Option B) is provably equivalent and shares the hole |
+| `FU-7` | `AC3` is named "the permutation property" but its red-proof goes red on **degeneracy** (the identity fault reads outside the crop, changing the multiset), never on a permutation being the *wrong* permutation | `fixed` — scope stated in `tests/develop_oracle.rs`'s AC5(b) section and `DEC-021` |
+| `FU-8` | `AC2`'s `> 40 %` floor is content-dependent; real margin is a **20.09 %** clipped share, not 5 points, and `L1000622` is already at 10.05 % | `fixed` — break-even recorded next to `AC2` in the spec and in the test comment. Fails in the safe direction (false red) |
+| `FU-9` | `AC8`'s headroom is exactly **one** more file — 0.3246 s/Mpx ⇒ a 4th Q2M-sized file ≈51.4 s, a 5th ≈66.6 s | `fixed` — "comfortably" replaced with the rate and the file count in `DEC-020`'s `## Validation` |
+| `FU-10` | **CI runs 0/7 corpus files, so the oracle's entire real-data layer is skipped there — and every positional test used ≤8 px, so a size-gated fault passed 150/150 while corrupting 100 % of a real frame** | `fixed` — a tier-A positional fixture (1024×768 synthetic, orientations 6 and 2, plus the output-dimension case, ~0.16 s each). Re-confirmed by the orchestrator to catch the fault gated at `>100` **and** at `>1000`, corpus absent. Evidence added to `ci-cannot-prove-bit-exactness`. ⚠ **Residual: a gate at `>2000` still evades it** |
+| `FU-11` | "Ten gates" is undefined — two enumerations differing by four members are both cited in shipped artifacts, and `AC9` was unsatisfiable as written | `signal: the-gate-count-is-not-defined-anywhere` — new, `bar: 3`, `open`. The fix (one named list in `AGENTS.md` §6) is a repo decision, deliberately not made inside this spec's ship round |
+| `FU-12` | **`SPEC-010` — shipped and archived — carried `FU-4`'s identical defect since 2026-09-03**, surviving ship, `archive-spec` and three later specs undetected | `fixed` — `5b89143`, restored from `HANDOFF-025`. Repo-wide sweep now 0 of 75 front-matter artifacts failing to parse; it was 2. This is the second data point that put `FU-5` at bar |
+
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended at **ship**, 2026-09-06.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — **Go straight to the size-gated form of a mutation.** I measured the
+   unconditional 6→8 swap at reconciliation and reported it as a limit that was
+   adequately covered elsewhere — three tests caught it. Verify then gated the
+   same swap on `crop_width > 100` and found that *nothing* caught it. Same
+   fault, one qualifier, and the answer flipped from "documented limitation" to
+   "a production-scale bug ships green." The unconditional form answers *is the
+   oracle position-blind?*; only the gated form answers *does anything else
+   cover it?*, which is the question that decides whether a stage can close.
+
+   Second: the design probe was the best thing in this spec and I should have
+   run one more case in it. It measured the tolerance, the truncation trap and
+   the permutation property across three real frames — all of which held — but
+   never asked what a *wrong but valid* permutation would do. The blind spot was
+   derivable from `DEC-020` on the day I wrote it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — Two, both filed rather than done:
+   - **`just validate` does not parse YAML.** It greps for required keys, so a
+     file no parser can read passes it — which is how `FU-4` and `FU-12` stayed
+     invisible, one of them through ship and archive. Filed as
+     `handback-sync-truncates-multi-line-scalars` with the observation that
+     making `validate` actually parse is the fix that generalises beyond this
+     one writer. It is the `a-gate-that-fails-mutely` shape one level up: the
+     gate did not fail mutely, it *succeeded* mutely.
+   - **`AGENTS.md` §6 needs one named gate list.** `FU-11`; three cycles in this
+     spec each spent real effort deciding what "the gates" meant, and an
+     acceptance criterion that names a count is asserting something no gate
+     checks — the `named-tests-can-pass-vacuously` family.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new one. `SPEC-016` ("the harness stops claiming what it has not
+   checked") is already framed and is now unusually well-supplied: `FU-4`/`FU-5`/
+   `FU-12` (a gate that reports success without checking), `FU-10` (CI running
+   0/7 corpus files while reporting green), and `FU-11` (a count no gate can
+   verify) are four independent instances of exactly its thesis, each with
+   measurements attached. `SPEC-011` remains unblocked in `STAGE-005`.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?** — `verify`
+   *(`FU-10`: a size-gated geometry fault passing 150/150 while corrupting 100 %
+   of a real frame. Not `build` — the build's code was correct and `src/` never
+   changed across any cycle. Not `design`, though it should have been: the
+   limitation was derivable from `DEC-020` the day I wrote it, and I measured
+   the weaker unconditional form without asking the gated question. Not
+   `escaped` — it never reached a consumer, and it is now closed up to 1024 px.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before: `develop_into` shipped with **no independent check at all** — its
+   own tests asserted the arithmetic they were written from, and `DEC-004` had
+   measured both existing oracles blind to a levels error (the plane checksum
+   bit-identical, SSIMULACRA2 scoring 95.62 — passing — on `BlackLevel + 64`).
+   After: every developed pixel of every decodable frame is checked against the
+   exact real-valued affine map to **within 0.5 LSB**, by a route that never
+   reads the implementation's rounding rule; and the oracle catches
+   `BlackLevel ± 1` with **9.1× margin** — the fault SSIMULACRA2 scores
+   **100.00** on, i.e. the one no perceptual metric can ever see.
