@@ -82,3 +82,11 @@ business/
 #   you want them gone that is `git rm`, and it is a separate decision.
 reports/daily/*.md
 reports/weekly/*.md
+
+# startd8 writes .startd8/task_errors/ relative to the CURRENT WORKING DIRECTORY,
+# so any startd8 command run from this repo's root drops its error log here. That
+# is how 14 files of `dashboard-create` failures landed in commit 73e529f — a
+# `git add -A` swept them in, and they reached main via PR #6. Not this repo's
+# data; nothing here uses jsonnet or Grafana. (AGENTS.md §13: check `git status`
+# before `git add -A`.)
+.startd8/
