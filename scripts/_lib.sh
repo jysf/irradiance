@@ -1078,16 +1078,38 @@ find_all_stages() {
 stage_has_orchestration_cost() {
     local file="$1"
     awk '
-        /^---$/ { fm = !fm; next }
-        !fm { next }
+        # SB-2 (PATCH-003). The previous version toggled a boolean on every bare
+        # `---`, so a THIRD one — a horizontal rule in the body — flipped the
+        # body back into "front matter", and `in_oc` was never cleared at the
+        # front-matter close because the `^---$` rule `next`ed past the clearing
+        # rule. Since `orchestration_cost:` is the LAST front-matter key in the
+        # template and in all five stage files, that is the repo default shape:
+        # prose containing `- tokens_total: 84200000` satisfied the gate.
+        # Counting the delimiters and exiting at the second is what makes the
+        # body unreachable, rather than merely unlikely.
+        /^---$/ { if (++delim == 2) exit; next }
+        delim != 1 { next }
         /^orchestration_cost:/ { in_oc = 1; next }
         in_oc && /^[a-z_]+:/ { in_oc = 0 }
         !in_oc { next }
         {
             line = $0
             sub(/^[ \t]+/, "", line)
-            if (substr(line, 1, 1) == "#") next          # a comment, not a value
-            if (line ~ /^- tokens_total:[ \t]*[0-9]+/) { found = 1; exit }
+            # FU-1 (PATCH-003): this `#` test is UNREACHABLE and kept only as
+            # defence in depth — after stripping whitespace a line cannot both
+            # begin with `#` and match the anchor below. The anchor IS the
+            # defence against the template comment; the earlier note here
+            # credited the wrong line.
+            if (substr(line, 1, 1) == "#") next
+            if (line ~ /^- tokens_total:[ \t]*[0-9]+/) {
+                # FU-6 (PATCH-003): a recorded ZERO is not a recorded cost. The
+                # spec-side gate already treats 0 as absent (`spec_missing_cost_cycles`
+                # counts null-or-zero); this now matches it.
+                v = line
+                sub(/^- tokens_total:[ \t]*/, "", v)
+                sub(/[^0-9].*$/, "", v)
+                if (v + 0 > 0) { found = 1; exit }
+            }
         }
         END { exit(found ? 0 : 1) }
     ' "$file"
