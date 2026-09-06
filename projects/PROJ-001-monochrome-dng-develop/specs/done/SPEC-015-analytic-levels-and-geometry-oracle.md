@@ -113,9 +113,10 @@ cost:
       recorded_at: 2026-09-06
       notes: "FU-10's new work done: two tier-A positional tests at tests/develop_oracle.rs (1024x768, synthetic, orientations 6+2), 152 tests (was 150), all three mutations (M1 crop_width>100, M2 crop_width>1000, M3 transposed dimensions) watched RED in an isolated crate copy with file-changed+compiled+output-changed evidence, src/ 0 lines changed vs main (git diff --stat empty, md5s match HANDOFF-036's recorded values). FU-6/FU-7/FU-8/FU-9 discharged as fixed in DEC-020/DEC-021/the spec/the test comments; FU-11 not touched (Out of Scope, reported not resolved). Residual stated in the Handback prose: a >2000 gate still evades this fixture, only orientations 2+6 covered, FU-6's rank/frequency blind spot is untouched and inherent. Cost is a transcript sum deduped by message.id from THIS session's own JSONL (638c1488-fc61-4a2f-a31f-a8118ef08c7e.jsonl, identified by the scratchpad-dir uuid, not content match): 154 usage objects / 87 unique ids, all message.model=claude-sonnet-5, raw combined 17,883,030 (input 174 / output 59,055 / cache-read 17,594,660 / cache-write-1h 229,141 / cache-write-5m 0), priced per-component at published Sonnet rates ($3/$15/$6-1h/$0.30-read) = $7.54, both figures rounded up ~20% per this handoff's own point 7."
   totals:
-    tokens_total: 98199104          # 56,224,398 build + 20,515,070 verify + 21,459,636 ship
-    estimated_usd: 78.80            # 24.15 + 45.60 + 9.05 — order-of-magnitude, per AGENTS.md §4
-    session_count: 4                # design (null-with-note, main-loop) + 3 metered delegated cycles
+    tokens_total: 98199104
+    estimated_usd: 78.80
+    session_count: 4
+shipped_at: 2026-09-06
 ---
 
 # SPEC-015: Analytic levels and geometry oracle
