@@ -89,11 +89,26 @@ LIB_RS="${REPO_ROOT}/src/lib.rs"
 # policy with all seven gates green). Changing this list is a deliberate act.
 EXPECTED_LINTS="clippy::unwrap_used clippy::expect_used clippy::indexing_slicing clippy::panic clippy::arithmetic_side_effects"
 
-# ── Assertion 0: clippy actually ran ────────────────────────────────────────
+# ── Assertion 0: clippy actually ran, AND we can say WHICH clippy ───────────
+# PATCH-004. Asserting that clippy is *present* is not the same as knowing what
+# it is. Measured 2026-09-06 on the maintainer's machine: the default toolchain
+# is nightly, nightly ships NO cargo-clippy, and yet bare `cargo clippy` answers
+# — because Homebrew's /opt/homebrew/bin/cargo-clippy (rust 1.97.1) shadows the
+# rustup shim. So this proof was passing while linting with a compiler nobody
+# selected, and its success line did not say so. One reviewer's machine failed
+# loudly here; this one succeeded silently, and the silent success is worse.
+#
+# A red-proof that cannot name the compiler that proved the policy is reporting
+# a result it has not established — the same defect it exists to catch, one
+# level up.
 if ! CLIPPY_VERSION="$(cargo clippy --version 2>&1)"; then
     die "\`cargo clippy --version\` failed — clippy is not available, so this proof can prove NOTHING. Refusing to report green. Output: ${CLIPPY_VERSION}"
 fi
-info "clippy is present: ${CLIPPY_VERSION}"
+if ! CLIPPY_BIN="$(command -v cargo-clippy 2>/dev/null)"; then
+    die "\`cargo clippy --version\` answered but \`cargo-clippy\` cannot be resolved on PATH, so this proof cannot name the binary that produced its result. Refusing to report green."
+fi
+CLIPPY_ID="${CLIPPY_VERSION} (${CLIPPY_BIN})"
+info "clippy is present: ${CLIPPY_ID}"
 
 # ── Find the injection point in src/lib.rs ──────────────────────────────────
 # Returns the line number on which the LAST inner attribute of the prologue
@@ -333,4 +348,4 @@ assert_lints_fired "$SEVERITY_LOG" "severity run"
 # proof's own making — this is the core DEC-007 retained. Informational.
 grep -A1 'the lint level is defined here' "$CLIPPY_LOG" | grep -- '-->' | sort -u | sed 's/^/    /' || true
 
-success "lint policy red-proof: control clean (exit 0) → injection rejected (exit ${CLIPPY_EXIT}) → all five lints fired at the injected code, and still fire without CI's -D warnings (exit ${SEVERITY_EXIT}). src/lib.rs's own #![deny(...)] is what rejected them."
+success "lint policy red-proof: control clean (exit 0) → injection rejected (exit ${CLIPPY_EXIT}) → all five lints fired at the injected code, and still fire without CI's -D warnings (exit ${SEVERITY_EXIT}). src/lib.rs's own #![deny(...)] is what rejected them. PROVED BY: ${CLIPPY_ID}."
