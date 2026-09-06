@@ -103,9 +103,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 Run `just frame-stage STAGE-003` to promote these outlines into real specs.
 
 - [ ] SPEC-017 (frame) [S] FixBadPixelsConstant opcode
-- [ ] SPEC-018 (frame) [L] WarpRectilinear radial geometric correction
+- [ ] SPEC-018 (frame) [L] WarpRectilinear radial geometric correction — next to design
 - [ ] SPEC-019 (frame) [M] Tone curve and the three output modes
-- [ ] SPEC-020 (frame) [M] Develop oracle vs dnglab srgb
+- [~] SPEC-020 (design) [M] Develop oracle vs dnglab srgb — lands first, so SPEC-018/019/017 have a check they cannot rewrite
 
 **Count:** 0 shipped / 4 active / 0 pending
 
