@@ -100,6 +100,15 @@ deny-fuzz:
 lint-red-proof:
     ./scripts/lint-red-proof.sh
 
+# PATCH-002's red-proof for the STAGE orchestration-cost half of cost-audit:
+# empties a shipped stage's orchestration_cost — template comment and all, so
+# the naive `grep tokens_total` implementation is genuinely exercised — and
+# asserts the gate rejects it BY NAME with a reason, while the grandfathered
+# STAGE-001 stays exempt. Runs entirely in a temp copy. See
+# scripts/cost-audit-red-proof.sh's header for why the injection keeps the comment.
+cost-audit-red-proof:
+    ./scripts/cost-audit-red-proof.sh
+
 # Close the #[allow] escape hatch on the LIBRARY (SPEC-006).
 #
 # `just lint-red-proof` pins the crate-root #![deny(...)] policy; it cannot see

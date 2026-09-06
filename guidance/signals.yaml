@@ -558,12 +558,12 @@ signals:
   - id: spec-ids-collide-across-unmerged-branches
     type: process-debt
     summary: "`just new-spec` mints the next ID by scanning the WORKING TREE, so an ID created while a branch is in flight silently collides with one created on that branch."
-    evidence: "2026-08-22. SPEC-010 was framed during SPEC-005's ship and committed on feat/spec-005-metadata-oracle. Later the same day, on main (PR not yet merged), `just new-spec` assigned SPEC-010 AGAIN — for a different spec. Caught by hand because the collision was visible in the same session; it would not have been visible to either branch alone, and would have surfaced as a merge that produced two SPEC-010 files."
+    evidence: "2026-08-22. SPEC-010 was framed during SPEC-005's ship and committed on feat/spec-005-metadata-oracle. Later the same day, on main (PR not yet merged), `just new-spec` assigned SPEC-010 AGAIN — for a different spec. Caught by hand because the collision was visible in the same session; it would not have been visible to either branch alone, and would have surfaced as a merge that produced two SPEC-010 files. FIRST OBSERVED INSTANCE, 2026-09-06 (PATCH-002/HANDOFF-039): `just new-handoff PATCH-002 verify` minted HANDOFF-038 while HANDOFF-038 already existed, committed and pushed, on the unmerged feat/spec-016 branch. The minter scans the working tree, and the working tree was on fix/patch-002, so the SPEC-016 handoff was invisible to it. Caught immediately only because the orchestrator happened to have created the other one an hour earlier and recognised the number; nothing in the tooling objected, and the two files have different slugs, so a `ls handoffs/` on either branch alone looks correct. Renumbered to HANDOFF-039 by hand, giving precedence to the already-pushed SPEC-016 handoff. The prior evidence for this signal was analytical - this is the first time it actually happened."
     bar: null
     status: open
     disposition_at: project-close
     first_flagged: 2026-08-22
-    last_touched: 2026-08-22
+    last_touched: 2026-09-06
     raised_by: claude
     notes: |
       AGENTS.md §2 is explicit that IDs are "globally unique and continuous

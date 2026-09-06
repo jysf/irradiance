@@ -1039,6 +1039,60 @@ is_grandfathered_cost() {
     esac
 }
 
+# ── Stage orchestration cost (PATCH-002) ────────────────────────────────────
+# Stages shipped before this gate existed. Same shape and same reasoning as
+# COST_AUDIT_GRANDFATHERED above: a gate adopted after the fact cannot demand a
+# number nobody measured at the time.
+#   STAGE-001 shipped 2026-08-22 with `sessions: []`. Its orchestration ran
+#   across a week of sessions with no per-stage boundary recorded, so any figure
+#   reconstructed now would be invented rather than measured — which is exactly
+#   what AGENTS.md §4 calls out ("a null here is honest; a guess is not").
+STAGE_ORCH_COST_GRANDFATHERED="${STAGE_ORCH_COST_GRANDFATHERED:-STAGE-001}"
+
+is_grandfathered_stage_orch() {
+    local rest="${1#STAGE-}"
+    local id="STAGE-${rest%%-*}"
+    case " ${STAGE_ORCH_COST_GRANDFATHERED} " in
+        *" $id "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Every stage file in a project directory.
+find_all_stages() {
+    local project_dir="$1"
+    [ -d "${project_dir}/stages" ] || return 0
+    find "${project_dir}/stages" -maxdepth 1 -name 'STAGE-*.md' -type f 2>/dev/null | sort
+}
+
+# True (0) if a stage records at least one REAL orchestration_cost session.
+#
+# ⚠ THE TRAP THIS FUNCTION EXISTS TO AVOID, measured 2026-09-06: the template
+# block carries a commented EXAMPLE entry —
+#     sessions: []                      # - tokens_total: N
+# — so a naive `grep tokens_total` reports every stage as filled, including the
+# four that are empty. That is `attribute-text-inside-doc-comments` (AGENTS.md
+# §16 rule 2) exactly: the match landed on documentation ABOUT the field. The
+# awk below therefore anchors on a real YAML list item (`- tokens_total: <digit>`)
+# and refuses any line whose first non-space character is `#`.
+stage_has_orchestration_cost() {
+    local file="$1"
+    awk '
+        /^---$/ { fm = !fm; next }
+        !fm { next }
+        /^orchestration_cost:/ { in_oc = 1; next }
+        in_oc && /^[a-z_]+:/ { in_oc = 0 }
+        !in_oc { next }
+        {
+            line = $0
+            sub(/^[ \t]+/, "", line)
+            if (substr(line, 1, 1) == "#") next          # a comment, not a value
+            if (line ~ /^- tokens_total:[ \t]*[0-9]+/) { found = 1; exit }
+        }
+        END { exit(found ? 0 : 1) }
+    ' "$file"
+}
+
 # Print the tokens_total recorded for one cycle's cost session.
 # Empty if that cycle is absent or its tokens_total is null/missing.
 cycle_tokens_total() {
