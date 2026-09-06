@@ -1,4 +1,26 @@
 ---
+# ⚠⚠⚠ SUPERSEDED — DO NOT DISPATCH ⚠⚠⚠
+#
+# This handoff was written for SPEC-016's L scope (five ACs at git 3238dcb).
+# SPEC-016 was RE-SCOPED to S (one AC: `just validate` parses YAML) on
+# 2026-09-06 — see `## Rescope note` in the current SPEC-016 file, and the
+# SPEC-016 timeline's `design (re-scope)` entry. A worker following this
+# handoff's `## Delegation Summary` would build the WRONG scope: five gate
+# changes with five red-proofs instead of the one that survives the re-scope.
+#
+# NEXT STEP: mint a fresh HANDOFF for the reduced scope with
+# `just new-handoff SPEC-016 build`. The reduced-scope prompt is: rewrite
+# `scripts/validate.sh` to parse every artifact's front matter through a real
+# YAML parser (ruby -ryaml per the DEC), add a red-proof CI step, one DEC
+# recording the parser choice with the rejected alternatives. No `src/`
+# changes.
+#
+# The `handback:` block below stays `null` on purpose: this handoff never
+# handed back because it was never dispatched, and `handback-sync` will
+# correctly ignore it. The body below is preserved as history — do not act
+# on it.
+# ⚠⚠⚠ END SUPERSEDED NOTE ⚠⚠⚠
+#
 # Maps to ContextCore handoff.* semantic conventions.
 #
 # ONE handoff per delegated CYCLE. With build and verify running on different
@@ -20,7 +42,8 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-09-06
-  status: pending                  # pending | accepted | completed | rejected
+  status: superseded               # ⚠ CHANGED from pending — SPEC-016 was re-scoped
+                                   # (see the ⚠⚠⚠ note above). Do not dispatch.
 
 task:
   spec_id: SPEC-016
