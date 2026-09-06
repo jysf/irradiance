@@ -121,10 +121,14 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-010 (shipped on 2026-09-03) [M] Distinguish an unparseable tool reading from an absent tag
 - [ ] SPEC-011 (frame) [S] Lint the fuzz crate — the second cargo graph
-- [ ] SPEC-016 (frame) [M] The harness stops claiming what it has not checked — carries SPEC-005/FU-2, FU-3 and SPEC-012/FU-1, FU-2
+- [ ] SPEC-016 (design) [S] `just validate` parses the front matter it validates — rescoped 2026-09-06 from L; four other harness lies split out below
+- [ ] (not yet written) [XS] `corpus-status` states only what it checked — SPEC-016 pre-rescope AC1; measurements at git 3238dcb
+- [ ] (not yet written) [XS] `req()`'s single-value assumption is enforced, not documented — SPEC-016 pre-rescope AC2; carries SPEC-005/FU-2 and SPEC-010/FU-2 (mis-dispositioned twice); measurements at git 3238dcb
+- [ ] (not yet written) [XS] `SUPPORTED_BITS` cannot outrun its tests — SPEC-016 pre-rescope AC3; carries SPEC-012/FU-1; measurements at git 3238dcb
+- [ ] (not yet written) [XS] plane fuzz seeds reach `SampleExceedsWhiteLevel` — SPEC-016 pre-rescope AC4; carries SPEC-012/FU-2; measurements at git 3238dcb
 - [ ] (not yet written) [S] Audit every gate script for the mute-death shape
 
-**Count:** 1 shipped / 2 active / 1 pending
+**Count:** 1 shipped / 2 active / 5 pending
 
 ## Design Notes
 
