@@ -14,7 +14,8 @@ handoff:
   id: HANDOFF-042
   cycle: verify                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # from tier_map.<cycle> — the executing agent
+  to_agent: claude-opus-5           # PREDICTION from tier_map.verify. Correct it to what
+                                    # your system prompt reports as message.model.
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-09-06
@@ -53,97 +54,84 @@ handback:
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
-# HANDOFF-040: <Task Title — same as the spec's title>
+# HANDOFF-042: Verify PATCH-004 — the lint gates name their compiler, at `d81cecd`
 
 ## Delegation Summary
 
-One sentence: `<from_agent>` (acting as `<from_role>`) hands `PATCH-004`
-to `<to_agent>` (acting as `<to_role>`) for the **`<cycle>`** cycle.
+Verify `PATCH-004` at **`d81cecd`** on
+`fix/patch-004-lint-gates-state-which-clippy-answered` (PR #11, CI 18/18, **not
+merged**). `main` at `b940c0d`. **Small — one script, two `just` recipes, two docs.**
 
-## Context the Receiving Agent Needs
+⚠ **Orchestrator-authored, and unverified merges are why this repo currently has
+three patches on one gate.** `PATCH-002` was merged before its verify; that verify
+found two ship-blockers, and its successor's verify found two more. This one is
+being verified *before* merge specifically because of that.
 
-The receiving agent MUST read these before starting work. Keep the
-list tight, but don't omit anything necessary.
+## What it does
 
-### Primary
+`FU-5` reported that `just lint` and `lint-red-proof.sh` **fail**, because the
+default toolchain is nightly and nightly has no clippy. **It does not reproduce
+here** — Homebrew's `cargo-clippy` (1.97.1) shadows the rustup shim, so both
+commands *pass* while linting with a compiler nobody selected.
 
-- **Project brief:** `./projects/PROJ-001-<slug>/brief.md`
-- **Stage:** `./projects/PROJ-001-<slug>/stages/STAGE-XXX-<slug>.md`
-- **Spec:** `./projects/PROJ-001-<slug>/specs/PATCH-004-<slug>.md`
-- **Toolchain brief:** `./guidance/toolchain-brief.md` — this repo's test
-  framework, lint quirks, runtime globals and gotchas. Read it; it exists so a
-  cold agent doesn't rediscover them (DEC-004 rule 5).
+So the patch does not fix a failure. It makes the gates **state what produced
+their result**:
 
-### Decisions that apply
+```
+lint:    using clippy 0.1.97 (/opt/homebrew/bin/cargo-clippy) — unpinned
+lint-ci: using clippy 0.1.98 (88d9e12ae1 2026-08-18) (pinned: ~/.cargo/bin/cargo +stable)
+… PROVED BY: clippy 0.1.97 (/opt/homebrew/bin/cargo-clippy).
+```
 
-- `DEC-NNN` — <one-line summary of why this matters here>
-- `DEC-MMM` — <one-line summary>
+`lint` is left **unpinned on purpose** — it is the fast local check and `lint-ci`
+is the pinned one. The claim is that the defect was never that `lint` is
+unpinned, only that it did not say so. **Judge that claim.**
 
-### Constraints that apply
+## What to attack
 
-Check `./guidance/constraints.yaml` for full text. These constraints
-apply to the paths touched by this task:
-
-- `constraint-id-1` — <one-line summary>
-- `constraint-id-2` — <one-line summary>
-
-### Prior related work
-
-- `HANDOFF-YYY` — <one-line summary, if relevant>
-- `PR #NNN` — <link, if relevant>
-
-## Expected Deliverables
-
-*(For a `verify` handoff, replace this block with the verify contract below.)*
-
-- Code changes implementing PATCH-004's Acceptance Criteria.
-- All failing tests in PATCH-004 now passing.
-- Any new tests required to cover edge cases.
-- A PR against `main` from branch `feat/spec-XXX-<slug>`.
-- PR description referencing: this handoff ID, the spec ID, the stage
-  ID, the project ID, all referenced `DEC-*`, and any new `DEC-*`
-  created during implementation.
-
-### If `cycle: verify` — the verify contract
-
-You are **not** the agent that implemented this. Review it cold.
-
-- Acceptance criteria met? Tests actually pass? Build reflection answered
-  honestly (*"nothing was unclear"* is suspicious)?
-- Decision drift — run `just decisions-audit --changed`.
-- Constraint violations; non-trivial choices missing a `DEC-*`.
-- For any criterion claiming **runtime behavior** (a component registers, a hook
-  fires, a binary resolves on PATH, a config takes effect), confirm the
-  *behavioral* surface was exercised — not just the shape validated. That is the
-  defect class that escapes (AGENTS.md §12).
-- Output exactly ONE of: ✅ APPROVED / ⚠ PUNCH LIST / ❌ REJECTED.
+1. ⚠ **`command -v cargo-clippy` may not be what `cargo clippy` actually
+   executed.** Those are two different resolutions, and the new success line
+   asserts they are the same binary. Are they, always? If `cargo` resolves a
+   subcommand differently from `command -v`, the line **names the wrong
+   compiler — which is this patch's own defect, one level up.** This is the
+   check most likely to find something; start here.
+2. **The new `die` is the only new enforcement.** It fires when
+   `cargo clippy --version` answers but `command -v cargo-clippy` does not. Both
+   paths were watched red via `PATH` shims. Reproduce, then find a **third
+   state**: a `cargo-clippy` that exists but is not executable; a shell function
+   or alias shadowing it; `cargo` itself absent; `command -v` returning a
+   relative path.
+3. **`rustup which --toolchain stable cargo-clippy` vs `--version`.** Your last
+   review drew exactly this distinction. Does the patch's chosen mechanism
+   survive it?
+4. **The `printf` lines run on every `just lint`.** Confirm a failing `$(...)`
+   inside them cannot take down the recipe, and that `@` suppresses echo as
+   intended.
+5. **`guidance/toolchain-brief.md`** gained a section claiming *PATH order, not
+   `RUSTUP_TOOLCHAIN`, selects clippy*. That is a claim about a class, measured
+   on one machine. Verify it on yours.
 
 ## Out of Scope
 
-Explicit list of what this handoff does NOT include. If the receiving agent
-thinks any of these need to happen, they should create a new spec in
-the stage's backlog, not expand this handoff.
+- `PATCH-003` / PR #10 — separate re-verify (`HANDOFF-041`).
+- Changing the environment (installing clippy into nightly, removing Homebrew's).
+  This patch makes the situation visible; fixing the machine is not a repo change.
+- Merging, `handback-sync`.
 
-- ...
+## Return Criteria
 
-## Return Criteria — how to hand back
-
-**Completing this handoff means filling in the `handback:` front-matter block
-above AND the `## Handback` section below.** An unfilled handback is an
-incomplete cycle, and `just handback-sync` will tell the orchestrator so.
-
-On success:
-1. Fill the `handback:` front-matter — **including a real `tokens_total`**.
-2. Fill the `## Handback` section (the reflection is part of it, not optional).
-3. Set `handoff.status` → `completed` and `handback.status` → `completed`.
-4. Open a PR (build) or return your verdict (verify).
-
-If you cannot complete the task:
-1. Fill the `## Handback` section with what was done and what blocked you.
-2. Set `handoff.status` → `rejected`, `handback.status` → `blocked`.
-3. **Still report your token usage** — blocked work costs money too.
-4. Set the spec's `task.blocked: true` and add a question to
-   `/guidance/questions.yaml`.
+1. **Gates, run by you**, pasted, with the clippy version **and which binary**,
+   established via `rustup which` rather than `--version`. Say which gate list.
+2. **Observe CI green on the SHA you approve.**
+3. **Both claimed red-proof paths reproduced**, plus your third state. Each: file
+   changed **and** ran **and** *output changed*.
+4. ⚠ **Mutate in a disposable clone**, and use `/usr/bin/git` for anything you
+   report — rtk-wrapped git served stale HEAD/branch/status in a prior round.
+5. Handback: real `tokens_total`, deduped by `message.id`, per-component,
+   **rounded up ~20 %**. ⚠ **`notes:` on ONE PHYSICAL LINE.**
+6. **Correct `handoff.to_agent`.** No `handback-sync`, no merge.
+7. Findings from `FU-1` (this patch's own sequence).
+8. Verdict: ✅ APPROVED (with SHA) / ⚠ PUNCH LIST / ❌ REJECTED.
 
 ---
 
