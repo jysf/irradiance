@@ -71,9 +71,37 @@ out="$(./scripts/cost-audit.sh 2>&1)"; rc=$?
 set -e
 [ "$rc" -ne 0 ] || fail "gate did NOT go red on a shipped stage with sessions: [] — the gate is decorative"
 printf '%s\n' "$out" | grep -q 'missing cost on: orchestration' \
-    || fail "gate went red but never named the stage or the field; a proof that dies without a message cannot be told from one that never ran"
+    || fail "gate went red but never named the FIELD; a proof that dies without a message cannot be told from one that never ran"
+# FU-2 (PATCH-003): this script's own success line claims the stage is rejected
+# BY NAME, and until now it only ever checked the reason — replacing "$name"
+# with a literal in cost-audit.sh survived the proof while making the output
+# useless. Assert the claim the summary makes.
+subject_id="$(basename "$SUBJECT" .md)"
+printf '%s\n' "$out" | grep -q -- "$subject_id" \
+    || fail "gate went red but never named the STAGE (expected '$subject_id'), while this proof's own summary claims it is rejected by name"
 printf '%s\n' "$out" | grep -q 'orchestration_cost.sessions' \
     || fail "the failure message does not say what to do about it"
+
+# ── 3b. SB-2 (PATCH-003): PROSE MUST NOT SATISFY THE GATE.
+#      The block stays empty, and the BODY gets a horizontal rule followed by a
+#      line that looks exactly like a real entry. Before PATCH-003 this passed:
+#      the awk toggled its front-matter flag on every bare `---`, so the third
+#      one flipped the body back into "front matter", and `orchestration_cost:`
+#      is the last front-matter key in the template and all five stage files —
+#      the repo's default shape. Documentation about the field satisfying a
+#      check on the field is the exact class this gate exists to prevent.
+cp "$ROOT/$SUBJECT" "$SUBJECT"
+empty_block "$SUBJECT"
+printf '\n\n---\n\nProse about the cost of this stage:\n\n    - tokens_total: 84200000\n' >> "$SUBJECT"
+grep -q '^    - tokens_total: 84200000' "$SUBJECT" \
+    || fail "the SB-2 injection did not land in the body — this case proves nothing"
+set +e
+out2="$(./scripts/cost-audit.sh 2>&1)"; rc2=$?
+set -e
+[ "$rc2" -ne 0 ] \
+    || fail "SB-2 REGRESSION: prose in the body satisfied the gate — the front-matter scan is leaking into the body again"
+printf '%s\n' "$out2" | grep -q 'missing cost on: orchestration' \
+    || fail "SB-2 case went red for the wrong reason"
 
 # ── 4. NEGATIVE CONTROL: restore the subject, empty the GRANDFATHERED stage,
 #      and confirm the exemption still holds — otherwise STAGE-001 fails today.

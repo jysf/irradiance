@@ -99,7 +99,11 @@ done < <(find_all_patches "$project_dir")
 while IFS= read -r f; do
     [ -n "$f" ] || continue
     name=$(basename "$f" .md)
-    [ "$(get_stage_status "$f")" = "shipped" ] || continue
+    # FU-4 (PATCH-003): `status: "shipped"` is legal YAML and silently skipped
+    # the whole check before this — a stage could opt out of the gate by adding
+    # two characters, which is the failure mode this gate exists to prevent.
+    stage_status=$(get_stage_status "$f" | tr -d '"'"'"'"')
+    [ "$stage_status" = "shipped" ] || continue
     if is_grandfathered_stage_orch "$name"; then continue; fi
     if ! stage_has_orchestration_cost "$f"; then
         reason="orchestration"
