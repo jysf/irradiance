@@ -67,4 +67,16 @@ Cycle prompts live in `prompts/SPEC-015-<cycle>.md`.
   front matter has not been valid YAML since `c57f88d` (`handback-sync` truncated a multi-line
   scalar); every gate is blind to it and the next sync compounds it — one line, fix before
   syncing the verify cost.
-- [ ] **ship**
+- [ ] **ship** — `HANDOFF-037`, the punch-list round, delegated. Eight
+  follow-ups from verify plus `FU-12` from the orchestrator's reconciliation;
+  `FU-4`, `FU-5` and `FU-12` already discharged at `5b89143` (two unparseable
+  front matters repaired — one of them **shipped and archived undetected since
+  2026-09-03** — and the signal filed at bar 2). ⚠ **One piece of NEW work folded
+  in deliberately:** a tier-A positional fixture ≥1024 px, because every
+  positional test in this repo uses ≤8 px and a size-gated wrong permutation
+  passes **150/150** while corrupting 100 % of a real frame — and CI runs **0/7**
+  corpus files, so the oracle's entire real-data layer is skipped there.
+  `STAGE-002` should not close over that. `FU-6`'s wrong-permutation limit stays
+  **inherent** (no value-based invariant can separate two orientations); `FU-10`'s
+  size-gate limit is not, and this closes it up to 1024 px. The residual must be
+  stated, not claimed closed.
