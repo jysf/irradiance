@@ -96,6 +96,16 @@ done < <(find_all_patches "$project_dir")
 # as `brag-step-skipped-at-ship` — a documented step with no surface simply does
 # not happen. Orchestration is not a rounding error: STAGE-002 measured ~84.2M
 # tokens of it against 187.0M of delegated spec cost, roughly 31% of the stage.
+# FU-4 (PATCH-003 verify). DEC-022's Validation says "if the grandfather list
+# grows past STAGE-001, the gate is wrong, not the stages" — but nothing printed,
+# counted or asserted the list, and it is an ENVIRONMENT variable: exporting
+# STAGE_ORCH_COST_GRANDFATHERED="STAGE-001 STAGE-002" turned the gate green with
+# zero repo artifact and no output. An unfalsifiable falsifier is not a falsifier.
+# So the list announces itself whenever it is not the committed default.
+if [ "${STAGE_ORCH_COST_GRANDFATHERED}" != "STAGE-001" ]; then
+    [ "$JSON_OUT" = 1 ] || warn "cost-audit: STAGE_ORCH_COST_GRANDFATHERED is overridden — exempting: ${STAGE_ORCH_COST_GRANDFATHERED:-<empty>} (committed default: STAGE-001). DEC-022's Validation says a growing list means the GATE is wrong, not the stages."
+fi
+
 while IFS= read -r f; do
     [ -n "$f" ] || continue
     name=$(basename "$f" .md)

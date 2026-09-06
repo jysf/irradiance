@@ -112,8 +112,12 @@ waiting for is in.
   `STAGE-001` situation. The escape hatch is the grandfather list, which is
   **deliberately per-id and by name**: adding to it is a visible act, not a
   default. ⚠ If that list starts growing, the gate is wrong, not the stages.
-- **Neutral.** `DEC-013` §5's *"a null here is honest; a guess is not"* survives
-  intact and is **not** amended. A stage with no observable split should say so
+- **Neutral.** *"`null` is honest; a guess is not"* survives intact and is
+  **not** amended. ⚠ It is **`DEC-013` §4**, a section of its own — not §5, which
+  is the stage-level `orchestration_cost` section this decision amends. The
+  first draft of this record cited §5 for it; corrected at `PATCH-003`'s verify
+  (`FU-2`/`FU-3`), which also found `scripts/_lib.sh` crediting *AGENTS.md* §4 —
+  a file that has never contained the sentence in its whole history. A stage with no observable split should say so
   and use the grandfather list, not invent a figure.
 
 ## Validation

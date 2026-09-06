@@ -28,7 +28,7 @@ agents:
   created_at: 2026-09-06
 
 references:
-  decisions: []                    # add a DEC only when there's a real decision
+  decisions: [DEC-022]             # DEC-022 is emitted by this patch (PATCH-003 verify, FU-9)
 
 # Cost: patch + verify are the metered cycles — `just cost-audit` requires a
 # real tokens_total on both for a shipped patch. ship is main-loop (null-with-note).
@@ -110,6 +110,71 @@ falsifier.
   default toolchain is nightly. Belongs with the other four instances, not here.
 - **`M4a`** — the unreachable `#` guard **survives deletion by design**; now
   documented in place rather than silently load-bearing-looking.
+
+## Round 2 — the verify's punch list, closed
+
+**⚠ PUNCH LIST at `15c7fe0`: 2 ship-blockers, 9 follow-ups. Both ship-blockers
+came from attacking the proof, not the code — and both were right.**
+
+### `SB-1` — "unreachable" was one space away
+
+Round 1 claimed the body was *unreachable* **in four places**, off one modelled
+shape. It anchored the fence on `/^---$/` exactly. Reproduced at the awk level:
+
+| shape | round 1 | round 2 |
+|---|---|---|
+| closing fence `--- ` (one trailing space) | **rc=0 BYPASS** | rc=1 ✅ |
+| no closing fence at all | **rc=0 BYPASS** | rc=1 ✅ |
+| no front matter | rc=0 | rc=1 ✅ (fail-closed) |
+
+⚠ **My own first end-to-end attempt at reproducing `SB-1` came back "caught"**,
+because the fixture helper reshaped the file and moved the fence. Only testing
+the awk directly showed it. That is the same error as the original over-claim —
+a conclusion drawn from one modelled shape — made while checking the report of
+it. §16 rule 1.
+
+### `SB-2` — CRLF made the gate skip a stage, then report on it
+
+`get_stage_status` returned **empty** for a CRLF file, so `cost-audit` skipped
+the stage and printed *"every shipped stage records its orchestration cost"*
+about a file it never opened. Five callers share that helper
+(`backlog`, `roadmap`, `specs-by-stage`, `cost-audit`) and all were equally
+blind. Fixed at the helper, not at my call site.
+
+### The fail-closed logic was wrong on its first attempt too
+
+Setting `closed = 1` on a hit let `found` satisfy the very test meant to
+disqualify it — **N2 still bypassed after the "fix"**. `found` and `closed` are
+now independent, with no early exit. Caught only because the shapes were re-run
+rather than reasoned about.
+
+### Four shapes are now cases in the red-proof
+
+N1, N2, N3 and the control, each **verified to fail against round 1's code** —
+reverting the two scanner lines produces
+*"N1 (closing fence with a trailing space): prose in the body satisfied the gate."*
+
+### The nine follow-ups
+
+| id | disposition |
+|---|---|
+| `FU-1` | `fixed` — `DEC-013` §5 now carries an amendment note pointing at `DEC-022`. Front matter left alone: that file is the **template's** namespace (§10), and stamping `superseded_by` for one instance would be a lie in the other direction |
+| `FU-2`/`FU-3` | `fixed` — *"`null` is honest; a guess is not"* is **`DEC-013` §4**, a section title. `DEC-022` credited §5; `_lib.sh` credited **AGENTS.md §4**, which has never contained it in its whole history. Both corrected |
+| `FU-4` | `fixed` — the grandfather list now **announces itself** whenever it is not the committed default. `DEC-022`'s falsifier was unfalsifiable: an env var turned the gate green with zero artifact and no output |
+| `FU-5` | `fixed` — `STAGE-001`'s new comment said the field is gated; `STAGE-001` is grandfathered, so it was false about its own file |
+| `FU-7` | `fixed` — the red-proof copied `target/` (1.1 GB). **118.32 s → 5.81 s.** ⚠ The first scoped-copy attempt broke the control for an unrelated reason (`require_initialized` wants `AGENTS.md`), which looked exactly like a regression |
+| `FU-8` | `fixed` — `docs/cost-tracking.md` now has the stage-`orchestration_cost` section the `die` message was already pointing at |
+| `FU-9` | `fixed` — `PATCH-002`'s `## Patch Completion` filled and `task.cycle` advanced; `PATCH-003` now references `DEC-022` |
+| `FU-10` | `fixed` (documented) — `VAR=""` does **not** clear the list (`:-` falls back); `" "` does. Verified both. Kept for consistency with `COST_AUDIT_GRANDFATHERED`, but no longer silent |
+| `FU-6` | `closed` — the `FU-5` deferral was judged "right split, wrong reasoning". Agreed: they are the same defect at different altitudes. `PATCH-004` says so in its own record |
+
+### On the reviewer's warning about git
+
+They reported rtk-wrapped git serving stale output — HEAD, branch and status all
+wrong. **Checked here: `git` resolves to `/usr/bin/git` unwrapped in the
+orchestrator's shell, and wrapped and unwrapped agree.** Their caution was
+correct for their environment and did not affect either party's measurements —
+theirs ran in a disposable clone at `15c7fe0`.
 
 ## Verification (independent — KEPT)
 

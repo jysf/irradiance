@@ -11,7 +11,7 @@
 task:
   id: PATCH-002
   type: patch                      # epic | story | task | bug | chore | patch
-  cycle: patch                     # patch | verify | ship  (collapsed from a spec's 5)
+  cycle: verify                    # patch | verify | ship  (collapsed from a spec's 5)
   blocked: false
   priority: medium
   complexity: S                    # S | M  (an L fix is probably a spec, not a patch)
@@ -113,16 +113,32 @@ for a patch.
 
 ## Patch Completion
 
-*Filled at the end of the patch pass, before verify.*
+*Filled at the patch pass. `PATCH-003`'s verify raised this as `FU-9`: this
+section was the unfilled template stub while the patch sat on `main` — the same
+documented-step-with-no-surface shape the patch itself is about.*
 
-- **Branch / PR:**
-- **Fix summary:** <one or two lines>
-- **New decision emitted:** `DEC-NNN` (only if a real decision was made)
-- **Reflection (1 line):** what would make this class of fix faster next time?
-- **Defect-catch-stage:** where the bug this patch fixes was caught —
-  `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) —
-  one word, for the cross-project defect-escape distribution. (A patch usually
-  fixes an `escaped` defect; that's the signal a behavioral pre-flight was missed.)
+- **Branch / SHA:** `fix/patch-002-orchestration-cost-has-no-gate` → `705c784`,
+  merged to `main` as PR #9 (`0cda7d6`).
+- **What changed:** `cost-audit` gained a third loop over shipped stages;
+  `_lib.sh` gained `find_all_stages`, `stage_has_orchestration_cost` and
+  `is_grandfathered_stage_orch`; `cost-audit-red-proof.sh` added; one CI step.
+- **Gates:** ten + `lint-ci` green (clippy 0.1.98 asserted), 152 tests, CI 9/9
+  on `705c784` (run `34023570708`).
+- **Independent verify:** ⚠ **ran AFTER the merge**, at the maintainer's
+  direction, to close an ID-collision window. It returned **⚠ PUNCH LIST — 2
+  ship-blockers, 10 follow-ups**. Both ship-blockers were real. `PATCH-003`
+  remediates them; `PATCH-003`'s own verify then found two more, which
+  `PATCH-003` round 2 closes.
+- **`defect-catch-stage`:** `verify` — and it should be read as a warning
+  rather than a success. Merging before the verify is exactly what let two
+  ship-blockers reach `main`, and the cost of that decision is this chain of
+  three patches.
+- **Reflection:** the detector was written against a trap I had just fallen into
+  (`grep tokens_total` matching the template's own commented example) and the
+  red-proof's first draft still exercised the wrong path. Both were caught by
+  mutation, neither by review-by-reading. The lesson is not "write a red-proof"
+  — it was written — it is that **a red-proof's injection must reproduce the
+  real shipped shape**, or it tests a file that never exists.
 
 ## Ship
 

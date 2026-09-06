@@ -42,7 +42,10 @@ value_contribution:
 # session total (`/cost` in Claude Code; the `usage` object via API) and append
 # one entry. Stage grain ONLY: do not try to split orchestration across specs —
 # that is a division you cannot observe, so any per-spec number is invented.
-# ⚠ GATED since PATCH-002 (DEC-022 amends DEC-013 §5, which said warn-only).
+# ⚠ GATED since PATCH-002 (DEC-022 amends DEC-013 §5, which said warn-only) —
+# BUT NOT FOR THIS STAGE. STAGE-001 shipped 2026-08-22 before the gate existed
+# and is named in STAGE_ORCH_COST_GRANDFATHERED, so cost-audit skips it. The
+# empty block below is therefore correct and deliberate, not an omission.
 # `just cost-audit` FAILS if a stage with status: shipped has no real entry
 # here. "A null here is honest; a guess is not" still stands — if a stage's
 # orchestration genuinely has no observable split, add it to

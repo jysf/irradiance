@@ -20,7 +20,18 @@ SUBJECT="$(cd "$ROOT" && find projects/*/stages -maxdepth 1 -name 'STAGE-002-*.m
 GRANDFATHERED="$(cd "$ROOT" && find projects/*/stages -maxdepth 1 -name 'STAGE-001-*.md' -type f | sort | head -1)"
 [ -n "$SUBJECT" ] || fail "no STAGE-002 file found to mutate"
 
-cp -R "$ROOT" "$TMP/repo"
+# FU-7 (PATCH-003 verify): `cp -R "$ROOT"` copied `target/` — 105 s locally
+# against 3.8 s from a clean clone, and 0.87 s in CI where target/ does not
+# exist. The gate reads scripts/, projects/ and nothing else, so copy that.
+mkdir -p "$TMP/repo"
+for d in scripts projects; do cp -R "$ROOT/$d" "$TMP/repo/$d"; done
+# require_initialized() checks for AGENTS.md (_lib.sh:41), and _lib.sh reads the
+# active project from .repo-context.yaml. Without these the control fails for a
+# reason that has nothing to do with the gate — which is how the first attempt at
+# this optimisation looked exactly like a regression.
+for f in .repo-context.yaml VERSION justfile app.just AGENTS.md decisions guidance; do
+    [ -e "$ROOT/$f" ] && cp -R "$ROOT/$f" "$TMP/repo/$f"
+done
 cd "$TMP/repo"
 
 # ⚠ REPRODUCE THE REAL SHIPPED SHAPE, template comment included. An injection
@@ -102,6 +113,54 @@ set -e
     || fail "SB-2 REGRESSION: prose in the body satisfied the gate — the front-matter scan is leaking into the body again"
 printf '%s\n' "$out2" | grep -q 'missing cost on: orchestration' \
     || fail "SB-2 case went red for the wrong reason"
+
+# ── 3c. PATCH-003 round 2: THE FENCE IS NOT `^---$`.
+#      Round 1 claimed the body was "unreachable" in four places, off one
+#      modelled shape. The reviewer found it was ONE SPACE away. These cases
+#      exist so that claim is falsifiable rather than asserted — each is a
+#      shape that bypassed the gate at 15c7fe0.
+#
+#      N1 trailing space on the closing fence   N2 no closing fence at all
+#      N3 CRLF line endings                     N5 no front matter
+fence_case() {  # $1 = label, $2 = closing fence text ('' for none)
+    cp "$ROOT/$SUBJECT" "$SUBJECT"
+    empty_block "$SUBJECT"
+    if [ -n "$2" ]; then
+        # replace the SECOND `---` (the closing fence) with the variant
+        python3 - "$SUBJECT" "$2" <<'INNER2'
+import sys
+p, fence = sys.argv[1], sys.argv[2]
+lines = open(p).read().split('\n')
+seen = 0
+for i, l in enumerate(lines):
+    if l.strip() == '---' and l == '---':
+        seen += 1
+        if seen == 2:
+            lines[i] = fence
+            break
+open(p, 'w').write('\n'.join(lines))
+INNER2
+    fi
+    printf '\n\n    - tokens_total: 84200000\n' >> "$SUBJECT"
+    set +e; ./scripts/cost-audit.sh >/dev/null 2>&1; local rc=$?; set -e
+    [ "$rc" -ne 0 ] || fail "$1: prose in the body satisfied the gate — the front-matter scan is leaking again"
+}
+
+fence_case "N1 (closing fence with a trailing space)" '--- '
+fence_case "N2 (no closing fence)" ''
+
+# N3 — CRLF. A real, filled entry must still be FOUND, and the stage must not
+# be silently skipped by get_stage_status. Before round 2 both failed, and the
+# gate then reported success about a stage it never opened.
+cp "$ROOT/$SUBJECT" "$SUBJECT"
+python3 -c "
+import sys
+p=sys.argv[1]; d=open(p,'rb').read().replace(b'\r\n',b'\n').replace(b'\n',b'\r\n')
+open(p,'wb').write(d)" "$SUBJECT"
+set +e; ./scripts/cost-audit.sh >/dev/null 2>&1; rc3=$?; set -e
+[ "$rc3" -eq 0 ] \
+    || fail "N3 (CRLF): a stage with a REAL orchestration entry was reported missing under CRLF"
+cp "$ROOT/$SUBJECT" "$SUBJECT"
 
 # ── 4. NEGATIVE CONTROL: restore the subject, empty the GRANDFATHERED stage,
 #      and confirm the exemption still holds — otherwise STAGE-001 fails today.
