@@ -88,10 +88,18 @@ cost:
       recorded_at: 2026-09-05
       notes: "main-loop, not separately metered (AGENTS.md §4). The design probe RAN, against three real frames (111,529,040 pixels), and it settled the spec's central question — whether an analytic oracle must reimplement the transform (weak independence) or can assert PROPERTIES of it (strong). Measured: (1) the shipped output is within 0.499968 LSB of the exact real-valued affine map on every one of 111.5M pixels, zero at or above 0.5, so the tolerance is pre-registered from evidence rather than guessed; (2) 45.0-50.1% of pixels differ from a TRUNCATED map, so an oracle written with floor fails half of every frame — DEC-018's warning, now measured on real data; (3) histogram(output) == histogram(normalized crop window) held EXACTLY on all three frames including the Orientation 6 one, WITHOUT reimplementing the eight-case orientation table anywhere; and (4) that property catches both faults the existing oracles miss — FU-3's orientation identity fault (15,425,929 pixels wrong, 33%) and SPIKE-001's BlackLevel+64 (36,824,570 wrong, 78.8%), the fault SSIMULACRA2 scores 95.62 (passing) on and the plane checksum is bit-identical on. Probe cost 2.6s for all three frames in release. Probe crate lived in the scratchpad and was never committed."
 
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: claude-code
+      tokens_total: 56224398
+      estimated_usd: 24.15
+      duration_minutes: 65
+      recorded_at: 2026-09-05
+      notes: "tokens_total/estimated_usd are per-component (input $3, output $15, 1h cache-write $6,
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 56224398
+    estimated_usd: 24.15
+    session_count: 2
 ---
 
 # SPEC-015: Analytic levels and geometry oracle

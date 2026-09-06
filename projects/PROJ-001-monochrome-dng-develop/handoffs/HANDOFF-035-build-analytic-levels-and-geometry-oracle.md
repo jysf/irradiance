@@ -61,7 +61,7 @@ handback:
     46,853,665 (~$20.13 per-component); AGENTS.md §4's flat-rate fallback on the same raw total
     would read ~$140 — signal flat-rate-overstates-cached-sessions gained this session as its
     5th data point (~7x), so the per-component figure is reported, not the flat one."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-05
 ---
 
 # HANDOFF-035: Build SPEC-015 — the analytic levels and geometry oracle
