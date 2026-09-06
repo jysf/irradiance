@@ -24,6 +24,14 @@ jobs:
       - name: cost-audit (shipped specs have build/verify cost; AGENTS §4)
         run: ./scripts/cost-audit.sh
 
+      # PATCH-002. The gate above now also fails when a SHIPPED STAGE has an
+      # empty orchestration_cost. `constraints.yaml` says a job that exists and
+      # has never passed is a deleted job; the sibling case is a gate that has
+      # never FAILED, which cannot be told from one that never ran. So the
+      # red-proof runs in CI beside the gate it proves.
+      - name: cost-audit goes red on an unfilled stage orchestration_cost
+        run: ./scripts/cost-audit-red-proof.sh
+
       # Opt-in by existence: passes quietly until you run `just decisions-index`
       # once and commit the result. After that it fails if the index falls
       # behind the decisions — the difference between a derived artifact and a

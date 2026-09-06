@@ -102,8 +102,12 @@ while IFS= read -r f; do
     [ "$(get_stage_status "$f")" = "shipped" ] || continue
     if is_grandfathered_stage_orch "$name"; then continue; fi
     if ! stage_has_orchestration_cost "$f"; then
-        off_names+=("$name"); off_missing+=("orchestration")
-        [ "$JSON_OUT" = 1 ] || printf "  %-58s missing cost on: %s\n" "$name" "orchestration"
+        reason="orchestration"
+        off_names+=("$name"); off_missing+=("$reason")
+        # One source for both surfaces: the human line and the JSON `missing_cost`
+        # must not be able to drift. Found by a mutation that emptied the array and
+        # left the printed message intact, because the reason was written twice.
+        [ "$JSON_OUT" = 1 ] || printf "  %-58s missing cost on: %s\n" "$name" "$reason"
         offenders=$((offenders + 1))
     fi
 done < <(find_all_stages "$project_dir")

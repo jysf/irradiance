@@ -15,8 +15,9 @@ trap 'rm -rf "$TMP"' EXIT
 
 fail() { printf '✗ cost-audit red-proof: %s\n' "$1" >&2; exit 1; }
 
-SUBJECT="$(cd "$ROOT" && ls projects/*/stages/STAGE-002-*.md | head -1)"
-GRANDFATHERED="$(cd "$ROOT" && ls projects/*/stages/STAGE-001-*.md | head -1)"
+# `find`, not `ls` (SC2012) — and the same shape `find_all_stages` uses.
+SUBJECT="$(cd "$ROOT" && find projects/*/stages -maxdepth 1 -name 'STAGE-002-*.md' -type f | sort | head -1)"
+GRANDFATHERED="$(cd "$ROOT" && find projects/*/stages -maxdepth 1 -name 'STAGE-001-*.md' -type f | sort | head -1)"
 [ -n "$SUBJECT" ] || fail "no STAGE-002 file found to mutate"
 
 cp -R "$ROOT" "$TMP/repo"

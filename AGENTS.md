@@ -294,6 +294,15 @@ cargo fmt --check
 #              UNMUTATED copy run first as a negative control (DEC-009)
 ./scripts/lint-red-proof.sh
 
+# cost-audit-red-proof — proves the STAGE half of `just cost-audit` can fail
+#              (PATCH-002). Empties a shipped stage's orchestration_cost —
+#              template comment included, so the naive `grep tokens_total`
+#              implementation is really exercised — and asserts the gate
+#              rejects it by name, with a reason, while the grandfathered
+#              STAGE-001 stays exempt. Runs in a temp copy; CI runs it beside
+#              the gate it proves.
+./scripts/cost-audit-red-proof.sh
+
 # lint-no-allow  — closes what the red-proof structurally cannot see: an
 #              #[allow] of a policy lint BENEATH the crate root. `-F` is
 #              `--forbid`, so re-allowing one is compiler error E0453 rather
