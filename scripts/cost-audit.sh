@@ -89,6 +89,25 @@ while IFS= read -r f; do
     [ -n "$imp" ] && warnings+=("${name}: ${imp}")
 done < <(find_all_patches "$project_dir")
 
+# Stages (PATCH-002). AGENTS.md's stage template says "THE ORCHESTRATOR FILLS
+# THIS — not the human" about `orchestration_cost`, and until this gate existed
+# nothing checked it: STAGE-001 shipped 2026-08-22 with `sessions: []` and no
+# gate, report or status line noticed for fifteen days. That is the same shape
+# as `brag-step-skipped-at-ship` — a documented step with no surface simply does
+# not happen. Orchestration is not a rounding error: STAGE-002 measured ~84.2M
+# tokens of it against 187.0M of delegated spec cost, roughly 31% of the stage.
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    name=$(basename "$f" .md)
+    [ "$(get_stage_status "$f")" = "shipped" ] || continue
+    if is_grandfathered_stage_orch "$name"; then continue; fi
+    if ! stage_has_orchestration_cost "$f"; then
+        off_names+=("$name"); off_missing+=("orchestration")
+        [ "$JSON_OUT" = 1 ] || printf "  %-58s missing cost on: %s\n" "$name" "orchestration"
+        offenders=$((offenders + 1))
+    fi
+done < <(find_all_stages "$project_dir")
+
 # Machine-readable findings (DEC-001 §2) — which artifact is missing which
 # metered cycle, so an agent can fix it rather than screen-scrape.
 if [ "$JSON_OUT" = 1 ]; then
@@ -126,6 +145,6 @@ fi
 
 if [ "$offenders" -gt 0 ]; then
     echo ""
-    die "cost-audit: ${offenders} shipped spec(s)/patch(es) missing metered-cycle cost. Record tokens_total per AGENTS.md §4 / docs/cost-tracking.md."
+    die "cost-audit: ${offenders} shipped artifact(s) missing cost. Specs/patches need metered-cycle tokens_total; a shipped STAGE needs orchestration_cost.sessions filled at its close (AGENTS.md §4, the stage template's own instruction, docs/cost-tracking.md)."
 fi
-success "cost-audit: all shipped specs and patches have their metered-cycle cost recorded."
+success "cost-audit: all shipped specs and patches have their metered-cycle cost recorded, and every shipped stage records its orchestration cost."
