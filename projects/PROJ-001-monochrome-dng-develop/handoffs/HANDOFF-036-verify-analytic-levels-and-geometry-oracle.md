@@ -59,7 +59,7 @@ handback:
   pr: null                         # not opened — Out of Scope
   completed_at: 2026-09-05         # YYYY-MM-DD
   notes: "VERDICT APPROVED at a3f0063 (CI 9/9, run 34003871323); 8 follow-ups FU-4..FU-11, 0 ship-blockers. Cost is a transcript sum deduped by message.id from THIS session's own JSONL (d56874fe-79ae-4cbf-b1b9-c0e078c2dc7b.jsonl, identified by the scratchpad-dir uuid, not by content match): 184 usage objects / 103 unique ids, all message.model=claude-opus-5; raw combined 17,095,892 (input 206 / output 77,549 / cache-read 16,784,762 = 98.2% / cache-write-1h 233,375 / cache-write-5m 0), priced PER-COMPONENT at published Opus rates ($15/$75/$30-1h/$1.50-read) = $38.00, then BOTH figures rounded up 20% per this handoff's point 7 to cover the turns spent writing this handback. ⚠ THIS notes field is deliberately ONE LINE: the build's multi-line scalar is what handback-sync truncated into an unterminated quote in the spec's front matter — see FU-4, which must be fixed BEFORE this entry is synced."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-05
 ---
 
 # HANDOFF-036: Verify SPEC-015 — the analytic oracle, at `7439f49`

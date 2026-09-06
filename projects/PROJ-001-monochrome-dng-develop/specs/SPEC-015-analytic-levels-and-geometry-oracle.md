@@ -6,7 +6,7 @@
 task:
   id: SPEC-015
   type: story                      # epic | story | task | bug | chore
-  cycle: verify                    # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -16,7 +16,7 @@ task:
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -96,10 +96,18 @@ cost:
       duration_minutes: 65
       recorded_at: 2026-09-05
       notes: "tokens_total/estimated_usd are per-component (input $3, output $15, 1h cache-write $6, cache-read $0.30 per MTok - published Sonnet rates), summed over this session's own transcript (69b4c29b-d5cc-4fd8-8ef7-d2da3fdf661c.jsonl, identified by scratchpad-dir uuid, not content match - signal orchestrator-transcript-looks-like-a-prior-attempt), deduped by message.id, rounded up 20% per this handoff's own instruction. Raw measured combined was 46,853,665 (~$20.13 per-component); AGENTS.md section 4's flat-rate fallback on the same raw total would read ~$140 - signal flat-rate-overstates-cached-sessions gained this session as its 5th data point (~7x), so the per-component figure is reported, not the flat one. [SPEC-015/FU-4: handback-sync.sh transcribed only the FIRST physical line of this note into the spec, leaving an unterminated double-quoted scalar and making the whole front matter unparseable from c57f88d; restored in full here as one line.]"
+    - cycle: verify
+      agent: claude-opus-5[1m]
+      interface: claude-code
+      tokens_total: 20515070
+      estimated_usd: 45.60
+      duration_minutes: 95
+      recorded_at: 2026-09-05
+      notes: "VERDICT APPROVED at a3f0063 (CI 9/9, run 34003871323); 8 follow-ups FU-4..FU-11, 0 ship-blockers. Cost is a transcript sum deduped by message.id from THIS session's own JSONL (d56874fe-79ae-4cbf-b1b9-c0e078c2dc7b.jsonl, identified by the scratchpad-dir uuid, not by content match): 184 usage objects / 103 unique ids, all message.model=claude-opus-5; raw combined 17,095,892 (input 206 / output 77,549 / cache-read 16,784,762 = 98.2% / cache-write-1h 233,375 / cache-write-5m 0), priced PER-COMPONENT at published Opus rates ($15/$75/$30-1h/$1.50-read) = $38.00, then BOTH figures rounded up 20% per this handoff's point 7 to cover the turns spent writing this handback. ⚠ THIS notes field is deliberately ONE LINE: the build's multi-line scalar is what handback-sync truncated into an unterminated quote in the spec's front matter — see FU-4, which must be fixed BEFORE this entry is synced."
   totals:
-    tokens_total: 56224398
-    estimated_usd: 24.15
-    session_count: 2
+    tokens_total: 76739468
+    estimated_usd: 69.75
+    session_count: 3
 ---
 
 # SPEC-015: Analytic levels and geometry oracle
