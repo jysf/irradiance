@@ -700,14 +700,27 @@ signals:
   - id: flat-rate-overstates-cached-sessions
     type: process-debt
     summary: "rate_per_mtok: 6.60 applied flat computes 2.7x the true cost on a 97.5%-cache-read session."
-    evidence: "N=4, four sessions and two models, always the same direction. (1) SPEC-007 verify: $19.35 per-component at published Opus rates vs $51.06 flat — 2.6x. (2) PATCH-001, SPEC-005's build on claude-sonnet-5: $13.55 actual vs $198.76 flat — 14.7x, because the flat rate ALSO ignores which model ran. (3) SPEC-010 verify: $21.33 vs $68.39 — 3.2x. (4) SPEC-012 verify, 2026-09-04: the reviewer reported $207 at a flat $15/MTok and SAID PLAINLY it was "a ceiling, not an estimate"; measured per-component on a 98.3% cache-read session it is $33.22 — 6.2x. Honest labelling, and still the wrong number to leave in a field named estimated_usd. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them."
+    evidence: "N=5, four sessions and two models before this one, always the same direction. (1) SPEC-007 verify: $19.35 per-component at published Opus rates vs $51.06 flat — 2.6x. (2) PATCH-001, SPEC-005's build on claude-sonnet-5: $13.55 actual vs $198.76 flat — 14.7x, because the flat rate ALSO ignores which model ran. (3) SPEC-010 verify: $21.33 vs $68.39 — 3.2x. (4) SPEC-012 verify, 2026-09-04: the reviewer reported $207 at a flat $15/MTok and SAID PLAINLY it was "a ceiling, not an estimate"; measured per-component on a 98.3% cache-read session it is $33.22 — 6.2x. Honest labelling, and still the wrong number to leave in a field named estimated_usd. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them. (5) SPEC-015 build, 2026-09-05, claude-sonnet-5: transcript summed 228 input / 212,083 output / 445,454 cache-write (all 1h) / 39,271,015 cache-read = 40,409,158 combined, 97.3% cache-read. Per-component at published Sonnet rates ($3/$15/$6/$0.30 per MTok input/output/1h-write/read): $17.80. AGENTS.md §4's own fallback (`tokens_total × input rate, no cache discount`) gives $121.23 — 6.8x, squarely inside the N=4 spread (2.6x-14.7x) this signal already names, not a new failure mode."
     bar: null
     status: open
     disposition_at: project-close
     first_flagged: 2026-08-21
-    last_touched: 2026-09-04
+    last_touched: 2026-09-05
     raised_by: claude
     notes: |
+      ⚠ FIFTH MEASUREMENT 2026-09-05 (SPEC-015 build), added by the implementer
+      computing its own handback cost rather than by a verify/ship session
+      auditing someone else's — the first data point from that angle, and it
+      landed in the same 2.6x-14.7x band the other four occupy. AGENTS.md §4's
+      literal fallback formula (`tokens_total × your model's published list
+      rate, no cache discount`) was computed alongside the per-component figure
+      specifically to check whether the spread might be an artifact of how
+      earlier sessions computed "flat" rather than a property of the formula
+      itself — it is not; the formula itself overstates by 6.8x on this session,
+      consistent with the others. Reported `estimated_usd` in this spec's
+      handback uses the per-component figure, not §4's own fallback, on the
+      strength of this signal.
+
       ⚠ FOURTH MEASUREMENT 2026-09-04, and it is the one that shows documenting
       the flaw is not enough. SPEC-012's reviewer knew the rate was wrong, wrote
       "ceiling, not estimate" beside it, and the field still went to the spec
@@ -733,3 +746,31 @@ signals:
       hidden -- but "documented as wrong" and "useful" are different things.
       Options at close: record the four component counts per session and compute,
       or drop estimated_usd rather than carry a number nobody should use.
+
+  # --- lesson: a fast per-value dedup can silently drop the COUNT a --------
+  # --- correctness check depended on -----------------------------------
+  - id: distinct-value-dedup-drops-multiplicity
+    type: lesson
+    summary: "Replacing a per-element check with a per-DISTINCT-value one is only valid if nothing downstream needed to know HOW MANY of each value there were."
+    evidence: "SPEC-015 build, 2026-09-05. Optimizing tests/support/oracle.rs's AC1 per-pixel bound check away from an O(n log n) sort (measured cost: a single tier-B test alone took 91.78s, past AC8's pre-registered 60s bound), the first rewrite paired the i-th smallest DISTINCT raw value against the i-th smallest DISTINCT actual value, weighting only a secondary tally by count. It compiled, ran fast, and was WRONG: many raw values below BlackLevel legitimately collapse to output 0, so 'is 0 a value that occurs' cannot see 'did the WRONG NUMBER of pixels collapse to 0' — exactly the shape of the BlackLevel+64 fault this file exists to catch (AC5a). Caught immediately by the check's own honest-tree assertion reporting an impossible infinite deviation, not by a reviewer. N=1."
+    bar: "N=3"
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-09-05
+    last_touched: 2026-09-05
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote — N=1. The fix (`tests/support/oracle.rs::bound_check`,
+      `DEC-020`) is a genuine O(n + 65536) alternative that IS correct: a
+      two-pointer merge over RUNS (value, remaining count) in each frequency
+      table, mathematically equivalent to sorting both arrays and zipping them
+      rank-for-rank. The general shape worth watching for a second instance of:
+      whenever a check's real invariant is about MULTISET or RANK correspondence
+      (not just "does this value occur"), a distinct-value-only reformulation is
+      a different, weaker claim — and it can look identical in the honest case,
+      only diverging on the specific fault class that involves a COUNT shifting
+      between buckets rather than a value appearing where it shouldn't. The
+      catch here was cheap (the check's own honest-tree self-assertion), which
+      is itself worth naming: any oracle rewrite that changes performance,
+      not just any that changes behavior, should still re-run the red-proof
+      and the honest-tree control before being trusted.

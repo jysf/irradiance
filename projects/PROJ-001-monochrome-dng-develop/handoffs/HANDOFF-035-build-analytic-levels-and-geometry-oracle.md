@@ -14,15 +14,15 @@ handoff:
   id: HANDOFF-035
   cycle: build                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # ⚠ PREDICTION from tier_map.build, not a measurement.
-                                    # Standing record: 0 FOR 10 on the build hint. CORRECT THIS
-                                    # to whatever your own system prompt reports as
-                                    # `message.model` before handing back
+  to_agent: claude-sonnet-5         # CORRECTED from the tier_map.build prediction (claude-opus-5) —
+                                    # confirmed both by this session's own system prompt and by
+                                    # message.model on every entry in this session's transcript.
+                                    # Standing record stands at 0 FOR 11 on the build hint
                                     # (signal `tier-map-predicts-what-it-should-record`).
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-09-05
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-015
@@ -46,14 +46,21 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 56224398           # REAL combined count — what cost-audit reads
+  estimated_usd: 24.15             # tokens_total × your rate, or your harness's number
+  duration_minutes: 65
+  branch: feat/spec-015-analytic-levels-and-geometry-oracle
+  pr: null                         # not opened — HANDOFF-035 Return Criterion 10
+  completed_at: 2026-09-05         # YYYY-MM-DD
+  notes: "tokens_total/estimated_usd are per-component (input $3, output $15, 1h cache-write $6,
+    cache-read $0.30 per MTok — published Sonnet rates), summed over this session's own
+    transcript (69b4c29b-d5cc-4fd8-8ef7-d2da3fdf661c.jsonl, identified by scratchpad-dir uuid,
+    not content match — signal orchestrator-transcript-looks-like-a-prior-attempt), deduped by
+    message.id, rounded up 20% per this handoff's own instruction. Raw measured combined was
+    46,853,665 (~$20.13 per-component); AGENTS.md §4's flat-rate fallback on the same raw total
+    would read ~$140 — signal flat-rate-overstates-cached-sessions gained this session as its
+    5th data point (~7x), so the per-component figure is reported, not the flat one."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -190,38 +197,108 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `feat/spec-015-analytic-levels-and-geometry-oracle` at `2532dc2`. No PR opened (Return Criterion 10).
+- **Completed at:** 2026-09-05
+- **All acceptance criteria met?** Yes, all nine (AC1–AC9). No defect found in `src/develop.rs` — the oracle's every measured number reproduces the design probe's own pre-registered `## Implementation Context` exactly (see Return Criteria reply below), so AC7's "stop and report" branch does not fire.
+- **For `verify`:** N/A — this is the `build` cycle.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 56,224,398 (real, from this session's own transcript — see below)
+- **Estimated USD:** $24.15 (per-component: input $3, output $15, 1h cache-write $6, cache-read $0.30 per MTok — published Sonnet-tier rates)
+- **Duration (minutes):** ~65
+- **Source of the number:** harness report — this session's own transcript file,
+  `~/.claude/projects/-Users-jyashinsky-PSeven-experiments-crustimg-redo-plus-irradiance/69b4c29b-d5cc-4fd8-8ef7-d2da3fdf661c.jsonl`,
+  identified by the **scratchpad-dir uuid** (`69b4c29b-d5cc-4fd8-8ef7-d2da3fdf661c`), not by
+  content match — the same project transcript directory also holds the orchestrator's own live
+  session from writing this handoff (signal `orchestrator-transcript-looks-like-a-prior-attempt`).
+  Summed every `assistant` message's `usage` object, **deduped by `message.id`**: 128 unique ids,
+  input 256 / output 230,579 / cache-write 470,321 (all 1h) / cache-read 46,152,509 = 46,853,665
+  raw combined, 98.5% cache-read. Rounded up **20%** per this handoff's own instruction (point 8)
+  to cover the remaining turns writing this handback → **56,224,398**.
+  ⚠ **Priced per-component, not by AGENTS.md §4's flat-rate fallback** — that fallback
+  (`tokens_total × input rate`) gives ≈$140 on the raw total here, a ~7x overstatement matching
+  signal `flat-rate-overstates-cached-sessions` (N=4 before this session; this session is its 5th
+  data point, added directly to that signal's evidence in this same commit's sibling file).
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - `DEC-020` — the analytic oracle compares by RANK and FREQUENCY, never by position (the
+    property-set design: how AC1/AC2/AC3 avoid the eight-case orientation table, and the
+    rejected first attempt that got this measurably wrong)
+  - `DEC-021` — the develop oracle's two red-proofs use DIFFERENT mechanisms, on purpose
+    (in-process field mutation for the levels fault; `DEC-017`'s mutate-copy-rebuild-run for the
+    call-site fault)
+- **Deviations from spec:** None from the spec's own requirements. One implementation pivot
+  worth naming: the first working version of `tests/support/oracle.rs`'s AC1/AC2 check sorted
+  the full ~47-megapixel arrays (first with an `f64` comparator, then with a primitive `u16`
+  one) and measured **91.78s–79.32s for a single tier-B test alone**, past AC8's pre-registered
+  60s bound. Per AC8's own instruction ("propose a subsample rather than silently shipping a
+  slow suite"), I looked for a cheaper mechanism instead of subsampling (subsampling would have
+  weakened AC1's "every pixel" claim and AC3's "holds exactly" claim) and found one: both
+  sequences are bounded to 65,536 possible `u16` values, so a frequency-table merge computes the
+  identical rank-preserving pairing in O(n + 65536) instead of O(n log n). The **first version**
+  of that merge was itself wrong (see Finding FU-2 below) and was caught by its own
+  honest-tree assertion before it ever reached this handback. Final tier-B suite: **~15s**.
+- **Follow-up work identified:** see Findings below. None rise to needing a new spec.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing in the spec itself. The one real ambiguity was mechanical, not conceptual: AC6's
+   "over a hand-built fixture — the shape `SPEC-014/FU-3` used, and the shape `SPEC-013`'s
+   reviewer measured as costing 1.47s" reads as one mechanism for both red-proofs. Reading both
+   cited artifacts closely showed they're two different antecedents (a fixture SHAPE for one,
+   a rebuild MECHANISM for the other) that happen to fit the levels fault and the orientation
+   fault differently — `DEC-021` exists because working that out took real thought, and a future
+   reader of this handoff shouldn't have to redo it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No — `DEC-004`, `DEC-017` and `DEC-018` between them cover every load-bearing precedent this
+   build needed (why no oracle may reimplement the transform, the mutate-rebuild red-proof
+   mechanism, and the rounding-rule trap AC1's bound is designed around). The one thing I'd add
+   for a *future* spec in this same shape: a pointer from AC8's cost bound to the general fact
+   that a design-probe's `--release` measurement does not bound a debug `cargo test`'s cost for
+   O(n log n)-or-worse per-pixel work — this build had to rediscover that the hard way, though it
+   is arguably implied by AC8's own "a debug cargo test will be slower" line.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the frequency-table/rank-merge form of the bound check FIRST, instead of starting
+   with the "obvious" sort-and-zip and optimizing only after measuring AC8's bound blown. The
+   O(n log n) version was never going to fit a real ~47-megapixel frame in a debug build, and the
+   65,536-value-domain fact (`u16`) that makes the O(n) form possible was available from the very
+   first line of the spec's own AC1 text. I would also write the rank-preserving merge's
+   correctness argument (monotonicity + permutation ⇒ rank order = positional order) down
+   BEFORE coding it, rather than after catching a bug in a plausible-looking-but-wrong
+   simplification of it — the bug (Finding FU-2) was real but cheap to catch only because the
+   honest-tree assertion happened to be strict enough to notice an impossible result.
+
+### Findings (`SB-N` / `FU-N`, proposed §15 dispositions)
+
+No ship-blockers. Three follow-ups, numbered from `FU-1` per this spec's own sequence:
+
+- **`FU-1`** — This session's cost computation reproduced the existing
+  `flat-rate-overstates-cached-sessions` process-debt signal's pattern exactly (a ~7x
+  overstatement from AGENTS.md §4's flat-rate fallback vs. per-component pricing, squarely
+  inside the signal's already-measured 2.6x–14.7x spread). **Proposed disposition:**
+  `signal: flat-rate-overstates-cached-sessions` — evidence added directly to that entry
+  (5th data point) in `guidance/signals.yaml`, in this build's own commit.
+- **`FU-2`** — A first attempt at optimizing `tests/support/oracle.rs`'s AC1 bound check paired
+  the i-th smallest *distinct* raw value against the i-th smallest *distinct* actual value
+  (weighting only a secondary tally by count), rather than the i-th smallest value *counting
+  repeats*. It compiled, ran fast, and was wrong: it cannot see a fault that shifts the wrong
+  NUMBER of pixels into an already-valid, already-occurring bucket (exactly `AC5`'s `BlackLevel`
+  fault) — only a fault that introduces an impossible value. Caught by the check's own
+  honest-tree assertion reporting an impossible infinite deviation, before this handback, not by
+  a reviewer. **Proposed disposition:** `signal: distinct-value-dedup-drops-multiplicity` — new
+  lesson entry (`type: lesson`, `status: watch`, `N=1`) in `guidance/signals.yaml`, in this
+  build's own commit; the concrete fix (`bound_check`'s rank-preserving frequency-table merge) is
+  already shipped, so nothing further is owed on the code — only the pattern is worth watching
+  for a second, unrelated instance.
+- **`FU-3`** — This oracle's `DECODABLE` set is the three files the design probe measured
+  (matching its own `111,529,040`-pixel total exactly), not `tests/plane_oracle.rs`'s four —
+  `LEICA-Q2-MONO/L1026192.DNG` shares `L1021223.DNG`'s levels, geometry and orientation exactly,
+  so it would add no arithmetic this oracle can observe. **Proposed disposition:** `closed` —
+  already stated as a deliberate, justified scope choice in `tests/develop_oracle.rs`'s own
+  `DECODABLE` doc comment; nothing further to decide.

@@ -26,6 +26,11 @@ Cycle prompts live in `prompts/SPEC-015-<cycle>.md`.
   green). Nine ACs, six failing tests, red-proof required **tier-A** per
   `SPEC-013/FU-1`. Complexity raised **S → M**: the stage's S predates the probe.
   `HANDOFF-035` ready.
-- [ ] **build** — `HANDOFF-035`.
+- [x] **build** — 2026-09-05, `HANDOFF-035`, `feat/spec-015-analytic-levels-and-geometry-oracle`
+  at `2532dc2`, CI observed green (9/9 jobs, run `34000895054`). All nine ACs met; `src/develop.rs`,
+  `src/plane.rs`, `src/ifd.rs` 0 lines changed (AC7) — no defect found. Every measured number on
+  the three real files reproduces the design probe's `## Implementation Context` exactly. Two new
+  decisions (`DEC-020`, `DEC-021`); no fuzz target (adds none). 150 tests (was 143), 0 failed, 0
+  skipped. Three follow-ups, zero ship-blockers — see `HANDOFF-035`'s Findings.
 - [ ] **verify** — handoff written after build hands back.
 - [ ] **ship**

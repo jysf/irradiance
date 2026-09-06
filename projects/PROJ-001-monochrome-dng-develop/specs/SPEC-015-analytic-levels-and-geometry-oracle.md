@@ -6,7 +6,7 @@
 task:
   id: SPEC-015
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -189,7 +189,7 @@ duplicate it.
 
 ## Acceptance Criteria
 
-- [ ] **AC1 — L2, the per-pixel bound, on every decodable frame.** For each of
+- [x] **AC1 — L2, the per-pixel bound, on every decodable frame.** For each of
       the three decodable files, every output pixel is within **< 0.5 LSB** of
       the exact real-valued affine map
       `(clamp(raw, B, W) − B) × 65535 / (W − B)`, computed in `f64` from tags
@@ -201,14 +201,14 @@ duplicate it.
       If the build measures a max at or above 0.5, that is a **finding, not a
       threshold to relax** — say so and stop.
       `every_pixel_is_within_half_an_lsb_of_the_exact_affine_map` (tier B).
-- [ ] **AC2 — L2 must never be satisfiable by truncation.** Assert in the same
+- [x] **AC2 — L2 must never be satisfiable by truncation.** Assert in the same
       test that the shipped output **differs** from the truncated map on a large
       fraction of pixels, so a future "simplification" cannot pass AC1 by
       accident. Measured: **45.0–50.1 %** across the three frames. Assert a
       floor of **> 40 %**, not the exact figure — the fraction is data-dependent
       and pinning it exactly would make the test brittle for the wrong reason.
       Same test as AC1.
-- [ ] **AC3 — L1, the permutation property, WITHOUT reimplementing the
+- [x] **AC3 — L1, the permutation property, WITHOUT reimplementing the
       orientation table.** `develop_into` applies a *permutation* of the
       normalized crop window, so `histogram(output)` must equal
       `histogram(normalize(crop window))` — computed in raster order with **no
@@ -217,7 +217,7 @@ duplicate it.
       eight-case table in any form.** If your implementation of this criterion
       needs to know what `Orientation 6` does, you have written a mirror.
       `the_developed_histogram_is_the_normalized_crop_windows` (tier B).
-- [ ] **AC4 — L1, the injectivity property.** `normalize` is strictly monotonic
+- [x] **AC4 — L1, the injectivity property.** `normalize` is strictly monotonic
       and injective on `[BlackLevel, WhiteLevel]` whenever `W − B ≤ 65535`, so
       the output carries exactly as many distinct levels as the crop window has
       distinct raw values. Measured: **15,872** distinct levels on
@@ -227,7 +227,7 @@ duplicate it.
       identity in tier B.
       `normalization_is_strictly_monotonic_and_injective` (tier A) /
       `distinct_output_levels_equal_distinct_input_levels` (tier B).
-- [ ] **AC5 — the oracle catches both faults the existing oracles miss.** Not a
+- [x] **AC5 — the oracle catches both faults the existing oracles miss.** Not a
       claim — a test. Both are measured and both must be exercised:
       **(a)** a levels fault — `BlackLevel + 64`, which leaves `--raw-checksum`
       **bit-identical** and scores SSIMULACRA2 **95.62, passing**; measured to
@@ -237,25 +237,25 @@ duplicate it.
       corrupt **15,425,929** pixels (33 %).
       `the_oracle_is_red_on_a_levels_fault` /
       `the_oracle_is_red_on_an_orientation_fault`.
-- [ ] **AC6 — the red-proof runs where CI can see it (`oracle-must-be-shown-red`).**
+- [x] **AC6 — the red-proof runs where CI can see it (`oracle-must-be-shown-red`).**
       ⚠ `SPEC-013/FU-1` is the precedent and the warning: its red-proof works,
       and it is **invisible to CI**, because it needs the corpus. **AC5's two
       faults must go red with `IRRADIANCE_CORPUS_DIR` unset**, over a hand-built
       fixture — the shape `SPEC-014/FU-3` used, and the shape `SPEC-013`'s
       reviewer measured as costing 1.47 s. State the mechanism you chose and why.
       Verified by running the tier-A subset with no corpus and watching it fail.
-- [ ] **AC7 — no library code changes.** `src/develop.rs`, `src/plane.rs` and
+- [x] **AC7 — no library code changes.** `src/develop.rs`, `src/plane.rs` and
       `src/ifd.rs` are **0 lines changed** against `main`. This spec adds a
       check; if the check fails, that is a finding to report, not a reason to
       edit the code under test. ⚠ If the oracle genuinely finds a defect, **stop
       and say so** — that is the single most valuable outcome this spec can have,
       and it must not be quietly absorbed by adjusting either side.
-- [ ] **AC8 — cost.** The oracle runs over ~111.5 M pixels. Design measured
+- [x] **AC8 — cost.** The oracle runs over ~111.5 M pixels. Design measured
       **2.6 s** for all three frames in `--release`; a debug `cargo test` will be
       slower. Report the measured wall-clock of the tier-B tests. If it exceeds
       **60 s**, say so and propose a subsample rather than silently shipping a
       slow suite — pre-registered, same rule as AC1.
-- [ ] **AC9 — eleven gates + `just lint-ci`**, CI **observed** green on the
+- [x] **AC9 — eleven gates + `just lint-ci`**, CI **observed** green on the
       shipping SHA.
 
 ## Failing Tests
