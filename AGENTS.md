@@ -1316,12 +1316,14 @@ Use 1.0 only for decisions that are truly locked (tech stack choice
 after it's been installed and working, for example). Most decisions
 should land between 0.7 and 0.95.
 
-### Three rules earned the hard way — codified at STAGE-001's close, 2026-08-22
+### Four rules earned the hard way — three codified at STAGE-001's close,
+### 2026-08-22; the fourth at STAGE-002's close, 2026-09-06
 
 These are not style preferences. Each is a **lesson at or past its bar** in
 `guidance/signals.yaml`, and between them they account for a false green that
-shipped a panic past seven gates, a decision record rejected on three counts, and
-a blocking constraint's CI gate that was dark for **17 consecutive runs**.
+shipped a panic past seven gates, a decision record rejected on three counts, a
+blocking constraint's CI gate that was dark for **17 consecutive runs**, and one
+unverified reading of one file propagating into three separate documents.
 
 **1. The writing rule — `measurement-over-generalised` (N=5).**
 
@@ -1363,6 +1365,26 @@ a **non**-match becoming control flow. Two traps, both measured:
 
 A proof that dies without a message is indistinguishable from a proof that never
 ran — which is the exact thing these gates exist to prevent.
+
+**4. A claim about a file is verified by running the reader — `unrun-docs-carry-errors` (N=5).**
+
+> A sentence that states what a **file contains** — a tag value, a dimension, a
+> level — is verified by **running the tool that reads it**, at the moment the
+> sentence is written. This applies to a **correction** exactly as it applies to
+> the original claim.
+
+Codified at STAGE-002's close, 2026-09-06, when the count went 2 → 5. Instances 3,
+4 and 5 are the same fact about the same file, propagating: `manifest.toml` called
+`L1000622.DNG`'s `DefaultCropOrigin` an `ActiveArea`; the **correction** written
+for that then asserted a non-zero `ActiveArea` on the Q2M frames, which all measure
+`top 0, left 0`; and `conformance-matrix.md` carried the original mislabelling a
+third time. One unverified reading reached three documents before anyone ran
+`irr ifd`.
+
+Instance 4 is why this is a rule and not a reminder: **a correction written without
+running is as wrong as what it corrects, and carries more authority because it looks
+like a fix.** The cost of compliance is one command. `SPEC-014`'s design probe and
+`SPEC-015`'s both ran the reader first and produced no instances.
 
 **In this repo, "measured once, on one file" is not 1.0.** The oracle contract
 was verified against a single Leica Q2 Monochrom frame from one firmware. High

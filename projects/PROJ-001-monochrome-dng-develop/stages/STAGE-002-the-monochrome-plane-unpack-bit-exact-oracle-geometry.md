@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-002                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-08-15
-shipped_at: null
+shipped_at: 2026-09-06
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -43,10 +43,11 @@ value_contribution:
 # that is a division you cannot observe, so any per-spec number is invented.
 # Warn-only, never a gate. A null here is honest; a guess is not. (DEC-013 §5)
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
-                                    #   estimated_usd: N
-                                    #   recorded_at: YYYY-MM-DD
-                                    #   notes: "framing + spec breakdown"
+  sessions:
+    - tokens_total: 84200000
+      estimated_usd: 214.20
+      recorded_at: 2026-09-06
+      notes: "Stage grain, not split across specs (DEC-013 section 5). One orchestrator session covering SPEC-014's reconciliation through SPEC-015's design, three handoffs, four reconciliations and this close - all of it STAGE-002 work, so the whole session attributes here. Measured floor 70,231,231 deduped by message.id from the orchestrator's own transcript (e078417d-f832-4765-bc7b-2b8493e01419.jsonl, identified by scratchpad-dir uuid), 260 unique assistant turns, all claude-opus-5; 96.9% cache-read. Priced per-component at published Opus rates ($15/$75/$30-write/$1.50-read) = $178.50, then both figures rounded up 20% to cover the turns writing this close - the same uplift this stage's handoffs required of every delegated session, measured there at 9.9%, 15.4% and 19.2% low. NOTE THE RATIO: orchestration ran ~84.2M against 187.0M of delegated spec cost across SPEC-012 through SPEC-015, so roughly 31% of this stage's total spend is orchestration that no spec would have recorded."
 ---
 
 # STAGE-002: The monochrome plane: unpack, bit-exact oracle, geometry
@@ -102,13 +103,13 @@ Run `just frame-stage STAGE-002` to promote these outlines into real specs.
 - [x] SPEC-012 (shipped on 2026-09-04) [M] Strip location and sample unpack, two paths per DEC-008
 - [x] SPEC-013 (shipped on 2026-09-05) [S] Bit-exact plane oracle against dnglab raw-checksum, with its red-proof
 - [x] SPEC-014 (shipped on 2026-09-05) [M] Level normalization, ActiveArea to DefaultCrop, and orientation
-- [ ] SPEC-015 (frame) [S] Analytic levels and geometry oracle
+- [x] SPEC-015 (shipped on 2026-09-06) [S] Analytic levels and geometry oracle
 
 ⚠ **`SPEC-010` and `SPEC-011` were framed against this stage and have been MOVED
 to `STAGE-005`.** Both are STAGE-001 debt, not plane work; leaving them here made
 this stage eight specs and blurred what it is for. Neither blocks the plane.
 
-**Count:** 4 shipped / 1 active / 0 pending
+**Count:** 5 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -204,11 +205,100 @@ independent implementation.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Filled in at ship, 2026-09-06.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m>
-- **What changed between starting and shipping?** <one sentence>
+### Success Criteria — all five met, checked against what shipped
+
+| criterion | verdict |
+|---|---|
+| MD5 of our full-frame `u16` plane equals `dnglab analyze --raw-checksum` on every tier-B file | ✅ **on every *decodable* tier-B file.** `plane_md5_matches_the_pinned_raw_checksum`, `SPEC-013`. The other three of the seven are `Compression 7`/`65535` and are rejected before any strip read — the criterion as written implies seven and means four. Worth reading exactly. |
+| The unpack asserts `w × h × 14 / 8 == StripByteCounts` and fails loudly | ✅ `layer0_arithmetic_is_enforced`, `SPEC-012` |
+| The oracle goes **red** on an injected off-by-one in the bit unpacker | ✅ `an_injected_unpacker_fault_turns_the_oracle_red`, watched red by three separate sessions: `honest=cb653b5b… mutant=59b032fe…` |
+| Geometry asserted numerically: `8424×5632 → ActiveArea → DefaultCrop 8368×5584 → Rotate 90 CW` | ✅ `SPEC-014`, on both a rotated and an unrotated frame — `Orientation` is per-frame, and `L1026016.DNG` is why |
+| Peak memory for a 47 MP decode measured, not assumed | ✅ 182,435,840 B decode (`SPEC-012`); ≈275,906,560 B develop (`SPEC-014`, corrected at `FU-5` — the measurement is page-granular, so it is `≈`, not `=`) |
+
+### value_contribution — delivered, with one honest correction
+
+All three `delivers` items shipped. The `advances` claim — *"proves it EXACTLY:
+our decoded sensor plane is byte-identical to an independent implementation's"* —
+is **true and narrower than it reads**. `SPEC-013` proves we match **rawler**, not
+that we are correct; the stage's own Design Notes said so at framing and the
+claim above did not inherit the qualifier. The genuinely implementation-
+independent checks are the layer-0 packing arithmetic and, added late,
+`SPEC-015`'s analytic oracle.
+
+No spec's `value_link` failed to deliver what it claimed.
+
+### Three sentences
+
+**Built vs planned:** five specs against a planned backlog of five, and the plan
+held — but `SPEC-015` was not in the original stage framing at all; it exists
+because `DEC-004` measured, mid-stage, that both existing oracles are structurally
+blind to the levels work `SPEC-014` was about to ship.
+
+**Harder or easier than expected:** materially harder at the end — `SPEC-014`
+came in at 88.8M tokens against a 26M estimate (**3.42×**) and `SPEC-015` at 98.2M
+against 60M (**1.64×**), and the overrun in both cases was not the build but the
+cycles after it: verify rounds that found real holes, then punch-list rounds to
+close them.
+
+**Emergent integration behavior:** the two oracles turned out to be blind in
+*complementary* ways that only appeared when composed — the plane checksum is
+bit-identical under a levels error, the develop oracle scores 95.62 (passing) on
+the same fault, and the analytic oracle that covers both is itself position-blind
+by construction, so the stage ends with three oracles whose union is strong and
+whose individual coverage maps had to be written down to be trusted.
+
+### The reflection fields
+
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** A correct
+  linear plane, proven bit-exact against an independent implementation
+  (stopping point B), plus the levels and geometry that turn it into an image
+  and an analytic oracle over that arithmetic.
+- **How many specs did it actually take?** **Five** — `SPEC-009`, `012`, `013`,
+  `014`, `015` — against a backlog that also listed `SPEC-010` and `SPEC-011`,
+  both moved to `STAGE-005` mid-stage as STAGE-001 debt rather than plane work.
+  `SPEC-015` was added mid-stage by `DEC-004`.
+- **How many outlines survived unchanged?** **Four of five.** `SPEC-015`'s
+  outline was a bare template at design time and was written from scratch; the
+  other four were framed at stage-open and shipped against their original scope.
+- **What changed between starting and shipping?** The stage started as *"unpack
+  the plane and prove it byte-exact"* and ended having also discovered that
+  byte-exactness proves less than it sounds like — which is why it ships with an
+  analytic oracle nobody planned for.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **`unrun-docs-carry-errors` reaches its bar in this stage and is codified**
+    (N=2 → N=5, three of them here). See below.
+  - **A gate can succeed mutely.** `just validate` reported "valid required
+    front-matter" on two files no YAML parser could read, one of which shipped
+    and was archived. Filed as `handback-sync-truncates-multi-line-scalars`; the
+    generalising fix is making `validate` parse rather than grep.
+  - **The gate count is undefined** — `the-gate-count-is-not-defined-anywhere`,
+    filed at bar 3. One named list in `AGENTS.md` §6 ends it; deliberately not
+    changed inside a spec's ship round.
+
+### Signals owned by this close — every one touched, no silent carry
+
+| signal | action |
+|---|---|
+| `unrun-docs-carry-errors` | **ACCEPT AND CODIFY.** Was `watch` at N=2 (`--srgb` called a TIFF; `Orientation` called a camera constant). This stage supplied **three more, all in `SPEC-014`**: `FU-1` (`manifest.toml` labelled `DefaultCropOrigin` as `ActiveArea`), `FU-6` (`FU-1`'s **own correction** asserted a non-zero `ActiveArea` where every Q2M frame is `(0,0)`), and `FU-9` (`conformance-matrix.md` carried the identical wrong fact a **third** time). **N=5, past the N=3 bar**, and instance 4 is the sharpest: a correction written without running is as wrong as the thing it corrects. Rule landed in `AGENTS.md` §16 as lesson 4. |
+| `attribute-text-inside-doc-comments` | Already `codified`. No new instances this stage. Touched, `last_touched` bumped. |
+| `measurement-over-generalised` | Already `codified`, and it **fired repeatedly** here — `SPEC-014/AC7`'s `=` that should have been `≈`, `SPEC-015/AC2`'s floor stated without its content-dependence, and my own "the positional coverage exists" which was true only for faults visible at ≤8 px. Stays codified; evidence extended. |
+| `a-gate-that-fails-mutely-is-a-gate-that-never-ran` | Already `codified`. This stage found its **mirror image** — a gate that *succeeds* mutely (`just validate` on unparseable YAML). Recorded as evidence on the new `handback-sync-truncates-multi-line-scalars` rather than reopening a codified lesson. |
+
+### Follow-up work — where it goes
+
+- **`SPEC-016`** ("the harness stops claiming what it has not checked") is framed
+  in `STAGE-005` and is now unusually well supplied: `SPEC-015/FU-4`, `FU-5` and
+  `FU-12` (a gate reporting success without checking), `FU-10` (CI running **0/7**
+  corpus files while green), and `FU-11` (a count no gate can verify) are four
+  independent instances of its thesis, each with measurements attached. It should
+  be designed next.
+- **`SPEC-011`** (lint the fuzz crate) remains unblocked in `STAGE-005`.
+- **No new stage.** `STAGE-003` (opcodes and output) is unchanged by anything
+  learned here.
+- **One residual carried deliberately:** `SPEC-015/FU-10`'s size-gate closure is
+  bounded at 1024 px, and `FU-6`'s wrong-permutation blind spot is inherent to
+  `DEC-020`. Both are recorded in that decision; neither is a defect, and neither
+  should be rediscovered as one.
+

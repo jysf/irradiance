@@ -73,12 +73,12 @@ signals:
   - id: unrun-docs-carry-errors
     type: lesson
     summary: "Docs written by a session that could not execute the code contain errors that only running finds."
-    evidence: "N=2 — oracle-contract.md called `--srgb` a TIFF (it is a malformed PNM); measured-q2m-dng.md listed Orientation as a camera constant (it is per-frame)."
+    evidence: "N=5, PAST BAR. Instances 1-2 (2026-08-22, STAGE-001): oracle-contract.md called `--srgb` output a TIFF (it is a malformed PNM); measured-q2m-dng.md listed Orientation as a camera constant (it is per-frame - L1026016.DNG reads 6 where its two siblings read 1). Instances 3-5 all landed in SPEC-014 during STAGE-002, all about the SAME FACT, all found only by running `irr ifd`: (3) FU-1 - tests/corpus/manifest.toml described L1000622.DNG as having `ActiveArea 2 2 5212 3468`, which are its DefaultCropOrigin/Size; its active_area is None. (4) FU-6 - the CORRECTION written for FU-1 introduced a new error in the same note, asserting the Q2M frames crop `against a non-zero ActiveArea` when all three measure top 0, left 0. (5) FU-9 - docs/conformance-matrix.md carried the identical mislabelling a THIRD time, crediting the M Monochrom with `the only non-zero ActiveArea origin (2 2 5212 3468)`, found by AGENTS.md section 15's own `confirm the ledger and matrix are current` step at ship. INSTANCE 4 IS THE ONE THAT SETTLES IT: a correction written without running the tool is exactly as wrong as the claim it corrects, and it carries more authority because it looks like a fix. The three STAGE-002 instances also show the failure MULTIPLYING - one unverified reading of one file propagated into three separate documents before anyone ran the reader."
     bar: "N=3 same-outcome"
-    status: watch
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-22
+    last_touched: 2026-09-06
     raised_by: claude
     notes: |
       ══ STAGE-001 CLOSE, 2026-08-22: DEFERRED with a trigger, still N=2. ══
@@ -103,12 +103,12 @@ signals:
   - id: ci-cannot-prove-bit-exactness
     type: risk
     summary: "CI cannot run tier-B tests, so a green badge does not mean the decoder is correct."
-    evidence: "DEC-003 — real camera files are never committed, so the bit-exact oracle runs only on a machine holding the corpus. SPEC-014/FU-7 (2026-09-05): `cargo test --all-features --test develop` with IRRADIANCE_CORPUS_DIR unset — 7 passed in 0.01s, but 4 of them (`black_and_white_levels_map_to_the_endpoints`, `the_three_stage_crop_produces_the_measured_dimensions`, `orientation_six_swaps_the_output_dimensions`, `an_unrotated_sibling_keeps_its_dimensions`) return before asserting anything and report `ok` anyway, so AC1, AC3 and AC5 carry zero evidence in the one gate `no-panics-on-untrusted-input` requires to be observed green — a no-oracle spec concentrates this signal's loss precisely where DEC-004 already says nothing else will catch it. Only 3 of the 7 carry real corpus-free assertions (`values_outside_the_level_range_are_handled_as_decided`'s tier-A half, `hostile_geometry_does_not_panic`, and the tier-A test SPEC-014/FU-3 added), and the same fix pattern SPEC-013/FU-1 proved — move a tier-B assertion onto a hand-built fixture — is what closed FU-3's specific gap."
+    evidence: "DEC-003 — real camera files are never committed, so the bit-exact oracle runs only on a machine holding the corpus. SPEC-014/FU-7 (2026-09-05): `cargo test --all-features --test develop` with IRRADIANCE_CORPUS_DIR unset — 7 passed in 0.01s, but 4 of them (`black_and_white_levels_map_to_the_endpoints`, `the_three_stage_crop_produces_the_measured_dimensions`, `orientation_six_swaps_the_output_dimensions`, `an_unrotated_sibling_keeps_its_dimensions`) return before asserting anything and report `ok` anyway, so AC1, AC3 and AC5 carry zero evidence in the one gate `no-panics-on-untrusted-input` requires to be observed green — a no-oracle spec concentrates this signal's loss precisely where DEC-004 already says nothing else will catch it. Only 3 of the 7 carry real corpus-free assertions (`values_outside_the_level_range_are_handled_as_decided`'s tier-A half, `hostile_geometry_does_not_panic`, and the tier-A test SPEC-014/FU-3 added), and the same fix pattern SPEC-013/FU-1 proved — move a tier-B assertion onto a hand-built fixture — is what closed FU-3's specific gap. SPEC-015/FU-10 (2026-09-06) puts a number on the CI half: run 34003871323's own log reads 'corpus: 0/7 present, 7 MISSING - tier-B tests over those file(s) will SKIP', so the ENTIRE real-data layer of the analytic oracle (AC1-AC4, 111,529,040 pixels locally) executes zero assertions in the only gate constraints.yaml requires observed green. What CI actually runs of SPEC-015 is two red-proofs and the tier-A properties. MEASURED CONSEQUENCE, not inferred: a wrong-permutation fault gated on crop_width > 100 corrupted 100% of a real frame and passed 150/150, because every positional test in the repo used a fixture of <=8 px. Closed up to 1024 px by SPEC-015/FU-10's new tier-A fixture (two tests, 1024x768 synthetic, ~0.16s each), which the orchestrator re-confirmed catches the same fault gated at >100 AND at >1000 with the corpus absent. RESIDUAL: a gate at >2000 still evades it, and FU-6's wrong-permutation limit is inherent to DEC-020 regardless of fixture size."
     bar: null
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-09-05
+    last_touched: 2026-09-06
     raised_by: claude
     notes: |
       Accepted deliberately, not overlooked — the alternative was unlicensed
@@ -168,7 +168,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-22
+    last_touched: 2026-09-06
     raised_by: claude
     notes: |
       ══ STAGE-001 CLOSE, 2026-08-22: CODIFIED at N=5. ══
@@ -234,7 +234,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-22
+    last_touched: 2026-09-06
     raised_by: claude
     notes: |
       ⚠ INSTANCE 6, 2026-09-04 (SPEC-009/FU-1) — AFTER codification, and that is
@@ -607,7 +607,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-08-22
-    last_touched: 2026-08-22
+    last_touched: 2026-09-06
     raised_by: claude
     notes: |
       ══ STAGE-001 CLOSE, 2026-08-22: CODIFIED at N=4. ══
@@ -700,14 +700,27 @@ signals:
   - id: flat-rate-overstates-cached-sessions
     type: process-debt
     summary: "rate_per_mtok: 6.60 applied flat computes 2.7x the true cost on a 97.5%-cache-read session."
-    evidence: "N=4, four sessions and two models, always the same direction. (1) SPEC-007 verify: $19.35 per-component at published Opus rates vs $51.06 flat — 2.6x. (2) PATCH-001, SPEC-005's build on claude-sonnet-5: $13.55 actual vs $198.76 flat — 14.7x, because the flat rate ALSO ignores which model ran. (3) SPEC-010 verify: $21.33 vs $68.39 — 3.2x. (4) SPEC-012 verify, 2026-09-04: the reviewer reported $207 at a flat $15/MTok and SAID PLAINLY it was "a ceiling, not an estimate"; measured per-component on a 98.3% cache-read session it is $33.22 — 6.2x. Honest labelling, and still the wrong number to leave in a field named estimated_usd. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them."
+    evidence: "N=5, four sessions and two models before this one, always the same direction. (1) SPEC-007 verify: $19.35 per-component at published Opus rates vs $51.06 flat — 2.6x. (2) PATCH-001, SPEC-005's build on claude-sonnet-5: $13.55 actual vs $198.76 flat — 14.7x, because the flat rate ALSO ignores which model ran. (3) SPEC-010 verify: $21.33 vs $68.39 — 3.2x. (4) SPEC-012 verify, 2026-09-04: the reviewer reported $207 at a flat $15/MTok and SAID PLAINLY it was "a ceiling, not an estimate"; measured per-component on a 98.3% cache-read session it is $33.22 — 6.2x. Honest labelling, and still the wrong number to leave in a field named estimated_usd. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them. (5) SPEC-015 build, 2026-09-05, claude-sonnet-5: transcript summed 228 input / 212,083 output / 445,454 cache-write (all 1h) / 39,271,015 cache-read = 40,409,158 combined, 97.3% cache-read. Per-component at published Sonnet rates ($3/$15/$6/$0.30 per MTok input/output/1h-write/read): $17.80. AGENTS.md §4's own fallback (`tokens_total × input rate, no cache discount`) gives $121.23 — 6.8x, squarely inside the N=4 spread (2.6x-14.7x) this signal already names, not a new failure mode."
     bar: null
     status: open
     disposition_at: project-close
     first_flagged: 2026-08-21
-    last_touched: 2026-09-04
+    last_touched: 2026-09-05
     raised_by: claude
     notes: |
+      ⚠ FIFTH MEASUREMENT 2026-09-05 (SPEC-015 build), added by the implementer
+      computing its own handback cost rather than by a verify/ship session
+      auditing someone else's — the first data point from that angle, and it
+      landed in the same 2.6x-14.7x band the other four occupy. AGENTS.md §4's
+      literal fallback formula (`tokens_total × your model's published list
+      rate, no cache discount`) was computed alongside the per-component figure
+      specifically to check whether the spread might be an artifact of how
+      earlier sessions computed "flat" rather than a property of the formula
+      itself — it is not; the formula itself overstates by 6.8x on this session,
+      consistent with the others. Reported `estimated_usd` in this spec's
+      handback uses the per-component figure, not §4's own fallback, on the
+      strength of this signal.
+
       ⚠ FOURTH MEASUREMENT 2026-09-04, and it is the one that shows documenting
       the flaw is not enough. SPEC-012's reviewer knew the rate was wrong, wrote
       "ceiling, not estimate" beside it, and the field still went to the spec
@@ -733,3 +746,88 @@ signals:
       hidden -- but "documented as wrong" and "useful" are different things.
       Options at close: record the four component counts per session and compute,
       or drop estimated_usd rather than carry a number nobody should use.
+
+  # --- lesson: a fast per-value dedup can silently drop the COUNT a --------
+  # --- correctness check depended on -----------------------------------
+  - id: the-gate-count-is-not-defined-anywhere
+    type: process-debt
+    summary: "Specs and handoffs say ten / eleven / twelve gates and mean different sets; no named list exists, so every cycle re-derives it and some acceptance criteria are unsatisfiable as written."
+    evidence: "SPEC-015/FU-11, raised at verify 2026-09-05, confirmed by the orchestrator at ship. TWO enumerations differing by FOUR members are both cited in SHIPPED artifacts. HANDOFF-013's ten: fmt, clippy, test, msrv, deny, lint-red-proof, lint-no-allow, cost-audit, decisions-index, deny-fuzz. SPEC-013's verify eleven: test, fmt, clippy, lint-no-allow, lint-red-proof, typecheck, build, msrv, deny, deny-fuzz, fuzz. The first counts cost-audit and decisions-index and omits typecheck, build and fuzz; the second does the reverse. Grep across specs/done: 'ten gates' in SPEC-004 (AC), SPEC-005 (AC9), SPEC-008 (verify handback) and AGENTS.md:314; 'eleven gates' in SPEC-009 (AC7), SPEC-013 and SPEC-014 (AC8). SPEC-015 made the contradiction unsatisfiable: its AC9 said 'eleven gates' while its own Non-Goals excluded fuzz, the eleventh — so the build correctly ran ten and marked the criterion met, and the handoff needed a paragraph to explain why that was not a miss. Its verify then ran the twelve-item UNION rather than adjudicate, which is the right move for a reviewer and the wrong state for a repo; its ship round ran the same union and said so. Three cycles in one spec each spent real effort deciding what the number meant."
+    bar: 3
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-09-05
+    last_touched: 2026-09-06
+    raised_by: claude
+    notes: |
+      Past bar on arrival (three cycles in one spec, plus seven shipped
+      artifacts split across two counts), so filed open rather than watch.
+
+      The fix is one named list in AGENTS.md §6 with a count, referenced by id
+      from acceptance criteria instead of restated as a number — but that is a
+      REPO decision, deliberately not made inside SPEC-015's ship round, because
+      changing what "the gates" means retroactively reinterprets every shipped
+      AC that used the phrase. Whoever makes it should decide explicitly whether
+      the list is the CI job set, the local pre-push set, or both, since the two
+      genuinely differ: fuzz needs nightly and never runs in CI, and cost-audit
+      and decisions-index are CI jobs that no local "gates" list mentions.
+
+      ⚠ Cheap and worth doing regardless: a spec that names a count in an AC is
+      asserting something no gate checks. This is the same family as
+      [named-tests-can-pass-vacuously] — a criterion whose satisfaction cannot
+      be mechanically determined is a criterion someone will honestly mark [x]
+      on two different readings.
+
+  - id: handback-sync-truncates-multi-line-scalars
+    type: process-debt
+    summary: "handback-sync transcribes only the FIRST physical line of a multi-line YAML scalar, leaving an unterminated quote that makes a spec's whole front matter unparseable — and every gate passes anyway."
+    evidence: "SPEC-015/FU-4 and FU-5, raised at verify 2026-09-05; SPEC-015/FU-12 found the second instance during the orchestrator's reconciliation the same day. A handback may legally write `notes:` as a multi-line double-quoted YAML scalar (continuation lines indented) — HANDOFF-035 and HANDOFF-025 both did, and both are valid YAML in the handoff. scripts/handback-sync.sh's field extraction is line-based: it emits `notes: \"<first line only>\"` into the spec, leaving the quote open. The next key at a lower indent then makes the ENTIRE front matter unparseable. MEASURED, N=2: (1) SPEC-015 broke at c57f88d, the orchestrator's own sync commit, and stayed broken through two further commits; (2) SPEC-010 broke at its verify sync on 2026-09-03 and SHIPPED — through ship, `just archive-spec`, and three subsequent specs — undetected for two days. Ruby's Psych rejects both with `found unexpected end of stream while scanning a quoted scalar`. WHAT MAKES IT PROCESS DEBT RATHER THAN A BUG: `just validate` reports the file has `valid required front-matter`, `just cost-audit` passes, `just status` lists it, `archive-spec` moved it, and CI is green — because every one of those reads the front matter with line-oriented grep/sed rather than a YAML parser. The gate that exists to check front matter cannot see front matter that no parser can read. Both instances repaired by the orchestrator 2026-09-05; the tooling is unchanged, so instance 3 is a matter of the next multi-line handback note."
+    bar: 2
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-09-05
+    last_touched: 2026-09-05
+    raised_by: claude
+    notes: |
+      At bar already (N=2, one of them shipped), so this is filed open rather
+      than watch. Two independent fixes, either sufficient, both cheap:
+
+      1. Make `just validate` actually parse the YAML (ruby -ryaml is on every
+         macOS box and every CI runner already; `python3 -c` needs pyyaml, which
+         this repo does not have). A gate that greps for required KEYS while
+         being blind to whether the document parses is the
+         [a-gate-that-fails-mutely-is-a-gate-that-never-ran] shape one level up.
+      2. Make handback-sync emit a YAML block scalar (`notes: |`) or fold the
+         value to one physical line, instead of re-quoting the first line.
+
+      Fix 1 is the one that generalises: it catches this class AND whatever the
+      next line-based writer breaks. Related:
+      [cost-field-has-two-owners] (same script), and
+      [named-tests-can-pass-vacuously] (same family — a check that reports
+      success without having checked).
+
+  - id: distinct-value-dedup-drops-multiplicity
+    type: lesson
+    summary: "Replacing a per-element check with a per-DISTINCT-value one is only valid if nothing downstream needed to know HOW MANY of each value there were."
+    evidence: "SPEC-015 build, 2026-09-05. Optimizing tests/support/oracle.rs's AC1 per-pixel bound check away from an O(n log n) sort (measured cost: a single tier-B test alone took 91.78s, past AC8's pre-registered 60s bound), the first rewrite paired the i-th smallest DISTINCT raw value against the i-th smallest DISTINCT actual value, weighting only a secondary tally by count. It compiled, ran fast, and was WRONG: many raw values below BlackLevel legitimately collapse to output 0, so 'is 0 a value that occurs' cannot see 'did the WRONG NUMBER of pixels collapse to 0' — exactly the shape of the BlackLevel+64 fault this file exists to catch (AC5a). Caught immediately by the check's own honest-tree assertion reporting an impossible infinite deviation, not by a reviewer. N=1."
+    bar: "N=3"
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-09-05
+    last_touched: 2026-09-05
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote — N=1. The fix (`tests/support/oracle.rs::bound_check`,
+      `DEC-020`) is a genuine O(n + 65536) alternative that IS correct: a
+      two-pointer merge over RUNS (value, remaining count) in each frequency
+      table, mathematically equivalent to sorting both arrays and zipping them
+      rank-for-rank. The general shape worth watching for a second instance of:
+      whenever a check's real invariant is about MULTISET or RANK correspondence
+      (not just "does this value occur"), a distinct-value-only reformulation is
+      a different, weaker claim — and it can look identical in the honest case,
+      only diverging on the specific fault class that involves a COUNT shifting
+      between buckets rather than a value appearing where it shouldn't. The
+      catch here was cheap (the check's own honest-tree self-assertion), which
+      is itself worth naming: any oracle rewrite that changes performance,
+      not just any that changes behavior, should still re-run the red-proof
+      and the honest-tree control before being trusted.
