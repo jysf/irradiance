@@ -89,7 +89,7 @@ cost:
       estimated_usd: 21.33
       duration_minutes: 15
       recorded_at: 2026-09-03
-      notes: "VERDICT ⚠ PUNCH LIST — one ship-blocker (SB-1), one new follow-up (FU-3),
+      notes: "VERDICT PUNCH LIST - one ship-blocker (SB-1), one new follow-up (FU-3), and the build's closed disposition on FU-2 re-raised. tokens_total is DEDUPED BY message.id (79 unique, 134 messages) from this session's own transcript (~/.claude/projects/.../6670ede2-143b-4cb3-a9cd-7aa29e855fe5.jsonl), summed across input+output+cache_creation+cache_read per AGENTS.md section 4 (one combined number), captured immediately before writing this block - still an undercount, since the write itself and everything after it is not in the number. estimated_usd is PER-COMPONENT at the Opus-family published list rates for the model that actually ran (message.model = claude-opus-5, NOT tier_map): input 158 x $15 = $0.00, output 42,367 x $75 = $3.18, cache_creation 154,683 x $18.75 = $2.90, cache_read 10,165,152 x $1.50 = $15.25. .repo-context.yaml's blended rate_per_mtok 6.60 would give $68.39 for the SAME token count - 3.2x higher - because a blended rate prices 98% cache-read traffic as if it were fresh input. Raised as FU-4. duration_minutes is the transcript's own first->last delta (14.4 min), not wall-clock. handback-sync NOT run and PR NOT opened, per return criteria 8. [SPEC-015/FU-4 companion: handback-sync.sh truncated this note to its first physical line on 2026-09-03, leaving the front matter unparseable through ship, archive and three later specs. Restored 2026-09-05.]"
     - cycle: ship
       agent: claude-opus-5
       interface: claude-code

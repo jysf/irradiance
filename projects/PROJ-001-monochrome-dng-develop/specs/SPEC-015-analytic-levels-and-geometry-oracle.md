@@ -95,7 +95,7 @@ cost:
       estimated_usd: 24.15
       duration_minutes: 65
       recorded_at: 2026-09-05
-      notes: "tokens_total/estimated_usd are per-component (input $3, output $15, 1h cache-write $6,
+      notes: "tokens_total/estimated_usd are per-component (input $3, output $15, 1h cache-write $6, cache-read $0.30 per MTok - published Sonnet rates), summed over this session's own transcript (69b4c29b-d5cc-4fd8-8ef7-d2da3fdf661c.jsonl, identified by scratchpad-dir uuid, not content match - signal orchestrator-transcript-looks-like-a-prior-attempt), deduped by message.id, rounded up 20% per this handoff's own instruction. Raw measured combined was 46,853,665 (~$20.13 per-component); AGENTS.md section 4's flat-rate fallback on the same raw total would read ~$140 - signal flat-rate-overstates-cached-sessions gained this session as its 5th data point (~7x), so the per-component figure is reported, not the flat one. [SPEC-015/FU-4: handback-sync.sh transcribed only the FIRST physical line of this note into the spec, leaving an unterminated double-quoted scalar and making the whole front matter unparseable from c57f88d; restored in full here as one line.]"
   totals:
     tokens_total: 56224398
     estimated_usd: 24.15

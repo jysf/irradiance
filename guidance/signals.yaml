@@ -749,6 +749,34 @@ signals:
 
   # --- lesson: a fast per-value dedup can silently drop the COUNT a --------
   # --- correctness check depended on -----------------------------------
+  - id: handback-sync-truncates-multi-line-scalars
+    type: process-debt
+    summary: "handback-sync transcribes only the FIRST physical line of a multi-line YAML scalar, leaving an unterminated quote that makes a spec's whole front matter unparseable — and every gate passes anyway."
+    evidence: "SPEC-015/FU-4 and FU-5, raised at verify 2026-09-05; SPEC-015/FU-12 found the second instance during the orchestrator's reconciliation the same day. A handback may legally write `notes:` as a multi-line double-quoted YAML scalar (continuation lines indented) — HANDOFF-035 and HANDOFF-025 both did, and both are valid YAML in the handoff. scripts/handback-sync.sh's field extraction is line-based: it emits `notes: \"<first line only>\"` into the spec, leaving the quote open. The next key at a lower indent then makes the ENTIRE front matter unparseable. MEASURED, N=2: (1) SPEC-015 broke at c57f88d, the orchestrator's own sync commit, and stayed broken through two further commits; (2) SPEC-010 broke at its verify sync on 2026-09-03 and SHIPPED — through ship, `just archive-spec`, and three subsequent specs — undetected for two days. Ruby's Psych rejects both with `found unexpected end of stream while scanning a quoted scalar`. WHAT MAKES IT PROCESS DEBT RATHER THAN A BUG: `just validate` reports the file has `valid required front-matter`, `just cost-audit` passes, `just status` lists it, `archive-spec` moved it, and CI is green — because every one of those reads the front matter with line-oriented grep/sed rather than a YAML parser. The gate that exists to check front matter cannot see front matter that no parser can read. Both instances repaired by the orchestrator 2026-09-05; the tooling is unchanged, so instance 3 is a matter of the next multi-line handback note."
+    bar: 2
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-09-05
+    last_touched: 2026-09-05
+    raised_by: claude
+    notes: |
+      At bar already (N=2, one of them shipped), so this is filed open rather
+      than watch. Two independent fixes, either sufficient, both cheap:
+
+      1. Make `just validate` actually parse the YAML (ruby -ryaml is on every
+         macOS box and every CI runner already; `python3 -c` needs pyyaml, which
+         this repo does not have). A gate that greps for required KEYS while
+         being blind to whether the document parses is the
+         [a-gate-that-fails-mutely-is-a-gate-that-never-ran] shape one level up.
+      2. Make handback-sync emit a YAML block scalar (`notes: |`) or fold the
+         value to one physical line, instead of re-quoting the first line.
+
+      Fix 1 is the one that generalises: it catches this class AND whatever the
+      next line-based writer breaks. Related:
+      [cost-field-has-two-owners] (same script), and
+      [named-tests-can-pass-vacuously] (same family — a check that reports
+      success without having checked).
+
   - id: distinct-value-dedup-drops-multiplicity
     type: lesson
     summary: "Replacing a per-element check with a per-DISTINCT-value one is only valid if nothing downstream needed to know HOW MANY of each value there were."
