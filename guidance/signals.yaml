@@ -73,12 +73,12 @@ signals:
   - id: unrun-docs-carry-errors
     type: lesson
     summary: "Docs written by a session that could not execute the code contain errors that only running finds."
-    evidence: "N=2 — oracle-contract.md called `--srgb` a TIFF (it is a malformed PNM); measured-q2m-dng.md listed Orientation as a camera constant (it is per-frame)."
+    evidence: "N=5, PAST BAR. Instances 1-2 (2026-08-22, STAGE-001): oracle-contract.md called `--srgb` output a TIFF (it is a malformed PNM); measured-q2m-dng.md listed Orientation as a camera constant (it is per-frame - L1026016.DNG reads 6 where its two siblings read 1). Instances 3-5 all landed in SPEC-014 during STAGE-002, all about the SAME FACT, all found only by running `irr ifd`: (3) FU-1 - tests/corpus/manifest.toml described L1000622.DNG as having `ActiveArea 2 2 5212 3468`, which are its DefaultCropOrigin/Size; its active_area is None. (4) FU-6 - the CORRECTION written for FU-1 introduced a new error in the same note, asserting the Q2M frames crop `against a non-zero ActiveArea` when all three measure top 0, left 0. (5) FU-9 - docs/conformance-matrix.md carried the identical mislabelling a THIRD time, crediting the M Monochrom with `the only non-zero ActiveArea origin (2 2 5212 3468)`, found by AGENTS.md section 15's own `confirm the ledger and matrix are current` step at ship. INSTANCE 4 IS THE ONE THAT SETTLES IT: a correction written without running the tool is exactly as wrong as the claim it corrects, and it carries more authority because it looks like a fix. The three STAGE-002 instances also show the failure MULTIPLYING - one unverified reading of one file propagated into three separate documents before anyone ran the reader."
     bar: "N=3 same-outcome"
-    status: watch
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-22
+    last_touched: 2026-09-06
     raised_by: claude
     notes: |
       ══ STAGE-001 CLOSE, 2026-08-22: DEFERRED with a trigger, still N=2. ══
@@ -168,7 +168,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-22
+    last_touched: 2026-09-06
     raised_by: claude
     notes: |
       ══ STAGE-001 CLOSE, 2026-08-22: CODIFIED at N=5. ══
@@ -234,7 +234,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-22
+    last_touched: 2026-09-06
     raised_by: claude
     notes: |
       ⚠ INSTANCE 6, 2026-09-04 (SPEC-009/FU-1) — AFTER codification, and that is
@@ -607,7 +607,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-08-22
-    last_touched: 2026-08-22
+    last_touched: 2026-09-06
     raised_by: claude
     notes: |
       ══ STAGE-001 CLOSE, 2026-08-22: CODIFIED at N=4. ══
