@@ -53,7 +53,15 @@ oracle-meta:
     cargo test --all-features --test metadata_oracle
 
 # Lint / format check
+# ⚠ PATCH-004: `cargo clippy` here is whatever PATH resolves — NOT necessarily a
+# rustup toolchain. Measured 2026-09-06: the default toolchain is nightly, nightly
+# ships no cargo-clippy, and Homebrew's 0.1.97 answers instead. An unpinned fast
+# local check is legitimate; a gate that does not SAY what produced it is the
+# defect this repo keeps paying for.
+# Lint / format check — UNPINNED, and prints which clippy answered.
 lint:
+    @printf 'lint: using %s (%s) — unpinned; `just lint-ci` is what CI sees\n' \
+        "$(cargo clippy --version 2>&1)" "$(command -v cargo-clippy || echo 'NOT ON PATH')"
     cargo clippy --all-targets --all-features -- -D warnings
     cargo fmt --check
 
@@ -141,7 +149,12 @@ lint-no-allow:
 #   Homebrew's win. With the prefix it reports 0.1.98. Measured 2026-08-22.
 #   Run this before every push. It is the only local command that can see what
 #   CI will see.
+# PATCH-004 also made this print its clippy: the pin makes the answer predictable,
+# it does not make it stated.
+# Clippy AS CI SEES IT — pinned to ~/.cargo/bin/cargo +stable, and prints it.
 lint-ci:
+    @printf 'lint-ci: using %s (pinned: ~/.cargo/bin/cargo +stable)\n' \
+        "$(PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy --version 2>&1)"
     PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy \
         --all-targets --all-features -- -D warnings
 

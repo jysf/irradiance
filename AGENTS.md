@@ -286,6 +286,11 @@ cargo test --all-features <test_name> -- --exact --nocapture
 cargo test --all-features --test metadata_oracle
 
 # lint       — BOTH halves; `just lint` runs them in this order
+# PATCH-004: both lint recipes now print WHICH clippy answered — `lint` is
+# unpinned (PATH may resolve Homebrew's, not rustup's) and says so; `lint-ci`
+# is pinned and says so. A gate that does not state what produced its result
+# is the defect this repo keeps paying for.
+printf 'lint: using %s (%s) — unpinned; `just lint-ci` is what CI sees\n' "$(cargo clippy --version)" "$(command -v cargo-clippy)"
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 
