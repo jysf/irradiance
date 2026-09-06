@@ -187,7 +187,7 @@ Plus one the orchestrator raised during reconciliation:
 
 ### Execution notes
 
-- **Branch / SHA:** `feat/spec-015-analytic-levels-and-geometry-oracle` at `<pending — filled after commit>`. No PR opened, `handback-sync` not run, `STAGE-002` not closed (all Out of Scope).
+- **Branch / SHA:** `feat/spec-015-analytic-levels-and-geometry-oracle` at `47094cc`. No PR opened, `handback-sync` not run, `STAGE-002` not closed (all Out of Scope).
 - **Completed at:** 2026-09-06
 - **Six follow-ups discharged? one line each:**
   - `FU-6` — `DEC-020`'s `## Consequences` now states the wrong-permutation blind spot as INHERENT (measured twice: unconditional and size-gated 6→8, both 100.0% positionally wrong, both invisible to rank/frequency); `## Validation`'s "Wrong if" clause corrected — Option B (sort-and-zip) is provably equivalent to the shipped merge and shares the blind spot, so it is no longer offered as a remedy.
@@ -198,7 +198,7 @@ Plus one the orchestrator raised during reconciliation:
   - `FU-11` — not mine to fix (Out of Scope); the gate list ambiguity is reported honestly under "Gates run," not silently resolved.
 - **Test count:** was 150, now **152** (2 new tier-A tests).
 - **New fixture:** `rotating_orientation_is_positionally_correct_at_production_scale` / `flipping_orientation_is_positionally_correct_at_production_scale`, `tests/develop_oracle.rs` (appended after the existing red-proof/control section) — chosen over `tests/develop.rs` because this is `SPEC-015`'s own finding (`DEC-020`'s blind spot), the module doc already discusses it, and `DEC-020`/`DEC-021` are the decisions being amended in the same commit. 1024x768 (786,432 px), synthetic, generated in-test (`sample(x,y) = (y*width+x) as u16`, wrapping past 65,535 by design). Measured wall-clock: `develop_into` itself 0.157s (rotate) / 0.164s (flip); full two-test run 0.19s; the whole `develop_oracle` target (9 tests, corpus absent) 0.91s — both well under the ~2s budget.
-- **CI:** `<pending — filled after push>`
+- **CI:** run `34015901883`, headSha `47094ccbd31bce02d11a3ea5277dd25bab43212e`, **9/9 jobs success** (fmt, clippy, test, MSRV 1.90.0, license policy x2, lint-red-proof, panic-free/#[allow] policy, cost-capture audit).
 
 ### The three mutations
 
