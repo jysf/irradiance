@@ -223,7 +223,16 @@ duplicate it.
       accident. Measured: **45.0–50.1 %** across the three frames. Assert a
       floor of **> 40 %**, not the exact figure — the fraction is data-dependent
       and pinning it exactly would make the test brittle for the wrong reason.
-      Same test as AC1.
+      Same test as AC1. ⚠ **`SPEC-015/FU-8`** — the floor's real margin is not
+      "5 points": in-range disagreement is structurally ~0.5006/0.5006/0.5001
+      regardless of image content, and only CLIPPED pixels (which land on
+      exact integers, where `round == floor`) pull the total down. **A correct
+      implementation falls under the 40 % floor once the clipped share exceeds
+      20.09 %** — measured break-even, not the 5-point margin the raw 45.0 %
+      figure suggests. `L1000622.DNG` is already at 10.05 % clipped, half way
+      there. This fails loudly and in the safe direction (a false red on a new
+      corpus file, never a false green), so it is diagnosis for the next
+      false-red investigator, not a reason to change the floor.
 - [x] **AC3 — L1, the permutation property, WITHOUT reimplementing the
       orientation table.** `develop_into` applies a *permutation* of the
       normalized crop window, so `histogram(output)` must equal

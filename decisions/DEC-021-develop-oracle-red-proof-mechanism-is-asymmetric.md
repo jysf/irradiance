@@ -130,6 +130,17 @@ so there is no file I/O anywhere in either red-proof.
   follow `tests/develop_oracle.rs`'s red-proof section, rather than one
   mechanism applied twice. This record and the module doc's cross-references
   are the mitigation.
+- **Negative — `SPEC-015/FU-7`.** The orientation red-proof's fault (identity
+  at `crop_source_coords`' call site) reads outside the crop window on its
+  6-pixel fixture, so the mutant is a DIFFERENT multiset (three zeros the
+  honest tree never produces), not merely a WRONG permutation of the honest
+  tree's own multiset. `AC3`'s permutation property therefore goes red here on
+  degeneracy, never on the narrower claim its name suggests — "the wrong
+  permutation was applied." That narrower claim cannot be proven by any
+  rank/frequency check at all (`DEC-020`'s own inherent limit,
+  `SPEC-015/FU-6`); this red-proof is sound for the fault it actually injects,
+  and the scope gap is a naming/documentation issue, not a weaker proof than
+  advertised for what it tests.
 - **Neutral.** The mutate-copy-rebuild-run helpers (`TempDir`,
   `copy_dir_recursive`, `stage_probe_crate`, `build_and_run_probe`) are
   duplicated from `tests/plane_oracle.rs` rather than factored into a shared

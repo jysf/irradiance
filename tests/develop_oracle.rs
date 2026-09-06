@@ -42,15 +42,37 @@
 //! - **Tier A** (`normalization_is_strictly_monotonic_and_injective`,
 //!   `the_oracle_is_red_on_a_levels_fault`,
 //!   `the_oracle_is_red_on_an_orientation_fault`,
-//!   `the_orientation_fixture_oracle_control_is_green`) run everywhere, no
-//!   corpus, no tools — the only lane CI ever executes (`DEC-003`). The two
-//!   red-proofs and their control satisfy `AC6`: `SPEC-013/FU-1`'s
-//!   corpus-gated red-proof genuinely works and CI has never once run it: it
-//!   needs the corpus. These do not.
+//!   `the_orientation_fixture_oracle_control_is_green`,
+//!   `rotating_orientation_is_positionally_correct_at_production_scale`,
+//!   `flipping_orientation_is_positionally_correct_at_production_scale`) run
+//!   everywhere, no corpus, no tools — the only lane CI ever executes
+//!   (`DEC-003`). The two red-proofs and their control satisfy `AC6`:
+//!   `SPEC-013/FU-1`'s corpus-gated red-proof genuinely works and CI has never
+//!   once run it: it needs the corpus. These do not.
 //! - **Tier B** (`every_pixel_is_within_half_an_lsb_of_the_exact_affine_map`,
 //!   `the_developed_histogram_is_the_normalized_crop_windows`,
 //!   `distinct_output_levels_equal_distinct_input_levels`) need the real
 //!   corpus and skip loudly, per-entry, when absent.
+//!
+//! ## `FU-10` — the two production-scale tests
+//!
+//! `HANDOFF-036` measured that `DEC-020`'s rank/frequency techniques
+//! (`bound_check`, `multiset_equal`) are blind to a positional fault when it
+//! is size-gated (`crop_width > N` for any `N` no hand-built fixture crosses)
+//! — a fault that corrupts 100% of a real 47-megapixel frame's positions
+//! passed 150/150 of this repo's tests, because every positional fixture
+//! anywhere in the repo has `crop_width <= 3`. CI never runs the corpus at
+//! all (`DEC-003`), so no tier-B test can backstop that gap either.
+//! `rotating_orientation_is_positionally_correct_at_production_scale` and
+//! `flipping_orientation_is_positionally_correct_at_production_scale` are a
+//! synthetic, in-test, tier-A fixture at 1024x768 — big enough to cross the
+//! `> 1000` gate measured against this oracle — that checks POSITIONS, not
+//! rank or frequency, for exactly the reason `DEC-020`'s techniques cannot:
+//! only a positional check can see which permutation was applied. This does
+//! **not** close the class (a `> 2000` gate still evades a 1024-wide fixture)
+//! and does **not** touch `FU-6`'s inherent wrong-permutation blind spot in
+//! the rank/frequency techniques themselves — see the residual note at the
+//! tests' own definition, and `DEC-020`'s `## Consequences`.
 //!
 //! No fuzz target: this file adds no parser and no new input surface — it
 //! consumes the same already-parsed `Sensor` the `develop` fuzz target
@@ -202,7 +224,14 @@ fn every_pixel_is_within_half_an_lsb_of_the_exact_affine_map() {
 
         // AC2: the shipped output must NOT be satisfiable by truncation —
         // measured 45.0-50.1% at design. Floor of 40%, not the exact figure
-        // (data-dependent).
+        // (data-dependent). ⚠ SPEC-015/FU-8: the real margin is not "5
+        // points" — in-range disagreement is structurally ~0.5006/0.5006/
+        // 0.5001 regardless of content, and only CLIPPED pixels (round ==
+        // floor at the endpoints) pull the total down. A CORRECT
+        // implementation falls under this 40% floor once the clipped share
+        // exceeds 20.09% (measured break-even) — L1000622.DNG is already at
+        // 10.05% clipped. Fails loudly, safe direction (false red, never
+        // false green).
         let truncation_disagreement_fraction =
             check.truncation_disagreements as f64 / check.total as f64;
         assert!(
@@ -443,6 +472,14 @@ fn the_oracle_is_red_on_a_levels_fault() {
 // deliberately mutated copy of `src/develop.rs` (`DEC-021`, following
 // `DEC-017`'s precedent for exactly this reason). The working tree's
 // `src/develop.rs` is never touched.
+//
+// ⚠ `SPEC-015/FU-7` — scope this proof honestly. The injected fault is an
+// IDENTITY at the call site, which reads outside the crop window on this
+// fixture and so produces a DIFFERENT multiset (three zeros, not the honest
+// tree's none) — `AC3`'s histogram property catches DEGENERACY here, never a
+// permutation being the WRONG permutation (that limit is `DEC-020`'s, and it
+// is inherent: see `SPEC-015/FU-6`). This red-proof is sound; its name
+// ("the orientation red-proof") is broader than what it actually exercises.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The exact fixture `develop_into_applies_orientation_to_pixels_not_only_dimensions`
@@ -729,5 +766,183 @@ fn the_orientation_fixture_oracle_control_is_green() {
         histogram_check_passes(&sensor, &src, &control_output),
         "the honest tree must satisfy AC3's own property, or the red-proof above proves \
          nothing about the fault"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FU-10 — a tier-A positional fixture large enough to cross a SIZE-GATED fault
+//
+// Every positional test elsewhere in this repo —
+// `crop_source_coords_matches_the_worked_example_for_all_eight_orientations`
+// (`src/develop.rs`) and `develop_into_applies_orientation_to_pixels_not_only_dimensions`
+// (`tests/develop.rs`) — uses a fixture of <= 6 pixels. Measured
+// (`HANDOFF-037`): a fault written as `if crop_width > 100 { /* Orientation
+// 8's mapping, where the file says 6 */ }` corrupts 100% of a real
+// 47-megapixel frame's positions, and 150/150 of this repo's tests passed,
+// because every hand-built fixture has `crop_width <= 3`. CI never runs the
+// corpus at all (0/7 files present, run `34003871323`), so the entire
+// real-data layer of `DEC-020`'s rank/frequency oracle is invisible to CI —
+// this fixture is generated IN THE TEST, so it runs wherever CI does.
+//
+// ⚠ **Why this is allowed to encode Orientation's per-case mapping, when
+// `AC3`'s property test above is forbidden to.** `DEC-020`'s prohibition is on
+// the RANK/FREQUENCY oracle specifically, because a mirror there would defeat
+// the whole point of an independent check on real data. This fixture is a
+// different animal — a tier-A POSITIONAL regression test, the same category
+// as the two <=6px tests named above, which already hand-derive the mapping
+// for the orientations they cover. Positional testing is the ONLY technique
+// that can see a wrong-permutation fault at all (`FU-6`); this fixture exists
+// because that technique needed a fixture big enough to cross a size gate,
+// not because the prohibition was relaxed.
+//
+// ⚠ **RESIDUAL — read before assuming this closes the class.** A fault gated
+// at `crop_width > 2000` still evades a 1024-wide fixture: no finite fixture
+// dominates every possible gate constant, and this one only raises the floor
+// from 8px to 1024px, not to infinity. It also does nothing for `FU-6`'s
+// wrong-permutation blind spot in `DEC-020`'s own techniques: `bound_check`
+// and `multiset_equal` cannot distinguish one valid permutation from another
+// because that correspondence IS the eight-case table — a limit that is
+// INHERENT to comparing by value rather than position, independent of size,
+// and this fixture does not touch it. What this fixture buys is narrower and
+// real: orientations 2 and 6, specifically, are now checked positionally up
+// to 1024px, tier A, in CI. Orientations 3, 4, 5, 7, 8 are not covered here at
+// any size, and nothing above 1024px is covered by any test in this repo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `> 1000` on purpose, not merely `>= 1024`: `HANDOFF-037` measured a second,
+/// STRICTER gate (`crop_width > 1000`) that a `> 100` fixture would not have
+/// crossed, so this fixture's `crop_width` must clear both. 1024x768 (a 4:3
+/// real-photo aspect ratio) keeps the pixel count near the ~0.79 Mpx the
+/// handoff budgeted (`## Cost`, below, has the measured figure).
+const LARGE_WIDTH: u32 = 1024;
+const LARGE_HEIGHT: u32 = 768;
+
+/// `sample(x, y) = (y * width + x) as u16` — every source pixel names its own
+/// raster position, the same technique `crop_origin_is_relative_to_active_area_not_the_raw_plane`
+/// (`src/develop.rs`) and `develop_into_applies_orientation_to_pixels_not_only_dimensions`
+/// (`tests/develop.rs`) use at 100/6 pixels respectively, scaled up. This
+/// WRAPS past 65,535 — the fixture has 786,432 pixels, and `y * width + x`
+/// reaches 785,791 — and that is EXPECTED, not a bug: values repeating under
+/// the wrap is harmless here because every check below reads a value at a
+/// COMPUTED, known coordinate, never by searching for a value or assuming
+/// distinctness (unlike `AC4`'s injectivity checks, which is exactly why
+/// `AC4` uses real corpus files rather than a synthetic one like this).
+fn large_fixture_plane() -> Vec<u16> {
+    (0..LARGE_HEIGHT)
+        .flat_map(|y| (0..LARGE_WIDTH).map(move |x| (y * LARGE_WIDTH + x) as u16))
+        .collect()
+}
+
+/// `orientation`'s own `Sensor`, no `ActiveArea`/crop tags — so `crop_width` /
+/// `crop_height` default to the full `LARGE_WIDTH` x `LARGE_HEIGHT` plane.
+/// `BlackLevel 0` / `WhiteLevel u16::MAX` makes `normalize` the identity (the
+/// same trick the two tier-A tests referenced above use), so this test needs
+/// no access to `normalize` to state its expectation, and cannot be
+/// accidentally satisfied by a LEVELS fault (`AC1`'s concern, not this one's).
+fn large_fixture_sensor(orientation: u32) -> Sensor {
+    let mut sensor = minimal_sensor(LARGE_WIDTH);
+    sensor.height = LARGE_HEIGHT;
+    sensor.black_level = Some(0);
+    sensor.white_level = Some(u32::from(u16::MAX));
+    sensor.orientation = Some(orientation);
+    sensor
+}
+
+#[test]
+fn rotating_orientation_is_positionally_correct_at_production_scale() {
+    let sensor = large_fixture_sensor(6); // Rotate 90 CW — swaps dimensions
+    let src = large_fixture_plane();
+
+    // FU-10's `M7`: a fault that transposes `output_dimensions`' result for
+    // orientations 5-8, size-gated. Checked directly, at production scale.
+    assert_eq!(
+        output_dimensions(&sensor).expect("fits"),
+        (LARGE_HEIGHT, LARGE_WIDTH),
+        "Orientation 6 must swap width and height"
+    );
+
+    let mut dst = vec![0u16; (LARGE_WIDTH * LARGE_HEIGHT) as usize];
+    let start = std::time::Instant::now();
+    develop_into(&sensor, &src, &mut dst).expect("fits");
+    let elapsed = start.elapsed();
+
+    // Physically rotating the WxH grid 90 degrees clockwise swaps the
+    // dimensions to HxW; the new top-left corner (0,0) is the OLD bottom-left
+    // corner (0, H-1), and the new image's rows run down the OLD image's
+    // columns — derived by hand from Orientation 6's own semantics (the same
+    // reasoning `develop_into_applies_orientation_to_pixels_not_only_dimensions`
+    // uses for its 3x2 fixture), independently of `crop_source_coords`.
+    let out_width = LARGE_HEIGHT;
+    let out_height = LARGE_WIDTH;
+    let mut mismatches = 0usize;
+    let mut first_mismatch = None;
+    for out_y in 0..out_height {
+        for out_x in 0..out_width {
+            let (src_x, src_y) = (out_y, LARGE_HEIGHT - 1 - out_x);
+            let expected = src[(src_y * LARGE_WIDTH + src_x) as usize];
+            let actual = dst[(out_y * out_width + out_x) as usize];
+            if actual != expected {
+                mismatches += 1;
+                first_mismatch.get_or_insert((out_x, out_y, expected, actual));
+            }
+        }
+    }
+    assert_eq!(
+        mismatches,
+        0,
+        "{mismatches}/{} output pixels positionally wrong under Orientation 6 at production \
+         scale; first mismatch (out_x, out_y, expected, actual) = {first_mismatch:?}",
+        dst.len(),
+    );
+    eprintln!(
+        "rotating_orientation_is_positionally_correct_at_production_scale: {LARGE_WIDTH}x{LARGE_HEIGHT} \
+         -> {out_width}x{out_height}, {} px, develop_into in {:.3}s",
+        dst.len(),
+        elapsed.as_secs_f64()
+    );
+}
+
+#[test]
+fn flipping_orientation_is_positionally_correct_at_production_scale() {
+    let sensor = large_fixture_sensor(2); // Mirror horizontal — no dimension swap
+    let src = large_fixture_plane();
+
+    assert_eq!(
+        output_dimensions(&sensor).expect("fits"),
+        (LARGE_WIDTH, LARGE_HEIGHT),
+        "Orientation 2 must NOT swap width and height"
+    );
+
+    let mut dst = vec![0u16; (LARGE_WIDTH * LARGE_HEIGHT) as usize];
+    let start = std::time::Instant::now();
+    develop_into(&sensor, &src, &mut dst).expect("fits");
+    let elapsed = start.elapsed();
+
+    // Mirroring horizontally reverses each row left-to-right; dimensions are
+    // unchanged — derived by hand, independently of `crop_source_coords`.
+    let mut mismatches = 0usize;
+    let mut first_mismatch = None;
+    for out_y in 0..LARGE_HEIGHT {
+        for out_x in 0..LARGE_WIDTH {
+            let (src_x, src_y) = (LARGE_WIDTH - 1 - out_x, out_y);
+            let expected = src[(src_y * LARGE_WIDTH + src_x) as usize];
+            let actual = dst[(out_y * LARGE_WIDTH + out_x) as usize];
+            if actual != expected {
+                mismatches += 1;
+                first_mismatch.get_or_insert((out_x, out_y, expected, actual));
+            }
+        }
+    }
+    assert_eq!(
+        mismatches,
+        0,
+        "{mismatches}/{} output pixels positionally wrong under Orientation 2 at production \
+         scale; first mismatch (out_x, out_y, expected, actual) = {first_mismatch:?}",
+        dst.len(),
+    );
+    eprintln!(
+        "flipping_orientation_is_positionally_correct_at_production_scale: {LARGE_WIDTH}x{LARGE_HEIGHT} \
+         px, develop_into in {:.3}s",
+        elapsed.as_secs_f64()
     );
 }

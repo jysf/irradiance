@@ -145,6 +145,31 @@ frequency table) is what restores full rank-fidelity: run length IS the
   module doc's worked explanation of the rejected Option C are the mitigation
   — a future editor tempted to "simplify" it to per-distinct-value pairing
   should read the rejected option first.
+- **Negative, and inherent — `SPEC-015/FU-6`.** A rank/frequency comparison
+  cannot distinguish one valid permutation from another: two orientations
+  differing only in which corner maps to the origin produce IDENTICAL
+  multisets, because that correspondence — which pixel went where — *is* the
+  eight-case table this decision exists to avoid writing. Measured twice: an
+  unconditional substitution of Orientation 8's mapping where the file says 6
+  corrupts 100.0% of a real 47-megapixel frame's positions and is caught only
+  by three tier-A fixtures of <=6px (`crop_source_coords_matches_the_worked_example_for_all_eight_orientations`,
+  `develop_into_applies_orientation_to_pixels_not_only_dimensions`, and this
+  spec's own red-proof honest-tree guard); the SAME substitution gated on
+  `crop_width > 100` produces the SAME 100.0% corruption while all 150 tests
+  in the repo pass, because every one of those fixtures has `crop_width <= 3`.
+  This is not a gap the merge can be tuned to close — see `## Validation`.
+  `SPEC-015/FU-10` narrows, but does not close, the consequence: a new tier-A
+  fixture (`tests/develop_oracle.rs`'s `rotating_orientation_is_positionally_correct_at_production_scale`
+  / `flipping_orientation_is_positionally_correct_at_production_scale`) checks
+  POSITIONS (not rank or frequency) on a synthetic 1024x768 fixture — large
+  enough to cross both the `> 100` and the stricter `> 1000` gate measured
+  against it — for orientations 6 and 2 specifically. It is deliberately
+  outside this decision's own techniques, for the reason stated above: only a
+  positional check can see which permutation was applied. A fault gated at
+  `crop_width > 2000` still evades that 1024-wide fixture, and no orientation
+  besides 2 and 6 is covered by it at any size — the limit this record
+  describes remains real; the fixture only raises the size floor a working
+  positional test needs to be built at, from 8px to 1024px.
 - **Neutral.** `histogram`'s `HashMap`-based implementation is kept (not
   replaced by a frequency table) for the two red-proof tests' tiny,
   6-element fixtures, where a `HashMap`'s per-value diagnostic clarity matters
@@ -154,14 +179,31 @@ frequency table) is what restores full rank-fidelity: run length IS the
 ## Validation
 
 **Right if** a future change to `develop_into`'s levels or geometry handling
-that should be caught by AC1/AC2/AC3 still turns these checks red, and the
-tier-B suite stays comfortably under 60s as corpus files are added.
+that should be caught by AC1/AC2/AC3 still turns these checks red. **`SPEC-015/FU-9`:**
+measured wall-clock is **0.3246 s/Mpx** (36.20s over 111,529,040 real pixels,
+serial) — not "comfortably under 60s" as this line previously said. Headroom
+is **exactly one more Q2M-sized (~46.7 Mpx) decodable file**: a fourth lands
+at ≈51.4s, a fifth at ≈66.6s, over the pre-registered 60s bound. `L1026192.DNG`
+— excluded from `DECODABLE` because it shares `L1021223.DNG`'s levels,
+geometry and orientation exactly, contributing no new arithmetic — is that
+fourth file if it is ever added.
 
 **Wrong if** a future fault shape exists that a rank-preserving merge cannot
 distinguish from an honest tree while a true per-pixel positional check
-could — revisit the merge's correctness argument (monotonicity + permutation)
-against that fault's specific shape before assuming Option B (sort-and-zip)
-is needed after all.
+could — **this has already fired, `SPEC-015/FU-6`, and the remedy this
+paragraph used to point to does not work.** A wrong-permutation fault (see
+`## Consequences`) is exactly that shape. The fix is **not** "revisit whether
+Option B (sort-and-zip) is needed after all": Option B is `bound_check`'s own
+`## Alternatives Considered` — provably equivalent by this record's own
+Option D rationale ("same pairing, same weights"), so it shares the identical
+blind spot rather than closing it. Only Option A (a true positional map) can
+see a wrong-permutation fault, and Option A is the exact thing this spec
+exists to reject (`## Alternatives Considered`). The limit is **inherent to
+comparing by value rather than position**, not a defect in this decision's
+arithmetic, and the correct response is to say so in writing (this
+Consequences entry, and `SPEC-015/FU-10`'s tier-A positional fixture as a
+partial, size-bounded backstop) rather than to keep looking for a
+rank/frequency fix that does not exist.
 
 ## References
 
