@@ -32,5 +32,17 @@ Cycle prompts live in `prompts/SPEC-015-<cycle>.md`.
   the three real files reproduces the design probe's `## Implementation Context` exactly. Two new
   decisions (`DEC-020`, `DEC-021`); no fuzz target (adds none). 150 tests (was 143), 0 failed, 0
   skipped. Three follow-ups, zero ship-blockers — see `HANDOFF-035`'s Findings.
-- [ ] **verify** — handoff written after build hands back.
+- [ ] **verify** — `HANDOFF-036`, at `7439f49`. Orchestrator reconciled first
+  (`DEC-004` rule 1): CI **9/9 on both** SHAs, `src/` empty diff, every number
+  reproduced, **both red-proofs re-run with the corpus absent**, and `AC3`
+  confirmed by grep rather than assertion — **zero** orientation match arms in
+  either new file. **And measured a blind spot to hand on:** applying
+  `Orientation 8`'s mapping where the file says 6 — a valid, same-multiset
+  permutation — leaves **all three** tier-B oracle tests green on 46,726,912
+  real pixels. It is caught only by positional tier-A fixtures of ≤6 pixels.
+  That is `DEC-020`'s inherent price rather than a defect, but nothing records
+  it; verify judges whether it belongs in that decision's `## Consequences`.
+  Six further checks handed on, including one nobody has measured — `AC1`'s
+  sensitivity floor at `BlackLevel + 1`, which `DEC-004` measured as
+  SSIMULACRA2 100.00, i.e. invisible to the develop oracle.
 - [ ] **ship**
