@@ -778,6 +778,33 @@ signals:
       be mechanically determined is a criterion someone will honestly mark [x]
       on two different readings.
 
+  - id: a-fix-inherits-the-precondition-of-the-thing-it-fixes
+    type: lesson
+    summary: "A fix hardens the logic that failed and silently keeps the ASSUMPTION that let it fail — so the same defect returns one layer out, and only attacking the PROOF finds it."
+    evidence: "Named by PATCH-003's verify, 2026-09-06, as the pattern under its two ship-blockers rather than as a finding of its own: 'both ship-blockers live in the preconditions of the fix, not its logic. PATCH-002 assumed prose could not reach the scanner; PATCH-003 hardened the scanner and inherited the assumption about what delimits it. That is the same direction twice.' MEASURED, N=2 on one gate. (1) PATCH-002's stage_has_orchestration_cost assumed the front-matter boundary was sound and guarded the CONTENT; a horizontal rule in the body made prose satisfy the gate. (2) PATCH-003 fixed the boundary by counting delimiters and re-claimed the body was 'unreachable' in four places - and one trailing space on the closing fence, or no closing fence at all, reproduced the original bypass exactly. Round 2 then made the SAME class of error a third time in miniature: its first fail-closed attempt set closed=1 on a hit, letting `found` satisfy the test written to disqualify it, so the no-closing-fence shape still bypassed. THE TECHNIQUE IS THE POINT: three code mutations (M1-M3) passed all three times. What found both ship-blockers was attacking the RED-PROOF - asking whether its injection reproduced a shape that can actually exist, or one the author modelled. The orchestrator's own first reproduction of SB-1 came back 'caught' because the fixture helper reshaped the file and moved the fence; only running the awk directly showed it."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-09-06
+    last_touched: 2026-09-06
+    raised_by: claude
+    notes: |
+      At N=2 and filed as `watch`, deliberately: all three instances are the same
+      gate across three patches, so this may be one author's blind spot rather
+      than a class. A third instance ON DIFFERENT CODE is what would settle it.
+
+      What to do meanwhile, and it costs nothing: when reviewing a FIX, mutate
+      the assumption rather than the logic. Concretely — the fix guards X;
+      what does it assume about how X is delimited, encoded, or reached? That
+      question produced SB-1 (fence delimiting), SB-2 (line encoding) and
+      PATCH-002/SB-2 (front-matter boundary) while three logic mutations found
+      nothing.
+
+      ⚠ Cost of ignoring it, measured: merging PATCH-002 before its verify let
+      two ship-blockers reach main, and closing them took two further patches and
+      three review rounds. Related: [measurement-over-generalised] (one shape is
+      not a boundary) and [named-tests-can-pass-vacuously].
+
   - id: handback-sync-truncates-multi-line-scalars
     type: process-debt
     summary: "handback-sync transcribes only the FIRST physical line of a multi-line YAML scalar, leaving an unterminated quote that makes a spec's whole front matter unparseable — and every gate passes anyway."

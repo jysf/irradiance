@@ -140,6 +140,29 @@ documented-step-with-no-surface shape the patch itself is about.*
   — it was written — it is that **a red-proof's injection must reproduce the
   real shipped shape**, or it tests a file that never exists.
 
+## Follow-ups
+
+*Every finding raised against `PATCH-002` across every cycle, with its
+disposition (§15). Added at `PATCH-003`'s verify (`FU-8`), which found this
+patch had **crossed its own ship with these undecided — and merged to `main`
+that way**. §15: "a follow-up is dispositioned at the ship cycle of the spec
+that raised it, and never crosses that ship undecided." This one did.*
+
+| id | finding | disposition |
+|---|---|---|
+| `SB-1` | the gate reversed `DEC-013` §5 and the patch said it decided nothing | `fixed` — `DEC-022` amends §5 explicitly; template + five stage files corrected (`PATCH-003`) |
+| `SB-2` | the awk read the body as front matter, so prose satisfied the gate | `fixed` — delimiter counting (`PATCH-003`), then **fence normalisation + fail-closed** after `PATCH-003`'s own verify found the first fix was one space away |
+| `FU-1` | the `#` guard is unreachable and its comment miscredited it as the anti-trap | `fixed` — kept as defence in depth, comment corrected to credit the anchor (`PATCH-003`) |
+| `FU-2` | the red-proof claimed "rejected **by name**" while only asserting the reason | `fixed` — the name is now asserted; `M4b` caught (`PATCH-003`) |
+| `FU-3` | `cancelled` stages are not audited | `closed` — a cancelled stage did not ship and has no orchestration to record. Recorded so it is a decision, not an oversight |
+| `FU-4` | `status: "shipped"` silently skipped the check | `fixed` — quotes stripped, then CRLF handled too after `PATCH-003`'s verify found the same "opt out by adding characters" class one layer down |
+| `FU-5` | fifth `+toolchain` instance: `just lint` / `lint-red-proof` use a bare `cargo clippy` | `fixed` — `PATCH-004` (PR #11). ⚠ Re-measured: the finding's symptom and its workaround were both wrong; Homebrew's clippy shadows the rustup shim, so both commands *succeed* with an unselected compiler |
+| `FU-6` | `tokens_total: 0` satisfied the gate while the spec-side gate treats 0 as absent | `fixed` — now requires `> 0` (`PATCH-003`) |
+| `FU-7` | the red-proof copied `target/` — 105 s local vs 3.8 s clean | `fixed` — copy scoped to what the gate reads; **118.32 s → 5.81 s** (`PATCH-003` round 2) |
+| `FU-8` | the `die` message pointed at `docs/cost-tracking.md`, which never mentioned stage `orchestration_cost` | `fixed` — that section now exists (`PATCH-003` round 2) |
+| `FU-9` | this patch's own `## Patch Completion` was the unfilled stub and `task.cycle` was still `patch` | `fixed` — both completed (`PATCH-003` round 2). ⚠ The same documented-step-with-no-surface shape the patch is about |
+| `FU-10` | `STAGE_ORCH_COST_GRANDFATHERED=""` does not clear the list (`:-` falls back) | `fixed` (documented) — `" "` clears it; both forms verified. Kept for consistency with `COST_AUDIT_GRANDFATHERED`, but no longer silent |
+
 ## Ship
 
 - Add a CHANGELOG entry under `[Unreleased] → Fixed`.
