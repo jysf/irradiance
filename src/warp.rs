@@ -50,16 +50,31 @@
 //! invitation to choose when it is silent: **clamp-to-edge** — the sampled
 //! coordinate is clamped into `[0, width-1] x [0, height-1]` before
 //! interpolation, so an out-of-extent pixel repeats its nearest edge pixel.
-//! Alternatives (zero-fill, error) and the measured per-frame scores are in
-//! the kernel-choice `DEC-*` (`AC11`).
+//! The alternatives (zero-fill, error) are recorded in the kernel-choice
+//! decision, `DEC-024` (`AC11`) — which records no per-frame oracle scores,
+//! for the reason the Kernel section below states.
 //!
 //! # Kernel — bilinear (pre-registered rule, `## The design decision this
 //! spec rests on`)
 //!
-//! Tried first per the spec's pre-registered rule; shipped because all three
-//! decodable Q2M frames scored >= 85 through SPEC-020's oracle with it (see
-//! the kernel-choice `DEC-*` for the measured per-frame numbers). Bicubic
-//! and Lanczos-3 are the recorded alternatives, not implemented.
+//! Bilinear is `SPEC-018`'s pre-registered FIRST choice, and it shipped
+//! because nothing measured argued for escalating past it — **not** because
+//! it scored well through `SPEC-020`'s oracle. That oracle produced no score
+//! to ship on: `dnglab`/`rawler` do not implement DNG `OpcodeList`
+//! processing, so it cannot see this stage in either direction, and `AC8`/
+//! `AC9` are `#[ignore]`-marked with that reason inline (`DEC-024`
+//! Finding 2). The pre-registered escalation trigger was an oracle score
+//! below the bar; no such score exists, and a sharper kernel could not have
+//! moved a number the reference never computes.
+//!
+//! What the kernel choice actually rests on is `tests/warp.rs`'s analytic
+//! pair, which needs no corpus and no reference decoder: `AC4` reproduces
+//! each frame's own `f(1)`-derived corner displacement to within 1 px
+//! through this kernel, and `AC10` gives that check teeth — zeroing `kr1`
+//! moves the detected peak 339.5 px on `L1021223.DNG`'s coefficients,
+//! against a 20 px bar (measured by running the test, not carried forward
+//! from a document). Bicubic and Lanczos-3 remain the recorded, unimplemented
+//! alternatives; `DEC-024` records why chasing them would have been waste.
 //!
 //! # Determinism (`DEC-002`)
 //!

@@ -489,9 +489,9 @@ fn crop_and_orient_from_active_into(
 /// `FixBadPixelsConstant` appear nowhere in the repository). `--srgb`'s
 /// reference render is therefore UNCORRECTED, so a MORE geometrically
 /// correct warp scores WORSE against it, not better — this is not a kernel
-/// or implementation defect, see the kernel-choice `DEC-*` and the
-/// handback's `AC8`/`AC9` finding. Correctness here rests on
-/// `tests/warp.rs`'s analytic checks (`AC4`, `AC10`) instead — an exact,
+/// or implementation defect, see the kernel-choice decision, `DEC-024`
+/// Finding 2, and the handback's `AC8`/`AC9` finding. Correctness here rests
+/// on `tests/warp.rs`'s analytic checks (`AC4`, `AC10`) instead — an exact,
 /// independently-derived transcription of DNG 1.7.0.0 §6.4.1, verified
 /// against `SPIKE-001`'s measured ~504 px figure on real per-frame
 /// coefficients.
@@ -510,9 +510,8 @@ fn crop_and_orient_from_active_into(
 /// working memory. Every real Q2M frame carries a mandatory (non-optional)
 /// `WarpRectilinear`, so this path is the common case for this camera, not a
 /// rare one — measured peak RSS is in `docs/provenance-ledger.md`'s
-/// `src/warp.rs` row. See the
-/// kernel-choice `DEC-*` for the alternative considered (a third
-/// caller-supplied buffer) and why this was chosen instead.
+/// `src/warp.rs` row, and in `DEC-024`'s Consequences section, which records
+/// this allocation as the pipeline-order fix's price.
 ///
 /// # Errors
 ///

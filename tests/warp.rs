@@ -14,10 +14,15 @@
 //!
 //! - **Tier A** (`warp_moves_corner_impulse_to_spike_001s_source_coord`,
 //!   `output_dimensions_are_unchanged_by_warp`,
-//!   `warp_tier_a_red_proof_kr1_zeroed_moves_peak_20px_or_more`) run
-//!   everywhere: a synthetic corner-impulse fixture at the Q2M crop size
-//!   (8368x5584), the same size AS the real frames but built in-test, no
-//!   corpus needed.
+//!   `warp_tier_a_red_proof_kr1_zeroed_moves_peak_20px_or_more`,
+//!   `develop_into_crops_from_the_warped_active_area_not_the_warped_crop`)
+//!   run everywhere: a synthetic corner-impulse fixture at the Q2M crop size
+//!   (8368x5584), the same size AS the real frames but built in-test, plus
+//!   the small ramp-plane fixture the last of those uses; no corpus needed.
+//!   That last one is `SB-1`'s fix — it is the only test in this tree that
+//!   develops a `Sensor` whose `opcode_list_3` is non-`None` all the way to
+//!   pixels, so it is the only one that can see `develop_into`'s pipeline
+//!   order at all.
 //! - **Tier B** (`warp_scores_at_least_eightyfive_via_spec_020_oracle`,
 //!   `warp_oracle_is_red_on_a_zeroed_kr1_coefficient`) need the real corpus
 //!   and `dnglab` on `PATH`, and skip loudly, per-entry, when absent.
@@ -267,6 +272,271 @@ fn warp_tier_a_red_proof_kr1_zeroed_moves_peak_20px_or_more() {
     );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SB-1 — the develop-side pipeline seam (tier A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The SB-1 fixture's geometry. `ActiveArea` is a strict sub-rectangle of the
+/// raw plane AND `DefaultCrop` is a strict, off-centre sub-rectangle of
+/// `ActiveArea`, so the two candidate pipeline orders put the optical centre
+/// in different places and normalise `r` against different half-diagonals —
+/// which is what makes the seam observable at all. Small on purpose: the
+/// property under test is composition order, not resampling accuracy (`AC4`
+/// covers that at the real Q2M size).
+const SEAM_RAW_W: u32 = 96;
+const SEAM_RAW_H: u32 = 72;
+const SEAM_ACTIVE_LEFT: u32 = 6;
+const SEAM_ACTIVE_TOP: u32 = 4;
+const SEAM_ACTIVE_W: u32 = 80;
+const SEAM_ACTIVE_H: u32 = 64;
+const SEAM_CROP_X: u32 = 7;
+const SEAM_CROP_Y: u32 = 5;
+const SEAM_CROP_W: u32 = 60;
+const SEAM_CROP_H: u32 = 48;
+
+/// A deterministic affine ramp over the raw plane: `value = 256*x + 4*y`.
+/// Affine on purpose — bilinear interpolation reproduces an affine function
+/// exactly, so a developed pixel's value decodes straight back to the source
+/// coordinate the pipeline actually sampled, and a wrong pipeline order shows
+/// up as a wrong coordinate rather than as noise. Peak value `256*95 + 4*71 =
+/// 24604`, well inside `u16`.
+fn seam_ramp_plane() -> Vec<u16> {
+    let mut plane = vec![0u16; (SEAM_RAW_W as usize) * (SEAM_RAW_H as usize)];
+    for y in 0..SEAM_RAW_H {
+        for x in 0..SEAM_RAW_W {
+            let index = (y as usize) * (SEAM_RAW_W as usize) + (x as usize);
+            plane[index] = (x as u16) * 256 + (y as u16) * 4;
+        }
+    }
+    plane
+}
+
+/// The SB-1 fixture's `Sensor`. `BlackLevel = 0` / `WhiteLevel = 65535` makes
+/// `develop`'s normalization the identity, so every value in the developed
+/// output is a resampled ramp sample and nothing else.
+fn seam_sensor(opcode_list_3: Option<Vec<u8>>) -> Sensor {
+    Sensor {
+        ifd_index: 0,
+        width: SEAM_RAW_W,
+        height: SEAM_RAW_H,
+        bits_per_sample: 16,
+        samples_per_pixel: 1,
+        photometric: 34892,
+        compression: Compression::Uncompressed,
+        rows_per_strip: None,
+        strip_offsets: vec![],
+        strip_byte_counts: vec![],
+        black_level: Some(0),
+        white_level: Some(65535),
+        black_level_repeat_dim: None,
+        active_area: Some(ActiveArea {
+            top: SEAM_ACTIVE_TOP,
+            left: SEAM_ACTIVE_LEFT,
+            bottom: SEAM_ACTIVE_TOP + SEAM_ACTIVE_H,
+            right: SEAM_ACTIVE_LEFT + SEAM_ACTIVE_W,
+        }),
+        default_crop_origin: Some(DefaultCropOrigin {
+            x: SEAM_CROP_X,
+            y: SEAM_CROP_Y,
+        }),
+        default_crop_size: Some(DefaultCropSize {
+            width: SEAM_CROP_W,
+            height: SEAM_CROP_H,
+        }),
+        orientation: Some(1),
+        opcode_lists: [false, false, opcode_list_3.is_some()],
+        opcode_list_3,
+        malformed_tags: vec![],
+    }
+}
+
+/// Extract the `DefaultCrop` rectangle from an `ActiveArea`-sized buffer —
+/// `Orientation` 1, so this is the crop stage alone. Written out here rather
+/// than reached for in `src/develop.rs` so the expectation is independent of
+/// the code under test.
+fn seam_crop(active: &[u16]) -> Vec<u16> {
+    let mut out = vec![0u16; (SEAM_CROP_W as usize) * (SEAM_CROP_H as usize)];
+    for cy in 0..SEAM_CROP_H {
+        for cx in 0..SEAM_CROP_W {
+            let ax = (SEAM_CROP_X + cx) as usize;
+            let ay = (SEAM_CROP_Y + cy) as usize;
+            out[(cy as usize) * (SEAM_CROP_W as usize) + (cx as usize)] =
+                active[ay * (SEAM_ACTIVE_W as usize) + ax];
+        }
+    }
+    out
+}
+
+/// `SB-1` (`HANDOFF-047`) — `develop_into`'s `Some(warp)` branch, with the
+/// PIPELINE ORDER as the thing under test.
+///
+/// Round 1 shipped `DEC-024` Finding 1's correction (warp over `ActiveArea`,
+/// `DefaultCrop` after) with no test that could see it: `opcode_list_3` was
+/// non-`None` at exactly one call site in the whole test tree
+/// (`output_dimensions_are_unchanged_by_warp`), and that `Sensor` only ever
+/// reaches `output_dimensions`, which by design ignores it. Verify measured
+/// the consequence directly — reverting `src/develop.rs` to crop-then-warp
+/// compiled, changed real decoded output, and left the suite at 205/0/2.
+///
+/// Three assertions, in the order they earn their keep:
+///
+/// 1. **The fixture discriminates.** Both candidate orders are computed here
+///    from the same normalized `ActiveArea` window, and must disagree — on
+///    the whole buffer and on each of the two named probe pixels. Without
+///    this the other two assertions could both hold vacuously.
+/// 2. **`develop_into` crops from the WARPED `ActiveArea`.** Its output must
+///    equal `warp(active)` cropped, and must NOT equal `warp(crop(active))`.
+///    This is the assertion that turns red on a crop-then-warp revert.
+/// 3. **An identity warp is bit-identical to no warp at all.** `kr0 = 1.0`,
+///    `kr1 = kr2 = kr3 = kt0 = kt1 = 0.0` through the whole develop pipeline
+///    must reproduce the warp-free path exactly — a `Some(warp)` branch that
+///    is structurally wired but semantically inert would pass assertion 2
+///    only by accident, and this pins the no-op case against the real-warp
+///    case (which must differ, asserted too).
+///
+/// Tier A: the `WarpRectilinear` bytes are the committed real `L1021223.DNG`
+/// `OpcodeList3` fixture, but the plane is synthetic and no corpus is read.
+#[test]
+fn develop_into_crops_from_the_warped_active_area_not_the_warped_crop() {
+    let bytes = opcode_support::load_hex_fixture("opcodelist3-L1021223");
+    let warp = parse_warp_rectilinear(&bytes)
+        .expect("the committed L1021223 OpcodeList3 fixture parses")
+        .expect("the committed L1021223 OpcodeList3 fixture carries a WarpRectilinear");
+
+    let raw = seam_ramp_plane();
+
+    // The normalized `ActiveArea` window — the common ancestor of both
+    // candidate pipeline orders. `BlackLevel = 0` / `WhiteLevel = 65535`
+    // makes normalization the identity, so this is the raw window verbatim.
+    let mut active = vec![0u16; (SEAM_ACTIVE_W as usize) * (SEAM_ACTIVE_H as usize)];
+    for ay in 0..SEAM_ACTIVE_H {
+        for ax in 0..SEAM_ACTIVE_W {
+            let raw_index = ((ay + SEAM_ACTIVE_TOP) as usize) * (SEAM_RAW_W as usize)
+                + ((ax + SEAM_ACTIVE_LEFT) as usize);
+            active[(ay as usize) * (SEAM_ACTIVE_W as usize) + (ax as usize)] = raw[raw_index];
+        }
+    }
+
+    // Order A — DEC-024 Finding 1, the shipped order: warp over the full
+    // `ActiveArea`, then extract `DefaultCrop`.
+    let mut active_warped = vec![0u16; active.len()];
+    apply_warp_into(
+        &warp,
+        SEAM_ACTIVE_W,
+        SEAM_ACTIVE_H,
+        &active,
+        &mut active_warped,
+    )
+    .expect("warp over the ActiveArea applies");
+    let warp_then_crop = seam_crop(&active_warped);
+
+    // Order B — the pre-Finding-1 assumption: extract `DefaultCrop` first,
+    // then warp inside the smaller rectangle (its own centre, its own
+    // half-diagonal).
+    let cropped = seam_crop(&active);
+    let mut crop_then_warp = vec![0u16; cropped.len()];
+    apply_warp_into(
+        &warp,
+        SEAM_CROP_W,
+        SEAM_CROP_H,
+        &cropped,
+        &mut crop_then_warp,
+    )
+    .expect("warp inside the crop applies");
+
+    // ── Assertion 1: the fixture discriminates ──────────────────────────
+    let differing = warp_then_crop
+        .iter()
+        .zip(crop_then_warp.iter())
+        .filter(|(a, b)| a != b)
+        .count();
+    eprintln!(
+        "seam fixture: {differing} of {} developed pixels differ between \
+         warp-then-crop and crop-then-warp",
+        warp_then_crop.len()
+    );
+    assert!(
+        differing > warp_then_crop.len() / 2,
+        "the fixture must actually separate the two pipeline orders, else \
+         nothing below can fail; only {differing} of {} pixels differ",
+        warp_then_crop.len()
+    );
+
+    // ── Assertion 2: develop_into crops from the WARPED ActiveArea ──────
+    let sensor = seam_sensor(Some(bytes.clone()));
+    assert_eq!(
+        output_dimensions(&sensor).expect("the seam geometry resolves"),
+        (SEAM_CROP_W, SEAM_CROP_H),
+        "the fixture's developed size is DefaultCropSize"
+    );
+    let mut developed = vec![0u16; (SEAM_CROP_W as usize) * (SEAM_CROP_H as usize)];
+    develop_into(&sensor, &raw, &mut developed).expect("develop_into applies the warp");
+
+    // Two probe pixels inside the `DefaultCropOrigin` region, at opposite
+    // corners of the crop — where the two orders' displacement fields
+    // disagree most. Reported before they are asserted, so a failure shows
+    // which order the code actually took.
+    for (label, px, py) in [
+        ("crop top-left", 0u32, 0u32),
+        ("crop bottom-right", SEAM_CROP_W - 1, SEAM_CROP_H - 1),
+    ] {
+        let index = (py as usize) * (SEAM_CROP_W as usize) + (px as usize);
+        eprintln!(
+            "{label} ({px}, {py}): develop_into = {}, warp-then-crop = {}, \
+             crop-then-warp = {}",
+            developed[index], warp_then_crop[index], crop_then_warp[index]
+        );
+        assert_ne!(
+            warp_then_crop[index], crop_then_warp[index],
+            "{label}: this probe pixel must separate the two orders"
+        );
+        assert_eq!(
+            developed[index], warp_then_crop[index],
+            "{label}: develop_into must sample the WARPED ActiveArea, not the \
+             warped crop (DEC-024 Finding 1)"
+        );
+    }
+
+    assert_eq!(
+        developed, warp_then_crop,
+        "develop_into's whole output must be DefaultCrop taken from the warped \
+         ActiveArea (DEC-024 Finding 1)"
+    );
+    assert_ne!(
+        developed, crop_then_warp,
+        "develop_into must not be applying the warp inside the crop rectangle"
+    );
+
+    // ── Assertion 3: identity warp == no warp at all, bit for bit ───────
+    let identity_bytes = opcode_support::single_warp_rectilinear_list(
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0],
+        0.5,
+        0.5,
+        1,
+        0,
+    );
+    let identity_sensor = seam_sensor(Some(identity_bytes));
+    let mut identity_developed = vec![0u16; developed.len()];
+    develop_into(&identity_sensor, &raw, &mut identity_developed)
+        .expect("develop_into accepts an identity WarpRectilinear");
+
+    let warp_free_sensor = seam_sensor(None);
+    let mut warp_free_developed = vec![0u16; developed.len()];
+    develop_into(&warp_free_sensor, &raw, &mut warp_free_developed)
+        .expect("develop_into accepts a sensor with no OpcodeList3");
+
+    assert_eq!(
+        identity_developed, warp_free_developed,
+        "an identity WarpRectilinear must develop bit-identically to no \
+         OpcodeList3 at all (AC5, through the whole pipeline)"
+    );
+    assert_ne!(
+        identity_developed, developed,
+        "the real L1021223 warp must not develop identically to no warp, else \
+         assertion 3 proves nothing"
+    );
+}
 // ─────────────────────────────────────────────────────────────────────────────
 // AC8 + AC9 — the develop-oracle score, and its red-proof (tier B)
 // ─────────────────────────────────────────────────────────────────────────────

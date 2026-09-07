@@ -53,8 +53,13 @@
 //! oracle that will cover it). `SPEC-018` added [`opcode`] (the `OpcodeList`
 //! byte-stream parser, DNG 1.7.0.0 Chapter 7 — big-endian regardless of the
 //! file's own byte order) and [`warp`] (the `WarpRectilinear` resampler),
-//! wired into `develop_into` between `Orientation` and the (still absent)
-//! tone curve. Still absent, by design: `ASCII` and the signed field types
+//! applied inside `develop_into` after levels normalization, over the full
+//! `ActiveArea` window, and BEFORE `DefaultCrop` extracts the final image
+//! area and `Orientation` reorients it (`DEC-024` Finding 1 — the
+//! design-time assumption that the warp ran after cropping and orientation
+//! was backwards; this sentence stated that pre-correction order in the very
+//! commit, `40f5d45`, that corrected the code). Still absent, by design: the
+//! tone curve (`SPEC-019`), `ASCII` and the signed field types
 //! (no DNG tag PROJ-001 reads needs them yet), and any compressed-plane
 //! decode (PROJ-003).
 
