@@ -57,16 +57,30 @@ Cycle prompts live in `prompts/SPEC-018-<cycle>.md`.
   handback-sync-truncates-multi-line-scalars) and FU-10 (Finding 2
   disposition: ship with #[ignore]s + follow-up spec narrowing
   SPEC-020's oracle scope).
-- [~] **build (round 2, punch-list)** — dispatched 2026-09-07 via
-  `projects/PROJ-001-monochrome-dng-develop/specs/prompts/SPEC-018-rebuild.md`.
-  Scope: SB-1 (add tier-A test exercising the develop_into warp
-  branch that turns red on crop-then-warp mutation) and SB-2 (fix
-  two rustdoc claims to match DEC-024). FUs deferred to ship.
-  Handback continues on HANDOFF-046 (no new build handoff minted;
-  matches PATCH-003 round-2 pattern).
-- [ ] **verify (round 2)** — awaits round-2 build. New verify
-  handoff (HANDOFF-048 or similar) confirms the SBs are closed and
-  proceeds to ship.
+- [x] **build (round 2, punch-list)** — completed 2026-09-07 at ship
+  SHA `08ad42e` (bookkeeping tip `957612e`). HANDOFF-046 round-2
+  handback: 14,298,209 tokens on claude-opus-5 ($34.26, 29 min),
+  notes correctly double-quoted (avoiding FU-5's bare-`#` truncation).
+  SB-1 closed via new tier-A test
+  `develop_into_crops_from_the_warped_active_area_not_the_warped_crop`
+  — the only test in the tree developing a non-None opcode_list_3 to
+  pixels, hand-built Sensor with ActiveArea 80×64 and DefaultCrop
+  60×48 off-centre so the two orders separate 2837/2880 pixels;
+  red-proof observed both directions (src/develop.rs md5
+  318977…→cf714e…→318977…). SB-2 closed by rewriting src/warp.rs
+  52-77 and src/lib.rs 56-58 to match reality, citing DEC-024;
+  incidentally resolved three dangling DEC-* placeholders and
+  corrected one further false claim of the same species. 206/0/2
+  tests, CI green on 08ad42e (run 34164609782, 10 jobs including
+  fuzz-warp smoke), no logic changes (irr develop L1021223.DNG max
+  51764 unchanged). FUs 1-10 UNTOUCHED and still owed a ship
+  disposition.
+- [~] **verify (round 2, reverify)** — `HANDOFF-048` dispatched
+  2026-09-07 via `prompts/SPEC-018-reverify.md`. TIGHT scope: confirm
+  SB-1 and SB-2 are truly closed and no NEW SB was introduced by
+  round 2. Round 1's substantive findings and the 10 FUs are OUT OF
+  SCOPE. Reverify reproduces the SB-1 mutation red-proof, reads the
+  SB-2 rustdoc rewrites, and observes CI green on 08ad42e.
 - [ ] **ship** — CI observed green on the shipping SHA (AC14), the
   new `fuzz-warp` recipe wired into CI as a smoke run in the same PR
   (§12 bar 2: fuzz targets arrive with the parser, not retrofitted),
