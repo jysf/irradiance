@@ -261,3 +261,26 @@ violation — run it, don't read it.
   as an oracle that cannot go red.
 - **`irr` is a dev/oracle binary, not a product surface.** `unwrap()` is fine
   there. Never design a library feature around it.
+
+## ⚠ PATH order, not `RUSTUP_TOOLCHAIN`, selects clippy here (PATCH-004, 2026-09-06)
+
+Measured on the maintainer's machine, and it corrects the workaround that gets
+passed around:
+
+```
+RUSTUP_TOOLCHAIN unset     clippy 0.1.97 @ /opt/homebrew/bin/cargo-clippy
+RUSTUP_TOOLCHAIN=stable    clippy 0.1.97 @ /opt/homebrew/bin/cargo-clippy   ← NO CHANGE
+PATH=~/.cargo/bin:$PATH    clippy 0.1.98 @ ~/.cargo/bin/cargo-clippy        ← this is what works
+```
+
+`cargo` finds a subcommand by looking for `cargo-<name>` **on `PATH`**, so
+`RUSTUP_TOOLCHAIN` does not reach it. Homebrew's `cargo-clippy` (rust 1.97.1)
+sits earlier than rustup's shim and wins. The default toolchain here is
+**nightly, which ships no clippy at all** — so without Homebrew's, bare
+`cargo clippy` would simply fail, which is what one reviewer's machine did.
+
+**This is why `just lint-ci` pins both** — `PATH="$HOME/.cargo/bin:$PATH"` *and*
+`+stable`. Either alone is insufficient on this machine.
+
+Both lint recipes now print the clippy version and its resolved binary, so you
+never have to work this out again — read the first line of their output.
