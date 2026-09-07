@@ -45,7 +45,7 @@ handback:
   pr: 16                           # verify did NOT open it; PR 16 was already open on arrival (orchestrator, 2026-09-07T07:54:45Z) — recorded as observed
   completed_at: 2026-09-07
   notes: PUNCH LIST on 40f5d45 (CI green there and on tip 823a7fc, 10 jobs each). Finding 1 is spec-correct but UNTESTED - reverting develop.rs to crop-then-warp compiles, changes real output, and leaves the whole suite green at 205/0/2, so the warp branch of develop_into has zero live coverage (SB-1). Finding 2 CONFIRMED behaviourally without reading dnglab source (corner-tile NCC vs dnglab - 0.989 to 0.995 for our UNWARPED render, minus 0.31 to plus 0.23 for our warped one, on two frames) and judged FU-10, ship with the ignore-marked tests. AC8 minus 60.169 and AC9 minus 60.193 / minus 55.075 reproduced exactly. SB-2 is two false claims in shipped rustdoc. Nine further follow-ups FU-1..FU-9.
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-07
   verdict: punch-list              # approved | punch-list | rejected — mirrors
                                    #   your review's banner; copies into
                                    #   spec.task.verify_verdict at ship.
