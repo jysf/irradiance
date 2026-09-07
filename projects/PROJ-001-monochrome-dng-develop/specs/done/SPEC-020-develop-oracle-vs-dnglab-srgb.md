@@ -119,6 +119,7 @@ cost:
     tokens_total: 47284079
     estimated_usd: 23.48
     session_count: 3
+shipped_at: 2026-09-06
 ---
 
 # SPEC-020: Develop oracle vs dnglab srgb

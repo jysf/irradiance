@@ -109,7 +109,7 @@ Run `just frame-stage STAGE-003` to promote these outlines into real specs.
 - [ ] SPEC-017 (frame) [S] FixBadPixelsConstant opcode
 - [~] SPEC-018 (design) [L] WarpRectilinear radial geometric correction — depends_on: [SPEC-020]
 - [ ] SPEC-019 (frame) [M] Tone curve and the three output modes
-- [~] SPEC-020 (design) [M] Develop oracle vs dnglab srgb — lands first, so SPEC-018/019/017 have a check they cannot rewrite
+- [x] SPEC-020 (shipped 2026-09-06) [M shipped M] Develop oracle vs dnglab srgb — lands first, so SPEC-018/019/017 have a check they cannot rewrite. verify verdict: approved. Follow-ups: FU-1/FU-2 → signal `unrun-docs-carry-errors` N=6 (SPEC-018 Context patched at ship); FU-3 → closed with contract reason.
 
 **Count:** 0 shipped / 4 active / 0 pending
 
