@@ -106,14 +106,42 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 Run `just frame-stage STAGE-003` to promote these outlines into real specs.
 
-- [ ] (not yet written) [S] `OpcodeList1: FixBadPixelsConstant`, with a test asserting the branch was HIT
-- [ ] (not yet written) [L] `OpcodeList3: WarpRectilinear` — radial polynomial geometric correction. ⚠ **NOT DEFERRABLE** — SPIKE-001 measured the real coefficients: pure radial, f(1)=0.8998, **~504 px inward at the corner (6% of image width)**. Skipping it produces a visibly wrong image, and a missing warp scores −68 on the develop oracle.
-- [ ] (not yet written) [M] Table-driven tone curve and the three output modes, with the cross-platform byte-identity test
-- [ ] (not yet written) [M] Develop oracle: SSIMULACRA2 vs `dnglab analyze --srgb`, **tolerance ≥ 85 pre-registered (DEC-005)**, red-on-broken proof. ⚠ `--srgb` is a PNM, not a TIFF, and on mono files writes a P6 header over a P5 payload — assert payload length then rewrite the header. Scope: geometry and gross tone ONLY; levels belong to DEC-004.
+- [ ] SPEC-017 (frame) [S] FixBadPixelsConstant opcode
+- [~] SPEC-018 (design) [L] WarpRectilinear radial geometric correction — depends_on: [SPEC-020]
+- [ ] SPEC-019 (frame) [M] Tone curve and the three output modes
+- [~] SPEC-020 (design) [M] Develop oracle vs dnglab srgb — lands first, so SPEC-018/019/017 have a check they cannot rewrite
 
-**Count:** 0 shipped / 0 active / 5 pending
+**Count:** 0 shipped / 4 active / 0 pending
 
 ## Design Notes
+
+### ⚠ Backlog summaries shortened 2026-09-06 — the detail is here
+
+`just frame-stage` derives each spec's **filename** from its backlog summary, and
+two of these ran past 350 characters, so framing **failed halfway** with
+`File name too long` — twice. The stage template's own rule is that summaries stay
+short and the constraints live here; these did not. Restated:
+
+**`WarpRectilinear` (`SPEC-018`) — NOT DEFERRABLE.** `SPIKE-001` measured the real
+coefficients: pure radial, `f(1) = 0.8998`, **~504 px inward at the corner (6 % of
+image width)**. Skipping it produces a **visibly wrong image**, and a missing warp
+scores **−68** on the develop oracle. This is the item in `PROJ-001` that most
+directly decides whether the thesis holds: the library today produces an image
+wrong by 6 % at the corners.
+
+**Develop oracle (`SPEC-020`).** SSIMULACRA2 vs `dnglab analyze --srgb`, with the
+**tolerance ≥ 85 pre-registered** (`DEC-005`) and a red-on-broken proof. ⚠ `--srgb`
+output is a **PNM, not a TIFF**, and on mono files writes a `P6` header over a `P5`
+payload — assert the payload length, then rewrite the header. Scope is **geometry
+and gross tone ONLY**; levels belong to `DEC-004` and are covered by `SPEC-015`.
+
+**`FixBadPixelsConstant` (`SPEC-017`).** The test must assert the branch was
+**HIT**, not merely that the image came out unchanged — a no-op opcode and an
+unexecuted opcode are indistinguishable from the output alone.
+
+**Tone curve (`SPEC-019`).** Table-driven, three output modes, with the
+cross-platform byte-identity test `DEC-002` implies.
+
 
 **A tolerance chosen after seeing the result is not a tolerance.** State it,
 justify it, then measure — and if the output cannot meet a defensible number, that
