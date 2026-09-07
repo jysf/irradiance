@@ -6,7 +6,7 @@
 task:
   id: SPEC-020
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build                     # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
                                    # ⚠ RAISED from the frame stub's `medium`.
