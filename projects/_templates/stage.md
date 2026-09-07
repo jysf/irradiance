@@ -34,7 +34,11 @@ value_contribution:
 # session total (`/cost` in Claude Code; the `usage` object via API) and append
 # one entry. Stage grain ONLY: do not try to split orchestration across specs —
 # that is a division you cannot observe, so any per-spec number is invented.
-# Warn-only, never a gate. A null here is honest; a guess is not. (DEC-013 §5)
+# ⚠ GATED since PATCH-002 (DEC-022 amends DEC-013 §5, which said warn-only).
+# `just cost-audit` FAILS if a stage with status: shipped has no real entry
+# here. "A null here is honest; a guess is not" still stands — if a stage's
+# orchestration genuinely has no observable split, add it to
+# STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
   sessions: []                      # - tokens_total: N
                                     #   estimated_usd: N

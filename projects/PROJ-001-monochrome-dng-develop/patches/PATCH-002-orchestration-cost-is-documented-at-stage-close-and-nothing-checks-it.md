@@ -11,7 +11,7 @@
 task:
   id: PATCH-002
   type: patch                      # epic | story | task | bug | chore | patch
-  cycle: patch                     # patch | verify | ship  (collapsed from a spec's 5)
+  cycle: verify                    # patch | verify | ship  (collapsed from a spec's 5)
   blocked: false
   priority: medium
   complexity: S                    # S | M  (an L fix is probably a spec, not a patch)
@@ -113,16 +113,55 @@ for a patch.
 
 ## Patch Completion
 
-*Filled at the end of the patch pass, before verify.*
+*Filled at the patch pass. `PATCH-003`'s verify raised this as `FU-9`: this
+section was the unfilled template stub while the patch sat on `main` — the same
+documented-step-with-no-surface shape the patch itself is about.*
 
-- **Branch / PR:**
-- **Fix summary:** <one or two lines>
-- **New decision emitted:** `DEC-NNN` (only if a real decision was made)
-- **Reflection (1 line):** what would make this class of fix faster next time?
-- **Defect-catch-stage:** where the bug this patch fixes was caught —
-  `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) —
-  one word, for the cross-project defect-escape distribution. (A patch usually
-  fixes an `escaped` defect; that's the signal a behavioral pre-flight was missed.)
+- **Branch / SHA:** `fix/patch-002-orchestration-cost-has-no-gate` → `705c784`,
+  merged to `main` as PR #9 (`0cda7d6`).
+- **What changed:** `cost-audit` gained a third loop over shipped stages;
+  `_lib.sh` gained `find_all_stages`, `stage_has_orchestration_cost` and
+  `is_grandfathered_stage_orch`; `cost-audit-red-proof.sh` added; one CI step.
+- **Gates:** ten + `lint-ci` green (clippy 0.1.98 asserted), 152 tests, CI 9/9
+  on `705c784` (run `34023570708`).
+- **Independent verify:** ⚠ **ran AFTER the merge**, at the maintainer's
+  direction, to close an ID-collision window. It returned **⚠ PUNCH LIST — 2
+  ship-blockers, 10 follow-ups**. Both ship-blockers were real. `PATCH-003`
+  remediates them; `PATCH-003`'s own verify then found two more, which
+  `PATCH-003` round 2 closes.
+- **`defect-catch-stage`:** `verify` — and it should be read as a warning
+  rather than a success. Merging before the verify is exactly what let two
+  ship-blockers reach `main`, and the cost of that decision is this chain of
+  three patches.
+- **Reflection:** the detector was written against a trap I had just fallen into
+  (`grep tokens_total` matching the template's own commented example) and the
+  red-proof's first draft still exercised the wrong path. Both were caught by
+  mutation, neither by review-by-reading. The lesson is not "write a red-proof"
+  — it was written — it is that **a red-proof's injection must reproduce the
+  real shipped shape**, or it tests a file that never exists.
+
+## Follow-ups
+
+*Every finding raised against `PATCH-002` across every cycle, with its
+disposition (§15). Added at `PATCH-003`'s verify (`FU-8`), which found this
+patch had **crossed its own ship with these undecided — and merged to `main`
+that way**. §15: "a follow-up is dispositioned at the ship cycle of the spec
+that raised it, and never crosses that ship undecided." This one did.*
+
+| id | finding | disposition |
+|---|---|---|
+| `SB-1` | the gate reversed `DEC-013` §5 and the patch said it decided nothing | `fixed` — `DEC-022` amends §5 explicitly; template + five stage files corrected (`PATCH-003`) |
+| `SB-2` | the awk read the body as front matter, so prose satisfied the gate | `fixed` — delimiter counting (`PATCH-003`), then **fence normalisation + fail-closed** after `PATCH-003`'s own verify found the first fix was one space away |
+| `FU-1` | the `#` guard is unreachable and its comment miscredited it as the anti-trap | `fixed` — kept as defence in depth, comment corrected to credit the anchor (`PATCH-003`) |
+| `FU-2` | the red-proof claimed "rejected **by name**" while only asserting the reason | `fixed` — the name is now asserted; `M4b` caught (`PATCH-003`) |
+| `FU-3` | `cancelled` stages are not audited | `closed` — a cancelled stage did not ship and has no orchestration to record. Recorded so it is a decision, not an oversight |
+| `FU-4` | `status: "shipped"` silently skipped the check | `fixed` — quotes stripped, then CRLF handled too after `PATCH-003`'s verify found the same "opt out by adding characters" class one layer down |
+| `FU-5` | fifth `+toolchain` instance: `just lint` / `lint-red-proof` use a bare `cargo clippy` | `fixed` — `PATCH-004` (PR #11). ⚠ Re-measured: the finding's symptom and its workaround were both wrong; Homebrew's clippy shadows the rustup shim, so both commands *succeed* with an unselected compiler |
+| `FU-6` | `tokens_total: 0` satisfied the gate while the spec-side gate treats 0 as absent | `fixed` — now requires `> 0` (`PATCH-003`) |
+| `FU-7` | the red-proof copied `target/` — 105 s local vs 3.8 s clean | `fixed` — copy scoped to what the gate reads; **118.32 s → 5.81 s** (`PATCH-003` round 2) |
+| `FU-8` | the `die` message pointed at `docs/cost-tracking.md`, which never mentioned stage `orchestration_cost` | `fixed` — that section now exists (`PATCH-003` round 2) |
+| `FU-9` | this patch's own `## Patch Completion` was the unfilled stub and `task.cycle` was still `patch` | `fixed` — both completed (`PATCH-003` round 2). ⚠ The same documented-step-with-no-surface shape the patch is about |
+| `FU-10` | `STAGE_ORCH_COST_GRANDFATHERED=""` does not clear the list (`:-` falls back) | `fixed` (documented) — `" "` clears it; both forms verified. Kept for consistency with `COST_AUDIT_GRANDFATHERED`, but no longer silent |
 
 ## Ship
 

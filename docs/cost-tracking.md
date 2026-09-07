@@ -88,3 +88,24 @@ avg-per-shipped-spec, top cost drivers, and the "shipped without cost data" flag
 column with per-stage subtotals and a grand "Recorded cost" total. The data is
 only as good as what's recorded — it gets richer as specs ship under the enforced
 process.
+
+## Stage-level `orchestration_cost` (gated since PATCH-002)
+
+Framing a stage, deciding its spec breakdown, and steering between specs all
+happen **outside** any spec, so no `cost.sessions` entry records them. The stage
+front matter has an `orchestration_cost:` block for exactly that spend.
+
+**It is a gate.** `just cost-audit` fails if a stage with `status: shipped`
+carries no real entry, naming the stage and the field. `DEC-022` amends
+`DEC-013` §5, which had made it warn-only.
+
+- **Stage grain only.** Do not split orchestration across specs — that division
+  is not observable, so any per-spec number is invented (`DEC-013` §5).
+- **`null` is honest; a guess is not** (`DEC-013` §4). If a stage's
+  orchestration genuinely has no observable split — the `STAGE-001` case, where
+  it ran across a week of sessions with no recorded boundary — add the stage to
+  `STAGE_ORCH_COST_GRANDFATHERED` **by name** rather than inventing a figure.
+  The gate prints a warning whenever that list is not its committed default.
+- **Scale, so this is not mistaken for bookkeeping:** `STAGE-002` measured
+  **~84.2M** tokens of orchestration against **187.0M** of delegated spec cost —
+  roughly **31 %** of the stage.

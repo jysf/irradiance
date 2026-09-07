@@ -396,7 +396,20 @@ get_active_stage_file() {
 get_stage_status() {
     local file="$1"
     [ -f "$file" ] || return
-    awk '/^---$/{f=!f; next} f && /^[[:space:]]+status:/{print $2; exit}' "$file" 2>/dev/null || echo ""
+    # PATCH-003 round 2 (SB-2). A CRLF stage file returned EMPTY here, so
+    # cost-audit skipped the stage entirely and then printed "every shipped
+    # stage records its orchestration cost" about a file it never opened — the
+    # same "opt out by adding characters" class as the quoted-status FU-4 this
+    # patch claimed to close. Strip CR before matching, and tolerate a quoted
+    # or trailing-space value. Five callers inherit this (backlog, roadmap,
+    # specs-by-stage, cost-audit), all of which were equally blind.
+    awk '{ sub(/\r$/, "") }
+         /^---[[:space:]]*$/ { f = !f; next }
+         f && /^[[:space:]]+status:/ {
+             v = $2
+             gsub(/^["\047]|["\047]$/, "", v)
+             print v; exit
+         }' "$file" 2>/dev/null || echo ""
 }
 
 # Read a stage file's target_complete: field. Empty if null/missing.
@@ -1046,7 +1059,15 @@ is_grandfathered_cost() {
 #   STAGE-001 shipped 2026-08-22 with `sessions: []`. Its orchestration ran
 #   across a week of sessions with no per-stage boundary recorded, so any figure
 #   reconstructed now would be invented rather than measured — which is exactly
-#   what AGENTS.md §4 calls out ("a null here is honest; a guess is not").
+#   what DEC-013 §4 calls out ("`null` is honest; a guess is not") — that is a
+#   SECTION TITLE in docs/decisions/DEC-013, not AGENTS.md §4, which has never
+#   carried the sentence in its whole history. Corrected at PATCH-003 verify
+#   (FU-3); DEC-022 amends DEC-013 §5, a different section, and preserves §4.
+# ⚠ `:-` means an EMPTY override falls back to the default: setting this to ""
+#   does NOT clear the list, it keeps STAGE-001 exempt. To clear it, pass a
+#   non-empty blank such as " ". This mirrors COST_AUDIT_GRANDFATHERED above,
+#   so it is the repo convention rather than an accident — but an operator
+#   "turning it off" with "" gets a silent no-op (PATCH-003 verify, FU-10).
 STAGE_ORCH_COST_GRANDFATHERED="${STAGE_ORCH_COST_GRANDFATHERED:-STAGE-001}"
 
 is_grandfathered_stage_orch() {
@@ -1078,18 +1099,44 @@ find_all_stages() {
 stage_has_orchestration_cost() {
     local file="$1"
     awk '
-        /^---$/ { fm = !fm; next }
-        !fm { next }
+        # PATCH-003 round 2 (SB-1). The previous version anchored the fence on
+        # /^---$/ exactly, so ONE TRAILING SPACE on the closing fence — or no
+        # closing fence at all — left `delim` at 1, and the body was scanned as
+        # front matter with `in_oc` still set. "Unreachable" was claimed in four
+        # places off one modelled shape; it was one space away. Measured:
+        #   `--- ` closing fence + prose `- tokens_total: 84200000`  -> rc=0
+        #   no closing fence      + the same prose                   -> rc=0
+        # Normalise CR and trailing whitespace before matching the fence, and
+        # FAIL CLOSED when the front matter never closes: an unterminated
+        # document is malformed, and a malformed stage must not satisfy a gate.
+        { sub(/\r$/, "") }
+        # No early exit on the closing fence, and none on a hit: `found` must be
+        # able to be true while `closed` is still false, or the fail-closed test
+        # in END can be satisfied by the very hit it is meant to disqualify.
+        # (Exactly what round 2 first attempt did wrong: N2 still bypassed.)
+        /^---[[:space:]]*$/ { if (++delim == 2) closed = 1; next }
+        delim != 1 { next }
         /^orchestration_cost:/ { in_oc = 1; next }
         in_oc && /^[a-z_]+:/ { in_oc = 0 }
         !in_oc { next }
         {
             line = $0
             sub(/^[ \t]+/, "", line)
-            if (substr(line, 1, 1) == "#") next          # a comment, not a value
-            if (line ~ /^- tokens_total:[ \t]*[0-9]+/) { found = 1; exit }
+            # Unreachable, kept as defence in depth: after stripping whitespace a
+            # line cannot both begin with `#` and match the anchor below. The
+            # anchor is the defence against the template comment (FU-1).
+            if (substr(line, 1, 1) == "#") next
+            if (line ~ /^- tokens_total:[ \t]*[0-9]+/) {
+                # A recorded ZERO is not a recorded cost; the spec-side gate
+                # already treats 0 as absent (FU-6).
+                v = line
+                sub(/^- tokens_total:[ \t]*/, "", v)
+                sub(/[^0-9].*$/, "", v)
+                if (v + 0 > 0) found = 1
+
+            }
         }
-        END { exit(found ? 0 : 1) }
+        END { exit((found && closed) ? 0 : 1) }
     ' "$file"
 }
 

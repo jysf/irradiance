@@ -96,6 +96,18 @@ shrug.
 
 ### 5. Stage-level `orchestration_cost` (the same problem, one layer up)
 
+> ⚠ **AMENDED IN THIS REPO by `decisions/DEC-022` (2026-09-06).** This section's
+> *"warn-only, no gate"* is no longer true of `irradiance`: `just cost-audit`
+> **fails** when a stage with `status: shipped` has an empty
+> `orchestration_cost`. `DEC-022` records why (one capture in three weeks;
+> ≈31 % of a stage's spend) and grandfathers `STAGE-001` by name.
+> §4 above — *`null` is honest; a guess is not* — is **preserved, not amended.**
+> This note is added because `PATCH-003`'s verify found the record still reading
+> as live law with `superseded_by: null` and no pointer (`FU-1`); the front
+> matter is left alone because this file is the **template's** namespace
+> (AGENTS.md §10), and amending it for one instance would be a lie in the other
+> direction.
+
 Framing a stage and deciding its spec breakdown happen **before any spec
 exists**, so that spend had no artifact to attach to and recorded cost was
 structurally under-counted. The stage template now carries an
