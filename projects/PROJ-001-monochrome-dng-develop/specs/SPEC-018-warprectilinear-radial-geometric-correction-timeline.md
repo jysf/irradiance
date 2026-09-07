@@ -21,13 +21,20 @@ Cycle prompts live in `prompts/SPEC-018-<cycle>.md`.
   coefficients are recorded as measurements; DNG 1.7.0.0 § 6.4.1 is
   the required-before-build probe (radius normalisation and
   out-of-extent rule).
-- [ ] **build** — handoff pending. Blocks on SPEC-020 shipping (AC8
-  reads the SPEC-020 oracle). Build must resolve DNG § 6.4.1's `r`
-  normalisation and out-of-extent rule against the spec — SPIKE-001
-  flagged the first as unconfirmed — before writing the parser or the
-  applier. Kernel choice is measurement-driven: bilinear first, and
-  only upgrade if the SPEC-020 score does not clear 85 on all three
-  decodable frames.
+- [~] **build** — `HANDOFF-046` dispatched 2026-09-06 on branch
+  `feat/spec-018-warprectilinear-radial-geometric-correction` (cut
+  from `main` at `7fe53fb` — post-SPEC-020 ship, post-SPEC-017 design).
+  SPEC-020 shipped; AC8 has an oracle to call. The FU-1 correction
+  landed at SPEC-020's ship: `## Context` names coefficients as
+  per-frame (only `kr0 = 0.9992511060` is constant; `kr1` varies
+  ~1.9× across the three decodable frames). AC1 commits one hex
+  fixture per frame; AC4/AC8 per-frame. Build must resolve DNG
+  § 6.4.1's `r` normalisation and out-of-extent rule against the
+  spec — SPIKE-001 flagged the first as unconfirmed — before writing
+  the parser or the applier. Kernel choice is measurement-driven:
+  bilinear first, upgrade only if AC8 does not clear 85 on all three
+  frames. Coordinates with SPEC-017 on `src/opcode.rs` — whichever
+  spec builds second extends.
 - [ ] **verify** — a separate agent runs `warp_scores_at_least_
   eightyfive_via_spec_020_oracle` on the corpus (AC8), the tier-A
   red-proof `warp_tier_a_red_proof_kr1_zeroed_moves_peak_20px_or_
