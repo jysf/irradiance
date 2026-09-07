@@ -37,16 +37,30 @@ repo:
 # Code; usage in the API). `notes:` MUST be ONE PHYSICAL LINE — handback-sync
 # truncates multi-line YAML scalars and leaves the spec unparseable while
 # every gate reports green (`handback-sync-truncates-multi-line-scalars`).
+# ⚠ ROUND 2 (punch-list). This block carried round 1's numbers until
+# 2026-09-07; they are preserved verbatim in `## Completion — round 2`
+# below AND already transcribed into the spec's `cost.sessions` (the
+# `cycle: build` entry, 116,480,125 tokens on claude-sonnet-5), so the
+# overwrite loses nothing. `synced_at` is reset to null so
+# `just handback-sync SPEC-018` appends round 2 as a SECOND build session
+# rather than skipping this file for idempotence.
+#
+# ⚠ `notes:` is ONE PHYSICAL LINE **and starts with a double quote**. That
+# quote is load-bearing, not decoration: `scripts/_lib.sh`'s
+# get_handback_field strips a trailing YAML comment from any value that
+# does NOT begin with a quote, so an unquoted note is truncated at its
+# first bare hash. That is exactly what happened to round 1's note, which
+# reached the spec as `notes: 12/14 ACs green; AC8/AC9` — raised as FU-5.
 handback:
   status: completed                # completed | blocked | rejected
-  tokens_total: 116480125          # deduped by message.id, own transcript identified by scratchpad UUID 17cfaf2f-afb7-4924-8bcd-5e6648d4e0f5
-  estimated_usd: 49.61             # per-component (in 532, out 289431, cache-write 621631, cache-read 115568531) at published Sonnet-tier rates ($3/$15/$3.75/$0.30 per Mtok) + 20% handback uplift
-  duration_minutes: 82
+  tokens_total: 14298209           # round 2 only; deduped by message.id, own transcript identified by scratchpad UUID 865e0a1e-8d8c-40d3-84f7-519fe88fb981 (NOT text-matched). message.model reports claude-opus-5 on all 97 metered messages, so tier_map.build's hint was right this round — its first time in 15 (round 1 was claude-sonnet-5).
+  estimated_usd: 34.26             # per-component (in 194, out 52885, cache-write 186388, cache-read 14058742) at published Opus-tier rates ($15/$75/$18.75/$1.50 per Mtok) = $28.55, + 20% handback uplift
+  duration_minutes: 29
   branch: feat/spec-018-warprectilinear-radial-geometric-correction
-  pr: null                         # build does not open the PR; orchestrator does
+  pr: 16                           # round 2 did NOT open it; PR 16 was already open on arrival — recorded as observed, and untouched
   completed_at: 2026-09-07
-  notes: 12/14 ACs green; AC8/AC9 #[ignore]d — dnglab/rawler implement no DNG opcode processing at all (DEC-024), so SPEC-020's oracle cannot validate WarpRectilinear in either direction.
-  synced_at: 2026-09-07
+  notes: "Round 2 (punch-list) on HANDOFF-047's two ship blockers, both CLOSED at 08ad42e. Docs and tests only - no logic changed, decoded output byte-identical (irr develop L1021223.DNG samples[0..8] and max 51764 unchanged). SB-1: new tier-A test develop_into_crops_from_the_warped_active_area_not_the_warped_crop is the only test in the tree that develops a non-None opcode_list_3 all the way to pixels; hand-built Sensor whose ActiveArea 80x64 and DefaultCrop 60x48 at origin (7,5) genuinely differ, real L1021223 OpcodeList3 bytes, affine ramp plane. Three assertions - the fixture separates the two orders (2837 of 2880 pixels, asserted), develop_into equals crop(warp(active)) and not warp(crop(active)) whole-buffer plus two probe pixels, and an identity warp develops bit-identically to no opcode list while differing from the real warp. Red-proof observed both directions: src/develop.rs md5 318977b683d168d4572efdd5f672cc98 honest -> cf714e8c973c5b4c60c647cca181ca77 crop-then-warp -> 318977b683d168d4572efdd5f672cc98 reverted; the mutation compiles and moves real output (max 51764 -> 60918), and the suite under it is 205 passed / 1 FAILED / 2 ignored - round 1's 205 all stayed green, which is SB-1 restated as a measurement. SB-2: both false rustdoc claims rewritten citing DEC-024 - src/warp.rs no longer claims three frames scored at or above 85 through an oracle that cannot see this stage (DEC-024 Finding 2), and now rests the kernel choice on AC4/AC10, whose 339.5 px separation I re-measured by running the test rather than copying it; src/lib.rs no longer states the pre-Finding-1 pipeline order it introduced in 40f5d45, the very commit that corrected the code (verified with git show). Incidental, in the same doc comments: three dangling kernel-choice DEC-* placeholders resolved to DEC-024, and one of them exposed a further false claim of the same species - DEC-024 records no third-caller-supplied-buffer alternative - now corrected to cite what it does hold. Gates on 08ad42e: fmt, lint-ci on the PINNED clippy 0.1.98 (not local 0.1.97), typecheck, test at 206 passed / 0 failed / 2 ignored (+1, as predicted), deny and deny-fuzz, msrv 1.90.0, lint-no-allow, both red-proof scripts, and fuzz-warp at 22,937,786 runs in 61 s with zero crashes. CI GREEN on 08ad42e - run 34164609782, 10 jobs all success, fuzz smoke warp_opcode included. FU-1 through FU-10 untouched and still owed a disposition at ship; DEC-024, the ACs and PR 16 all untouched."
+  synced_at: null
 ---
 
 # HANDOFF-046: Build SPEC-018 — WarpRectilinear radial geometric correction
@@ -519,3 +533,233 @@ retroactively close, only its own target).
    437.7 px / 407.0 px corner displacement, one measurement per frame,
    `tests/warp.rs::AC4`) — though `SPEC-020`'s oracle cannot itself
    confirm the visual improvement (`SB-1`).
+
+---
+
+## Completion — round 2 (punch-list)
+
+Dispatched 2026-09-07 via `specs/prompts/SPEC-018-rebuild.md` after
+`HANDOFF-047` returned `⚠ PUNCH LIST` at `40f5d45`. Scope: `SB-1` and
+`SB-2` only. No new build handoff was minted (PATCH-003's round-2
+pattern); this section continues `HANDOFF-046`, and the `handback:`
+block above now carries round 2's numbers — **round 1's, replaced
+there, were `tokens_total: 116480125`, `estimated_usd: 49.61`,
+`duration_minutes: 82`, `completed_at: 2026-09-07`, on
+`claude-sonnet-5`**, and are already transcribed into the spec's
+`cost.sessions` (the `cycle: build` entry), so nothing is lost by the
+overwrite.
+
+Ship SHA: **`08ad42e`**. One commit, on top of `76793b9`.
+
+### Summary
+
+Documentation and test only. `src/develop.rs`, `src/lib.rs` and
+`src/warp.rs` change **comments only** — no logic changed, and decoded
+pixel output is byte-identical across the round (`irr develop
+L1021223.DNG` reports `samples[0..8] [2028, 1855, 1818, 1868, 1805,
+1889, 1943, 2013]`, `max 51764` both before and after). Test count
+**205 → 206 passed / 0 failed / 2 ignored**, the +1 being `SB-1`'s new
+tier-A test. The two `#[ignore]`-marked tier-B tests are untouched;
+`FU-10` (whether `SPEC-020`'s oracle scope should be formally narrowed)
+is a ship-cycle question and was not reopened.
+
+### `SB-1` — the develop-side warp branch now has a live test
+
+**Test name:**
+`develop_into_crops_from_the_warped_active_area_not_the_warped_crop`
+(tier A, `tests/warp.rs`, +278 lines including its fixture helpers).
+
+It is the only test in the tree that develops a `Sensor` with a
+non-`None` `opcode_list_3` all the way to pixels. The fixture is a
+96x72 raw plane, `ActiveArea` 80x64 at `(6, 4)`, `DefaultCrop` 60x48 at
+origin `(7, 5)` — a strict, off-centre sub-rectangle, so the two
+candidate pipeline orders place the optical centre in different spots
+and normalise `r` against different half-diagonals. The
+`WarpRectilinear` is the committed **real** `L1021223.DNG` `OpcodeList3`
+bytes (`tests/oracle-fixtures/opcodelist3-L1021223.hex`), and the plane
+is an affine ramp (`256*x + 4*y`) chosen because bilinear interpolation
+reproduces an affine function exactly — every developed value decodes
+back to the source coordinate the pipeline actually sampled, so a wrong
+order shows up as a wrong coordinate rather than as noise.
+`BlackLevel = 0` / `WhiteLevel = 65535` makes normalization the
+identity.
+
+Three assertions:
+
+1. **The fixture discriminates.** Both orders are computed in-test from
+   the same normalized `ActiveArea` window, and must disagree — 2837 of
+   2880 developed pixels differ, asserted, plus a per-pixel assertion at
+   each probe. Without this the other two could hold vacuously.
+2. **`develop_into` crops from the WARPED `ActiveArea`.** Whole-buffer
+   equality against `crop(warp(active))`, whole-buffer inequality
+   against `warp(crop(active))`, and two named probe pixels at opposite
+   crop corners. This is the assertion that goes red on a revert.
+3. **Identity warp is bit-identical to no warp.** `kr0 = 1.0`,
+   `kr1 = kr2 = kr3 = kt0 = kt1 = 0.0` through the full develop pipeline
+   equals the `opcode_list_3: None` path exactly — and must differ from
+   the real-warp output, asserted, so assertion 3 cannot pass vacuously
+   either. ⚠ **Stated honestly:** `develop_into` routes an identity warp
+   through `warp.filter(|w| !is_identity(w))` into the warp-FREE branch,
+   so what this assertion pins today is that short-circuit, not the
+   resampler's own no-op behaviour (`AC5` pins the resampler directly in
+   `src/warp.rs`'s unit tests). It would still catch a `Some(warp)`
+   branch that silently diverged from the warp-free path.
+
+**Red-proof — mutated, run, watched fail; reverted, run, watched pass.**
+The mutation replaces `develop_into`'s `Some(warp)` arm with
+`crop_orient_normalize_into` followed by `apply_warp_into` at
+`(out_width, out_height)` — i.e. the pre-Finding-1 crop-then-warp order.
+
+| `src/develop.rs` | md5 |
+|---|---|
+| honest | `318977b683d168d4572efdd5f672cc98` |
+| mutated (crop-then-warp) | `cf714e8c973c5b4c60c647cca181ca77` |
+| reverted | `318977b683d168d4572efdd5f672cc98` (byte-identical to honest) |
+
+The mutation **compiles** (three `dead_code` warnings only, for the two
+now-unused helpers and two `Geometry` fields) and **changes real decoded
+output** — `irr develop L1021223.DNG` goes
+`samples[0..8] [2028, 1855, 1818, 1868, 1805, 1889, 1943, 2013]`,
+`max 51764` → `[1801, 2001, 2036, 1972, 1819, 1689, 2142, 2185]`,
+`max 60918`.
+
+**Suite delta under the mutation: 205 passed / 1 FAILED / 2 ignored.**
+The single failure is the new test, and it names the finding:
+
+```
+crop top-left (0, 0): develop_into = 4130, warp-then-crop = 3948, crop-then-warp = 4130
+assertion `left == right` failed: crop top-left: develop_into must sample the
+WARPED ActiveArea, not the warped crop (DEC-024 Finding 1)
+  left: 4130
+ right: 3948
+```
+
+`develop_into` returned exactly the crop-then-warp value. Note the
+count: round 1's 205 tests **all stayed green** under this mutation —
+which is `SB-1` restated as a measurement, and the reason the new test
+had to exist. After revert: 206 passed / 0 failed / 2 ignored.
+
+### `SB-2` — the two false rustdoc claims, before and after
+
+**1. `src/warp.rs`, `# Kernel` section (was lines 59-62).**
+
+Before:
+
+> Tried first per the spec's pre-registered rule; shipped because all
+> three decodable Q2M frames scored >= 85 through SPEC-020's oracle with
+> it (see the kernel-choice `DEC-*` for the measured per-frame numbers).
+> Bicubic and Lanczos-3 are the recorded alternatives, not implemented.
+
+After:
+
+> Bilinear is `SPEC-018`'s pre-registered FIRST choice, and it shipped
+> because nothing measured argued for escalating past it — **not**
+> because it scored well through `SPEC-020`'s oracle. That oracle
+> produced no score to ship on: `dnglab`/`rawler` do not implement DNG
+> `OpcodeList` processing, so it cannot see this stage in either
+> direction, and `AC8`/`AC9` are `#[ignore]`-marked with that reason
+> inline (`DEC-024` Finding 2). The pre-registered escalation trigger was
+> an oracle score below the bar; no such score exists, and a sharper
+> kernel could not have moved a number the reference never computes.
+>
+> What the kernel choice actually rests on is `tests/warp.rs`'s analytic
+> pair, which needs no corpus and no reference decoder: `AC4` reproduces
+> each frame's own `f(1)`-derived corner displacement to within 1 px
+> through this kernel, and `AC10` gives that check teeth — zeroing `kr1`
+> moves the detected peak 339.5 px on `L1021223.DNG`'s coefficients,
+> against a 20 px bar (measured by running the test, not carried forward
+> from a document). Bicubic and Lanczos-3 remain the recorded,
+> unimplemented alternatives; `DEC-024` records why chasing them would
+> have been waste.
+
+The 339.5 px figure was **re-measured for this commit** by running
+`warp_tier_a_red_proof_kr1_zeroed_moves_peak_20px_or_more` with
+`--nocapture` (`honest peak (8367, 5583)`, `kr1=0 mutated peak
+(8085, 5394)`), not copied from `DEC-024` — `unrun-docs-carry-errors`
+applies to a correction exactly as it applies to the original claim.
+
+**2. `src/lib.rs`, crate-root doc (was lines 56-57).**
+
+Before:
+
+> ...and [`warp`] (the `WarpRectilinear` resampler), wired into
+> `develop_into` between `Orientation` and the (still absent) tone curve.
+> Still absent, by design: `ASCII` and the signed field types...
+
+After:
+
+> ...and [`warp`] (the `WarpRectilinear` resampler), applied inside
+> `develop_into` after levels normalization, over the full `ActiveArea`
+> window, and BEFORE `DefaultCrop` extracts the final image area and
+> `Orientation` reorients it (`DEC-024` Finding 1 — the design-time
+> assumption that the warp ran after cropping and orientation was
+> backwards; this sentence stated that pre-correction order in the very
+> commit, `40f5d45`, that corrected the code). Still absent, by design:
+> the tone curve (`SPEC-019`), `ASCII` and the signed field types...
+
+The "very commit `40f5d45`" claim was verified by running the reader:
+`git show 40f5d45 -- src/lib.rs` shows the wrong sentence being **added**
+(`+//! wired into develop_into between Orientation and...`) in the same
+commit whose `--stat` carries the `src/develop.rs` restructure.
+
+### Incidental fixes, in the two SBs' immediate surroundings
+
+Reported per return criterion 7; none chased beyond the doc comments
+`SB-2` names.
+
+- **Three dangling `` `DEC-*` `` placeholders resolved to `DEC-024`** —
+  `src/warp.rs` x1 (the out-of-extent paragraph, one line above the
+  rewritten Kernel section) and `src/develop.rs` x2 (inside
+  `develop_into`'s own oracle and allocation docs). `SB-2` asks each
+  rewrite to cite `DEC-024` by id; leaving a bare `DEC-*` in the
+  adjacent sentence would have been incoherent. `grep -rn 'DEC-\*'
+  src/ tests/` now returns 0 matches, down from 3.
+- **One of those resolutions exposed a false claim of `SB-2`'s own
+  species, and it was corrected rather than made specific.**
+  `src/develop.rs`'s allocation doc said to see the kernel-choice DEC
+  "for the alternative considered (a third caller-supplied buffer)".
+  `DEC-024` records no such alternative — `grep -n 'caller-supplied\|
+  third.*buffer\|scratch buffer'` on it returns nothing for the first
+  two patterns and only its Consequences line for the third. The
+  sentence now cites what `DEC-024` actually holds (that Consequences
+  section's record of this allocation), and the neighbouring claim about
+  `docs/provenance-ledger.md`'s `src/warp.rs` row carrying the measured
+  peak RSS was checked the same way and **is** true (465,010,688 bytes,
+  in that row).
+- `src/warp.rs`'s out-of-extent paragraph also claimed the DEC carries
+  "the measured per-frame scores". It does not, for `SB-2`'s own reason;
+  that phrase is gone.
+
+### Gates run (stating the list — `the-gate-count-is-not-defined-anywhere`)
+
+All on `08ad42e`, corpus present
+(`IRRADIANCE_CORPUS_DIR=~/PSeven/experiments/crustimg_redo_plus/images`):
+
+`cargo fmt --check` (clean), **`just lint-ci`** — clippy **0.1.98**
+(`88d9e12ae1 2026-08-18`), the pinned/CI-floating version, not local
+0.1.97, and the recipe printed which answered (PATCH-004) — `just
+typecheck`, `just test` (**206 passed / 0 failed / 2 ignored**), `just
+deny` + `just deny-fuzz` (both `licenses ok`; the only output is the
+pre-existing unmatched-`Zlib`-allowance warning), `just msrv` (1.90.0),
+`just lint-no-allow`, `./scripts/lint-red-proof.sh` (control clean →
+injection rejected → all five lints fired), `./scripts/cost-audit-red-
+proof.sh`, and **`just fuzz-warp`** — **22,937,786 runs in 61 s, zero
+crashes**, `cov: 172 ft: 453 corp: 77/18Kb`. No new dependency in
+either cargo graph; `Cargo.toml` is 0 lines changed.
+
+**CI observed green on the ship SHA `08ad42e`** — run
+[`34164609782`](https://github.com/jysf/irradiance/actions/runs/34164609782),
+`conclusion: success`, **10 jobs, all success**, including `rust / fuzz
+smoke — warp_opcode (60s)`, `rust / test`, `rust / clippy -D warnings`,
+`rust / MSRV (1.90.0)`, both `cargo-deny` jobs, and `rust / lint policy
+red-proof (must fail red)`. The paired `pull_request` run
+`34164612764` is also green.
+
+### Not touched, per the dispatch
+
+`FU-1`..`FU-10` (dispositioned at ship, not here — including `FU-10`'s
+oracle-narrowing question, which `DEC-024` explicitly leaves open),
+`DEC-024` itself, `SPEC-018`'s acceptance criteria, and all PR
+operations. PR **#16** was already open on arrival and is untouched —
+this round pushed to the branch with `git push` only, and opened,
+closed and modified nothing on GitHub.
