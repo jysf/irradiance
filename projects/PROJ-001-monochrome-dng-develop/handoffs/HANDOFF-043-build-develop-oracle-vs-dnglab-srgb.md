@@ -14,13 +14,13 @@ handoff:
   id: HANDOFF-043
   cycle: build                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # ⚠ PREDICTION from tier_map.build. Standing record:
-                                    # 0 FOR 12 on the build hint. CORRECT THIS to what
-                                    # your own system prompt reports as `message.model`.
+  to_agent: claude-sonnet-5         # CORRECTED — system prompt reports `message.model:
+                                    # claude-sonnet-5`. Standing record now 0 for 13 on
+                                    # the build hint (tier_map.build predicted opus-5).
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-09-06
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-020
@@ -44,14 +44,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 36917935           # REAL combined count — what cost-audit reads
+  estimated_usd: 15.23             # tokens_total × your rate, or your harness's number
+  duration_minutes: 40
+  branch: feat/spec-020-develop-oracle-vs-dnglab-srgb
+  pr: null                         # not opened — Return Criterion 10, orchestrator opens it
+  completed_at: 2026-09-06         # YYYY-MM-DD
+  notes: "Deduped by message.id from own transcript (own scratchpad UUID, not text match); 250 usage objects, 136 distinct ids, raw combined 30,764,946 (input 272 / cache-write(1h) 315,710 / cache-read 30,335,786 / output 113,178), priced per-component at published claude-sonnet-5 rates ($3/$15/$6/$0.30 per Mtok, the SPEC-005/HANDOFF-022 precedent) = $12.69, +20% uplift for the remaining handback-writing turns = $15.23 and 36,917,935 tokens."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -286,48 +286,196 @@ completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link — branch pushed, PR not opened per Return Criterion 10]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain per-AC)
-- **Fixture chosen:** [source or generation seed]
-- **Measured scores on the chosen fixture:**
-  - AC3 identical: [score, ≥ 99.9?]
-  - AC4 1-px shift: [score, < 85?]
-  - AC5 missing warp: [score, < 85?]
-  - AC6 gamma 1.05: [score, ≥ 85?]
-- **`ssimulacra2` licence (from `cargo deny`):** [expression]
-- **`src/` diff vs main:** [`git diff --stat main...HEAD -- src/` should be empty]
-- **Eleven gates + `just lint-ci` locally:** [pasted]
-- **CI observed green on:** [SHA + workflow run URL]
+- **Branch / PR:** `feat/spec-020-develop-oracle-vs-dnglab-srgb` pushed to
+  `origin` at `2e0d2c43126eed3095a5fdd82549f12156f88062`
+  (git@github.com:jysf/irradiance.git). PR not opened, per Return Criterion 10.
+- **Completed at:** 2026-09-06
+- **All acceptance criteria met?** Yes — AC1–AC11 all met and tested. (AC7
+  is a property of the other tests, not a separately-named one — confirmed
+  by running the tier-A subset with `IRRADIANCE_CORPUS_DIR` unset, see
+  below.)
+- **Fixture chosen:** Synthetic, generated in code (candidate 2 from
+  `## Implementation Context` — no licence-clean natural photograph was
+  available without either sourcing a third-party image or decoding one via
+  the forbidden `::image` crate). Fractional Brownian motion, hash-based
+  value noise, 1024x768, base frequency 0.02, 5 octaves, contrast 1.6, seed
+  1234 — `tests/perceptual_oracle.rs::synthetic_reference`, documented in
+  full in `tests/oracle-fixtures/perceptual-oracle-fixture.md`.
+- **Measured scores on the chosen fixture** (`IRRADIANCE_CORPUS_DIR`
+  unset, `cargo test --all-features --test perceptual_oracle -- --nocapture`):
+  - AC3 identical: **100.000** (≥ 99.9 ✓)
+  - AC4 1-px shift: **61.823** (< 85 ✓ — caught)
+  - AC5 missing warp: **−82.338** (< 85 ✓ — caught, emphatically)
+  - AC6 gamma 1.05: **90.038** (≥ 85 ✓ — admitted)
+- **`ssimulacra2` licence (from `cargo deny`):** `BSD-2-Clause` (the crate
+  itself); full resolved graph (38 crates) is
+  `MIT`/`Apache-2.0`/`BSD-2-Clause`/`Unicode-3.0` only — `cargo deny check
+  licenses` → `licenses ok` in a probe workspace using this repo's real
+  `deny.toml`. Corrects the design-time guess of "BSD-3-Clause OR MIT" — see
+  `DEC-023`.
+- **`src/` diff vs main:** empty. `git diff --stat main...HEAD -- src/`
+  produces no output.
+- **Eleven gates + `just lint-ci` locally** (all run on
+  `2e0d2c4`, `IRRADIANCE_CORPUS_DIR` set for `just test`, unset separately
+  for the tier-A confirmation below):
+  - `cargo fmt --check` → clean
+  - `cargo clippy --all-targets --all-features -- -D warnings` (unpinned,
+    Homebrew 0.1.97) → clean
+  - `just lint-ci` (pinned `~/.cargo/bin/cargo +stable`, prints
+    **clippy 0.1.98 (88d9e12ae1 2026-08-18)** — CI's actual version) → clean
+  - `just typecheck` (`cargo check --all-targets --all-features`) → clean
+  - `just build` (`cargo build --release`) → clean
+  - `just test` (`corpus-status` + `cargo test --all-features`, corpus
+    present) → **172 tests total, 0 failed** — 66 lib unit tests + 8
+    integration-test binaries (`corpus_manifest` 9, `develop` 7,
+    `develop_oracle` 9, `ifd_reader` 12, `metadata_oracle` 30,
+    `perceptual_oracle` **20 — new, this build**, `plane_oracle` 12,
+    `plane_unpack` 7) + 0 doctests
+  - `just deny` → `licenses ok`
+  - `just deny-fuzz` → `licenses ok`
+  - `just msrv` (`~/.cargo/bin/cargo +1.90.0 check --all-targets
+    --all-features`) → clean
+  - `just lint-red-proof` → `✓ lint policy red-proof: control clean (exit
+    0) → injection rejected (exit 101)` — unaffected by this build, run to
+    confirm no regression
+  - `just lint-no-allow` (`cargo clippy --lib -F ...`) → clean
+  - `./scripts/cost-audit.sh` → `✓` ; `./scripts/cost-audit-red-proof.sh` →
+    `✓` ; `./scripts/decisions-index.sh --check` → clean (no committed
+    `decisions/INDEX.md` on this branch — "nothing to keep in sync", exit 0)
+  - **Confirmed the tier-A red-proof itself, with the corpus unset**
+    (`env -u IRRADIANCE_CORPUS_DIR cargo test --all-features --test
+    perceptual_oracle -- --nocapture`): all 20 tests pass, including the
+    four fault tests, with the tier-B smoke test's `require()` printing
+    `SKIP LEICA-Q2-MONO/L1021223.DNG — MISSING at …` and returning early —
+    exactly the AC7 behaviour.
+  - **No fuzz target added or run** — `src/` is unchanged and this spec adds
+    no library-side input surface (Return Criterion 6 / `SPEC-020`
+    Non-Goals); `ifd`/`plane`/`develop` fuzz targets are unaffected by
+    test-only changes and `fuzz/` has its own, separate `Cargo.toml`
+    (`DEC-011`) untouched by this build's root `Cargo.toml` edit.
+  - Sum: **0 failures across every gate run.**
+- **CI observed green on:** `2e0d2c43126eed3095a5fdd82549f12156f88062` —
+  <https://github.com/jysf/irradiance/actions/runs/34081190401> — all 9 jobs
+  ✓ (`rust / MSRV`, `rust / clippy`, `rust / lint policy red-proof`,
+  `cost-capture audit`, `rust / license policy`, `rust / license policy —
+  fuzz graph`, `rust / panic-free policy`, `rust / fmt --check`, `rust /
+  test`), `"conclusion":"success"` via `gh run view --json`.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the
-number came from. **This is the number that lands in the spec** — the
-orchestrator transcribes it via `just handback-sync`, it does not
-estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, per-component priced at published rates>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 36,917,935 (real, from this session's own transcript)
+- **Estimated USD:** $15.23
+- **Duration (minutes):** ~40
+- **Source of the number:** own transcript (`.jsonl`), identified by this
+  session's own scratchpad UUID
+  (`d558fe94-e184-4f59-b109-1051c5325c96` — not by text-matching spec/task
+  strings, which this project directory's memory
+  `identify-own-transcript-for-cost-handback` warns can collide with a
+  different session/model). 250 `usage` objects, **136 distinct
+  `message.id`s** after dedup, all `message.model: claude-sonnet-5` (no
+  pre-`/clear` contamination — the transcript starts at this delegation's
+  own dispatch). Raw combined total **30,764,946** across the four
+  components: input 272, cache-write (1h) 315,710, cache-read 30,335,786,
+  output 113,178. Priced **per-component** at published `claude-sonnet-5`
+  rates — $3 / $15 / $6 / $0.30 per Mtok for input / output / 1h-cache-write
+  / cache-read respectively, the same rates `SPEC-005`'s `HANDOFF-022`
+  handback used for the same model tier — giving $12.69, then **+20%**
+  uplift (per Return Criterion 8's instruction, to cover the remaining
+  turns spent finishing this handback) → **$15.23** and **36,917,935**
+  tokens. `cost.sessions` itself is left untouched — only this `handback:`
+  block is filled, so `just handback-sync` runs once cleanly.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — ssimulacra2 dev-dep sanction (REQUIRED per AC9)
-  - `DEC-MMM` — mono 16→sRGB 8 conversion, IF a non-obvious choice
-- **Deviations from spec:** [list]
-- **Follow-up work identified:** [any FU-N raised; propose disposition]
+  - `DEC-023` — `ssimulacra2` dev-dep sanction (required per `AC9`)
+  - No second DEC for the mono-16→sRGB conversion: the chosen conversion
+    (`sample as f32 / 65535.0`, no gamma applied — the samples are already
+    sRGB-encoded from dnglab's output) is exactly `AC3`'s own pre-specified
+    chain, not a subtler choice this build discovered, so `SPEC-020/##
+    Outputs`'s conditional for a second DEC does not fire.
+- **Deviations from spec:**
+  1. Chose `tests/perceptual_oracle.rs` as a **new file** (Outputs option
+     2), not `tests/develop_oracle.rs` extended with `mod perceptual {}`
+     (option 1) — stated and reasoned in the file's own module doc: the two
+     files share no fixture code (this spec's PNM/metric/perturbation
+     concerns are wholly new), and `tests/develop_oracle.rs` is already
+     43.8K.
+  2. The fixture is generated **in code**, not committed as a binary blob
+     to `tests/oracle-fixtures/` — that directory instead gained a markdown
+     doc (`perceptual-oracle-fixture.md`) recording the generation
+     parameters and measured scores. Follows this repo's own precedent
+     (`tests/develop_oracle.rs`'s `FU-10` production-scale fixture is
+     likewise in-test synthetic, not committed) rather than the literal
+     reading of `## Outputs`' fixture-subdirectory bullet.
+  3. The optional tier-B smoke test does **not** run a full end-to-end
+     self-score against real `dnglab --srgb` output — see `FU-1` below.
+- **Follow-up work identified** (this spec's own sequence, proposed
+  dispositions per `AGENTS.md` §15):
+  - **`FU-1` — the optional tier-B smoke test parses real `dnglab --srgb`
+    output but does not score it end-to-end.** A full self-score at
+    `L1021223.DNG`'s real resolution (8368x5584, 46.7 Mpixel) was measured
+    at **~9.3s in `--release` alone** (a standalone probe, same call shape
+    as `tests/support/ssimulacra2.rs::score`); `just test` runs in the
+    `cargo test` debug profile, where this repo's own debug/release ratios
+    for `ssimulacra2` scoring (measured on the 1024x768 fixture: 78ms
+    release → 1.7s debug, ~22x) suggest **well over a minute**, paid on
+    every local `just test` run that happens to have the corpus present,
+    for a check the spec itself marks informational and non-gating.
+    Proposed disposition: **`closed:`** — the substitute test
+    (`dnglab_srgb_reader_parses_a_real_corpus_file`) already exercises the
+    one load-bearing claim (the reader accepts the real defect shape, not
+    just a hand-built one); the trigger that would prove this closure wrong
+    is `SPEC-018`/`SPEC-019` needing a real end-to-end perceptual smoke
+    test once a develop pipeline exists — that spec's own AC would say so
+    and add it back, deliberately, rather than this one guessing at the
+    cost/value tradeoff for a pipeline that doesn't exist yet.
+  - **`FU-2` — `SPEC-020.md`'s `## Implementation Context` design-time
+    citation of `ssimulacra2`'s dependency count ("Dependencies:
+    `num-traits` only") is wrong.** Measured: 38 crates in the resolved
+    graph (`rayon`, `yuvxyb`, `av-data`, `v_frame`, etc.) — recorded
+    precisely in `DEC-023`. Proposed disposition: **`closed:`** — `DEC-023`
+    carries the corrected count and the exact method (`cargo tree` in a
+    probe workspace) any future citation of this crate's graph should
+    re-run rather than trust. Residual risk named honestly: there is no
+    mechanical trigger that would catch a *future* re-drift between a
+    design doc's claim and reality of this same shape — only the habit of
+    re-measuring, which this build followed and the next one must too.
+  - **`FU-3` — the design-time licence guess ("BSD-3-Clause OR MIT") was
+    also wrong** (measured: `BSD-2-Clause`). Proposed disposition:
+    **`closed:`** — the real, mechanical trigger already exists and is
+    exercised on every push: `just deny` / the CI `licenses` job would fail
+    loudly on any future `ssimulacra2` release whose licence (or graph)
+    turns non-permissive, independent of which SPDX id was originally
+    guessed. `DEC-023` records the corrected figure.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
-
-2. **Was there a constraint or decision that should have been listed
-   but wasn't?**
-   — <answer>
-
-3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Two small things. First, `AC3`'s second required test name,
+   `sixteen_to_eight_conversion_is_deterministic`, describes a conversion
+   the AC's own prose does not perform — the pinned chain is 16-bit → `f32`
+   directly (`sample as f32 / 65535.0`), with no 8-bit step anywhere (that
+   language appears to be inherited from crustyimg's *8-bit* source image
+   case, which this spec's 16-bit PNM input does not share). Kept the exact
+   name per the Failing Tests header's own warning that a zero-match
+   `cargo test <name>` exits 0 silently, and used it for the determinism
+   check `AC3` actually describes. Second, the tier-A/tier-B split for the
+   optional smoke test wasn't pre-registered with a cost budget, so the
+   ~9.3s-per-full-score measurement (`FU-1`) was a build-time discovery
+   rather than a known constraint going in.
+2. **Was there a constraint or decision that should have been listed but
+   wasn't?** — No. `DEC-005`, `DEC-004`, `DEC-013`, `DEC-017` and
+   `guidance/constraints.yaml`'s five blocking constraints covered
+   everything this build touched; `DEC-002`'s `no rayon` proposal was the
+   one worth double-checking against (`ssimulacra2`'s graph pulls `rayon`
+   in) and `DEC-023` states explicitly why that rule doesn't fire here (it
+   scopes the *library's* runtime graph, not a dev-only test tool's).
+3. **If you did this task again, what would you do differently?** — Run
+   the fixture-parameter probe (the standalone scratch harness against the
+   real crate) even earlier — it took under a minute to get a clear answer
+   that a wide swath of the parameter space satisfies all four invariants,
+   which meant zero time was lost to picking-and-re-picking a fixture that
+   turned out wrong, but that was closer to luck than plan given how the
+   spec's own `## Implementation Context` flags this as a real risk
+   ("if no fixture satisfies all four, stop and report").
