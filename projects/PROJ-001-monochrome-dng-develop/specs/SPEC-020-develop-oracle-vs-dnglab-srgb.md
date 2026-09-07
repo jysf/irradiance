@@ -6,7 +6,7 @@
 task:
   id: SPEC-020
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
                                    # ⚠ RAISED from the frame stub's `medium`.
@@ -90,11 +90,19 @@ cost:
   # matching SPEC-015 minus the ship-round rework FU-10 caused. If it lands
   # near 40M the estimator was pessimistic; near 90M the oracle-class
   # pattern is systemic and next M-oracle should be estimated as L.
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: other
+      tokens_total: 36917935
+      estimated_usd: 15.23
+      duration_minutes: 40
+      recorded_at: 2026-09-06
+      notes: "Deduped by message.id from own transcript (own scratchpad UUID, not text match); 250 usage objects, 136 distinct ids, raw combined 30,764,946 (input 272 / cache-write(1h) 315,710 / cache-read 30,335,786 / output 113,178), priced per-component at published claude-sonnet-5 rates ($3/$15/$6/$0.30 per Mtok, the SPEC-005/HANDOFF-022 precedent) = $12.69, +20% uplift for the remaining handback-writing turns = $15.23 and 36,917,935 tokens."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 36917935
+    estimated_usd: 15.23
+    session_count: 1
 ---
 
 # SPEC-020: Develop oracle vs dnglab srgb
