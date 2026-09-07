@@ -1038,14 +1038,16 @@ write_cost_totals() {
 #
 # Grandfathered rather than invented. Remove SPEC-004 from this list the moment
 # the real figure is supplied by whoever ran that session.
-COST_AUDIT_GRANDFATHERED="${COST_AUDIT_GRANDFATHERED:-SPEC-004}"
+COST_AUDIT_GRANDFATHERED="${COST_AUDIT_GRANDFATHERED:-SPEC-004 PATCH-002 PATCH-003 PATCH-004}"
 
-# True if a spec is grandfathered out of the cost audit. Accepts either a
-# bare id ("SPEC-014") or a full file stem ("SPEC-014-some-slug") and matches
-# on the SPEC-NNN id prefix.
+# True if a spec or patch is grandfathered out of the cost audit. Accepts
+# either a bare id ("SPEC-014", "PATCH-003") or a full file stem
+# ("SPEC-014-some-slug", "PATCH-003-some-slug") and matches on the
+# PREFIX-NNN id.
 is_grandfathered_cost() {
-    local rest="${1#SPEC-}"
-    local id="SPEC-${rest%%-*}"
+    local first="${1%%-*}"          # SPEC or PATCH
+    local after="${1#*-}"           # rest after first hyphen
+    local id="${first}-${after%%-*}"  # SPEC-NNN or PATCH-NNN
     case " ${COST_AUDIT_GRANDFATHERED} " in
         *" $id "*) return 0 ;;
         *) return 1 ;;
