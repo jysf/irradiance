@@ -111,10 +111,10 @@ cost:
 
 ## Context
 
-`SPIKE-001` parsed `OpcodeList3` out of a Q2M file straight from bytes and
-measured **~504 px of inward displacement at the corner — 6 % of image
-width**. Coefficients (`kr0..kr3`, optical centre `(0.5, 0.5)`, no tangential
-terms):
+`SPIKE-001` parsed `OpcodeList3` out of **one Q2M file** (`L1021223.DNG`)
+straight from bytes and measured **~504 px of inward displacement at the
+corner — 6 % of image width**. Coefficients on **that one frame**
+(`kr0..kr3`, optical centre `(0.5, 0.5)`, no tangential terms):
 
 ```
 kr0  0.999251106            kt0 0.0            f(1)  = 0.899841
@@ -122,6 +122,26 @@ kr1 −0.06137651287726358    kt1 0.0            f(0.75) = 0.944957 → −207.7
 kr2 −0.09391554139336016                       f(0.50) = 0.978910 →  −53.0 px
 kr3  0.05588200921529175                       f(0.00) = 0.999251 →   −0.0 px
 ```
+
+⚠ **The coefficients are per-frame, not a camera constant** — `SPEC-020`
+verify (`SPEC-020/FU-1`, 2026-09-06) parsed OpcodeList3 out of all three
+decodable Q2M frames and measured:
+
+```
+                kr0             kr1              kr2              kr3
+L1021223  0.9992511060  −0.0613765129  −0.0939155414  0.0558820092
+L1026016  0.9992511060  −0.0418451693  −0.1023114788  0.0578767192
+L1026192  0.9992511060  −0.0323314533  −0.1042041102  0.0563642935
+```
+
+Only `kr0` is constant. `kr1` varies **~1.9×** across the three frames. A
+build that hardcodes L1021223's set as *the* Q2M coefficients will be
+wrong on the two other frames — the same failure mode `unrun-docs-carry-
+errors` instance 2 hit on `Orientation` for L1026016. **`AC1` reads
+`kr0..kr3` from each file's own OpcodeList3, and AC4/AC8's expected
+displacements are per-frame.** `SPIKE-001`'s single-frame measurement
+stays as evidence but is no longer the source of the tier-A hex fixture:
+each frame's own hex fixture ships in `tests/oracle-fixtures/`.
 
 `STAGE-003` records this as **NOT DEFERRABLE**: skipping the warp does not
 produce a slightly-off image, it produces one that is visibly wrong by 6 %

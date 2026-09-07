@@ -6,7 +6,7 @@
 task:
   id: SPEC-020
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
                                    # ⚠ RAISED from the frame stub's `medium`.
@@ -24,9 +24,9 @@ task:
                                    #   shipped L; that overshoot was punch-list
                                    #   rounds, which this spec's smaller surface
                                    #   should not attract.
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # M — single build pass, single verify pass, no punch-list round. 47.3M tokens across build+verify matches the S-oracle floor (SPEC-013 ~47M) and the M-oracle expectation; SPEC-015's L was inflated by FU-10's ship-round rework, which did not fire here. stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -90,11 +90,35 @@ cost:
   # matching SPEC-015 minus the ship-round rework FU-10 caused. If it lands
   # near 40M the estimator was pessimistic; near 90M the oracle-class
   # pattern is systemic and next M-oracle should be estimated as L.
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: other
+      tokens_total: 36917935
+      estimated_usd: 15.23
+      duration_minutes: 40
+      recorded_at: 2026-09-06
+      notes: "Deduped by message.id from own transcript (own scratchpad UUID, not text match); 250 usage objects, 136 distinct ids, raw combined 30,764,946 (input 272 / cache-write(1h) 315,710 / cache-read 30,335,786 / output 113,178), priced per-component at published claude-sonnet-5 rates ($3/$15/$6/$0.30 per Mtok, the SPEC-005/HANDOFF-022 precedent) = $12.69, +20% uplift for the remaining handback-writing turns = $15.23 and 36,917,935 tokens."
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 10366144
+      estimated_usd: 8.25
+      duration_minutes: 16
+      recorded_at: 2026-09-06
+      notes: "Deduped by message.id from own transcript identified by this session's scratchpad UUID d83664a6-d3a9-4ac2-b681-bb222d00d0a7 (not text-matched, per this project's identify-own-transcript-for-cost-handback memory); 153 usage objects, 65 distinct ids, all message.model claude-opus-5 (tier_map.verify's prediction was RIGHT this time), raw combined 8,638,453 (input 130 / cache-write(1h) 161,424 / cache-read 8,435,217 / output 41,682 — 97.6% cache-read), priced per-component at published claude-opus-5 rates ($5/$25/$10/$0.50 per Mtok input/output/1h-write/read) = $6.87, +20% uplift for the turns writing this handback = $8.25 and 10,366,144 tokens; verify edited no repo file except this handback block — the one red-proof mutation (identity warp in tests/support/perturb.rs) was reverted and the tree confirmed clean."
+    - cycle: ship
+      agent: claude-opus-4-7
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-09-06
+      notes: "main-loop, not separately metered — the orchestrator's ship pass writes the Follow-ups + Reflection + signals.yaml amendment + SPEC-018 Context correction here; interleaved with the SPEC-017 design in the same session, so a per-cycle number would be invented. Non-null enforcement (AGENTS.md §4) exempts design/ship."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 47284079
+    estimated_usd: 23.48
+    session_count: 3
 ---
 
 # SPEC-020: Develop oracle vs dnglab srgb
@@ -545,42 +569,28 @@ across all — the trap `SPEC-015/AC9`'s Failing-Tests header calls out.
 
 ## Follow-ups
 
-*Appended during **ship**. Every `FU-N` / `SB-N` raised across this
-spec's cycles, with its disposition (§15). No follow-up crosses this
-ship undecided.*
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | Build's design-time citation named the WarpRectilinear coefficient set as "read straight from OpcodeList3 on `L1021223.DNG` / `L1026016.DNG`" and `tests/support/perturb.rs:78–82` presents them as camera constants. Verify parsed OpcodeList3 out of all three decodable frames and measured: `kr0` is the only constant (`0.9992511060`); `kr1` varies **~1.9×** across the three frames (`−0.0613765129` / `−0.0418451693` / `−0.0323314533`). The `perturb.rs` constants match `L1021223.DNG` exactly to `f32` — so the code is right and AC5 is valid — but the CITATION is wrong and SPEC-018's own Context table (lines 120–123) carries the same error. | `signal: unrun-docs-carry-errors` (raises **N=5 → 6**; same family as instance 2, same file L1026016 that misled that instance) **AND** patch SPEC-018 `## Context` to name the coefficients as per-frame and to require AC1 to read them from each file's own OpcodeList3 — landed in this ship's commit. |
+| `FU-2` | Build's own `FU-2` proposed `closed:` on "a future re-drift will be caught by re-measuring" — but the build itself named the trigger as **"the habit of re-measuring, which this build followed and the next one must too."** §15's bar for a good close is "a test that will fail", not "someone remembering". By its own honest description, the build's close does not meet the bar. | `signal: unrun-docs-carry-errors` (added as evidence — same signal, same root: a design-time citation of a fact the design session did not run the tool for). Not a new signal — instance 6 above already carries the codified case; this row records the analogous close-shape trap the build fell into for one of the three FUs. |
+| `FU-3` | Test `sixteen_to_eight_conversion_is_deterministic` names a 16→8-bit conversion the pinned chain never performs (the chain is 16-bit → `f32` via `sample as f32 / 65535.0`). Cosmetic but permanently misleading on AC3's intent. | `closed: name was inherited from the spec's own ## Failing Tests list (which was inherited from crustyimg's 8-bit source case), the build kept it exactly per §12's zero-match-cargo-test warning, and the test does exercise the actual determinism the AC needs. Renaming both entries would be a paired rename in a shipped code area — out of scope for ship. Evidence noted here for the next spec that touches the perceptual oracle helpers. Not routed to a signal: N=1, not a recurring pattern.` |
 
 ---
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
-
 1. **What would I do differently next time?**
-   — <answer>
+   — Read each decodable corpus file's own opcode bytes during design, not just one, and treat any coefficient set that varies across frames as per-frame in the citation. FU-1 is instance 6 of a signal this repo has known about for weeks; the "cite one file's coefficients as if a camera constant" mistake is the exact shape of instance 2, on the same camera, and the fix pattern is codified — I should have applied it during design instead of finding it at verify.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — `guidance/signals.yaml`'s `unrun-docs-carry-errors` gains instance 6 and its N-count bumps 5 → 6 (recorded in this ship's commit). No template or constraint change: the signal is already codified, and the corrective habit ("run the reader on ALL corpus files, not one") already exists in §12's design-time probe discipline — the failure was not applying it, not a missing rule. If a seventh instance lands, that is a signal that even a codified rule can rot; consider a `just probe-corpus <tag>` recipe that reads one tag out of every corpus file, so a design citation can be validated by running the recipe, not by remembering to.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. FU-1's actionable half — patching SPEC-018's `## Context` — is done in this ship. FU-2 is a re-disposition of an existing FU into the correct signal. FU-3 is closed with a contract reason. SPEC-018's build will read the corrected Context and read each frame's own OpcodeList3 for AC1's round-trip fixtures; SPEC-018's `depends_on: [SPEC-020]` puts it in the queue right behind this ship.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `verify`.
+   *(FU-1 is the worst of the three, and it was caught by verify parsing all three files' OpcodeList3 directly instead of trusting the spec's citation. `design` would have been the right catch site — the discipline exists — but it was not applied. Not `escaped`: nothing user-visible ships with this defect because `src/` is untouched and the wrong citation only misled a future spec's designer, which SPEC-018's amended Context now prevents.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before: a develop-pipeline change (SPEC-017's FixBadPixelsConstant, SPEC-018's WarpRectilinear, SPEC-019's tone curve) could ship an image that looks plausible while being visibly wrong, because no oracle in this repo scored the output. After: `cargo test --all-features --test perceptual_oracle` runs a SSIMULACRA2-scored comparator against `dnglab analyze --srgb` on a synthetic fixture with four pre-registered fault scores (`identity 100.000`, `1-px shift 61.823`, `missing warp −82.338`, `gamma 1.05 90.038`), all measured to the digit against DEC-005's calibration; a missing warp or a wrong tone curve now scores far below 85, and STAGE-003's remaining specs have a check they cannot rewrite.
