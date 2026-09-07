@@ -6,7 +6,7 @@
 task:
   id: SPEC-018
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: critical               # critical | high | medium | low
                                    # ⚠ RAISED from the frame stub's `medium`.
@@ -33,7 +33,7 @@ task:
                                    #   (AGENTS.md §11).
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -109,10 +109,18 @@ cost:
       duration_minutes: 82
       recorded_at: 2026-09-07
       notes: 12/14 ACs green; AC8/AC9
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 22631969
+      estimated_usd: 51.98
+      duration_minutes: 22
+      recorded_at: 2026-09-07
+      notes: PUNCH LIST on 40f5d45 (CI green there and on tip 823a7fc, 10 jobs each). Finding 1 is spec-correct but UNTESTED - reverting develop.rs to crop-then-warp compiles, changes real output, and leaves the whole suite green at 205/0/2, so the warp branch of develop_into has zero live coverage (SB-1). Finding 2 CONFIRMED behaviourally without reading dnglab source (corner-tile NCC vs dnglab - 0.989 to 0.995 for our UNWARPED render, minus 0.31 to plus 0.23 for our warped one, on two frames) and judged FU-10, ship with the ignore-marked tests. AC8 minus 60.169 and AC9 minus 60.193 / minus 55.075 reproduced exactly. SB-2 is two false claims in shipped rustdoc. Nine further follow-ups FU-1..FU-9.
   totals:
-    tokens_total: 116480125
-    estimated_usd: 49.61
-    session_count: 1
+    tokens_total: 139112094
+    estimated_usd: 101.59
+    session_count: 2
 ---
 
 # SPEC-018: WarpRectilinear radial geometric correction

@@ -41,19 +41,32 @@ Cycle prompts live in `prompts/SPEC-018-<cycle>.md`.
   scores WORSE against dnglab's uncorrected reference, not better.
   See `HANDOFF-046`'s `handback:` block and `DEC-024` for the full
   record.
-- [~] **verify** — `HANDOFF-047` dispatched 2026-09-07 on the same
-  branch. Verifier judges the two build-raised findings the spec's
-  original design did not anticipate: (1) the pipeline-order fix
-  against DNG 1.7 § 6.4.1 in code + spec-text, and (2) the
-  dnglab-does-not-apply-opcodes claim IN CODE (verify reads dnglab's
-  source themselves, per §15 rule 8 behavioral pre-flight + §16
-  rule 4 unrun-docs-carry-errors, not trusting the build's
-  assertion). Bar 9 (oracle red) shifts from SPEC-020's perceptual
-  to SPEC-018's AC10 analytic — the tier-A `kr1 = 0` red-proof MUST
-  turn red. Verify labels finding 2 explicitly as SB-N (block ship
-  until DEC-024's oracle narrowing accepted/replaced) or FU-N (ship
-  with #[ignore] and follow-up on oracle scope). Does not open the
-  PR (orchestrator's step).
+- [x] **verify (round 1)** — `HANDOFF-047` dispatched and completed
+  2026-09-07 on the same branch, `⚠ PUNCH LIST` at `40f5d45`,
+  22,631,969 tokens on claude-opus-5 ($51.98, 22 min). Verifier
+  verified BOTH findings against primary evidence: read DNG 1.7.0.0
+  directly for Finding 1 (pipeline-order fix confirmed correct);
+  used behavioural NCC-tile analysis (invariant to affine tone
+  changes) rather than reading dnglab source for Finding 2
+  (confirmed dnglab does not apply WarpRectilinear). SBs raised:
+  SB-1 (develop_into's warp branch has no live test — mutation
+  proved 205/0/2 unaffected by crop-then-warp) and SB-2 (two false
+  claims in shipped rustdoc: src/warp.rs:59-61 fabricated scores;
+  src/lib.rs:56-57 pre-Finding-1 pipeline order). 10 FUs including
+  FU-5 (handback-sync silent-truncate at bare `#`, sibling of
+  handback-sync-truncates-multi-line-scalars) and FU-10 (Finding 2
+  disposition: ship with #[ignore]s + follow-up spec narrowing
+  SPEC-020's oracle scope).
+- [~] **build (round 2, punch-list)** — dispatched 2026-09-07 via
+  `projects/PROJ-001-monochrome-dng-develop/specs/prompts/SPEC-018-rebuild.md`.
+  Scope: SB-1 (add tier-A test exercising the develop_into warp
+  branch that turns red on crop-then-warp mutation) and SB-2 (fix
+  two rustdoc claims to match DEC-024). FUs deferred to ship.
+  Handback continues on HANDOFF-046 (no new build handoff minted;
+  matches PATCH-003 round-2 pattern).
+- [ ] **verify (round 2)** — awaits round-2 build. New verify
+  handoff (HANDOFF-048 or similar) confirms the SBs are closed and
+  proceeds to ship.
 - [ ] **ship** — CI observed green on the shipping SHA (AC14), the
   new `fuzz-warp` recipe wired into CI as a smoke run in the same PR
   (§12 bar 2: fuzz targets arrive with the parser, not retrofitted),
