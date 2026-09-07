@@ -52,7 +52,7 @@ handback:
   pr: null                         # not opened — Return Criterion 10, orchestrator opens it
   completed_at: 2026-09-06         # YYYY-MM-DD
   notes: "Deduped by message.id from own transcript (own scratchpad UUID, not text match); 250 usage objects, 136 distinct ids, raw combined 30,764,946 (input 272 / cache-write(1h) 315,710 / cache-read 30,335,786 / output 113,178), priced per-component at published claude-sonnet-5 rates ($3/$15/$6/$0.30 per Mtok, the SPEC-005/HANDOFF-022 precedent) = $12.69, +20% uplift for the remaining handback-writing turns = $15.23 and 36,917,935 tokens."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-06
 ---
 
 # HANDOFF-043: Build SPEC-020 — the develop oracle vs dnglab srgb
