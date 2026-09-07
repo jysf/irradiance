@@ -75,12 +75,33 @@ Cycle prompts live in `prompts/SPEC-018-<cycle>.md`.
   fuzz-warp smoke), no logic changes (irr develop L1021223.DNG max
   51764 unchanged). FUs 1-10 UNTOUCHED and still owed a ship
   disposition.
-- [~] **verify (round 2, reverify)** — `HANDOFF-048` dispatched
-  2026-09-07 via `prompts/SPEC-018-reverify.md`. TIGHT scope: confirm
-  SB-1 and SB-2 are truly closed and no NEW SB was introduced by
-  round 2. Round 1's substantive findings and the 10 FUs are OUT OF
-  SCOPE. Reverify reproduces the SB-1 mutation red-proof, reads the
-  SB-2 rustdoc rewrites, and observes CI green on 08ad42e.
+- [x] **verify (round 2, reverify)** — completed 2026-09-07, `⚠ PUNCH
+  LIST (round 3)` at ship SHA `08ad42e`. HANDOFF-048 handback:
+  6,790,688 tokens on claude-opus-5 ($17.38, 16 min), notes properly
+  double-quoted per FU-5. SB-1 CLOSED (fresh mutation red-proof
+  reproduced on the shipped file — md5 11118242… → f620d615… →
+  11118242…, fixture separates 2837/2880 pixels, identity warp
+  bit-identical). SB-2 CLOSED for both named claims. **SB-3 NEW,
+  ship-blocking:** SB-2's own rewrite in src/warp.rs:53-55
+  introduced a false DEC-024 citation — claims DEC-024 (AC11) records
+  "zero-fill, error" out-of-extent alternatives, but DEC-024 records
+  neither and AC11 governs kernel choice not out-of-extent rule; same
+  sentence's "records no per-frame oracle scores" is imprecise
+  (DEC-024:98 records -60.169). Same species as SB-2, landed INSIDE
+  the SB-2 correction pass — `a-fix-inherits-the-precondition` biting
+  §16 rule 4 (unrun-docs-carry-errors). **FU-11 NEW:** cost.sessions
+  round-2 build entry says agent: claude-sonnet-5 but the session was
+  opus-5 (97 metered messages, priced at Opus rates); handback-sync
+  read HANDOFF-046's to_agent left at round-1's stale value.
+  Non-gating, ship-cycle fix. FU-1..10 all still live.
+- [~] **build (round 3, punch-list)** — dispatched 2026-09-07 via
+  `prompts/SPEC-018-rebuild-2.md`. VERY tight scope: fix SB-3 only —
+  rewrite src/warp.rs:53-55 to name what DEC-024 actually holds
+  (clamp-to-edge per DNG § 6.4.1, no alternatives weighed), and
+  correct the AC8 measured-score imprecision to cite -60.169. FUs
+  1-11 stay open. Handback continues on HANDOFF-046 as round 3.
+- [ ] **verify (round 3)** — awaits round-3 build. Fresh handoff
+  confirms SB-3 closed cleanly and no round-4 SB introduced.
 - [ ] **ship** — CI observed green on the shipping SHA (AC14), the
   new `fuzz-warp` recipe wired into CI as a smoke run in the same PR
   (§12 bar 2: fuzz targets arrive with the parser, not retrofitted),
