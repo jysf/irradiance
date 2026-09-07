@@ -41,13 +41,19 @@ Cycle prompts live in `prompts/SPEC-018-<cycle>.md`.
   scores WORSE against dnglab's uncorrected reference, not better.
   See `HANDOFF-046`'s `handback:` block and `DEC-024` for the full
   record.
-- [ ] **verify** — a separate agent runs `warp_scores_at_least_
-  eightyfive_via_spec_020_oracle` on the corpus (AC8), the tier-A
-  red-proof `warp_tier_a_red_proof_kr1_zeroed_moves_peak_20px_or_
-  more` with corpus unset (AC10), and — the DEC-004-rule-1 verify
-  discipline — the tier-B mutation red-proof by hand (AC9) rather
-  than trusting the harness. Confirms the kernel-choice DEC records
-  measured scores per candidate kernel, not just the winner.
+- [~] **verify** — `HANDOFF-047` dispatched 2026-09-07 on the same
+  branch. Verifier judges the two build-raised findings the spec's
+  original design did not anticipate: (1) the pipeline-order fix
+  against DNG 1.7 § 6.4.1 in code + spec-text, and (2) the
+  dnglab-does-not-apply-opcodes claim IN CODE (verify reads dnglab's
+  source themselves, per §15 rule 8 behavioral pre-flight + §16
+  rule 4 unrun-docs-carry-errors, not trusting the build's
+  assertion). Bar 9 (oracle red) shifts from SPEC-020's perceptual
+  to SPEC-018's AC10 analytic — the tier-A `kr1 = 0` red-proof MUST
+  turn red. Verify labels finding 2 explicitly as SB-N (block ship
+  until DEC-024's oracle narrowing accepted/replaced) or FU-N (ship
+  with #[ignore] and follow-up on oracle scope). Does not open the
+  PR (orchestrator's step).
 - [ ] **ship** — CI observed green on the shipping SHA (AC14), the
   new `fuzz-warp` recipe wired into CI as a smoke run in the same PR
   (§12 bar 2: fuzz targets arrive with the parser, not retrofitted),

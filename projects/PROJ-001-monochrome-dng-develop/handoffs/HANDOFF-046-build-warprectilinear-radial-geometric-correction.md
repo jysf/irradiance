@@ -46,7 +46,7 @@ handback:
   pr: null                         # build does not open the PR; orchestrator does
   completed_at: 2026-09-07
   notes: 12/14 ACs green; AC8/AC9 #[ignore]d — dnglab/rawler implement no DNG opcode processing at all (DEC-024), so SPEC-020's oracle cannot validate WarpRectilinear in either direction.
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-07
 ---
 
 # HANDOFF-046: Build SPEC-018 — WarpRectilinear radial geometric correction

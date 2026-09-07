@@ -6,7 +6,7 @@
 task:
   id: SPEC-018
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: critical               # critical | high | medium | low
                                    # ⚠ RAISED from the frame stub's `medium`.
@@ -100,11 +100,19 @@ cost:
   # session too. If it lands near 90M the two surfaces overlapped more than
   # expected; near 180M and STAGE-003's remaining L (a hypothetical) should
   # be re-framed as a stage-of-its-own.
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: other
+      tokens_total: 116480125
+      estimated_usd: 49.61
+      duration_minutes: 82
+      recorded_at: 2026-09-07
+      notes: 12/14 ACs green; AC8/AC9
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 116480125
+    estimated_usd: 49.61
+    session_count: 1
 ---
 
 # SPEC-018: WarpRectilinear radial geometric correction
