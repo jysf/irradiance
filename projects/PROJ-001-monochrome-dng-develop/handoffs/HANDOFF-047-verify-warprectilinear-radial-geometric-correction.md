@@ -12,14 +12,16 @@ handoff:
                                     # (correction from tier_map.design's
                                     # claude-opus-5 prediction, per DEC-004
                                     # rule 3).
-  to_agent: claude-opus-5           # ⚠ PREDICTION from tier_map.verify, not
-                                    # a measurement. CORRECT THIS in the
-                                    # handback to what your own system
-                                    # prompt reports as `message.model`.
+  to_agent: claude-opus-5           # ✓ CONFIRMED, not a prediction any more:
+                                    # this session's own `message.model` is
+                                    # `claude-opus-5` on all 129 metered
+                                    # messages (DEC-004 rule 3). The
+                                    # tier_map.verify hint was right this
+                                    # cycle — unlike the build hint's 0-for-14.
   from_role: architect
   to_role: verifier                # implementer | verifier
   created_at: 2026-09-07
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-018
@@ -35,16 +37,16 @@ repo:
 # `notes:` MUST be ONE PHYSICAL LINE — handback-sync truncates multi-line
 # YAML scalars.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 22631969           # deduped by message.id, own transcript identified by scratchpad UUID ebb940e0-a34a-4440-ba39-2f3925a4b23b; message.model reports claude-opus-5, so tier_map.verify's prediction was CORRECT this cycle
+  estimated_usd: 51.98             # per-component (in 258, out 69883, cache-write 245115, cache-read 22316713) at published Opus-tier rates ($15/$75/$18.75/$1.50 per Mtok) = $43.32, + 20% handback uplift
+  duration_minutes: 22
   branch: feat/spec-018-warprectilinear-radial-geometric-correction
-  pr: null                         # verify does not open the PR; orchestrator does
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one PHYSICAL line if unusual
+  pr: 16                           # verify did NOT open it; PR 16 was already open on arrival (orchestrator, 2026-09-07T07:54:45Z) — recorded as observed
+  completed_at: 2026-09-07
+  notes: PUNCH LIST on 40f5d45 (CI green there and on tip 823a7fc, 10 jobs each). Finding 1 is spec-correct but UNTESTED - reverting develop.rs to crop-then-warp compiles, changes real output, and leaves the whole suite green at 205/0/2, so the warp branch of develop_into has zero live coverage (SB-1). Finding 2 CONFIRMED behaviourally without reading dnglab source (corner-tile NCC vs dnglab - 0.989 to 0.995 for our UNWARPED render, minus 0.31 to plus 0.23 for our warped one, on two frames) and judged FU-10, ship with the ignore-marked tests. AC8 minus 60.169 and AC9 minus 60.193 / minus 55.075 reproduced exactly. SB-2 is two false claims in shipped rustdoc. Nine further follow-ups FU-1..FU-9.
   synced_at: null                  # stamped by `just handback-sync` — do not edit
-  verdict: null                    # approved | punch-list | rejected — mirrors
+  verdict: punch-list              # approved | punch-list | rejected — mirrors
                                    #   your review's banner; copies into
                                    #   spec.task.verify_verdict at ship.
 ---
