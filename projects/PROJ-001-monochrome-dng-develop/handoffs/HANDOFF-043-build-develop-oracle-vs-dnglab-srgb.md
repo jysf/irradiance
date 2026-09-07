@@ -287,8 +287,10 @@ completion.*
 ### Execution notes
 
 - **Branch / PR:** `feat/spec-020-develop-oracle-vs-dnglab-srgb` pushed to
-  `origin` at `2e0d2c43126eed3095a5fdd82549f12156f88062`
-  (git@github.com:jysf/irradiance.git). PR not opened, per Return Criterion 10.
+  `origin`, tip `db18c77642b67659b4376f06f53bc9495cb70100` (the code lands at
+  `2e0d2c43126eed3095a5fdd82549f12156f88062`; this handback's own commit is
+  on top, at the branch tip — git@github.com:jysf/irradiance.git). PR not
+  opened, per Return Criterion 10.
 - **Completed at:** 2026-09-06
 - **All acceptance criteria met?** Yes — AC1–AC11 all met and tested. (AC7
   is a property of the other tests, not a separately-named one — confirmed
@@ -354,12 +356,15 @@ completion.*
     test-only changes and `fuzz/` has its own, separate `Cargo.toml`
     (`DEC-011`) untouched by this build's root `Cargo.toml` edit.
   - Sum: **0 failures across every gate run.**
-- **CI observed green on:** `2e0d2c43126eed3095a5fdd82549f12156f88062` —
+- **CI observed green on:** the code SHA
+  `2e0d2c43126eed3095a5fdd82549f12156f88062` —
   <https://github.com/jysf/irradiance/actions/runs/34081190401> — all 9 jobs
-  ✓ (`rust / MSRV`, `rust / clippy`, `rust / lint policy red-proof`,
-  `cost-capture audit`, `rust / license policy`, `rust / license policy —
-  fuzz graph`, `rust / panic-free policy`, `rust / fmt --check`, `rust /
-  test`), `"conclusion":"success"` via `gh run view --json`.
+  ✓, `"conclusion":"success"` via `gh run view --json`; AND, since
+  constraints.yaml requires the gate observed green on the SHA actually
+  shipping (not the last run before it), re-confirmed on this handback
+  commit's own tip `db18c77642b67659b4376f06f53bc9495cb70100` —
+  <https://github.com/jysf/irradiance/actions/runs/34081689175> — same 9
+  jobs, `"conclusion":"success"`.
 
 ### Cost self-report
 
