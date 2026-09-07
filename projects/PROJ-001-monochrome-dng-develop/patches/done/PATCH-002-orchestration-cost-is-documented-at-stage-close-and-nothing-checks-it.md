@@ -11,10 +11,11 @@
 task:
   id: PATCH-002
   type: patch                      # epic | story | task | bug | chore | patch
-  cycle: verify                    # patch | verify | ship  (collapsed from a spec's 5)
+  cycle: ship  # patch | verify | ship  (collapsed from a spec's 5)
   blocked: false
   priority: medium
   complexity: S                    # S | M  (an L fix is probably a spec, not a patch)
+  verify_verdict: approved
 
 project:
   id: PROJ-001
@@ -36,7 +37,7 @@ cost:
   sessions: []
   totals:
     tokens_total: 0
-    estimated_usd: 0
+    estimated_usd: 0.00
     session_count: 0
 ---
 

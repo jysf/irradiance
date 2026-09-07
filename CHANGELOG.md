@@ -100,6 +100,20 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Fixed
 
+- **`just cost-audit` no longer scans patch/spec bodies as front matter** and no
+  longer requires build+verify totals on patches whose verify handoff has not
+  handed back — DEC-013 says `handback-sync` is the ledger, not the audit
+  (PATCH-003, closing PATCH-002's two ship-blockers).
+- **Both `just lint` and `just lint-ci` now print the clippy version they
+  invoked**, with a note that `lint` is unpinned (PATH-resolved Homebrew) and
+  `lint-ci` is what CI sees. A gate that does not state what produced its
+  result is the defect that cost this repo 17 consecutive red CI runs (PATCH-004).
+- **`just cost-audit` now enforces the stage-level `orchestration_cost:` block**
+  at ship — a stage template's own `orchestration_cost` slot was rejected
+  because nothing summed it, so ~31% of PROJ-001's real spend was
+  documented-but-invisible in every rollup (PATCH-002, DEC-022 amending
+  DEC-013 §5).
+
 - **The licence gate now actually covers `fuzz/`.** `DEC-011` recorded that
   `cargo deny` could not reach the fuzz package and hand-wrote its licence table
   instead. Both halves were wrong: `cargo deny --manifest-path fuzz/Cargo.toml

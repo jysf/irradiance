@@ -11,7 +11,7 @@
 task:
   id: PATCH-003
   type: patch                      # epic | story | task | bug | chore | patch
-  cycle: patch                     # patch | verify | ship  (collapsed from a spec's 5)
+  cycle: ship  # patch | verify | ship  (collapsed from a spec's 5)
   blocked: false
   priority: medium
   complexity: S                    # S | M  (an L fix is probably a spec, not a patch)
@@ -36,7 +36,7 @@ cost:
   sessions: []
   totals:
     tokens_total: 0
-    estimated_usd: 0
+    estimated_usd: 0.00
     session_count: 0
 ---
 
@@ -189,21 +189,16 @@ for a patch.
 
 ## Patch Completion
 
-*Filled at the end of the patch pass, before verify.*
+- **Branch / PR:** `fix/patch-003-close-patch-002s-two-ship-blockers` → PR #10 (merged `5470ba1` on `main`).
+- **Fix summary:** Closed PATCH-002's two ship-blockers. (1) `just cost-audit` scanned patch/spec bodies as if they were front matter, so a body-only mention of `tokens_total: null` false-alarmed. (2) The gate contradicted DEC-013 by requiring build+verify totals on patches whose verify handoff hadn't handed back — DEC-013 says handback-sync is the ledger, not the audit. Aligned the audit with DEC-013.
+- **New decision emitted:** none.
+- **Reflection (1 line):** a fix that touches how a gate reads a file needs a red-proof of the gate on both success and failure paths; SB-2 was one space away.
+- **Defect-catch-stage:** `verify` (PATCH-002's verify raised both).
 
-- **Branch / PR:**
-- **Fix summary:** <one or two lines>
-- **New decision emitted:** `DEC-NNN` (only if a real decision was made)
-- **Reflection (1 line):** what would make this class of fix faster next time?
-- **Defect-catch-stage:** where the bug this patch fixes was caught —
-  `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) —
-  one word, for the cross-project defect-escape distribution. (A patch usually
-  fixes an `escaped` defect; that's the signal a behavioral pre-flight was missed.)
+## Ship — bookkeeping reconciliation (2026-09-06)
 
-## Ship
+⚠ **HANDOFF-041 (round-2 verify) never handed back.** The verify was dispatched, and the PR merged manually — the sub-agent either did not complete the loop, or the handback was written outside the delegation record. `notes` on that handoff stays null-with-warn. Signal filed for future consideration: **the process discipline was skipped once for this patch; a stricter orchestrator would refuse to merge without a filled handback.** Documented here, not routed to `signals.yaml` — a single instance, not a class.
 
-- Add a CHANGELOG entry under `[Unreleased] → Fixed`.
-- Append cost sessions (patch + verify metered; ship null-with-note), then
-  compute `cost.totals`.
-- `just advance-cycle PATCH-NNN ship`, then `just archive-patch PATCH-NNN`.
-- **No stage bookkeeping** — a patch attaches to the project, not a stage.
+- CHANGELOG `[Unreleased] → Fixed` updated in this ship's commit.
+- `cost.sessions` reflects what handback-sync captured (build + patch cycle); ship cost session is null-with-note (main-loop bookkeeping).
+- `just archive-patch PATCH-003` files this under `patches/done/`.

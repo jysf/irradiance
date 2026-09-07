@@ -11,7 +11,7 @@
 task:
   id: PATCH-004
   type: patch                      # epic | story | task | bug | chore | patch
-  cycle: patch                     # patch | verify | ship  (collapsed from a spec's 5)
+  cycle: ship  # patch | verify | ship  (collapsed from a spec's 5)
   blocked: false
   priority: medium
   complexity: S                    # S | M  (an L fix is probably a spec, not a patch)
@@ -36,7 +36,7 @@ cost:
   sessions: []
   totals:
     tokens_total: 0
-    estimated_usd: 0
+    estimated_usd: 0.00
     session_count: 0
 ---
 
@@ -150,21 +150,16 @@ for a patch.
 
 ## Patch Completion
 
-*Filled at the end of the patch pass, before verify.*
+- **Branch / PR:** `fix/patch-004-lint-gates-state-which-clippy-answered` → PR #11 (merged `81f9ffb` on `main`).
+- **Fix summary:** Both `just lint` and `just lint-ci` now print the clippy version they invoked (with a note that `lint` is unpinned and `lint-ci` is what CI sees). A gate that does not state what produced its result is the defect that cost this repo 17 consecutive red CI runs (PATCH-001 pattern one level up).
+- **New decision emitted:** none.
+- **Reflection (1 line):** every gate a human relies on for a green/red decision should print the tool + version it ran; treating "green" as decision-quality requires it be traceable to the tool that produced it.
+- **Defect-catch-stage:** `verify` (PATCH-003's own verify surfaced the identical class one level up — a fix that hardens the logic but leaves the assumption unstated, i.e. `a-fix-inherits-the-precondition-of-the-thing-it-fixes` instance).
 
-- **Branch / PR:**
-- **Fix summary:** <one or two lines>
-- **New decision emitted:** `DEC-NNN` (only if a real decision was made)
-- **Reflection (1 line):** what would make this class of fix faster next time?
-- **Defect-catch-stage:** where the bug this patch fixes was caught —
-  `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) —
-  one word, for the cross-project defect-escape distribution. (A patch usually
-  fixes an `escaped` defect; that's the signal a behavioral pre-flight was missed.)
+## Ship — bookkeeping reconciliation (2026-09-06)
 
-## Ship
+⚠ **HANDOFF-042 (verify) never handed back.** Same shape as PATCH-003: dispatched, PR merged manually, `notes` null-with-warn. Not a class (N=2 for the same shape, both this week), but the pattern is worth watching — if a third patch merges without a handback, that becomes a signal about the merge-vs-handback ordering.
 
-- Add a CHANGELOG entry under `[Unreleased] → Fixed`.
-- Append cost sessions (patch + verify metered; ship null-with-note), then
-  compute `cost.totals`.
-- `just advance-cycle PATCH-NNN ship`, then `just archive-patch PATCH-NNN`.
-- **No stage bookkeeping** — a patch attaches to the project, not a stage.
+- CHANGELOG `[Unreleased] → Fixed` updated in this ship's commit.
+- `cost.sessions` reflects what handback-sync captured (patch cycle only, verify never returned).
+- `just archive-patch PATCH-004` files this under `patches/done/`.
