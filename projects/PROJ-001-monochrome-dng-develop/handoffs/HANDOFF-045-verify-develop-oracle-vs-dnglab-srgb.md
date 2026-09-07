@@ -42,16 +42,16 @@ repo:
 # truncates multi-line YAML scalars and leaves the spec unparseable while
 # every gate reports green (`handback-sync-truncates-multi-line-scalars`).
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 10366144           # REAL combined count — what cost-audit reads
+  estimated_usd: 8.25              # tokens_total × your rate, or your harness's number
+  duration_minutes: 16
   branch: feat/spec-020-develop-oracle-vs-dnglab-srgb
   pr: null                         # verify does not open the PR; orchestrator does
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one PHYSICAL line if unusual (rework, no meter, etc.)
+  completed_at: 2026-09-06         # YYYY-MM-DD
+  notes: "Deduped by message.id from own transcript identified by this session's scratchpad UUID d83664a6-d3a9-4ac2-b681-bb222d00d0a7 (not text-matched, per this project's identify-own-transcript-for-cost-handback memory); 153 usage objects, 65 distinct ids, all message.model claude-opus-5 (tier_map.verify's prediction was RIGHT this time), raw combined 8,638,453 (input 130 / cache-write(1h) 161,424 / cache-read 8,435,217 / output 41,682 — 97.6% cache-read), priced per-component at published claude-opus-5 rates ($5/$25/$10/$0.50 per Mtok input/output/1h-write/read) = $6.87, +20% uplift for the turns writing this handback = $8.25 and 10,366,144 tokens; verify edited no repo file except this handback block — the one red-proof mutation (identity warp in tests/support/perturb.rs) was reverted and the tree confirmed clean."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
-  verdict: null                    # approved | punch-list | rejected — mirror the
+  verdict: approved                # approved | punch-list | rejected — mirror the
                                    #   verdict banner from the end of your review.
                                    #   Copies into spec.task.verify_verdict at
                                    #   ship, so the "how often does verify
