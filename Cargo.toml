@@ -41,3 +41,12 @@ path = "src/bin/irr.rs"
 #     (`Value: FromStr` unsatisfied — it passes `cargo check` only because
 #      nothing calls the API, a shape-check masquerading as a behaviour-check)
 toml = { version = "0.8", default-features = false, features = ["parse"] }
+
+# DEV-ONLY, and that is load-bearing: scores the develop-layer oracle's
+# synthetic tier-A fixtures and dnglab's `--srgb` output with SSIMULACRA2
+# (SPEC-020). Never compiled into the library, so `[dependencies]` above stays
+# empty. `ssimulacra2` itself is BSD-2-Clause (design-time expectation was
+# BSD-3-Clause OR MIT — corrected by measurement, still permissive); its full
+# resolved graph is MIT/Apache-2.0/BSD-2-Clause/Unicode-3.0 only, confirmed by
+# `cargo deny check licenses` in a probe workspace. See DEC-023.
+ssimulacra2 = "0.5.1"
