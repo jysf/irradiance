@@ -4,8 +4,11 @@
 //! plane and `tests/plane_oracle.rs` (`SPEC-013`) asserts it bit-for-bit
 //! against `dnglab --raw-checksum`. This module turns that plane into the
 //! image a consumer would actually display: black subtracted, white
-//! normalized, the three-stage `ActiveArea` → `DefaultCrop` → `Orientation`
-//! geometry applied, in one pass over the output buffer.
+//! normalized, `OpcodeList3`'s `WarpRectilinear` geometric correction
+//! applied over the `ActiveArea` window (`SPEC-018`), then `DefaultCrop` →
+//! `Orientation` extracts the final displayed rectangle. See
+//! [`develop_into`]'s own doc for why the warp runs BEFORE the crop, not
+//! after (a correction from `SPEC-018`'s own design-time assumption).
 //!
 //! # No oracle covers this — `DEC-004`
 //!
@@ -45,16 +48,26 @@
 //! # Allocation
 //!
 //! [`develop_into`] takes both the source plane and the destination image as
-//! caller-owned buffers, allocating nothing itself — the same shape
-//! `DEC-016` chose for [`crate::plane::unpack_into`]. It is **not in-place**:
-//! the destination is smaller than the source (crop) and may have swapped
-//! dimensions (orientation 5-8), so a second buffer is unavoidable. Measured
-//! via `irr develop` on `L1021223.DNG` (`AC7`): peak RSS **275,890,176
-//! bytes** — `SPEC-012`'s already-measured 182,435,840 (file + raw plane,
-//! `DEC-016`) plus the 93,453,824-byte developed image (8368×5584×2), to
-//! within rounding. `develop_into`'s own working memory is `O(1)`, not
-//! `O(pixels)` — the added cost is entirely the caller's second buffer, not
-//! anything this function allocates. See `DEC-018`'s Consequences.
+//! caller-owned buffers — the same shape `DEC-016` chose for
+//! [`crate::plane::unpack_into`]. It is **not in-place**: the destination is
+//! smaller than the source (crop) and may have swapped dimensions
+//! (orientation 5-8), so a second buffer is unavoidable regardless of the
+//! warp stage below.
+//!
+//! ⚠ **Amended by `SPEC-018`.** This function's own working memory used to
+//! be `O(1)` (`SPEC-014`'s original measurement: peak RSS **275,890,176
+//! bytes** on `L1021223.DNG`, `AC7` — `SPEC-012`'s 182,435,840 for file+raw
+//! plane, `DEC-016`, plus the 93,453,824-byte developed image). Resampling
+//! `WarpRectilinear` needs the FULL `ActiveArea`-sized, normalized result as
+//! its source while writing a *different* pixel to each destination, so when
+//! a real, non-identity warp is present (every real Q2M frame carries one,
+//! mandatory), this function now allocates TWO internal `Vec<u16>` scratch
+//! buffers (`active_width * active_height` samples each — the pre-warp
+//! normalized `ActiveArea` window and its warped result; `DefaultCrop` +
+//! `Orientation` then read from the second one straight into `dst`) — an
+//! internal allocation, not a third caller-facing parameter (see
+//! [`develop_into`]'s own "Allocation" doc for why). Re-measured peak RSS
+//! after `SPEC-018`: see `docs/provenance-ledger.md`'s `src/warp.rs` row.
 
 use crate::ifd::Sensor;
 use crate::Error;
@@ -65,6 +78,11 @@ struct Geometry {
     /// is absent — `SPEC-014` `AC3`'s `L1000622.DNG` case).
     active_left: u32,
     active_top: u32,
+    /// `ActiveArea`'s own size — `SPEC-018`: this is the coordinate space
+    /// `WarpRectilinear` operates in (see [`develop_into`]'s module doc,
+    /// "Pipeline order"), distinct from `crop_width`/`crop_height` below.
+    active_width: u32,
+    active_height: u32,
     /// `DefaultCropOrigin`, relative to `ActiveArea`'s origin (`AC4`;
     /// `DEC-019`). `(0, 0)` when the tag is absent.
     crop_origin_x: u32,
@@ -151,6 +169,8 @@ fn resolve_geometry(sensor: &Sensor) -> Result<Geometry, Error> {
     Ok(Geometry {
         active_left,
         active_top,
+        active_width,
+        active_height,
         crop_origin_x,
         crop_origin_y,
         crop_width,
@@ -279,16 +299,220 @@ fn normalize(sample: u16, black: u32, white: u32) -> u16 {
     u16::try_from(scaled).unwrap_or(u16::MAX)
 }
 
+/// The crop+orient+normalize pass — the fast, no-warp path: reads directly
+/// from the raw plane and writes the final oriented+cropped+normalized
+/// image straight into `dst` in one pass. Used when `OpcodeList3` is absent
+/// or identity (`develop_into`'s only path before `SPEC-018`, and still the
+/// zero-extra-allocation path after it). Assumes `src`/`dst` are already
+/// length-checked by the caller.
+fn crop_orient_normalize_into(
+    sensor: &Sensor,
+    geometry: &Geometry,
+    black: u32,
+    white: u32,
+    src: &[u16],
+    dst: &mut [u16],
+) {
+    let (out_width, out_height) = oriented_dimensions(
+        geometry.orientation,
+        geometry.crop_width,
+        geometry.crop_height,
+    );
+    for out_y in 0..out_height {
+        for out_x in 0..out_width {
+            let (crop_x, crop_y) = crop_source_coords(
+                geometry.orientation,
+                out_x,
+                out_y,
+                geometry.crop_width,
+                geometry.crop_height,
+            );
+            // Structurally in-bounds: `resolve_geometry` already proved
+            // `active_left + crop_origin_x + crop_width <= sensor.width`
+            // (and the `y` equivalent), and `crop_x < crop_width`,
+            // `crop_y < crop_height` by this loop's own ranges. The
+            // `unwrap_or`/`get().copied().unwrap_or(0)` fallbacks below are
+            // never actually reached — kept so this function has no
+            // panicking path at all, the same shape as `plane::pow2`.
+            let raw_x = geometry
+                .active_left
+                .checked_add(geometry.crop_origin_x)
+                .and_then(|v| v.checked_add(crop_x))
+                .unwrap_or(u32::MAX);
+            let raw_y = geometry
+                .active_top
+                .checked_add(geometry.crop_origin_y)
+                .and_then(|v| v.checked_add(crop_y))
+                .unwrap_or(u32::MAX);
+            let src_index = u64::from(raw_y)
+                .checked_mul(u64::from(sensor.width))
+                .and_then(|v| v.checked_add(u64::from(raw_x)))
+                .and_then(|v| usize::try_from(v).ok())
+                .unwrap_or(usize::MAX);
+            let sample = src.get(src_index).copied().unwrap_or(0);
+
+            let out_index = u64::from(out_y)
+                .checked_mul(u64::from(out_width))
+                .and_then(|v| v.checked_add(u64::from(out_x)))
+                .and_then(|v| usize::try_from(v).ok())
+                .unwrap_or(usize::MAX);
+            if let Some(slot) = dst.get_mut(out_index) {
+                *slot = normalize(sample, black, white);
+            }
+        }
+    }
+}
+
+/// The warp path's first stage: normalize the `ActiveArea` window (and ONLY
+/// that window — no `DefaultCrop`, no `Orientation` yet) into `dst_active`,
+/// `active_width * active_height` samples. This is the coordinate space
+/// `WarpRectilinear` operates in (`develop_into`'s module doc, "Pipeline
+/// order") — DNG 1.7 Chapter 4: `DefaultCropOrigin`/`Size` describe the
+/// "final image area", extracted from an already-fully-processed
+/// (opcode-lists included) `ActiveArea`-sized image, not the other way
+/// round. Assumes `src`/`dst_active` are already length-checked by the
+/// caller.
+fn normalize_active_area_into(
+    sensor: &Sensor,
+    geometry: &Geometry,
+    black: u32,
+    white: u32,
+    src: &[u16],
+    dst_active: &mut [u16],
+) {
+    for ay in 0..geometry.active_height {
+        for ax in 0..geometry.active_width {
+            // In-bounds by `resolve_geometry`'s own check
+            // (`active_right <= sensor.width`, `active_bottom <=
+            // sensor.height`); the fallbacks keep this function total.
+            let raw_x = geometry.active_left.saturating_add(ax);
+            let raw_y = geometry.active_top.saturating_add(ay);
+            let src_index = u64::from(raw_y)
+                .checked_mul(u64::from(sensor.width))
+                .and_then(|v| v.checked_add(u64::from(raw_x)))
+                .and_then(|v| usize::try_from(v).ok())
+                .unwrap_or(usize::MAX);
+            let sample = src.get(src_index).copied().unwrap_or(0);
+
+            let active_index = u64::from(ay)
+                .checked_mul(u64::from(geometry.active_width))
+                .and_then(|v| v.checked_add(u64::from(ax)))
+                .and_then(|v| usize::try_from(v).ok())
+                .unwrap_or(usize::MAX);
+            if let Some(slot) = dst_active.get_mut(active_index) {
+                *slot = normalize(sample, black, white);
+            }
+        }
+    }
+}
+
+/// The warp path's last stage: `DefaultCrop` extraction + `Orientation`,
+/// reading from an `ActiveArea`-sized buffer (already normalized, and
+/// already warped if a real `WarpRectilinear` was present) into `dst`,
+/// `out_width * out_height` samples. Assumes `active_src`/`dst` are already
+/// length-checked by the caller.
+fn crop_and_orient_from_active_into(
+    geometry: &Geometry,
+    out_width: u32,
+    out_height: u32,
+    active_src: &[u16],
+    dst: &mut [u16],
+) {
+    for out_y in 0..out_height {
+        for out_x in 0..out_width {
+            let (crop_x, crop_y) = crop_source_coords(
+                geometry.orientation,
+                out_x,
+                out_y,
+                geometry.crop_width,
+                geometry.crop_height,
+            );
+            // In-bounds by `resolve_geometry`'s own check (`crop_origin +
+            // crop_size <= active_width/height`); the fallbacks keep this
+            // function total.
+            let active_x = geometry.crop_origin_x.saturating_add(crop_x);
+            let active_y = geometry.crop_origin_y.saturating_add(crop_y);
+            let active_index = u64::from(active_y)
+                .checked_mul(u64::from(geometry.active_width))
+                .and_then(|v| v.checked_add(u64::from(active_x)))
+                .and_then(|v| usize::try_from(v).ok())
+                .unwrap_or(usize::MAX);
+            let sample = active_src.get(active_index).copied().unwrap_or(0);
+
+            let out_index = u64::from(out_y)
+                .checked_mul(u64::from(out_width))
+                .and_then(|v| v.checked_add(u64::from(out_x)))
+                .and_then(|v| usize::try_from(v).ok())
+                .unwrap_or(usize::MAX);
+            if let Some(slot) = dst.get_mut(out_index) {
+                *slot = sample;
+            }
+        }
+    }
+}
+
 /// Develop the sensor plane [`crate::plane::unpack_into`] produced into the
-/// image a consumer would display: levels normalized, the three-stage crop
-/// applied, oriented.
+/// image a consumer would display: levels normalized, `OpcodeList3`'s
+/// `WarpRectilinear` geometric correction applied (`SPEC-018`), then the
+/// three-stage crop applied and oriented.
+///
+/// ⚠ **Pipeline order, corrected from `SPEC-018`'s own design-time
+/// assumption.** `docs/measured-q2m-dng.md` originally stated "OpcodeList3
+/// runs after cropping and orientation" — this build's design-time probe
+/// against DNG 1.7.0.0's own tag descriptions found that wrong:
+/// `DefaultCropOrigin`/`Size` (§Chapter 4) describe "the origin/size of the
+/// FINAL image area... relative to the top-left corner of the `ActiveArea`
+/// rectangle", and `OpcodeList3`'s own tag description says it runs "just
+/// after \[the raw image\] has been demosaiced" — i.e. on the full
+/// `ActiveArea`-sized image, with `DefaultCrop` extracting the smaller
+/// "final" display rectangle LAST. The warp therefore runs on the
+/// `ActiveArea` window, BEFORE `DefaultCrop` extraction and `Orientation`,
+/// not after. (No comparison oracle can confirm this choice either way —
+/// see `## No warp-correctness oracle exists` below — so this is verified
+/// against the specification text, not a tool.) The tone-curve stage
+/// `SPEC-019` will add after this one is, for now, a no-op: this function's
+/// output IS the final image.
 ///
 /// `src` must hold exactly `sensor.width * sensor.height` samples (the
 /// uncropped, un-normalised plane) and `dst` must hold exactly
 /// [`output_dimensions`]`(sensor)`'s product — the caller computes both, the
-/// same caller-owned-buffer shape `DEC-016` chose for `unpack_into`
-/// (`DEC-018`'s Consequences: this is **not in-place**, `dst` is a second
-/// buffer).
+/// same caller-owned-buffer shape `DEC-016` chose for `unpack_into`.
+///
+/// # No warp-correctness oracle exists — read before trusting a score
+///
+/// `SPEC-020`'s oracle (SSIMULACRA2 against `dnglab analyze --srgb`) CANNOT
+/// validate this function's warp stage: `dnglab`/`rawler` do not implement
+/// DNG `OpcodeList` processing at all (verified by inspecting the
+/// `dnglab/dnglab` source: `OpcodeList1`/`2`/`3` appear only as tag ID
+/// constants and `IFD::copy_tag` pass-through calls in
+/// `rawler/src/decoders/dng.rs`; `WarpRectilinear` and
+/// `FixBadPixelsConstant` appear nowhere in the repository). `--srgb`'s
+/// reference render is therefore UNCORRECTED, so a MORE geometrically
+/// correct warp scores WORSE against it, not better — this is not a kernel
+/// or implementation defect, see the kernel-choice `DEC-*` and the
+/// handback's `AC8`/`AC9` finding. Correctness here rests on
+/// `tests/warp.rs`'s analytic checks (`AC4`, `AC10`) instead — an exact,
+/// independently-derived transcription of DNG 1.7.0.0 §6.4.1, verified
+/// against `SPIKE-001`'s measured ~504 px figure on real per-frame
+/// coefficients.
+///
+/// # Allocation — amended by `SPEC-018`
+///
+/// `DEC-018`'s original claim ("this function's own working memory is
+/// `O(1)`, not `O(pixels)`") no longer holds when a real, non-identity warp
+/// is present: resampling needs the FULL normalized `ActiveArea` window as
+/// its source while writing a *different* pixel to each destination, so this
+/// function allocates two internal `Vec<u16>` scratch buffers
+/// (`active_width * active_height` samples each) in that case only. This is
+/// an internal allocation, not a change to the public signature — `##
+/// Inputs`' "do NOT introduce a second allocator" is about the caller-facing
+/// buffer count (still two: `src`, `dst`), not about `develop_into`'s own
+/// working memory. Every real Q2M frame carries a mandatory (non-optional)
+/// `WarpRectilinear`, so this path is the common case for this camera, not a
+/// rare one — measured peak RSS is in `docs/provenance-ledger.md`'s
+/// `src/warp.rs` row. See the
+/// kernel-choice `DEC-*` for the alternative considered (a third
+/// caller-supplied buffer) and why this was chosen instead.
 ///
 /// # Errors
 ///
@@ -302,6 +526,8 @@ fn normalize(sample: u16, black: u32, white: u32) -> u16 {
 /// - [`Error::UnsupportedOrientation`] if `Orientation` is present and
 ///   outside `1..=8`.
 /// - [`Error::InvalidLevels`] if `BlackLevel >= WhiteLevel`.
+/// - Whatever [`crate::opcode::parse_warp_rectilinear`] or
+///   [`crate::warp::apply_warp_into`] return, if `OpcodeList3` is present.
 pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
     let expected_src = u64::from(sensor.width)
         .checked_mul(u64::from(sensor.height))
@@ -347,47 +573,44 @@ pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(),
         });
     }
 
-    for out_y in 0..out_height {
-        for out_x in 0..out_width {
-            let (crop_x, crop_y) = crop_source_coords(
-                geometry.orientation,
-                out_x,
-                out_y,
-                geometry.crop_width,
-                geometry.crop_height,
-            );
-            // Structurally in-bounds: `resolve_geometry` already proved
-            // `active_left + crop_origin_x + crop_width <= sensor.width`
-            // (and the `y` equivalent), and `crop_x < crop_width`,
-            // `crop_y < crop_height` by this loop's own ranges. The
-            // `unwrap_or`/`get().copied().unwrap_or(0)` fallbacks below are
-            // never actually reached — kept so this function has no
-            // panicking path at all, the same shape as `plane::pow2`.
-            let raw_x = geometry
-                .active_left
-                .checked_add(geometry.crop_origin_x)
-                .and_then(|v| v.checked_add(crop_x))
-                .unwrap_or(u32::MAX);
-            let raw_y = geometry
-                .active_top
-                .checked_add(geometry.crop_origin_y)
-                .and_then(|v| v.checked_add(crop_y))
-                .unwrap_or(u32::MAX);
-            let src_index = u64::from(raw_y)
-                .checked_mul(u64::from(sensor.width))
-                .and_then(|v| v.checked_add(u64::from(raw_x)))
-                .and_then(|v| usize::try_from(v).ok())
-                .unwrap_or(usize::MAX);
-            let sample = src.get(src_index).copied().unwrap_or(0);
+    let warp = match &sensor.opcode_list_3 {
+        Some(bytes) => crate::opcode::parse_warp_rectilinear(bytes)?,
+        None => None,
+    };
+    let warp = warp.filter(|w| !crate::warp::is_identity(w));
 
-            let out_index = u64::from(out_y)
-                .checked_mul(u64::from(out_width))
-                .and_then(|v| v.checked_add(u64::from(out_x)))
+    match warp {
+        None => {
+            crop_orient_normalize_into(sensor, &geometry, black, white, src, dst);
+        }
+        Some(warp) => {
+            let active_len = u64::from(geometry.active_width)
+                .checked_mul(u64::from(geometry.active_height))
                 .and_then(|v| usize::try_from(v).ok())
-                .unwrap_or(usize::MAX);
-            if let Some(slot) = dst.get_mut(out_index) {
-                *slot = normalize(sample, black, white);
-            }
+                .ok_or(Error::DevelopBufferWrongLength {
+                    expected: u64::MAX,
+                    actual: dst.len(),
+                })?;
+            let mut active_normalized = vec![0u16; active_len];
+            normalize_active_area_into(
+                sensor,
+                &geometry,
+                black,
+                white,
+                src,
+                &mut active_normalized,
+            );
+
+            let mut active_warped = vec![0u16; active_len];
+            crate::warp::apply_warp_into(
+                &warp,
+                geometry.active_width,
+                geometry.active_height,
+                &active_normalized,
+                &mut active_warped,
+            )?;
+
+            crop_and_orient_from_active_into(&geometry, out_width, out_height, &active_warped, dst);
         }
     }
 
@@ -427,6 +650,7 @@ mod tests {
             default_crop_size: None,
             orientation: None,
             opcode_lists: [false, false, false],
+            opcode_list_3: None,
             malformed_tags: vec![],
         }
     }

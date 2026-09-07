@@ -256,7 +256,10 @@ block below — `just build` / `just test` / `just lint` / `just typecheck` /
 `just msrv`; `SPEC-012` added `just fuzz-plane` (the sensor-plane unpacker's
 own fuzz target — `just fuzz-seeds` now regenerates both targets' seeds);
 `SPEC-014` added `just fuzz-develop` (levels/geometry's own fuzz target —
-`just fuzz-seeds` now regenerates all three targets' seeds).
+`just fuzz-seeds` now regenerates all three targets' seeds); `SPEC-018`
+added `just fuzz-warp` (the `OpcodeList`/`WarpRectilinear` byte-stream
+parser's own fuzz target — `just fuzz-seeds` now regenerates all four
+targets' seeds).
 Every recipe's commands appear in the block below and nothing in
 the block is unrunnable: that correspondence is acceptance criterion 8, so a
 recipe that gains a command gains a line here in the same change.
@@ -395,9 +398,17 @@ mkdir -p fuzz/corpus/develop
 PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run develop \
     fuzz/corpus/develop fuzz/seeds/develop -- -max_total_time=60
 
+# fuzz-warp   — the OpcodeList byte-stream parser's own fuzz target
+#              (SPEC-018): real OpcodeList3 bytes are attacker-influenced
+#              exactly like any other IFD tag payload. Same +toolchain trap
+#              and seed/corpus split as `fuzz` above.
+mkdir -p fuzz/corpus/warp_opcode
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run warp_opcode \
+    fuzz/corpus/warp_opcode fuzz/seeds/warp_opcode -- -max_total_time=60
+
 # fuzz-seeds — regenerate the committed seed corpus from tests/support/tiff.rs
-#              (ifd target) and examples/fuzz-seeds.rs's own fixtures (plane
-#              and develop targets)
+#              (ifd target) and examples/fuzz-seeds.rs's own fixtures (plane,
+#              develop and warp_opcode targets)
 cargo run --quiet --all-features --example fuzz-seeds
 ```
 

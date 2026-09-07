@@ -31,6 +31,8 @@
 //!     fuzz/corpus/develop fuzz/seeds/develop -- -max_total_time=60
 //! ```
 
+#[path = "../tests/support/opcode.rs"]
+mod opcode;
 #[path = "../tests/support/tiff.rs"]
 mod tiff;
 
@@ -388,7 +390,11 @@ fn develop_seeds() -> Vec<(&'static str, Vec<u8>)> {
     ]
 }
 
-fn write_seeds(subdir: &str, seeds: Vec<(&'static str, Vec<u8>)>) -> std::io::Result<usize> {
+fn write_seeds(
+    subdir: &str,
+    extension: &str,
+    seeds: Vec<(&'static str, Vec<u8>)>,
+) -> std::io::Result<usize> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("fuzz")
         .join("seeds")
@@ -397,7 +403,7 @@ fn write_seeds(subdir: &str, seeds: Vec<(&'static str, Vec<u8>)>) -> std::io::Re
 
     let mut written = 0usize;
     for (name, bytes) in seeds {
-        let path = dir.join(format!("{name}.tiff"));
+        let path = dir.join(format!("{name}.{extension}"));
         std::fs::write(&path, &bytes)?;
         println!("{:>6} bytes  {}", bytes.len(), path.display());
         written += 1;
@@ -407,15 +413,19 @@ fn write_seeds(subdir: &str, seeds: Vec<(&'static str, Vec<u8>)>) -> std::io::Re
 }
 
 fn main() {
-    if let Err(e) = write_seeds("ifd", tiff::all()) {
+    if let Err(e) = write_seeds("ifd", "tiff", tiff::all()) {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);
     }
-    if let Err(e) = write_seeds("plane", plane_seeds()) {
+    if let Err(e) = write_seeds("plane", "tiff", plane_seeds()) {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);
     }
-    if let Err(e) = write_seeds("develop", develop_seeds()) {
+    if let Err(e) = write_seeds("develop", "tiff", develop_seeds()) {
+        eprintln!("fuzz-seeds: {e}");
+        std::process::exit(1);
+    }
+    if let Err(e) = write_seeds("warp_opcode", "bin", opcode::fuzz_seed_corpus()) {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);
     }

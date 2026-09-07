@@ -150,12 +150,23 @@ with the Q-series 28 mm lens being designed around software correction. This
 spec is the single item in `PROJ-001` that most directly decides whether the
 project's thesis holds.
 
-`OpcodeList3` runs after the plane has been normalised and cropped
-(`SPEC-014`), and before tone-curve mapping (`SPEC-019`). Its geometric
-correctness is the SPEC-020 oracle's headline case — DEC-005's falsifier is
-literally **"a missing warp must land far below 85"**, measured −68.
-Building this spec **without** SPEC-020 in place is the trap `SPEC-015`
-existed to break, applied to STAGE-003; hence `depends_on: [SPEC-020]`.
+⚠ **Corrected at build (`DEC-024` Finding 1):** this paragraph originally
+said `OpcodeList3` runs after cropping. Re-reading DNG 1.7's own
+`DefaultCropOrigin`/`DefaultCropSize` text (they describe "the origin/size
+of the **final** image area... relative to `ActiveArea`") found that
+backwards: `OpcodeList3` runs over the normalised **`ActiveArea`** window,
+and `DefaultCrop` extracts the smaller "final" rectangle **after** it, not
+before. For Q2M this changes the warp's own coordinate extent by under 1%
+(`ActiveArea` 8392x5632 vs `DefaultCrop` 8368x5584); a future camera with a
+larger crop margin could differ materially. Its geometric correctness was
+meant to be the SPEC-020 oracle's headline case — DEC-005's falsifier is
+literally **"a missing warp must land far below 85"**, measured −68 — but
+`DEC-024` Finding 2 found that oracle cannot see this feature at all
+(`dnglab`/`rawler` do not implement DNG `OpcodeList` processing). Building
+this spec **without** SPEC-020 in place is the trap `SPEC-015` existed to
+break, applied to STAGE-003; hence `depends_on: [SPEC-020]` — the
+dependency was still the right call, even though the oracle it unlocked
+could not do the job assumed here.
 
 ## Goal
 

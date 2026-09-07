@@ -59,6 +59,7 @@ fn minimal_sensor(width: u32, height: u32) -> Sensor {
         default_crop_size: None,
         orientation: None,
         opcode_lists: [false, false, false],
+        opcode_list_3: None,
         malformed_tags: vec![],
     }
 }

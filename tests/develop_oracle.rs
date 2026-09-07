@@ -77,6 +77,13 @@
 //! No fuzz target: this file adds no parser and no new input surface — it
 //! consumes the same already-parsed `Sensor` the `develop` fuzz target
 //! (`SPEC-014`) already exercises. `AGENTS.md` §12 bar 2 does not fire.
+//!
+//! ⚠ **`SPEC-018` amendment.** `decode_and_develop` now develops with
+//! `OpcodeList3` cleared — see its own doc for why: `WarpRectilinear`'s
+//! resampling genuinely breaks the permutation property this file's design
+//! rests on, for the two real Q2M files that carry it. This file's scope
+//! stays levels+geometry; the warp has its own oracle (`AC8`/`AC9`,
+//! `tests/perceptual_oracle.rs`).
 
 #[path = "support/corpus.rs"]
 mod corpus;
@@ -102,12 +109,28 @@ const DECODABLE: [&str; 3] = [
 ];
 
 /// A decoded, developed fixture: the parsed `Sensor`, the uncropped raw
-/// plane, and `develop_into`'s actual output.
+/// plane, and the LEVELS+GEOMETRY-ONLY developed output (see
+/// `decode_and_develop`'s doc for why this is deliberately not the same
+/// thing as calling `develop_into` on the real, unmodified `sensor`).
 type DecodedFixture = (Sensor, Vec<u16>, Vec<u16>);
 
-/// Decode `path`'s real file, unpack its plane, and run the REAL
-/// `develop_into` — `None` with the skip already announced by
+/// Decode `path`'s real file, unpack its plane, and run `develop_into` with
+/// `OpcodeList3` cleared — `None` with the skip already announced by
 /// `CorpusFile::require` when the corpus is absent.
+///
+/// ⚠ **`SPEC-018` amendment.** This file's whole design (module docs, "the
+/// permutation property") rests on `develop_into` being a pure permutation
+/// of the raw plane's normalized values — true for levels+crop+orientation
+/// alone, but no longer true once `WarpRectilinear` resamples the image
+/// (bilinear interpolation mixes several source pixels into one output
+/// pixel, which can neither preserve a histogram nor stay within 0.5 LSB of
+/// any single source sample). `SPEC-018` correctly introduces exactly that
+/// resampling for `L1021223.DNG`/`L1026016.DNG` (both carry a real,
+/// non-identity `WarpRectilinear` opcode) — this file's job is levels and
+/// geometry, not the warp (which gets its own oracle: `AC8`/`AC9`,
+/// `tests/perceptual_oracle.rs`), so it develops with `opcode_list_3`
+/// cleared to isolate exactly the stage it verifies. `L1000622.DNG` carries
+/// no opcode lists at all, so clearing it is a no-op there.
 fn decode_and_develop(
     manifest: &Manifest,
     root: &CorpusRoot,
@@ -122,6 +145,10 @@ fn decode_and_develop(
     let sensor = container
         .sensor()
         .unwrap_or_else(|e| panic!("sensor {path}: {e}"));
+    let sensor_no_warp = Sensor {
+        opcode_list_3: None,
+        ..sensor.clone()
+    };
 
     let pixel_count = sensor.width as usize * sensor.height as usize;
     let mut plane = vec![0u16; pixel_count];
@@ -131,7 +158,7 @@ fn decode_and_develop(
     let (out_width, out_height) =
         output_dimensions(&sensor).unwrap_or_else(|e| panic!("output_dimensions {path}: {e}"));
     let mut output = vec![0u16; out_width as usize * out_height as usize];
-    develop_into(&sensor, &plane, &mut output)
+    develop_into(&sensor_no_warp, &plane, &mut output)
         .unwrap_or_else(|e| panic!("develop_into {path}: {e}"));
 
     Some((sensor, plane, output))
@@ -189,6 +216,7 @@ fn minimal_sensor(width: u32) -> Sensor {
         default_crop_size: None,
         orientation: None,
         opcode_lists: [false, false, false],
+        opcode_list_3: None,
         malformed_tags: vec![],
     }
 }
@@ -543,28 +571,53 @@ fn copy_dir_recursive(src: &Path, dst: &Path) {
     }
 }
 
-/// The ONE injected fault this red-proof exists to catch: `develop_into`'s
-/// inner loop resolves `crop_source_coords` correctly but then DISCARDS the
-/// result, binding `(crop_x, crop_y) = (out_x, out_y)` instead —
-/// `SPEC-014/FU-3`'s historical bug, the exact fault that left 141 of 141
+/// The ONE injected fault this red-proof exists to catch: `crop_orient_
+/// normalize_into`'s inner loop (the no-warp path — this test's `PROBE_MAIN`
+/// carries `opcode_list_3: None`, so it always takes this path, never
+/// `SPEC-018`'s warp path) resolves `crop_source_coords` correctly but then
+/// DISCARDS the result, binding `(crop_x, crop_y) = (out_x, out_y)` instead
+/// — `SPEC-014/FU-3`'s historical bug, the exact fault that left 141 of 141
 /// tests green before that spec's own hand-built fixture closed it.
+///
+/// ⚠ `SPEC-018` amendment: `crop_and_orient_from_active_into` (the warp
+/// path's own crop+orient stage) calls `crop_source_coords` with the
+/// textually IDENTICAL argument list, so a whole-file match now finds TWO
+/// occurrences (`AGENTS.md` §16 rule 2, `attribute-text-inside-doc-comments`
+/// — "assert how many times it matched", the same discipline applied to
+/// source text as to doc comments). This scopes the match to
+/// `crop_orient_normalize_into`'s own body, the function this test's
+/// warp-free fixture actually exercises, rather than the whole file.
 fn inject_orientation_identity_fault(develop_rs: &Path) {
     let src = std::fs::read_to_string(develop_rs)
         .unwrap_or_else(|e| panic!("read {}: {e}", develop_rs.display()));
 
+    let fn_start = src
+        .find("fn crop_orient_normalize_into(")
+        .expect("crop_orient_normalize_into must exist in src/develop.rs");
+    let body_start = fn_start + "fn crop_orient_normalize_into(".len();
+    // The next top-level (column-0) `fn` after this one bounds its body —
+    // every function in this file is module-level, never nested.
+    let fn_end = src[body_start..]
+        .find("\nfn ")
+        .map(|offset| body_start + offset)
+        .unwrap_or(src.len());
+    let body = &src[fn_start..fn_end];
+
     let needle = "let (crop_x, crop_y) = crop_source_coords(\n                geometry.orientation,\n                out_x,\n                out_y,\n                geometry.crop_width,\n                geometry.crop_height,\n            );";
-    let occurrences = src.matches(needle).count();
+    let occurrences = body.matches(needle).count();
     assert_eq!(
         occurrences, 1,
-        "expected exactly one call to `crop_source_coords` in src/develop.rs's \
-         `develop_into`; found {occurrences} — the call site moved, update this test"
+        "expected exactly one call to `crop_source_coords` inside \
+         `crop_orient_normalize_into`; found {occurrences} — the call site moved, update this \
+         test"
     );
 
-    let mutated = src.replacen(
+    let mutated_body = body.replacen(
         needle,
         "let (crop_x, crop_y) = (out_x, out_y); // RED-PROOF INJECTION -- tests/develop_oracle.rs, never in the real tree",
         1,
     );
+    let mutated = format!("{}{}{}", &src[..fn_start], mutated_body, &src[fn_end..]);
     std::fs::write(develop_rs, mutated)
         .unwrap_or_else(|e| panic!("write mutated {}: {e}", develop_rs.display()));
 }
@@ -596,6 +649,7 @@ fn main() {
         default_crop_size: None,
         orientation: Some(6),
         opcode_lists: [false, false, false],
+        opcode_list_3: None,
         malformed_tags: vec![],
     };
     let src: [u16; 6] = [0, 1, 2, 10, 11, 12];

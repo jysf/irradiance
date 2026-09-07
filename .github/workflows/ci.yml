@@ -113,6 +113,28 @@ jobs:
           manifest-path: fuzz/Cargo.toml
           command: check licenses
 
+  # SPEC-018. The `warp_opcode` fuzz target's own smoke run — AGENTS.md §12
+  # bar 2: a fuzz target arrives with the parser IN THE SAME PR, and runs.
+  # No prior fuzz target (`ifd`/`plane`/`develop`) has a CI job of its own
+  # yet (AGENTS.md §5 flags this as a standing gap); this is the first, per
+  # this spec's own handoff, not a retrofit of the other three.
+  #
+  # `dtolnay/rust-toolchain@nightly` installs a single, unambiguous nightly
+  # cargo — the Homebrew-vs-rustup `+toolchain` trap this repo's other fuzz
+  # docs warn about is a LOCAL-machine PATH collision (AGENTS.md §5:
+  # "measured... this machine only"); a fresh Ubuntu runner has no Homebrew
+  # cargo to collide with. `cargo install cargo-fuzz` is still required —
+  # it ships as a separate binary, not a cargo built-in.
+  fuzz-warp:
+    name: rust / fuzz smoke — warp_opcode (60s)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: mkdir -p fuzz/corpus/warp_opcode
+      - run: cargo +nightly fuzz run warp_opcode fuzz/corpus/warp_opcode fuzz/seeds/warp_opcode -- -max_total_time=60
+
   msrv:
     name: rust / MSRV (1.90.0)
     runs-on: ubuntu-latest

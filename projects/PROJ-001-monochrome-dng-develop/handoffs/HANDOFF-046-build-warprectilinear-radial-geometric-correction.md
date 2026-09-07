@@ -12,16 +12,15 @@ handoff:
                                     # (correction from tier_map.design's
                                     # claude-opus-5 prediction, per DEC-004
                                     # rule 3 — silent cost-surprise trap).
-  to_agent: claude-opus-5           # ⚠ PREDICTION from tier_map.build, not a
-                                    # measurement. Standing record: 0 FOR 13
-                                    # on the build hint (HANDOFF-043 came back
-                                    # as sonnet-5, not opus-5). CORRECT THIS
-                                    # in the handback to what your own system
-                                    # prompt reports as `message.model`.
+  to_agent: claude-sonnet-5         # CORRECTED from tier_map.build's
+                                    # claude-opus-5 prediction — standing
+                                    # record now 0 FOR 14 on the build hint.
+                                    # `message.model` this session actually
+                                    # reports: claude-sonnet-5.
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-09-06
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-018
@@ -39,14 +38,14 @@ repo:
 # truncates multi-line YAML scalars and leaves the spec unparseable while
 # every gate reports green (`handback-sync-truncates-multi-line-scalars`).
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 116480125          # deduped by message.id, own transcript identified by scratchpad UUID 17cfaf2f-afb7-4924-8bcd-5e6648d4e0f5
+  estimated_usd: 49.61             # per-component (in 532, out 289431, cache-write 621631, cache-read 115568531) at published Sonnet-tier rates ($3/$15/$3.75/$0.30 per Mtok) + 20% handback uplift
+  duration_minutes: 82
   branch: feat/spec-018-warprectilinear-radial-geometric-correction
   pr: null                         # build does not open the PR; orchestrator does
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one PHYSICAL line if unusual (rework, no meter, etc.)
+  completed_at: 2026-09-07
+  notes: 12/14 ACs green; AC8/AC9 #[ignore]d — dnglab/rawler implement no DNG opcode processing at all (DEC-024), so SPEC-020's oracle cannot validate WarpRectilinear in either direction.
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -376,3 +375,147 @@ under-count: 9.9%–15.4%).
   **when** SPEC-018 lands, not as one of AC8's tests. If AC8 lands
   materially different from SPEC-020's synthetic calibration, that
   is a `FU-N` for ship, not a threshold adjustment now.
+
+## Completion
+
+### Summary
+
+`src/opcode.rs` and `src/warp.rs` created (SPEC-017 not yet built, so this
+build scaffolded the opcode module first — see "Which of SPEC-017/018
+landed first" below). Parser round-trips all three decodable frames'
+real `OpcodeList3` bytes byte-for-byte (`tests/opcode.rs`). Bilinear
+kernel shipped per the pre-registered rule. `src/develop.rs` gained the
+warp stage, restructured mid-build after a design-time correction (see
+`SB-1`/Finding 1 below). 12 of 14 acceptance criteria are met and tested
+green; 2 (`AC8`, `AC9`) are measured but cannot pass with any correct
+implementation, for reasons external to this build — see `SB-1`.
+
+### Findings
+
+- **`FU-1`** — `SPEC-018`'s own `## Context`/`## Implementation Context`
+  named `OpcodeList3`'s IFD tag as `0xC740`. That is actually
+  `OpcodeList1`'s tag (DNG 1.7.0.0 p.56-57 confirms `OpcodeList3 = 51022`
+  / `0xC74E`). No code was ever wrong: `TAG_OPCODE_LIST_3` in
+  `src/ifd.rs` (landed by an earlier spec) already carried the correct
+  value. `unrun-docs-carry-errors` instance — the citation is corrected
+  in `src/opcode.rs`'s module doc and this narrative.
+- **`SB-1` (Finding 1, fixed in this build)** — The design-time
+  assumption that `WarpRectilinear` runs *after* `DefaultCrop`/
+  `Orientation` (carried from `SPIKE-001` through this spec's own
+  `## Context`, `## Implementation Context`, and `docs/measured-q2m-
+  dng.md`'s framing) is backwards per DNG 1.7's own `DefaultCropOrigin`/
+  `DefaultCropSize` text: they describe the "**final** image area", cut
+  from an already-fully-processed `ActiveArea`-sized image. Fixed:
+  `src/develop.rs` now normalizes+warps over `ActiveArea`
+  (8392x5632 for Q2M) and extracts `DefaultCrop` (8368x5584) afterward.
+  For Q2M the two sizes differ under 1%, so this changes nothing
+  numerically for THIS camera, but a future camera with a larger
+  `ActiveArea`/`DefaultCrop` gap would render wrong under the original
+  assumption. `DEC-024` records the fix and cites the exact clauses.
+- **`SB-1` (Finding 2, NOT fixable by this build — needs a ship-cycle
+  decision)** — `SPEC-020`'s oracle (SSIMULACRA2 vs `dnglab analyze
+  --srgb`) cannot validate `WarpRectilinear` in either direction.
+  Verified by inspecting `dnglab`/`rawler`'s own source
+  (`github.com/dnglab/dnglab`): `OpcodeList1`/`2`/`3` appear ONLY as tag
+  constants and `IFD::copy_tag` pass-through calls
+  (`rawler/src/decoders/dng.rs`) — `WarpRectilinear` and
+  `FixBadPixelsConstant` appear nowhere in the repository. `dnglab
+  --srgb` never applies any DNG opcode. Measured on `L1021223.DNG`: the
+  CORRECT warp scores **-60.169** (`AC8`), while a synthetic no-warp
+  baseline scores **83.145** (with an approximate gamma stand-in for
+  the linear-vs-sRGB comparison) — applying the right correction makes
+  the match to `dnglab` WORSE, not better, because `dnglab`'s reference
+  is itself uncorrected. `AC9`'s red-proof is correspondingly vacuous:
+  honest score -60.193, `kr1=0` mutated score -55.075 — technically
+  `< 85` but only because the honest score never reaches 85 either.
+  **`AC8` and `AC9` cannot pass with ANY correct implementation of this
+  spec** — this is not a kernel or code defect (per `## The design
+  decision this spec rests on`: "if AC8 fails... change the kernel", but
+  no kernel closes this gap, and trying more of them would be pure
+  waste). Both tests are marked `#[ignore]` with the full reason inline
+  (`tests/warp.rs`), still runnable via `cargo test -- --ignored`.
+  `AC4`/`AC10` (this spec's oracle-free, analytic correctness proof —
+  see below) are unaffected and green. **Disposition needed at
+  ship/verify**: either formally narrow `DEC-005`/`SPEC-020`'s scope to
+  exclude `WarpRectilinear`-bearing pixels (matching `SPEC-015`'s own
+  precedent — an analytic check substituting for a comparison oracle
+  that structurally cannot cover a pipeline stage), or find a second
+  DNG-opcode-capable reference decoder. Full record in `DEC-024`.
+
+### AC8/AC9 measured scores (informational — tests `#[ignore]`d, see `SB-1`)
+
+| | score |
+|---|---|
+| `L1021223.DNG` (AC8, real warp) | -60.169 |
+| `L1021223.DNG` no-warp baseline (diagnostic only, approximate gamma applied) | 83.145 |
+| `L1021223.DNG` AC9 honest (real warp, no gamma) | -60.193 |
+| `L1021223.DNG` AC9 `kr1=0` mutated | -55.075 |
+
+`AC8` was not re-measured on `L1026016.DNG`/`L1026192.DNG` once the root
+cause (the oracle sees no opcode processing at all, on any frame) was
+confirmed on the first — re-running would not change the conclusion,
+and the corpus/`dnglab` round-trip costs ~25s per frame.
+
+### Which of SPEC-017/018 landed `src/opcode.rs` first
+
+**SPEC-018 (this build).** `src/opcode.rs` did not exist on `main` at
+the start of this cycle. `Opcode::Unknown { id: u32, flags: u32, params:
+Vec<u8> }` is the escape hatch SPEC-017's own coordination text
+pre-registers; `parse_opcode_list(bytes: &[u8]) -> Result<Vec<Opcode>,
+Error>` matches its stated signature exactly. SPEC-017 extends this
+module with its own `FixBadPixelsConstant` variant and match arm; it
+does not need to rewrite anything here.
+
+### Gates run (stating the list — `the-gate-count-is-not-defined-anywhere`)
+
+`cargo fmt --check`, `cargo clippy --all-targets --all-features -D
+warnings` (local 0.1.97), `just lint-ci` (pinned 0.1.98 — caught two
+CI-only lints local clippy missed: `manual_saturating_arithmetic`,
+`manual_is_multiple_of`, both fixed), `cargo check --all-targets
+--all-features` (typecheck), `~/.cargo/bin/cargo +1.90.0 check
+--all-targets --all-features` (MSRV), `cargo deny check licenses` +
+`cargo deny --manifest-path fuzz/Cargo.toml check licenses` (both
+green, no new dependency added to either graph — root `Cargo.toml` is
+`0` lines changed), `./scripts/lint-red-proof.sh`,
+`./scripts/cost-audit-red-proof.sh`, `just lint-no-allow`, `cargo test
+--all-features` (full suite, corpus present, 205 passed / 2 `#[ignore]`d
+/ 0 failed — see `SB-1`), and `PATH="$HOME/.cargo/bin:$PATH"
+~/.cargo/bin/cargo +nightly fuzz run warp_opcode fuzz/corpus/warp_opcode
+fuzz/seeds/warp_opcode -- -max_total_time=60` (20,077,163 executions,
+zero crashes). Test count before → after: 172 passed → 205 passed + 2
+`#[ignore]`d (33 new passing tests, 35 new test functions total).
+`fuzz-warp` CI job added to `.github/workflows/ci.yml` in this PR
+(no prior fuzz target — `ifd`/`plane`/`develop` — has a CI job yet;
+`AGENTS.md` §5 flags that as a standing gap this build does not
+retroactively close, only its own target).
+
+### Reflection
+
+1. **What would I do differently next time?** Run the design-time
+   probe against the REAL corpus (a decode-and-score round-trip, not
+   just byte-level parsing) before writing `## The design decision this
+   spec rests on`'s kernel-selection loop — the broken-oracle finding
+   would have surfaced at design instead of consuming a build cycle's
+   worth of debugging that briefly (and wrongly) suspected the warp
+   math itself.
+2. **Does any template/constraint/decision need updating?** Yes —
+   `docs/oracle-contract.md`'s "this oracle is single-sourced" warning
+   should be extended with the concrete case measured here (a feature
+   the reference doesn't implement at all, not just a rendering
+   difference). Recorded as evidence for `guidance/signals.yaml` at
+   ship, per that file's own ritual.
+3. **Follow-up spec to write now?** Yes, in spirit: a spec (or a `DEC-*`
+   revision) to formally narrow `SPEC-020`'s warp-oracle claim — `SB-1`
+   above is the concrete ask.
+4. **Where was the worst defect caught?** `build` — both the pipeline-
+   order error and the broken-oracle finding were caught by this
+   cycle's own design-time probes, before either reached verify or ship.
+5. **What can a user do now that they couldn't before?** Before: a
+   developed Q2M image was visibly wrong by ~504 px (6% of width) at
+   the corners, matching no reference render. After: `develop_into`
+   applies the real per-frame `WarpRectilinear` correction, verified
+   geometrically correct against the DNG specification and
+   `SPIKE-001`'s independent measurement (confirmed: 503.7 px /
+   437.7 px / 407.0 px corner displacement, one measurement per frame,
+   `tests/warp.rs::AC4`) — though `SPEC-020`'s oracle cannot itself
+   confirm the visual improvement (`SB-1`).
