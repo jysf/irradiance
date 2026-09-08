@@ -63,8 +63,13 @@ record.
 
 ### Finding 1 — the pipeline order `SPEC-018`'s own design carried was wrong
 
-`docs/measured-q2m-dng.md` and this spec's `## Context`/`## Implementation
-Context` stated "`OpcodeList3` runs after cropping and orientation." Reading
+`SPEC-018`'s own `## Context` and `## Implementation Context` stated
+"`OpcodeList3` runs after cropping and orientation." (Corrected at SPEC-018
+ship as `FU-1`: earlier drafts of this DEC and `src/develop.rs` cited
+`docs/measured-q2m-dng.md` as the source of that wrong claim, but
+`git log -S "runs after cropping" -- docs/measured-q2m-dng.md` returns
+zero hits across that file's entire history. The wrong claim originated
+in this spec's own design pass, not in the corpus documentation.) Reading
 DNG 1.7.0.0 §Chapter 4 directly during build (the design-time probe this
 spec's `## Implementation Context` calls for) found the opposite:
 `DefaultCropOrigin`/`DefaultCropSize` are described as specifying "the

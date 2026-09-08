@@ -457,7 +457,7 @@ fn crop_and_orient_from_active_into(
 /// three-stage crop applied and oriented.
 ///
 /// ⚠ **Pipeline order, corrected from `SPEC-018`'s own design-time
-/// assumption.** `docs/measured-q2m-dng.md` originally stated "OpcodeList3
+/// assumption.** `SPEC-018`'s own design pass stated "OpcodeList3
 /// runs after cropping and orientation" — this build's design-time probe
 /// against DNG 1.7.0.0's own tag descriptions found that wrong:
 /// `DefaultCropOrigin`/`Size` (§Chapter 4) describe "the origin/size of the

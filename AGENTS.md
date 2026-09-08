@@ -1391,7 +1391,7 @@ a **non**-match becoming control flow. Two traps, both measured:
 A proof that dies without a message is indistinguishable from a proof that never
 ran — which is the exact thing these gates exist to prevent.
 
-**4. A claim about a file is verified by running the reader — `unrun-docs-carry-errors` (N=5).**
+**4. A claim about a file is verified by running the reader — `unrun-docs-carry-errors` (N=6).**
 
 > A sentence that states what a **file contains** — a tag value, a dimension, a
 > level — is verified by **running the tool that reads it**, at the moment the
@@ -1410,6 +1410,14 @@ Instance 4 is why this is a rule and not a reminder: **a correction written with
 running is as wrong as what it corrects, and carries more authority because it looks
 like a fix.** The cost of compliance is one command. `SPEC-014`'s design probe and
 `SPEC-015`'s both ran the reader first and produced no instances.
+
+**Instance 6 landed at SPEC-020's ship, 2026-09-06:** SPEC-020's design cited the
+WarpRectilinear coefficient set as read from `L1021223.DNG` / `L1026016.DNG` and
+`tests/support/perturb.rs` presented the numbers as camera constants. SPEC-020
+verify parsed OpcodeList3 out of all three decodable Q2M frames directly and
+measured: only `kr0 = 0.9992511060` is constant; `kr1` varies **~1.9×** across
+frames. Same camera and same file (L1026016) as instance 2 — the third mis-cite
+of that frame. Full evidence and detail in `guidance/signals.yaml`.
 
 **In this repo, "measured once, on one file" is not 1.0.** The oracle contract
 was verified against a single Leica Q2 Monochrom frame from one firmware. High

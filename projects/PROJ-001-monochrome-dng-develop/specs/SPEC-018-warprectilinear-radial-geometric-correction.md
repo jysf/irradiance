@@ -6,7 +6,7 @@
 task:
   id: SPEC-018
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: critical               # critical | high | medium | low
                                    # ⚠ RAISED from the frame stub's `medium`.
@@ -33,7 +33,7 @@ task:
                                    #   (AGENTS.md §11).
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -141,10 +141,18 @@ cost:
       duration_minutes: 14
       recorded_at: 2026-09-07
       notes: "Round 3 (punch-list) on HANDOFF-048's one ship blocker, SB-3 CLOSED at b92b30c. One file, one rustdoc paragraph - src/warp.rs 53-55 replaced by 53-62, 10 insertions and 3 deletions, all inside doc comments, so decoded pixel output cannot move and the suite stays at 206 passed / 0 failed / 2 ignored. SB-3 was three defects in one sentence and all three are fixed. (A) The invented alternatives are gone: DEC-024 records neither zero-fill nor error, and records no alternative at all for the out-of-extent rule - its Alternatives Considered, lines 138-168, is Options A, B and C, every one about the kernel or the DEC-005 threshold. Re-measured rather than copied: grep -rn zero-fill over the tree returns 9 hits, 6 in process documents that discuss this very finding and 3 in source (tests/ifd_reader.rs 333, tests/support/perturb.rs 14, and the claim itself); grep -c on DEC-024 returns 0. (B) AC11 replaced by AC7: AC11 governs the KERNEL choice with measured per-frame scores (SPEC-018 428-433), while AC7 is the criterion that pre-registered the out-of-extent rule (SPEC-018 387-395) and is the AC DEC-024 itself names in the same clause that records the choice. (C) The 'records no per-frame oracle scores' clause is replaced by the measurement DEC-024 does hold - AC8 at -60.169 on L1021223.DNG (DEC-024 97-98) - reproduced by running the reader rather than quoted from the handback, since just test prints that same figure back in the ignore reason for warp_scores_at_least_eightyfive_via_spec_020_oracle. Phrased non-exclusively because DEC-024 also records AC9's -60.193 / -55.075 pair; a cleft would have been a fresh 16-rule-1 over-generalisation inside the sentence fixing an imprecision. WARNING, the one judgement call: the dispatch's suggested wording, clamps to edge per DNG 6.4.1, would have inherited SB-3's own precondition. DEC-024 195-196 records that 6.4.1 is SILENT on the out-of-extent rule, confirmed by full-text search, and src/warp.rs 36-43 - the reverify-approved heading five lines above the rewrite - says the same, so citing 6.4.1 as the SOURCE of a clamp rule would have been the same species of false citation one paragraph later. The rewrite takes the intent (the honest citation is the DNG spec and AC7, not a DEC that never weighed it) and states it as 6.4.1's SILENCE plus AC7, which is what both sources support. DEC-024 is byte-unchanged: git diff 08ad42e..b92b30c -- decisions/ is empty. Gates on b92b30c: lint-ci on the PINNED clippy 0.1.98 (not local 0.1.97), cargo fmt --check clean - note just fmt is NOT a recipe in this repo, fmt runs inside just lint - just test at 206 passed / 0 failed / 2 ignored run TWICE, once with IRRADIANCE_CORPUS_DIR pointed at the real corpus (4 frames present) and once with it unset (12 SKIP lines, default root absent), identical counts both ways; just deny licenses ok; just msrv 1.90.0; just fuzz-warp 23,438,651 runs in 61 s, zero crashes, cov 172 ft 457. CI GREEN on b92b30c - push run 34173566347 and pull_request run 34173569505, 10 jobs each, all success, fuzz smoke warp_opcode included, both watched to completion with gh run watch --exit-status rather than inferred. Nothing else touched: FU-1 through FU-11 all still open and owed a ship disposition, DEC-024, SPEC-018's body and ACs, src/lib.rs's SB-2 rewrite, src/develop.rs, every test including SB-1's, and PR 16, which was open on arrival and received a git push only. WARNING for the orchestrator: FU-11 will bite this entry too. HANDOFF-046's to_agent is still claude-sonnet-5 from round 1 and handback-sync line 97 reads it, but all 51 metered messages this session report claude-opus-5, so the round-3 cost.sessions entry will carry the WRONG agent exactly as round 2's did. Left unedited because the dispatch forbids the fix; FU-11 restated with one more instance."
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 3275009
+      estimated_usd: 11.64
+      duration_minutes: 71
+      recorded_at: 2026-09-07
+      notes: "APPROVED on b92b30c - SB-3 CLOSED, no new SB, round 3's diff is comment-only. Reconciled against git and disk rather than the handback (DEC-004 rule 1): git diff 32599d2..b92b30c is src/warp.rs ALONE, 13 changed lines, 0 non-comment (asserted, not eyeballed), so no decoded pixel can move and SB-1's test, SB-2's src/lib.rs rewrite, src/develop.rs, tests/ and decisions/ are all byte-untouched this round. The three SB-3 defects are each fixed and each verified against the SOURCE document, not against the handback. (A) The invented alternatives are gone: grep -rn zero-fill src/ returns 0 hits (asserted), the only surviving source hits are tests/ifd_reader.rs 333 and tests/support/perturb.rs 14, both unrelated, and DEC-024 contains the string zero-fill 0 times. I asserted the ABSENCE claim itself rather than trusting it, since an absence is the easiest thing to assert falsely: 'alternativ' appears in DEC-024 EXACTLY ONCE, at line 138, the Alternatives Considered heading, and 'out-of-extent' appears EXACTLY ONCE, at line 195, so 'records the choice in a single Consequences Neutral line' and 'It records no alternative against it' are both literally true rather than merely plausible. Alternatives Considered spans 138-168 and holds exactly Options A (bicubic or Lanczos-3), B (relax DEC-005's 85 threshold) and C (chosen, keep bilinear plus the analytic checks), so 'entirely kernel and oracle threshold' is accurate. (B) AC11 is gone from src/ entirely - grep -rn AC11 src/ returns 0 hits - and AC7 is the right criterion: SPEC-018 at b92b30c lines 387-395 pre-registers the out-of-extent rule using AC7's own word 'pre-registered', and DEC-024 195-202 names AC7 (outside_pixels_follow_the_dng_spec_rule) as what pins the choice, on simplicity and determinism grounds, so the rustdoc matches the record clause for clause. The build's SPEC-018 line citations read 8 low against HEAD only because f9c43ee later inserted the round-3 cost entry above them; at the SHA the build actually read they are exact. (C) I RE-MEASURED AC8 instead of reading it back: cargo test --test warp -- --ignored --exact warp_scores_at_least_eightyfive_via_spec_020_oracle printed 'AC8 LEICA-Q2-MONO/L1021223.DNG: SSIMULACRA2 score = -60.169' in 135.92 s against dnglab 0.7.2, matching DEC-024 97-98 exactly. Worth recording that the round-3 handback's own verification story for this number is weaker than it reads - 'just test prints it back in the ignore reason' prints a STATIC string in tests/warp.rs, not a fresh measurement - but the number is right, I ran the reader, and the shipped sentence cites DEC-024, which does hold it. THE JUDGMENT CALL IS CORRECT AND I WOULD HAVE MADE IT. The dispatch's suggested 'clamps to edge per DNG 6.4.1' would have asserted a rule that DEC-024 195-196 records the specification does NOT hold, one screen below src/warp.rs line 36's own reverify-approved heading 'DNG 1.7.0.0 is silent; this build clamps' - unrun-docs-carry-errors landing inside the pass that exists to fix unrun-docs-carry-errors, which is exactly the instance-4 shape signals.yaml calls the one that settles it. The rewrite rests the rule on 6.4.1's SILENCE plus AC7 and on nothing else, and it did so without opening a specification it could not verify: it leaned on the two in-repo documents it did read. src/warp.rs cites 6.4.1 seven times and not once as the source of a clamp rule. The closing clause, 'those measurements are what established that the oracle cannot validate this stage at all', is honest rather than over-general: DEC-024's Finding 2 puts the measurements first and labels the dnglab/rawler source inspection at 116-130 as the ROOT CAUSE, and the rustdoc defers the why to the Kernel section below, which states it. No clause of the ten new lines over-generalises, so no section 16 rule 1 finding either. Gates re-run by me on b92b30c: just lint-ci green on the PINNED clippy 0.1.98 while this machine's default is 0.1.97; just test 206 passed / 0 failed / 2 ignored run TWICE, once with IRRADIANCE_CORPUS_DIR at the real corpus (7/7 present) and once with it UNSET (7 SKIP lines, default root absent), identical counts both ways, so the tier-B discipline holds; decisions-audit clean; DEC-024 confidence 0.85, so no section 16 yellow flag. CI GREEN on b92b30c confirmed by me from the API rather than inferred from a green predecessor: push run 34173566347 and pull_request run 34173569505, headSha b92b30cea0db66eeb0d2324fe7816d2365bc362f on both, conclusion success, 10 jobs each all success including fuzz smoke warp_opcode. cost.sessions holds 5 entries summing to 165,780,803, matching totals exactly, and 168.25 USD likewise; the round-3 build entry does carry agent claude-sonnet-5 while that session ran opus-5, which is FU-11 landing a second time exactly as HANDOFF-049 predicted, NOT a new finding. FU-1 through FU-11 are all still open and none was re-opened or silently closed by this round; FU-5's truncation is still visible verbatim at SPEC-018 line 111 as an unquoted notes value ending at 'AC8/AC9'. ONE OBSERVATION for ship, deliberately unnumbered because it predates round 3 and sits outside this handoff's scope: AGENTS.md line 1394 still states unrun-docs-carry-errors at N=5 while guidance/signals.yaml line 76 records N=6, instance 6 dated 2026-09-06 from SPEC-020 verify - the rule's own instance count is stale in the file agents read first, and this dispatch cited N=6. Cost method: 37 metered messages deduped by message.id from my OWN transcript, identified by the scratchpad UUID 431a772f-caec-4323-b122-b8231db1ab28 rather than by text-matching, all reporting message.model claude-opus-5, so tier_map.verify's prediction and this handoff's to_agent were both right for the third round running. Duration is WALL CLOCK 71 minutes, of which a single 57-minute idle gap awaited the user's continue, so active work was 14 minutes - recorded unhidden so calibration can discount it. PR not opened, handback-sync not run, cost.sessions not hand-edited, nothing repaired."
   totals:
-    tokens_total: 165780803
-    estimated_usd: 168.25
-    session_count: 5
+    tokens_total: 169055812
+    estimated_usd: 179.89
+    session_count: 6
 ---
 
 # SPEC-018: WarpRectilinear radial geometric correction
@@ -271,7 +279,7 @@ so does every expected test value.
 - **`src/develop.rs`** — `develop_into` and `output_dimensions`. This
   spec's application point: after `Orientation`, before tone curve.
 - **`src/ifd.rs`** — the `Sensor` type. `OpcodeList3` is an IFD tag
-  (`0xC740`); the parser is a new field on `Sensor` or a sibling reader
+  (`0xC74E`); the parser is a new field on `Sensor` or a sibling reader
   called during develop, and this design pass chooses which (see
   `## Implementation Context`).
 - **`fuzz/fuzz_targets/`** — the existing `ifd`, `plane`, `develop`
@@ -301,7 +309,7 @@ so does every expected test value.
   **unchanged** (the warp is inward, so the output extent is still the
   DefaultCropSize per DNG § 6.4.1).
 - **`src/ifd.rs`** — modified. `Sensor` gains an `opcode_list_3:
-  Option<Vec<u8>>` field, populated from IFD tag `0xC740` at the
+  Option<Vec<u8>>` field, populated from IFD tag `0xC74E` at the
   same read path `SPEC-014`'s levels/geometry tags come through. The
   parse of these bytes into `Option<WarpRect>` lives in `src/opcode.rs`,
   not in `Sensor` — the "unread field" rule (AGENTS.md §11) is
@@ -565,13 +573,16 @@ across all.
 - **The warp coefficients** are as SPIKE-001 measured them on
   `L1021223.DNG` and `L1026016.DNG`. Radial-only, four terms, optical
   centre `(0.5, 0.5)`. Reproducible by rereading `OpcodeList3` at
-  IFD tag `0xC740`, byte offsets per the DNG opcode format.
+  IFD tag `0xC74E`, byte offsets per the DNG opcode format.
 - **The failure mode of skipping the warp**: ≈504 px inward at the
   corner (~6 % image width) on `SPIKE-001`'s frame. SSIMULACRA2 score
   −68 against dnglab's `--srgb` at ¼ resolution (`DEC-005`
   calibration).
-- **`OpcodeList3` runs after cropping and orientation and before tone
-  curve** in the monochrome pipeline (colour transforms are absent).
+- **`OpcodeList3` runs on the `ActiveArea` image, BEFORE `DefaultCrop`
+  extraction and `Orientation`** in the monochrome pipeline (colour
+  transforms are absent). Corrected at build (`DEC-024` Finding 1); the
+  earlier "after cropping and orientation" claim was `SPEC-018`'s own
+  design-time assumption, not a spec statement.
   The output extent equals the DefaultCropSize — the warp is a
   spatial rearrangement of the same-sized image.
 - **`no image crate`**: `library-not-application` is standing; the
