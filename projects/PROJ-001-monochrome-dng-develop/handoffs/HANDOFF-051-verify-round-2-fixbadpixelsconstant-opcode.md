@@ -6,12 +6,15 @@ handoff:
   id: HANDOFF-051
   cycle: verify                # build | verify — which cycle is delegated
   from_agent: claude-opus-4-7     # orchestrator's actual model this session.
-  to_agent: claude-opus-5           # ⚠ PREDICTION from tier_map.verify. Prior
-                                    # SPEC-017 verify (HANDOFF-050) confirmed
-                                    # opus-5. ⚠ CORRECT to your actual
-                                    # message.model BEFORE handback-sync runs
-                                    # (signal handback-sync-inherits-stale-
-                                    # to-agent-across-punch-list-rounds).
+  to_agent: claude-opus-5           # ✅ VERIFIED, not inherited. Read from this
+                                    # session's own transcript (scratchpad UUID
+                                    # 0c0e3eaa-766d-473a-98c6-72479691d34a):
+                                    # 76 entries carry message.model, every one
+                                    # claude-opus-5. The prediction happened to
+                                    # be right; it was checked before
+                                    # handback-sync, per signal handback-sync-
+                                    # inherits-stale-to-agent-across-punch-
+                                    # list-rounds.
   from_role: architect
   to_role: verifier                # implementer | verifier
   created_at: 2026-09-08
@@ -30,16 +33,16 @@ repo:
 # `notes:` MUST BE ONE PHYSICAL LINE, DOUBLE-QUOTED, NO bare `#`
 # (signal handback-sync-treats-hash-as-comment-in-unquoted-notes).
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count
-  estimated_usd: null              # tokens_total × your rate
-  duration_minutes: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 3590211            # REAL, deduped by message.id from own transcript
+  estimated_usd: 10.26             # per-component opus pricing, +20% uplift
+  duration_minutes: 22
   branch: feat/spec-017-fixbadpixels-opcode
   pr: null                         # verify does not open the PR
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one PHYSICAL, DOUBLE-QUOTED line, NO `#`
-  synced_at: null                  # stamped by `just handback-sync`
-  verdict: null                    # approved | punch-list | rejected
+  completed_at: 2026-09-08         # YYYY-MM-DD
+  notes: "APPROVED on 6e4376b. SB-2 IS CLOSED and the closure has teeth, reproduced personally rather than read off the build's handback. SCOPE FIRST, git not prose: git diff cd82ca8..6e4376b -- src/ prints NOTHING, git log 8ae24e1..6e4376b is the single commit 6e4376b, and git show --stat 6e4376b is tests/develop.rs alone, 15 insertions 0 deletions; the branch tip 11d1c15 is bookkeeping-only, confirmed by git diff --stat 6e4376b..11d1c15 -- src/ tests/ Cargo.toml Cargo.lock printing nothing. THE ASSERTION exists at tests/develop.rs:594-599 inside develop_output_is_bit_identical_across_two_runs (AC9), after the dst1 == dst2 assert and before the direct-applier count block, and its message names the pipeline stage it protects. The index is CORRECT, checked against the fixture not assumed: minimal_sensor(5,5) with default_crop_size 5x5, orientation None and active_area None makes output_dimensions 5x5, so dst has 25 cells and 2 * 5 + 2 = 12 is row 2 col 2 - the same cell the test's own src marks with 0 at line 574. RED-PROOF REPRODUCED, all three clauses of the repo's mutation bar, in a scratchpad rsync copy minus target/ and .git/, working tree never touched and git status clean before and after. Match count asserted == 1 on the effective_src binding before substituting, per AGENTS.md section 16 rule 2. Clause one, the file CHANGED: honest md5 b3b922d0ebd499f54c58bd86b39cb3e8 -> severed 1c4f4e34eed721173b90134302ee4ca9, cmp confirms differ. That pair REPRODUCES the round-2 build's md5 pair EXACTLY, which retires the discrepancy the build reported honestly; round-1 verify's 548e240f still does not reproduce, and the build was right that its exact edit text is unrecoverable from what was recorded. Clause two, it COMPILED: cargo build --tests exit code 0, read directly rather than inferred from output text. Clause three, the OUTPUT CHANGED: AC9 panics at tests/develop.rs:594:5, left 0 right 1000, cargo test exit code 101. Then reverted to b3b922d0, cmp says byte-identical to the working tree's own src/develop.rs, AC9 green exit code 0. SUITE DELTA MEASURED with --no-fail-fast, which this repo has already paid for once: honest 231 passed / 0 failed / 3 ignored, mutant 230 / 1 / 3, and the one failure is develop_output_is_bit_identical_across_two_runs. Corpus-independence measured too, not assumed: the tier-A totals are the same 231 / 0 / 3 with IRRADIANCE_CORPUS_DIR unset as with it set, so tier-B passes either way. EVASION GREP CLEAN: dst1[2 * 5 + 2] occurs exactly once in the whole tree; src/warp.rs:385 and tests/support/perturb.rs:176 are warp-path fixtures, not develop_into; only three tier-A tests set opcode_list_1 and the other two build unknown opcode id 99, so AC9 is the only test that drives develop_into through a real FixBadPixelsConstant list. Nothing shadows or masks the new assertion. COST.SESSIONS has exactly 3 entries as briefed - build round 1 570000 on claude-sonnet-5, verify round 1 27235932 on claude-opus-5, build round 2 9026059 on claude-opus-5 - and the round-2 opus-5 attribution held, which makes three consecutive SPEC-017 handbacks (verify round 1, build round 2, this one) that set to_agent from a checked transcript; totals 36831991 and 93.77 both reconcile to the sum of the three rows. CI OBSERVED via gh, not inferred: push run 34202703543 and pull_request run 34202708489 on 6e4376b are 11 of 11 jobs success each, including rust / test, rust / clippy -D warnings and both fuzz smokes. I did NOT re-run local gates: round 2 changed one test file and CI's own PINNED clippy job passed on that exact SHA, which is the authority local unpinned 0.1.97 is not. FU-1 THROUGH FU-9 ALL STILL OPEN, spot-checked at the source rather than taken on trust: FU-4's false rustdoc line is still at src/develop.rs:90, FU-5's provenance row is still filed under src/opcode.rs at docs/provenance-ledger.md:44 while the median kernel lives in src/develop.rs, FU-8's AC5 text is still stale at the spec's line 387, src/ is byte-unchanged since cd82ca8 so FU-6 and FU-7 cannot have moved, and the spec's Follow-ups table at line 652 is still the unfilled template - ship still owes all nine dispositions. ONE NEW FINDING, FU-10, FOLLOW-UP not ship-blocking, and it is MEASURED rather than reasoned: the new assertion covers only ONE of effective_src's TWO consumers. They are crop_orient_normalize_into at src/develop.rs:826 (the no-warp branch, which AC9 takes) and normalize_active_area_into at src/develop.rs:842 (the warp branch). Severing ONLY the 842 use site - match count asserted == 1, md5 b3b922d0 -> 607c546a005ca1e1fe017a47d9bad3c2, compiles - leaves the ENTIRE tier-A suite green at 231 / 0 / 3. Zero tests anywhere set opcode_list_3, so no tier-A test drives develop_into with a fix opcode and a non-identity warp together, and tier-B is blind for round 1's own reason, HIT=0 making fixed_plane byte-identical to src on all three Q2M frames. The sting is that real Q2M frames DO carry a non-identity WarpRectilinear, so the branch real files actually take is the one still unasserted. Why FU and not SB: round 2 introduced nothing - src/ is byte-unchanged - the gap pre-dates round 2, and the build delivered EXACTLY the one-line fix round-1 verify itself pre-registered, so calling it an SB now would be re-scoping round 1 from the outside. It names one file and one fix (a synthetic warp-plus-fix fixture in tests/develop.rs), which is follow-up shape per section 15's spec-or-signal test, and it is dispositioned at ship alongside FU-1..9. Reporting it, per the standing instruction, not repairing it. NOTHING REPAIRED, PR 17 not touched, handback-sync not run, round-1 findings not re-audited, FU-1..9 not touched. Tokens are from THIS session's transcript, located by scratchpad UUID 0c0e3eaa-766d-473a-98c6-72479691d34a rather than text-matched: 41 assistant messages deduped by message.id, all 76 model-bearing entries claude-opus-5, summing input 82 + output 21505 + cache-write 91809 + cache-read 3476815 = 3590211. Priced per component at opus rates 15 / 75 / 18.75 / 1.50 per MTok = 8.55 base, plus the 20 percent uplift for the turns after measurement = 10.26."
+  synced_at: 2026-09-08
+  verdict: approved                # approved | punch-list | rejected
 ---
 
 # HANDOFF-051: Verify SPEC-017 round 2 — SB-2 closure

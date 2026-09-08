@@ -86,9 +86,17 @@
 //! `ActiveArea`, `SPEC-017`'s own `## Notes for the Implementer`) and
 //! develops from that copy instead of `src`. Same internal-allocation
 //! reasoning as `SPEC-018`'s addition above: not a caller-facing parameter,
-//! paid only when a real `OpcodeList1` is present — every hand-built test
-//! `Sensor` in this crate carries `opcode_list_1: None` and takes the
-//! original zero-extra-copy path unchanged.
+//! paid only when a real `OpcodeList1` is present — the hand-built test
+//! `Sensor`s that leave `opcode_list_1: None` take the original
+//! zero-extra-copy path unchanged, while the opcode tests (notably
+//! `develop_output_is_bit_identical_across_two_runs`) set it to `Some(..)`
+//! deliberately to exercise this copy path. This full-plane copy is
+//! ADDITIVE to `SPEC-018`'s warp buffers: on a real Q2M frame (`OpcodeList1`
+//! fix + non-identity `OpcodeList3` warp) measured peak RSS is **559,939,584
+//! bytes** (`/usr/bin/time -l target/release/irr develop L1021223.DNG`, at
+//! `SPEC-017` ship), up from `SPEC-018`'s warp-only figure in
+//! `docs/provenance-ledger.md` — not the pre-`SPEC-017` number that row
+//! still carries for the warp stage alone.
 
 use crate::ifd::{ActiveArea, Sensor};
 use crate::Error;

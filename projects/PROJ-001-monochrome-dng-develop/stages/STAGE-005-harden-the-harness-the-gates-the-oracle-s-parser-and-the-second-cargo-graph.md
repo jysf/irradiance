@@ -130,6 +130,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] (not yet written) [XS] `req()`'s single-value assumption is enforced, not documented — SPEC-016 pre-rescope AC2; carries SPEC-005/FU-2 and SPEC-010/FU-2 (mis-dispositioned twice); measurements at git 3238dcb
 - [ ] (not yet written) [XS] `SUPPORTED_BITS` cannot outrun its tests — SPEC-016 pre-rescope AC3; carries SPEC-012/FU-1; measurements at git 3238dcb
 - [ ] (not yet written) [XS] plane fuzz seeds reach `SampleExceedsWhiteLevel` — SPEC-016 pre-rescope AC4; carries SPEC-012/FU-2; measurements at git 3238dcb
+- [ ] SPEC-022 (frame) [XS] develop's warp branch must develop the FIXED plane, not raw `src` — carries SPEC-017/FU-10; AC9 asserts only the no-warp branch (`src/develop.rs:826`), the `:842` warp branch every real Q2M frame takes is unasserted (severing it leaves the whole suite green)
 - [ ] (not yet written) [S] Audit every gate script for the mute-death shape
 
 **Count:** 1 shipped / 2 active / 5 pending

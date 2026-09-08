@@ -6,7 +6,7 @@
 task:
   id: SPEC-017
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
                                    # ⚠ RAISED from the frame stub's `medium`.
@@ -35,9 +35,9 @@ task:
                                    #   the smallest possible unit; the parser
                                    #   is the first stroke of infrastructure
                                    #   SPEC-018 extends.
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # S — expected S held. ~80-line applier plus one parser branch; the single punch-list round (SB-2) was a ONE-LINE test assertion, not a re-scope; 40.4M tokens across 2 build + 2 verify rounds sits below SPEC-020's M (47.3M), and the ten-FU tail was doc/coverage nits, not scope growth. stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -128,10 +128,27 @@ cost:
       duration_minutes: 40
       recorded_at: 2026-09-08
       notes: "ROUND 2 (punch-list) closes HANDOFF-050's one ship blocker, SB-2, at 6e4376b. ONE file, ONE assertion, tests/develop.rs only - 15 insertions, 0 deletions, no src/ change, so decoded pixel output cannot move. THE ASSERTION, at tests/develop.rs:594-599 inside develop_output_is_bit_identical_across_two_runs (AC9), after the existing dst1==dst2 assert and before the count block: assert_eq!(dst1[2 * 5 + 2], 1000, 'develop_into must develop the plane the applier FIXED: the centre bad pixel must reach dst as its neighbours median, not the raw marker'), preceded by an 8-line comment at 586-593 explaining why 1000 vs 0 discriminates. BEFORE: the test asserted only dst1 == dst2 plus count_a == count_b from a DIRECT applier call, neither of which observes whether develop_into uses the repaired plane. AFTER: the centre sample is read out of develop_into's own dst. Value 1000 is MEASURED not assumed - the fixture sets black 0 / white 65535 / crop 5x5 / orientation None, making normalize an identity map, and the assertion passed first run on the honest tree. RED-PROOF DISCHARGED PERSONALLY, both directions, all three legs of the repo's mutation bar (file changed AND compiled AND output changed): src/develop.rs md5 b3b922d0ebd499f54c58bd86b39cb3e8 honest -> 1c4f4e34eed721173b90134302ee4ca9 with effective_src severed to src (one-occurrence-asserted textual substitution), cargo build succeeds, and the assertion goes RED at tests/develop.rs:594 with left 0 right 1000 -> reverted to b3b922d0 byte-identical, test green again. TEST-SUITE DELTA UNDER MUTATION, MEASURED not composed: 231 passed / 0 failed / 3 ignored honest -> 230 passed / 1 failed / 3 ignored mutant, the single failure being the new assertion. The mutant suite needed --no-fail-fast to produce that total: plain cargo test fail-fasts at the develop binary and never runs the remaining 99 tests, which would have made the total an inference rather than a measurement. Count is 231/0/3 on the honest tree BOTH before and after this round because I EXTENDED an existing test rather than adding one, exactly as the dispatch permitted. ⚠ ONE DISCREPANCY WITH THE VERIFIER, reported rather than papered over: HANDOFF-050 records the severed md5 as 548e240f; mine is 1c4f4e34. Same defect, differently typed - md5 covers the whole file, so any byte difference in how the sever was spelled moves it. I probed four other plausible spellings and none reproduces 548e240f either: use-site severing ff3aafb2, map-discard b4572839, commented binding 8f64c9f3, None.unwrap_or 9493ec06. The verifier's exact edit text is not recoverable from the handback, so my pair is the one measured on the shipped file and the one that satisfies DEC-004 rule 1; the honest md5 b3b922d0 matches theirs exactly, confirming we mutated the same starting file. ALL MUTATION IN A SCRATCHPAD COPY (rsync of the tree minus target/ and .git/); the working tree's src/develop.rs measured b3b922d0 before, during and after, and git status stayed clean apart from the two files this round edits. GATES on 6e4376b, every one run with its exit code actually read - build 0, typecheck 0, test 231/0/3, lint 0 (unpinned clippy 0.1.97, which is what this machine's PATH answers), lint-ci 0 on the PINNED clippy 0.1.98 that CI sees, cargo fmt --check 0 - note just fmt is NOT a recipe in this repo, fmt runs inside just lint - deny 0 and deny-fuzz 0 both licences ok, lint-no-allow 0, lint-red-proof 0 with control clean then injection rejected and all five lints fired, cost-audit-red-proof 0, msrv 0 on 1.90.0, fuzz-opcode 9,893,795 runs in 61 seconds with 0 crashes. My first gate pass printed blank exit codes because PIPESTATUS is a bashism and this shell is zsh; re-run capturing status directly rather than trusting the output text, since a gate whose result was never read is AGENTS.md 16 rule 3's exact failure. CI GREEN on 6e4376b, OBSERVED not inferred: gh run watch --exit-status returned 0 for both, and gh run view confirms 11 of 11 jobs success on each - push run 34202703543 and pull_request run 34202708489 - including rust / test and both fuzz smokes. NOTHING ELSE TOUCHED: no src/ file, no other test, DEC-024 and every other decision byte-unchanged, SPEC-017's body and ACs untouched (FU-8's stale AC3/AC5/AC10 text still stale, by instruction), the timeline left at build [~], no PR operation, no handback-sync run. FU-1 through FU-9 all still open and still owed a ship disposition. ⚠ ONE CORRECTION FOR THE ORCHESTRATOR, no action needed this round: the dispatch brief says the applier lives in src/opcode.rs and is unchanged by round 2, but apply_fix_bad_pixels_constant is defined in src/develop.rs - round 1's own Completion says so, and the md5 pair the verifier recorded for BOTH the SB-2 sever and the bar-9 applier mutation is one file, src/develop.rs, which is why both start at b3b922d0. src/opcode.rs holds the PARSER. That split is what FU-5 already names about the provenance row's placement. This round changed neither file. HANDOFF-044's top-level to_agent was CORRECTED from claude-sonnet-5 to claude-opus-5 before writing this block, so handback-sync stamps round 2's cost session with the model that actually ran it - SPEC-018/FU-11 recorded that exact miss twice when HANDOFF-046 was reused."
+    - cycle: verify
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 3590211
+      estimated_usd: 10.26
+      duration_minutes: 22
+      recorded_at: 2026-09-08
+      notes: "APPROVED on 6e4376b. SB-2 IS CLOSED and the closure has teeth, reproduced personally rather than read off the build's handback. SCOPE FIRST, git not prose: git diff cd82ca8..6e4376b -- src/ prints NOTHING, git log 8ae24e1..6e4376b is the single commit 6e4376b, and git show --stat 6e4376b is tests/develop.rs alone, 15 insertions 0 deletions; the branch tip 11d1c15 is bookkeeping-only, confirmed by git diff --stat 6e4376b..11d1c15 -- src/ tests/ Cargo.toml Cargo.lock printing nothing. THE ASSERTION exists at tests/develop.rs:594-599 inside develop_output_is_bit_identical_across_two_runs (AC9), after the dst1 == dst2 assert and before the direct-applier count block, and its message names the pipeline stage it protects. The index is CORRECT, checked against the fixture not assumed: minimal_sensor(5,5) with default_crop_size 5x5, orientation None and active_area None makes output_dimensions 5x5, so dst has 25 cells and 2 * 5 + 2 = 12 is row 2 col 2 - the same cell the test's own src marks with 0 at line 574. RED-PROOF REPRODUCED, all three clauses of the repo's mutation bar, in a scratchpad rsync copy minus target/ and .git/, working tree never touched and git status clean before and after. Match count asserted == 1 on the effective_src binding before substituting, per AGENTS.md section 16 rule 2. Clause one, the file CHANGED: honest md5 b3b922d0ebd499f54c58bd86b39cb3e8 -> severed 1c4f4e34eed721173b90134302ee4ca9, cmp confirms differ. That pair REPRODUCES the round-2 build's md5 pair EXACTLY, which retires the discrepancy the build reported honestly; round-1 verify's 548e240f still does not reproduce, and the build was right that its exact edit text is unrecoverable from what was recorded. Clause two, it COMPILED: cargo build --tests exit code 0, read directly rather than inferred from output text. Clause three, the OUTPUT CHANGED: AC9 panics at tests/develop.rs:594:5, left 0 right 1000, cargo test exit code 101. Then reverted to b3b922d0, cmp says byte-identical to the working tree's own src/develop.rs, AC9 green exit code 0. SUITE DELTA MEASURED with --no-fail-fast, which this repo has already paid for once: honest 231 passed / 0 failed / 3 ignored, mutant 230 / 1 / 3, and the one failure is develop_output_is_bit_identical_across_two_runs. Corpus-independence measured too, not assumed: the tier-A totals are the same 231 / 0 / 3 with IRRADIANCE_CORPUS_DIR unset as with it set, so tier-B passes either way. EVASION GREP CLEAN: dst1[2 * 5 + 2] occurs exactly once in the whole tree; src/warp.rs:385 and tests/support/perturb.rs:176 are warp-path fixtures, not develop_into; only three tier-A tests set opcode_list_1 and the other two build unknown opcode id 99, so AC9 is the only test that drives develop_into through a real FixBadPixelsConstant list. Nothing shadows or masks the new assertion. COST.SESSIONS has exactly 3 entries as briefed - build round 1 570000 on claude-sonnet-5, verify round 1 27235932 on claude-opus-5, build round 2 9026059 on claude-opus-5 - and the round-2 opus-5 attribution held, which makes three consecutive SPEC-017 handbacks (verify round 1, build round 2, this one) that set to_agent from a checked transcript; totals 36831991 and 93.77 both reconcile to the sum of the three rows. CI OBSERVED via gh, not inferred: push run 34202703543 and pull_request run 34202708489 on 6e4376b are 11 of 11 jobs success each, including rust / test, rust / clippy -D warnings and both fuzz smokes. I did NOT re-run local gates: round 2 changed one test file and CI's own PINNED clippy job passed on that exact SHA, which is the authority local unpinned 0.1.97 is not. FU-1 THROUGH FU-9 ALL STILL OPEN, spot-checked at the source rather than taken on trust: FU-4's false rustdoc line is still at src/develop.rs:90, FU-5's provenance row is still filed under src/opcode.rs at docs/provenance-ledger.md:44 while the median kernel lives in src/develop.rs, FU-8's AC5 text is still stale at the spec's line 387, src/ is byte-unchanged since cd82ca8 so FU-6 and FU-7 cannot have moved, and the spec's Follow-ups table at line 652 is still the unfilled template - ship still owes all nine dispositions. ONE NEW FINDING, FU-10, FOLLOW-UP not ship-blocking, and it is MEASURED rather than reasoned: the new assertion covers only ONE of effective_src's TWO consumers. They are crop_orient_normalize_into at src/develop.rs:826 (the no-warp branch, which AC9 takes) and normalize_active_area_into at src/develop.rs:842 (the warp branch). Severing ONLY the 842 use site - match count asserted == 1, md5 b3b922d0 -> 607c546a005ca1e1fe017a47d9bad3c2, compiles - leaves the ENTIRE tier-A suite green at 231 / 0 / 3. Zero tests anywhere set opcode_list_3, so no tier-A test drives develop_into with a fix opcode and a non-identity warp together, and tier-B is blind for round 1's own reason, HIT=0 making fixed_plane byte-identical to src on all three Q2M frames. The sting is that real Q2M frames DO carry a non-identity WarpRectilinear, so the branch real files actually take is the one still unasserted. Why FU and not SB: round 2 introduced nothing - src/ is byte-unchanged - the gap pre-dates round 2, and the build delivered EXACTLY the one-line fix round-1 verify itself pre-registered, so calling it an SB now would be re-scoping round 1 from the outside. It names one file and one fix (a synthetic warp-plus-fix fixture in tests/develop.rs), which is follow-up shape per section 15's spec-or-signal test, and it is dispositioned at ship alongside FU-1..9. Reporting it, per the standing instruction, not repairing it. NOTHING REPAIRED, PR 17 not touched, handback-sync not run, round-1 findings not re-audited, FU-1..9 not touched. Tokens are from THIS session's transcript, located by scratchpad UUID 0c0e3eaa-766d-473a-98c6-72479691d34a rather than text-matched: 41 assistant messages deduped by message.id, all 76 model-bearing entries claude-opus-5, summing input 82 + output 21505 + cache-write 91809 + cache-read 3476815 = 3590211. Priced per component at opus rates 15 / 75 / 18.75 / 1.50 per MTok = 8.55 base, plus the 20 percent uplift for the turns after measurement = 10.26."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-09-08
+      notes: "main-loop orchestrator ship pass, not separately metered — this session writes the Follow-ups table, Reflection, the four fixed-FU doc corrections (FU-4 module rustdoc, FU-5 and FU-6 provenance-ledger, FU-8 AC annotations), the SPEC-022 frame (FU-10), the SPEC-021 Context note (FU-2) and the signals.yaml third-basis evidence (FU-9), then runs gates and merges PR 17. A per-cycle token figure from a main-loop transcript would be invented; AGENTS.md section 4 exempts design/ship from non-null enforcement."
   totals:
-    tokens_total: 36831991
-    estimated_usd: 93.77
-    session_count: 3
+    tokens_total: 40422202
+    estimated_usd: 104.03
+    session_count: 5
+shipped_at: 2026-09-08
 ---
 
 # SPEC-017: FixBadPixelsConstant opcode
@@ -373,6 +390,14 @@ follow-up: the coordination is designed, not accidental.
       a warning-worthy skip. This is the design decision that
       lets SPEC-018 extend without editing this spec's parser.
       **Test:** `opcode_parser_returns_unknown_for_ninetynine`.
+      **⚠ Shipped reality (`SPEC-017/FU-1`, `FU-8`):** SPEC-018's parser
+      already rejects an unknown *mandatory* opcode at PARSE time
+      (`Error::UnsupportedMandatoryOpcode`), so a mandatory unknown never
+      becomes `Opcode::Unknown`; `Opcode::Unknown` is reachable only for
+      *optional* IDs (`Flags & 1 == 1`), and the test uses `flags: 1`
+      accordingly. The mandatory case is covered by AC6's
+      `develop_errors_on_mandatory_unknown_opcode`, not a second dispatch
+      layer in `develop_into`. No behaviour gap; see `## Follow-ups`.
 - [ ] **AC4 — `apply_fix_bad_pixels_constant` returns a
       replaced-pixel count.** Signature:
       `apply_fix_bad_pixels_constant(plane: &mut [u16],
@@ -396,6 +421,13 @@ follow-up: the coordination is designed, not accidental.
       **Test:** `q2m_frames_have_at_least_one_replaced_pixel`
       (tier B — the corpus is required; skip loudly when absent
       per SPEC-002).
+      **⚠ Shipped reality (`SPEC-017/SB-1`→`FU-3`):** all three decodable
+      Q2M frames measure HIT count **0** — no raw sample equals
+      `Constant = 0` (independently confirmed at verify by a from-scratch
+      14-bit unpacker; whole-plane minima 2/30/2). This is a correct
+      measurement, not a defect: the applier is proven reachable and
+      correct by AC4/AC8. The tier-B test is `#[ignore]`d carrying the
+      measured reason, rather than asserting `> 0`. See `## Follow-ups`.
 - [ ] **AC6 — `develop_into` errors when it hits an
       `Opcode::Unknown` with mandatory Flags.** A hand-built
       OpcodeList1 with opcode ID 99 and `Flags = 0` returns a
@@ -442,6 +474,13 @@ follow-up: the coordination is designed, not accidental.
       source *DNG 1.7.0.0 specification § Chapter 6 (Opcode
       Lists; FixBadPixelsConstant, OpcodeID 4)*, class 1
       (published specification). Honest per §16 rule 3.
+      **⚠ Shipped reality (`SPEC-017/FU-5`, chapter correction):** the
+      citation is DNG § **Chapter 7** "Opcode List Processing" (Chapter 6
+      is "Mapping Camera Color Space to CIE XYZ Space" — corrected at build
+      against the DNG PDF, `§16 rule 4`). The row lives on `src/opcode.rs`
+      (the parser), while the median *kernel* itself is in
+      `src/develop.rs::apply_fix_bad_pixels_constant`; the `src/develop.rs`
+      ledger row now cross-references it per `FU-5`. Class 1, honest.
 - [ ] **AC11 — eleven gates + `just lint-ci` + `just
       fuzz-opcode`, CI observed green on the shipping SHA.**
       The `fuzz-opcode` recipe is new; its 60 s smoke run must
@@ -651,42 +690,72 @@ sum across all.
 
 ## Follow-ups
 
-*Appended during **ship**. Every `FU-N` / `SB-N` raised across this
-spec's cycles, with its disposition (§15). No follow-up crosses this
-ship undecided.*
+Every `SB-N` / `FU-N` raised across this spec's build and verify cycles,
+with its disposition (§15). No follow-up crosses this ship undecided.
+
+| id | finding | disposition |
+|---|---|---|
+| `SB-1` | (build's label) AC5's HIT count is 0 on all three real Q2M frames | **downgraded to `FU-3`** at verify round 1 — see that row |
+| `SB-2` | Nothing asserted `develop_into` *uses* the fixed plane: severing `effective_src → src` compiled and left the whole tier-A suite green (tier-B blind too — HIT=0) | `fixed` — `tests/develop.rs:594-599` (AC9 centre-pixel assertion) @ `6e4376b`, round-2 build; red-proof reproduced independently at verify round 2 |
+| `FU-1` | AC3's `Flags:0`→`Ok(Opcode::Unknown)` example is unreachable given SPEC-018's parse-time mandatory/optional dispatch | `closed` — no behaviour gap: mandatory-unknown is rejected at parse (`Error::UnsupportedMandatoryOpcode`); covered by `opcode_parser_returns_unknown_for_ninetynine` (`flags:1`) and AC6's `develop_errors_on_mandatory_unknown_opcode`. AC3 annotated. Trigger is those passing tests, not memory. |
+| `FU-2` | `dnglab --srgb` ignores EXIF `Orientation`; `develop_into` applies it → structurally incomparable on rotated frames (re-instance of `SPEC-018/FU-6`) | `spec: SPEC-021` — same class SPEC-021 already owns (oracle-scope narrowing); `SPEC-017/FU-2` added to its `## Context` as a second, independently-measured instance |
+| `FU-3` | (was `SB-1`) HIT count is 0 on all three Q2M frames — no raw sample equals `Constant = 0` | `closed` — a correct measurement, not a code bug: applier proven reachable/correct by AC4/AC8, independently confirmed at verify with a from-scratch 14-bit unpacker (whole-plane minima 2/30/2). `q2m_frames_have_at_least_one_replaced_pixel` is `#[ignore]`d carrying the reason; AC5 annotated. Not a signal: N=1. |
+| `FU-4` | Module rustdoc claimed "every hand-built test `Sensor` carries `opcode_list_1: None`" — false (AC9's own test sets `Some`) | `fixed` — `src/develop.rs` module doc corrected (this ship) |
+| `FU-5` | The FixBadPixelsConstant median-kernel provenance is filed under the `src/opcode.rs` row (the parser); the `src/develop.rs` row where the kernel lives never mentioned it | `fixed` — cross-reference added to the `src/develop.rs` row in `docs/provenance-ledger.md` (this ship) |
+| `FU-6` | The ledger peak-RSS figure the module doc points readers at (`465,010,688`) predates SPEC-017's full-raw-plane copy | `fixed` — re-measured **559,939,584 bytes** (`/usr/bin/time -l target/release/irr develop L1021223.DNG`, this ship); recorded in the module doc and the `src/develop.rs` ledger row |
+| `FU-7` | The applier's in-place adjacent-pixel read-order (a later bad pixel reads an earlier-fixed neighbour) is undocumented | `closed` — the in-place mutation IS documented; the read-order is scan-order-deterministic (row-major, reads the mutating plane) but unreachable on the corpus (HIT=0 → no adjacent bad pixels). Trigger to reopen: a fixture with adjacent bad pixels, which `SPEC-022`'s synthetic-fixture work is the place for. |
+| `FU-8` | AC3/AC5/AC10 spec text was stale vs shipped reality | `fixed` — each annotated with a "⚠ Shipped reality" note (this ship): AC3→`FU-1`, AC5→`FU-3`, AC10→`FU-5` plus the Chapter 6→7 correction |
+| `FU-9` | Build round-1's `tokens_total: 570000` is a remaining-budget delta, not a transcript sum → not comparable with the repo's transcript-sum figures | `signal: token-counts-not-comparable` — added as a third-basis evidence entry (this ship) |
+| `FU-10` | AC9 asserts only one of `effective_src`'s two consumers (the no-warp branch, `src/develop.rs:826`); the warp branch (`:842`) every real Q2M frame takes is unasserted | `spec: SPEC-022` — new STAGE-005 frame: a synthetic warp+fix fixture asserting `develop_into` develops the fixed plane through the warp branch, with red-proof |
 
 ---
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship** (2026-09-08).*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The spec turned on one seam it cost two ship-blockers and a follow-up to
+   cover: a determinism test (`develop_output_is_bit_identical_across_two_runs`)
+   asserts *equal output across runs* and therefore observes nothing about
+   whether the new stage actually ran. SPEC-018 was bitten by the identical
+   shape (`SPEC-018/SB-1`), SPEC-017 inherited it (`SB-2`), and its residual
+   warp-branch half became `FU-10`. Next time a spec adds a pipeline stage
+   reached through a branch, register at **design** a "the branch was HIT"
+   assertion for **each** consumer of the new stage's output — one per call
+   site — not a single equal-output check that a severing mutation survives.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No template/constraint/decision change. The recurring "assert the branch
+   was HIT, not that output is unchanged" pattern was **caught every time by
+   verify** (SPEC-018/SB-1, SPEC-017/SB-2, SPEC-017/FU-10), so the discipline is
+   working and does not need a new signal. `token-counts-not-comparable` gained
+   a third-basis evidence entry (`FU-9`); `SPEC-021`'s Context gained
+   `SPEC-017/FU-2`. No decision drift: `src/` is byte-identical to the verified
+   SHA `6e4376b` apart from this ship's doc-only rustdoc corrections (`FU-4`,
+   `FU-6`), which changed no behaviour and re-greened CI.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Yes, and it is written: **`SPEC-022`** (STAGE-005) carries `FU-10` — the
+   synthetic warp+fix fixture that asserts `develop_into` develops the fixed
+   plane through the warp branch, with a red-proof. `FU-2` routes to the
+   already-existing `SPEC-021`. Nothing else is owed a spec.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `verify`.
+   *(`SB-2` — nothing asserted `develop_into` used the fixed plane — was caught
+   at verify round 1 by a mutation the entire tier-A suite survived; its
+   residual warp-branch half (`FU-10`) at verify round 2. Not `escaped`:
+   HIT=0 on every decodable Q2M frame makes the fixed plane byte-identical to
+   `src`, so no user-visible output ever depended on the unasserted wiring.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before: a monochrome DNG whose `OpcodeList1` carries a **mandatory**
+   `FixBadPixelsConstant` (Flags=0) would develop with the bad-pixel marker
+   left in place — the decoder silently ignoring a required opcode. After:
+   `develop_into` parses `OpcodeList1`, applies the pre-registered 3×3
+   median-of-valid-neighbours repair, and develops the fixed plane; a mandatory
+   *unknown* opcode now errors instead of being silently skipped. On the three
+   decodable Q2M frames the visible effect is nil (HIT=0), but the promise the
+   DNG's `Flags=0` makes is now kept, and the applier is proven correct on
+   synthetic input by AC4/AC8.
