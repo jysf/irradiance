@@ -583,6 +583,21 @@ fn develop_output_is_bit_identical_across_two_runs() {
         "the same input must produce bit-identical output across two runs"
     );
 
+    // `SPEC-017/SB-2` — assert the branch was HIT, not merely that the image
+    // came out unchanged (STAGE-003). This fixture makes normalize an identity
+    // map (black 0, white 65535, 5x5 crop, no orientation), so the centre
+    // sample reaches `dst` unscaled: `1000` — the median of its eight
+    // 1000-valued neighbours — if `develop_into` develops the FIXED plane, and
+    // `0` — the marker `src` still carries — if the `effective_src` wiring is
+    // severed. Both runs stay bit-identical either way, so the assertion above
+    // does not observe the wiring at all; this one does.
+    assert_eq!(
+        dst1[2 * 5 + 2],
+        1000,
+        "develop_into must develop the plane the applier FIXED: the centre bad \
+         pixel must reach dst as its neighbours' median, not the raw marker"
+    );
+
     let active_area = ActiveArea {
         top: 0,
         left: 0,
