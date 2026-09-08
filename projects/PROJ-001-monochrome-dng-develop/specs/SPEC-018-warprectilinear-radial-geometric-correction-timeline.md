@@ -94,14 +94,28 @@ Cycle prompts live in `prompts/SPEC-018-<cycle>.md`.
   opus-5 (97 metered messages, priced at Opus rates); handback-sync
   read HANDOFF-046's to_agent left at round-1's stale value.
   Non-gating, ship-cycle fix. FU-1..10 all still live.
-- [~] **build (round 3, punch-list)** — dispatched 2026-09-07 via
-  `prompts/SPEC-018-rebuild-2.md`. VERY tight scope: fix SB-3 only —
-  rewrite src/warp.rs:53-55 to name what DEC-024 actually holds
-  (clamp-to-edge per DNG § 6.4.1, no alternatives weighed), and
-  correct the AC8 measured-score imprecision to cite -60.169. FUs
-  1-11 stay open. Handback continues on HANDOFF-046 as round 3.
-- [ ] **verify (round 3)** — awaits round-3 build. Fresh handoff
-  confirms SB-3 closed cleanly and no round-4 SB introduced.
+- [x] **build (round 3, punch-list)** — completed 2026-09-07 at ship
+  SHA `b92b30c` (bookkeeping tip `e976564`). HANDOFF-046 round-3
+  handback: 5,579,812 tokens on claude-opus-5 ($15.02, 14 min), notes
+  double-quoted per FU-5. SB-3 closed with a smart judgment call: the
+  dispatch's suggested "clamps per DNG § 6.4.1" would have been a
+  THIRD `unrun-docs-carry-errors` instance because DEC-024:195-196
+  records § 6.4.1 is SILENT on out-of-extent; sub-agent cited § 6.4.1's
+  silence + AC7 instead, and correctly named DEC-024's Consequences
+  "Neutral" line as where the clamp choice actually lives. Also
+  corrected the AC8 imprecision to cite -60.169 on L1021223.DNG. Files
+  touched: src/warp.rs (10 ins / 3 del, all in `//!`) and HANDOFF-046
+  (handback). 206/0/2 tests, CI green (runs 34173566347 + 34173569505).
+  ⚠ FU-11 will mis-attribute this cost.sessions entry too (says
+  sonnet-5, actually opus-5) — handback-sync reads HANDOFF-046's
+  stale round-1 to_agent; ship dispositions the class.
+- [~] **verify (round 3)** — `HANDOFF-049` dispatched 2026-09-07 via
+  `prompts/SPEC-018-reverify-2.md`. VERY tight scope: confirm SB-3
+  closed cleanly and no NEW SB introduced by round 3's diff. FUs 1-11
+  and rounds 1-2 findings are out of scope. Verifier also judges the
+  sub-agent's judgment call (silence + AC7 vs § 6.4.1) — approves if
+  the current rustdoc phrasing is honest and correctly reflects what
+  DEC-024 actually holds.
 - [ ] **ship** — CI observed green on the shipping SHA (AC14), the
   new `fuzz-warp` recipe wired into CI as a smoke run in the same PR
   (§12 bar 2: fuzz targets arrive with the parser, not retrofitted),
