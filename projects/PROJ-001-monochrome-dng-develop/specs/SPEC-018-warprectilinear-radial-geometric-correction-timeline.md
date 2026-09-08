@@ -21,20 +21,101 @@ Cycle prompts live in `prompts/SPEC-018-<cycle>.md`.
   coefficients are recorded as measurements; DNG 1.7.0.0 § 6.4.1 is
   the required-before-build probe (radius normalisation and
   out-of-extent rule).
-- [ ] **build** — handoff pending. Blocks on SPEC-020 shipping (AC8
-  reads the SPEC-020 oracle). Build must resolve DNG § 6.4.1's `r`
-  normalisation and out-of-extent rule against the spec — SPIKE-001
-  flagged the first as unconfirmed — before writing the parser or the
-  applier. Kernel choice is measurement-driven: bilinear first, and
-  only upgrade if the SPEC-020 score does not clear 85 on all three
-  decodable frames.
-- [ ] **verify** — a separate agent runs `warp_scores_at_least_
-  eightyfive_via_spec_020_oracle` on the corpus (AC8), the tier-A
-  red-proof `warp_tier_a_red_proof_kr1_zeroed_moves_peak_20px_or_
-  more` with corpus unset (AC10), and — the DEC-004-rule-1 verify
-  discipline — the tier-B mutation red-proof by hand (AC9) rather
-  than trusting the harness. Confirms the kernel-choice DEC records
-  measured scores per candidate kernel, not just the winner.
+- [x] **build** — `HANDOFF-046` dispatched 2026-09-06 on branch
+  `feat/spec-018-warprectilinear-radial-geometric-correction` (cut
+  from `main` at `7fe53fb`), completed 2026-09-07 with findings.
+  `src/opcode.rs` created first (SPEC-017 not yet built); parser
+  round-trips all three frames' real `OpcodeList3` bytes byte-for-byte.
+  Bilinear kernel shipped per the pre-registered rule. Design-time
+  re-reading of DNG 1.7's own `DefaultCropOrigin`/`Size` text found
+  the pipeline-order assumption above wrong: `WarpRectilinear` runs
+  over `ActiveArea`, before `DefaultCrop`, not after — corrected in
+  `src/develop.rs` (`DEC-024` Finding 1). 12/14 ACs met and tested
+  green (AC1-7, AC10-14; AC4/AC10 are this spec's real, oracle-free
+  correctness proof). AC8/AC9 measured but marked `#[ignore]`:
+  `dnglab`/`rawler` do not implement DNG `OpcodeList` processing at
+  all (confirmed against the `dnglab/dnglab` source — no
+  `WarpRectilinear`/`FixBadPixelsConstant` application code anywhere
+  in the repository), so SPEC-020's oracle cannot validate this
+  feature in either direction (`DEC-024` Finding 2) — a correct warp
+  scores WORSE against dnglab's uncorrected reference, not better.
+  See `HANDOFF-046`'s `handback:` block and `DEC-024` for the full
+  record.
+- [x] **verify (round 1)** — `HANDOFF-047` dispatched and completed
+  2026-09-07 on the same branch, `⚠ PUNCH LIST` at `40f5d45`,
+  22,631,969 tokens on claude-opus-5 ($51.98, 22 min). Verifier
+  verified BOTH findings against primary evidence: read DNG 1.7.0.0
+  directly for Finding 1 (pipeline-order fix confirmed correct);
+  used behavioural NCC-tile analysis (invariant to affine tone
+  changes) rather than reading dnglab source for Finding 2
+  (confirmed dnglab does not apply WarpRectilinear). SBs raised:
+  SB-1 (develop_into's warp branch has no live test — mutation
+  proved 205/0/2 unaffected by crop-then-warp) and SB-2 (two false
+  claims in shipped rustdoc: src/warp.rs:59-61 fabricated scores;
+  src/lib.rs:56-57 pre-Finding-1 pipeline order). 10 FUs including
+  FU-5 (handback-sync silent-truncate at bare `#`, sibling of
+  handback-sync-truncates-multi-line-scalars) and FU-10 (Finding 2
+  disposition: ship with #[ignore]s + follow-up spec narrowing
+  SPEC-020's oracle scope).
+- [x] **build (round 2, punch-list)** — completed 2026-09-07 at ship
+  SHA `08ad42e` (bookkeeping tip `957612e`). HANDOFF-046 round-2
+  handback: 14,298,209 tokens on claude-opus-5 ($34.26, 29 min),
+  notes correctly double-quoted (avoiding FU-5's bare-`#` truncation).
+  SB-1 closed via new tier-A test
+  `develop_into_crops_from_the_warped_active_area_not_the_warped_crop`
+  — the only test in the tree developing a non-None opcode_list_3 to
+  pixels, hand-built Sensor with ActiveArea 80×64 and DefaultCrop
+  60×48 off-centre so the two orders separate 2837/2880 pixels;
+  red-proof observed both directions (src/develop.rs md5
+  318977…→cf714e…→318977…). SB-2 closed by rewriting src/warp.rs
+  52-77 and src/lib.rs 56-58 to match reality, citing DEC-024;
+  incidentally resolved three dangling DEC-* placeholders and
+  corrected one further false claim of the same species. 206/0/2
+  tests, CI green on 08ad42e (run 34164609782, 10 jobs including
+  fuzz-warp smoke), no logic changes (irr develop L1021223.DNG max
+  51764 unchanged). FUs 1-10 UNTOUCHED and still owed a ship
+  disposition.
+- [x] **verify (round 2, reverify)** — completed 2026-09-07, `⚠ PUNCH
+  LIST (round 3)` at ship SHA `08ad42e`. HANDOFF-048 handback:
+  6,790,688 tokens on claude-opus-5 ($17.38, 16 min), notes properly
+  double-quoted per FU-5. SB-1 CLOSED (fresh mutation red-proof
+  reproduced on the shipped file — md5 11118242… → f620d615… →
+  11118242…, fixture separates 2837/2880 pixels, identity warp
+  bit-identical). SB-2 CLOSED for both named claims. **SB-3 NEW,
+  ship-blocking:** SB-2's own rewrite in src/warp.rs:53-55
+  introduced a false DEC-024 citation — claims DEC-024 (AC11) records
+  "zero-fill, error" out-of-extent alternatives, but DEC-024 records
+  neither and AC11 governs kernel choice not out-of-extent rule; same
+  sentence's "records no per-frame oracle scores" is imprecise
+  (DEC-024:98 records -60.169). Same species as SB-2, landed INSIDE
+  the SB-2 correction pass — `a-fix-inherits-the-precondition` biting
+  §16 rule 4 (unrun-docs-carry-errors). **FU-11 NEW:** cost.sessions
+  round-2 build entry says agent: claude-sonnet-5 but the session was
+  opus-5 (97 metered messages, priced at Opus rates); handback-sync
+  read HANDOFF-046's to_agent left at round-1's stale value.
+  Non-gating, ship-cycle fix. FU-1..10 all still live.
+- [x] **build (round 3, punch-list)** — completed 2026-09-07 at ship
+  SHA `b92b30c` (bookkeeping tip `e976564`). HANDOFF-046 round-3
+  handback: 5,579,812 tokens on claude-opus-5 ($15.02, 14 min), notes
+  double-quoted per FU-5. SB-3 closed with a smart judgment call: the
+  dispatch's suggested "clamps per DNG § 6.4.1" would have been a
+  THIRD `unrun-docs-carry-errors` instance because DEC-024:195-196
+  records § 6.4.1 is SILENT on out-of-extent; sub-agent cited § 6.4.1's
+  silence + AC7 instead, and correctly named DEC-024's Consequences
+  "Neutral" line as where the clamp choice actually lives. Also
+  corrected the AC8 imprecision to cite -60.169 on L1021223.DNG. Files
+  touched: src/warp.rs (10 ins / 3 del, all in `//!`) and HANDOFF-046
+  (handback). 206/0/2 tests, CI green (runs 34173566347 + 34173569505).
+  ⚠ FU-11 will mis-attribute this cost.sessions entry too (says
+  sonnet-5, actually opus-5) — handback-sync reads HANDOFF-046's
+  stale round-1 to_agent; ship dispositions the class.
+- [~] **verify (round 3)** — `HANDOFF-049` dispatched 2026-09-07 via
+  `prompts/SPEC-018-reverify-2.md`. VERY tight scope: confirm SB-3
+  closed cleanly and no NEW SB introduced by round 3's diff. FUs 1-11
+  and rounds 1-2 findings are out of scope. Verifier also judges the
+  sub-agent's judgment call (silence + AC7 vs § 6.4.1) — approves if
+  the current rustdoc phrasing is honest and correctly reflects what
+  DEC-024 actually holds.
 - [ ] **ship** — CI observed green on the shipping SHA (AC14), the
   new `fuzz-warp` recipe wired into CI as a smoke run in the same PR
   (§12 bar 2: fuzz targets arrive with the parser, not retrofitted),

@@ -256,7 +256,10 @@ block below — `just build` / `just test` / `just lint` / `just typecheck` /
 `just msrv`; `SPEC-012` added `just fuzz-plane` (the sensor-plane unpacker's
 own fuzz target — `just fuzz-seeds` now regenerates both targets' seeds);
 `SPEC-014` added `just fuzz-develop` (levels/geometry's own fuzz target —
-`just fuzz-seeds` now regenerates all three targets' seeds).
+`just fuzz-seeds` now regenerates all three targets' seeds); `SPEC-018`
+added `just fuzz-warp` (the `OpcodeList`/`WarpRectilinear` byte-stream
+parser's own fuzz target — `just fuzz-seeds` now regenerates all four
+targets' seeds).
 Every recipe's commands appear in the block below and nothing in
 the block is unrunnable: that correspondence is acceptance criterion 8, so a
 recipe that gains a command gains a line here in the same change.
@@ -395,9 +398,17 @@ mkdir -p fuzz/corpus/develop
 PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run develop \
     fuzz/corpus/develop fuzz/seeds/develop -- -max_total_time=60
 
+# fuzz-warp   — the OpcodeList byte-stream parser's own fuzz target
+#              (SPEC-018): real OpcodeList3 bytes are attacker-influenced
+#              exactly like any other IFD tag payload. Same +toolchain trap
+#              and seed/corpus split as `fuzz` above.
+mkdir -p fuzz/corpus/warp_opcode
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run warp_opcode \
+    fuzz/corpus/warp_opcode fuzz/seeds/warp_opcode -- -max_total_time=60
+
 # fuzz-seeds — regenerate the committed seed corpus from tests/support/tiff.rs
-#              (ifd target) and examples/fuzz-seeds.rs's own fixtures (plane
-#              and develop targets)
+#              (ifd target) and examples/fuzz-seeds.rs's own fixtures (plane,
+#              develop and warp_opcode targets)
 cargo run --quiet --all-features --example fuzz-seeds
 ```
 
@@ -1380,7 +1391,7 @@ a **non**-match becoming control flow. Two traps, both measured:
 A proof that dies without a message is indistinguishable from a proof that never
 ran — which is the exact thing these gates exist to prevent.
 
-**4. A claim about a file is verified by running the reader — `unrun-docs-carry-errors` (N=5).**
+**4. A claim about a file is verified by running the reader — `unrun-docs-carry-errors` (N=6).**
 
 > A sentence that states what a **file contains** — a tag value, a dimension, a
 > level — is verified by **running the tool that reads it**, at the moment the
@@ -1399,6 +1410,14 @@ Instance 4 is why this is a rule and not a reminder: **a correction written with
 running is as wrong as what it corrects, and carries more authority because it looks
 like a fix.** The cost of compliance is one command. `SPEC-014`'s design probe and
 `SPEC-015`'s both ran the reader first and produced no instances.
+
+**Instance 6 landed at SPEC-020's ship, 2026-09-06:** SPEC-020's design cited the
+WarpRectilinear coefficient set as read from `L1021223.DNG` / `L1026016.DNG` and
+`tests/support/perturb.rs` presented the numbers as camera constants. SPEC-020
+verify parsed OpcodeList3 out of all three decodable Q2M frames directly and
+measured: only `kr0 = 0.9992511060` is constant; `kr1` varies **~1.9×** across
+frames. Same camera and same file (L1026016) as instance 2 — the third mis-cite
+of that frame. Full evidence and detail in `guidance/signals.yaml`.
 
 **In this repo, "measured once, on one file" is not 1.0.** The oracle contract
 was verified against a single Leica Q2 Monochrom frame from one firmware. High

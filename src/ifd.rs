@@ -550,6 +550,15 @@ pub struct Sensor {
     /// Presence of `OpcodeList1`/`2`/`3`. Presence only — decoding the opcode
     /// streams is STAGE-003.
     pub opcode_lists: [bool; 3],
+    /// `OpcodeList3`'s raw bytes (tag 51022 / `0xC74E`), when present and
+    /// readable. **Bytes only** — parsing them into `crate::opcode::WarpRect`
+    /// happens in `develop_into` (`SPEC-018`), which is what satisfies the
+    /// "unread field" rule (AGENTS.md §11): this field has a reader in the
+    /// same change that adds it. A malformed entry (bad offset/length) costs
+    /// this field alone — `SPEC-018` value, not `None` because the tag is
+    /// absent — and is recorded in `malformed_tags`, same as any other
+    /// optional interpretation tag (`DEC-012`).
+    pub opcode_list_3: Option<Vec<u8>>,
     /// Tags that are **present, shaped wrong, and therefore dropped** — not
     /// every tag any read of which ever errored.
     ///
@@ -1227,6 +1236,18 @@ impl<'a> Container<'a> {
         )
         .map(|[width, height]| DefaultCropSize { width, height });
 
+        // Interpretation: OpcodeList3's raw bytes (`SPEC-018`). Absent tag is
+        // `Ok(None)`, never malformed; a present-but-unreadable entry (bad
+        // offset/length from `payload`) costs this field alone.
+        let opcode_list_3 = Self::cost_the_field(
+            match ifd.entry(TAG_OPCODE_LIST_3) {
+                None => Ok(None),
+                Some(entry) => self.payload(entry).map(|bytes| Some(bytes.to_vec())),
+            },
+            TAG_OPCODE_LIST_3,
+            &mut malformed,
+        );
+
         Ok(Sensor {
             ifd_index,
             // Structural: ImageWidth, ImageLength, BitsPerSample — "what
@@ -1271,6 +1292,7 @@ impl<'a> Container<'a> {
                 ifd.has(TAG_OPCODE_LIST_2),
                 ifd.has(TAG_OPCODE_LIST_3),
             ],
+            opcode_list_3,
             malformed_tags: malformed,
         })
     }

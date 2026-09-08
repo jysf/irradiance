@@ -50,9 +50,18 @@
 //! that plane into an image: levels normalization (`DEC-018`) and the
 //! `ActiveArea` → `DefaultCrop` (`DEC-019`) → `Orientation` geometry — the
 //! first spec with no oracle at all (`DEC-004`; `SPEC-015` is the analytic
-//! oracle that will cover it). Still absent, by design: `ASCII` and the
-//! signed field types (no DNG tag PROJ-001 reads needs them yet), and any
-//! compressed-plane decode (PROJ-003).
+//! oracle that will cover it). `SPEC-018` added [`opcode`] (the `OpcodeList`
+//! byte-stream parser, DNG 1.7.0.0 Chapter 7 — big-endian regardless of the
+//! file's own byte order) and [`warp`] (the `WarpRectilinear` resampler),
+//! applied inside `develop_into` after levels normalization, over the full
+//! `ActiveArea` window, and BEFORE `DefaultCrop` extracts the final image
+//! area and `Orientation` reorients it (`DEC-024` Finding 1 — the
+//! design-time assumption that the warp ran after cropping and orientation
+//! was backwards; this sentence stated that pre-correction order in the very
+//! commit, `40f5d45`, that corrected the code). Still absent, by design: the
+//! tone curve (`SPEC-019`), `ASCII` and the signed field types
+//! (no DNG tag PROJ-001 reads needs them yet), and any compressed-plane
+//! decode (PROJ-003).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -65,7 +74,9 @@
 
 pub mod develop;
 pub mod ifd;
+pub mod opcode;
 pub mod plane;
+pub mod warp;
 
 use core::fmt;
 
@@ -336,6 +347,61 @@ pub enum Error {
         /// `dst.len()` as given.
         actual: usize,
     },
+
+    /// `SPEC-018`. An opcode's declared parameter block does not fit the
+    /// byte stream it came from, or — for a recognized opcode ID — its
+    /// contents do not match what that opcode's own parameter layout
+    /// requires. `WarpRectilinear`'s `N` (coefficient-set count) implies an
+    /// exact byte length (`4 + 48*N + 16`, DNG 1.7.0.0 §6.4.1); a declared
+    /// `DataSize` that disagrees is this error, not a guess.
+    MalformedOpcodeParams {
+        /// The opcode ID whose parameters were malformed.
+        id: u32,
+        /// The opcode's own declared parameter byte count (`DataSize`).
+        declared_size: u32,
+    },
+
+    /// `SPEC-018`. An opcode ID this reader does not recognize, with its
+    /// `Flags` bit 0 (optional) NOT set — DNG 1.7.0.0's Opcode List
+    /// Processing chapter: an optional-and-unknown opcode may be skipped,
+    /// but a mandatory one this reader cannot apply must not be silently
+    /// dropped, because the resulting image would be processed incorrectly
+    /// without it.
+    UnsupportedMandatoryOpcode {
+        /// The unrecognized, non-optional opcode ID.
+        id: u32,
+    },
+
+    /// `SPEC-018`. A [`opcode::WarpRect`] carries non-zero tangential
+    /// coefficients (`kt0`/`kt1`). Every Q2M frame measures `kt0 = kt1 =
+    /// 0.0`; [`warp::apply_warp_into`] implements the pure-radial path only
+    /// (`## Non-Goals`) and reports a non-zero tangential term as a finding
+    /// rather than guessing at an untested code path.
+    UnsupportedWarpTangentialTerms {
+        /// The warp's `kt0` coefficient.
+        kt0: f64,
+        /// The warp's `kt1` coefficient.
+        kt1: f64,
+    },
+
+    /// `SPEC-018`. [`warp::apply_warp_into`]'s `src` does not hold exactly
+    /// `width * height` samples.
+    WarpSourceWrongLength {
+        /// `width * height`, the required length.
+        expected: u64,
+        /// `src.len()` as given.
+        actual: usize,
+    },
+
+    /// `SPEC-018`. [`warp::apply_warp_into`]'s `dst` does not hold exactly
+    /// `width * height` samples — the warp maps the input extent to itself
+    /// (DNG 1.7.0.0 §6.4.1), so `src` and `dst` are always the same size.
+    WarpDestWrongLength {
+        /// `width * height`, the required length.
+        expected: u64,
+        /// `dst.len()` as given.
+        actual: usize,
+    },
 }
 
 impl fmt::Display for Error {
@@ -500,6 +566,36 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "destination image buffer holds {actual} sample(s), expected {expected}"
+                )
+            }
+            Error::MalformedOpcodeParams { id, declared_size } => {
+                write!(
+                    f,
+                    "opcode {id}: declared parameter size {declared_size} does not match its own layout"
+                )
+            }
+            Error::UnsupportedMandatoryOpcode { id } => {
+                write!(
+                    f,
+                    "opcode {id} is unrecognized and not marked optional (DNG Flags bit 0)"
+                )
+            }
+            Error::UnsupportedWarpTangentialTerms { kt0, kt1 } => {
+                write!(
+                    f,
+                    "WarpRectilinear has non-zero tangential terms (kt0 {kt0}, kt1 {kt1}), which this build does not apply"
+                )
+            }
+            Error::WarpSourceWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "warp source plane holds {actual} sample(s), expected {expected}"
+                )
+            }
+            Error::WarpDestWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "warp destination buffer holds {actual} sample(s), expected {expected}"
                 )
             }
         }
