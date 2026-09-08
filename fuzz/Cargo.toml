@@ -46,3 +46,10 @@ path = "fuzz_targets/warp_opcode.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "opcode"
+path = "fuzz_targets/opcode.rs"
+test = false
+doc = false
+bench = false

@@ -51,10 +51,47 @@
 //! # Coordination with `SPEC-017`
 //!
 //! `SPEC-017` (`FixBadPixelsConstant`, `OpcodeID` 4) also lands in this
-//! module. This build (`SPEC-018`) creates it first: [`Opcode::Unknown`] is
-//! the escape hatch that lets `SPEC-017` add its own variant and match arm
+//! module. `SPEC-018` created it first: [`Opcode::Unknown`] is
+//! the escape hatch that let `SPEC-017` add its own variant and match arm
 //! to [`parse_opcode_list`] without rewriting it (its own `## Where the
 //! opcode module lives` records the same contract from its side).
+//!
+//! # `FixBadPixelsConstant` (OpcodeID 4, p.95) — `SPEC-017`
+//!
+//! ```text
+//! Params := Constant:u32be, BayerPhase:u32be
+//! ```
+//!
+//! **Chapter correction** (`AGENTS.md` §16 rule 4, `unrun-docs-carry-
+//! errors`): `SPEC-017`'s own handoff cited "DNG 1.7.0.0 § Chapter 6" for
+//! this opcode. Chapter 6 is "Mapping Camera Color Space to CIE XYZ Space" —
+//! unrelated. `FixBadPixelsConstant`, like `WarpRectilinear` above, is
+//! documented in **Chapter 7, "Opcode List Processing"** (confirmed by
+//! fetching the published DNG 1.6.0.0 PDF directly during this build and
+//! reading its table of contents and the `FixBadPixelsConstant` page: opcode
+//! framing at p.89, `WarpRectilinear` p.90, `FixBadPixelsConstant` p.95, all
+//! under the one "Opcode List Processing" chapter heading). The chapter
+//! number was never load-bearing for the parser itself — the byte-level
+//! shape was probed against real files (`## Context`,
+//! `SPEC-017-fixbadpixelsconstant-opcode.md`) — but a citation this build
+//! can verify is corrected rather than carried forward wrong.
+//!
+//! `Constant` marks a bad pixel: any raw-plane sample equal to `Constant`
+//! within `ActiveArea` is replaced. `BayerPhase` (0-3) names which CFA
+//! colour the top-left pixel is under DNG's own Bayer-phase convention; on
+//! `SamplesPerPixel = 1` (monochrome, every Q2M frame) the field is
+//! meaningless and is read (`AC1`) but never branched on (`##
+//! Non-Goals`).
+//!
+//! **The interpolation kernel is this build's own choice, not the DNG
+//! spec's.** The spec's own words for this opcode are "patches
+//! (interpolates over) bad pixels... The bad pixels are marked... by
+//! setting the bad pixels to a value of Constant" — no kernel is specified.
+//! `crate::develop::apply_fix_bad_pixels_constant` implements a 3x3
+//! median-of-valid-neighbours (pre-registered in `SPEC-017`'s own `## Notes
+//! for the Implementer`), provenance class 1 for the opcode identity/marker
+//! semantics, and this build's own algorithm (not read from any
+//! implementation) for the kernel — see `docs/provenance-ledger.md`.
 
 use crate::Error;
 
@@ -82,12 +119,22 @@ pub enum Opcode {
         /// `N`, the coefficient-set count the file declared.
         planes: u32,
     },
+    /// DNG 1.7.0.0 Chapter 7, `OpcodeID` 4, p.95 — `SPEC-017`. Marks every
+    /// raw-plane sample equal to `constant` (within `ActiveArea`) as a bad
+    /// pixel; `crate::develop::apply_fix_bad_pixels_constant` replaces it
+    /// with the median of its valid 3x3 neighbours (module docs,
+    /// `FixBadPixelsConstant`).
+    FixBadPixelsConstant {
+        /// The marker value: any sample equal to this is a bad pixel.
+        constant: u32,
+        /// DNG's Bayer-phase convention (0-3); meaningless and unread on a
+        /// monochrome plane (`## Non-Goals`).
+        bayer_phase: u32,
+    },
     /// An opcode ID this module does not parse into its own variant —
-    /// genuinely unknown, or (as of this build) a recognized-but-not-yet-
-    /// implemented ID such as `FixBadPixelsConstant` (`SPEC-017`, ID 4).
-    /// Only ever produced when `flags` bit 0 (optional) is set; an unset bit
-    /// on an unrecognized ID is [`Error::UnsupportedMandatoryOpcode`]
-    /// instead of a value.
+    /// genuinely unknown. Only ever produced when `flags` bit 0 (optional)
+    /// is set; an unset bit on an unrecognized ID is
+    /// [`Error::UnsupportedMandatoryOpcode`] instead of a value.
     Unknown {
         /// The opcode ID.
         id: u32,
@@ -152,6 +199,12 @@ fn read_f64_be(bytes: &[u8], at: usize) -> Result<f64, Error> {
 /// `OpcodeID` 1, DNG 1.7.0.0 §6.4.1.
 const OPCODE_ID_WARP_RECTILINEAR: u32 = 1;
 
+/// `OpcodeID` 4, DNG 1.7.0.0 Chapter 7 p.95 — `SPEC-017`. NOT 5
+/// (`FixBadPixelsList`, a different, unimplemented opcode — `##
+/// Non-Goals`); confirmed against the probed Q2M bytes and the published
+/// spec, both agreeing on 4.
+const OPCODE_ID_FIX_BAD_PIXELS_CONSTANT: u32 = 4;
+
 /// `Flags` bit 0: "the opcode is considered optional" (p.101).
 const FLAG_OPTIONAL: u32 = 1;
 
@@ -207,6 +260,24 @@ fn parse_warp_rectilinear_params(params: &[u8], id: u32) -> Result<WarpRect, Err
         cy,
         planes: n,
     })
+}
+
+/// Parse `FixBadPixelsConstant`'s parameter block (already sliced to its own
+/// `DataSize` by the caller): `Constant:u32be, BayerPhase:u32be` — DNG
+/// 1.7.0.0 Chapter 7 p.95, an exact 8 bytes, no variable-length tail (unlike
+/// `WarpRectilinear`'s `N`-dependent shape above). A declared size other
+/// than 8 is [`Error::MalformedOpcodeParams`], not a best-effort guess.
+fn parse_fix_bad_pixels_constant_params(params: &[u8], id: u32) -> Result<(u32, u32), Error> {
+    let malformed = || Error::MalformedOpcodeParams {
+        id,
+        declared_size: u32::try_from(params.len()).unwrap_or(u32::MAX),
+    };
+    if params.len() != 8 {
+        return Err(malformed());
+    }
+    let constant = read_u32_be(params, 0).map_err(|_| malformed())?;
+    let bayer_phase = read_u32_be(params, 4).map_err(|_| malformed())?;
+    Ok((constant, bayer_phase))
 }
 
 /// Parse a complete `OpcodeList` byte stream (DNG 1.7.0.0 Chapter 7).
@@ -273,6 +344,13 @@ pub fn parse_opcode_list(bytes: &[u8]) -> Result<Vec<Opcode>, Error> {
                     planes: warp.planes,
                 });
             }
+            OPCODE_ID_FIX_BAD_PIXELS_CONSTANT => {
+                let (constant, bayer_phase) = parse_fix_bad_pixels_constant_params(params, id)?;
+                opcodes.push(Opcode::FixBadPixelsConstant {
+                    constant,
+                    bayer_phase,
+                });
+            }
             other => {
                 if flags & FLAG_OPTIONAL != 0 {
                     opcodes.push(Opcode::Unknown {
@@ -316,7 +394,31 @@ pub fn parse_warp_rectilinear(bytes: &[u8]) -> Result<Option<WarpRect>, Error> {
             cy,
             planes,
         }),
-        Opcode::Unknown { .. } => None,
+        Opcode::FixBadPixelsConstant { .. } | Opcode::Unknown { .. } => None,
+    }))
+}
+
+/// Parse an `OpcodeList` byte stream and return its `FixBadPixelsConstant`
+/// opcode's `constant` marker value, if any — the entry point
+/// [`crate::develop::develop_into`] calls (`SPEC-017`).
+///
+/// `None` when the list contains no `FixBadPixelsConstant` opcode. Mirrors
+/// [`parse_warp_rectilinear`]'s shape; `bayer_phase` is not returned because
+/// no caller consumes it (module docs, `## Non-Goals` — `AC1`'s round-trip
+/// test is what reads it, satisfying the "unread field" rule without
+/// forwarding it downstream).
+///
+/// # Errors
+///
+/// Whatever [`parse_opcode_list`] returns — including
+/// [`Error::UnsupportedMandatoryOpcode`] if `bytes` carries a DIFFERENT,
+/// unrecognized mandatory opcode (`AC6`): the dispatch happens inside
+/// [`parse_opcode_list`] itself, not in a second layer here.
+pub fn parse_fix_bad_pixels_constant(bytes: &[u8]) -> Result<Option<u32>, Error> {
+    let opcodes = parse_opcode_list(bytes)?;
+    Ok(opcodes.into_iter().find_map(|op| match op {
+        Opcode::FixBadPixelsConstant { constant, .. } => Some(constant),
+        Opcode::WarpRectilinear { .. } | Opcode::Unknown { .. } => None,
     }))
 }
 
@@ -473,5 +575,59 @@ mod tests {
     fn no_warp_rectilinear_opcode_is_none_not_an_error() {
         let bytes = opcode_list(&[raw_opcode(999, 0x0104_0000, 1, &[])]);
         assert_eq!(parse_warp_rectilinear(&bytes).expect("parses"), None);
+    }
+
+    #[test]
+    fn fix_bad_pixels_constant_round_trips_hand_built_params() {
+        let mut params = Vec::new();
+        params.extend_from_slice(&0u32.to_be_bytes()); // Constant
+        params.extend_from_slice(&2u32.to_be_bytes()); // BayerPhase
+        let bytes = opcode_list(&[raw_opcode(
+            OPCODE_ID_FIX_BAD_PIXELS_CONSTANT,
+            0x0103_0000,
+            0,
+            &params,
+        )]);
+        let opcodes = parse_opcode_list(&bytes).expect("parses");
+        assert_eq!(
+            opcodes,
+            vec![Opcode::FixBadPixelsConstant {
+                constant: 0,
+                bayer_phase: 2,
+            }]
+        );
+        assert_eq!(
+            parse_fix_bad_pixels_constant(&bytes).expect("parses"),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn fix_bad_pixels_constant_with_wrong_declared_size_is_malformed() {
+        // Constant/BayerPhase is exactly 8 bytes; 7 is malformed, not a
+        // best-effort partial read.
+        let bytes = opcode_list(&[raw_opcode(
+            OPCODE_ID_FIX_BAD_PIXELS_CONSTANT,
+            0x0103_0000,
+            0,
+            &[0, 0, 0, 0, 0, 0, 0],
+        )]);
+        let err = parse_opcode_list(&bytes).expect_err("7 bytes cannot hold Constant+BayerPhase");
+        assert!(
+            matches!(
+                err,
+                Error::MalformedOpcodeParams {
+                    id: OPCODE_ID_FIX_BAD_PIXELS_CONSTANT,
+                    declared_size: 7
+                }
+            ),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn no_fix_bad_pixels_constant_opcode_is_none_not_an_error() {
+        let bytes = opcode_list(&[raw_opcode(999, 0x0104_0000, 1, &[])]);
+        assert_eq!(parse_fix_bad_pixels_constant(&bytes).expect("parses"), None);
     }
 }

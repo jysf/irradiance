@@ -58,10 +58,18 @@
 //! area and `Orientation` reorients it (`DEC-024` Finding 1 — the
 //! design-time assumption that the warp ran after cropping and orientation
 //! was backwards; this sentence stated that pre-correction order in the very
-//! commit, `40f5d45`, that corrected the code). Still absent, by design: the
-//! tone curve (`SPEC-019`), `ASCII` and the signed field types
-//! (no DNG tag PROJ-001 reads needs them yet), and any compressed-plane
-//! decode (PROJ-003).
+//! commit, `40f5d45`, that corrected the code). `SPEC-017` extended [`opcode`]
+//! with `Opcode::FixBadPixelsConstant` (`OpcodeID` 4, DNG 1.7.0.0 Chapter 7 —
+//! `SPEC-017`'s own handoff mis-cited this as Chapter 6, corrected in
+//! `src/opcode.rs`'s module doc) and added its applier,
+//! [`develop::apply_fix_bad_pixels_constant`] (a 3x3 median-of-valid-
+//! neighbours, this build's own algorithm since the spec names only the
+//! marker value and leaves the kernel unspecified), applied inside
+//! `develop_into` on the raw plane BEFORE levels normalization — the
+//! opposite end of the pipeline from `SPEC-018`'s warp stage. Still absent,
+//! by design: the tone curve (`SPEC-019`), `ASCII` and the signed field
+//! types (no DNG tag PROJ-001 reads needs them yet), and any
+//! compressed-plane decode (PROJ-003).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -402,6 +410,15 @@ pub enum Error {
         /// `dst.len()` as given.
         actual: usize,
     },
+
+    /// `SPEC-017`. [`develop::apply_fix_bad_pixels_constant`]'s `plane` does
+    /// not hold exactly `width * height` samples.
+    FixBadPixelsPlaneWrongLength {
+        /// `width * height`, the required length.
+        expected: u64,
+        /// `plane.len()` as given.
+        actual: usize,
+    },
 }
 
 impl fmt::Display for Error {
@@ -596,6 +613,12 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "warp destination buffer holds {actual} sample(s), expected {expected}"
+                )
+            }
+            Error::FixBadPixelsPlaneWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "fix-bad-pixels plane holds {actual} sample(s), expected {expected}"
                 )
             }
         }

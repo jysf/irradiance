@@ -218,6 +218,7 @@ fn output_dimensions_are_unchanged_by_warp() {
         }),
         orientation: Some(1),
         opcode_lists: [false, false, true],
+        opcode_list_1: None,
         opcode_list_3: Some(bytes),
         malformed_tags: vec![],
     };
@@ -345,6 +346,7 @@ fn seam_sensor(opcode_list_3: Option<Vec<u8>>) -> Sensor {
         }),
         orientation: Some(1),
         opcode_lists: [false, false, opcode_list_3.is_some()],
+        opcode_list_1: None,
         opcode_list_3,
         malformed_tags: vec![],
     }

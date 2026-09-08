@@ -4,12 +4,17 @@
 # implementer lives in handoffs/HANDOFF-*.md, not in the spec itself.
 
 task:
-  id: SPEC-021
+  id: SPEC-022
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: frame                     # frame | design | build | verify | ship
   blocked: false
-  priority: medium                 # critical | high | medium | low
-  complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
+  priority: low                    # critical | high | medium | low
+                                   #   Low: no current defect — HIT=0 on every
+                                   #   decodable Q2M frame makes fixed_plane
+                                   #   byte-identical to src, so the unasserted
+                                   #   warp branch cannot yet mis-develop. This
+                                   #   is harness completeness, not a live bug.
+  complexity: XS                   # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
@@ -31,9 +36,9 @@ handoff:
   created_at: null
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  decisions: [DEC-024]             # [DEC-NNN, DEC-MMM]
+  constraints: [test-before-implementation, oracle-must-be-shown-red]
+  related_specs: [SPEC-017, SPEC-018, SPEC-016]  # [SPEC-NNN]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -47,7 +52,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-005's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "STAGE-005: the suite stops asserting `develop_into` uses the fixed plane on only one of its two branches — the warp branch every real Q2M frame takes gets its own assertion"
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -70,46 +75,52 @@ cost:
     session_count: 0
 ---
 
-# SPEC-021: narrow spec 020 oracle scope excluding warp-bearing pixels
+# SPEC-022: develop warp branch must develop the fixed plane not raw src
 
 ## Context
 
-> **Framed at SPEC-018 ship (2026-09-07) as the spec disposition for
-> `SPEC-018/FU-10`.** Not designed here — outline captures SCOPE and
-> DEPENDENCIES only.
+Raised as `SPEC-017/FU-10` at SPEC-017's verify round 2 (2026-09-08) and
+dispositioned here at SPEC-017 ship. This is one of the "separate items"
+`SPEC-016`'s L→S rescope pushed onto STAGE-005's backlog — a surface
+reporting a result it has not fully established, the stage's chartered
+class.
 
-`SPEC-018`'s build and verify established that **`dnglab`/`rawler` do
-not implement DNG `OpcodeList` processing at all** (`DEC-024` Finding 2,
-confirmed by both source-inspection and independent behavioural NCC-tile
-analysis in HANDOFF-047 round 1). Consequence: `SPEC-020`'s develop-layer
-oracle (SSIMULACRA2 against `dnglab analyze --srgb`) is **structurally
-broken for warp-bearing pixels** — a correct warp scores `-60.169`
-against dnglab's uncorrected reference; doing nothing at all scores
-`+83.145`. SPEC-018 shipped with AC8/AC9 `#[ignore]`d as the honest
-disposition, and `tests/warp.rs`'s AC4/AC10 (analytic geometry check)
-as the real correctness gate.
+`develop_into` (`src/develop.rs`) resolves `effective_src` — the
+`FixBadPixelsConstant`-repaired plane when `OpcodeList1` carries the fix,
+else the raw `src` (`src/develop.rs:816`) — then consumes it at **two**
+call sites, one per branch:
 
-This is the same shape of gap `SPEC-015` closed for levels
-(no comparison oracle → analytic oracle). SPEC-018's ship carried
-FU-10's disposition: file this spec to formally narrow SPEC-020/DEC-005's
-scope (and, per FU-6, record that L1026016 is separately unsatisfiable
-against dnglab because dnglab ignores `Orientation`).
+- **no-warp** (`src/develop.rs:826`): `crop_orient_normalize_into(…, effective_src, dst)`
+- **warp** (`src/develop.rs:842`): `normalize_active_area_into(…, effective_src, …)`, then `apply_warp_into`, then crop/orient into `dst`
 
-`SPEC-017`'s ship (2026-09-08) routes a second, independently-measured
-instance here: `SPEC-017/FU-2` reproduced the same behaviour — `dnglab
-analyze --srgb` prints `8368 5584` for both an Orientation-6 and an
-Orientation-1 frame, i.e. it ignores `Orientation` entirely — surfaced
-when SPEC-017 first ran the SPEC-020 oracle comparison un-ignored across
-all three Q2M frames. Same root, same fix; no separate spec.
+SPEC-017's `AC9` (`develop_output_is_bit_identical_across_two_runs`)
+asserts the fixed plane reaches `dst`, but its fixture carries no
+`OpcodeList3`, so it exercises **only** the no-warp branch (`:826`).
+Verify measured (SPEC-017 round 2) that severing **only** the warp-branch
+use site (`:842`, `effective_src → src`; md5 `b3b922d0 → 607c546a`,
+compiles) leaves the entire tier-A suite green at 231/0/3: **no tier-A
+test sets `opcode_list_3`**, so nothing drives `develop_into` with a fix
+opcode and a non-identity warp together, and tier-B is blind because
+HIT=0 makes `fixed_plane` byte-identical to `src` on all three Q2M
+frames. The sting: every real Q2M frame carries a non-identity
+`WarpRectilinear`, so **the branch real files actually take is the
+unasserted one**.
+
+Not a live defect today (hence `priority: low`): with HIT=0 the two
+branches develop identical bytes whether they read the fixed plane or
+raw `src`. It becomes a real correctness hole the moment a frame has a
+bad pixel (HIT>0) *and* a warp — then the fixed plane MUST flow through
+`:842`, and nothing checks it.
 
 ## Goal
 
-Formally narrow SPEC-020's develop-layer oracle scope to exclude warp-
-bearing pixels (or the analogous pipeline stages a future opcode adds),
-substituting the analytic-check pattern SPEC-015 established. Amend
-DEC-005's ≥ 85 tolerance clause to name what it does and does not cover;
-retire the current #[ignore] on AC8/AC9 in favour of an explicit
-"out of oracle scope" documentation.
+Add a synthetic tier-A fixture that drives `develop_into` with BOTH a
+`FixBadPixelsConstant` `OpcodeList1` (HIT>0) and a non-identity
+`WarpRectilinear` `OpcodeList3`, and asserts the developed output
+reflects the FIXED plane through the warp branch (`:842`) — with a
+red-proof (§16 rule 2, three clauses): severing `:842`'s
+`effective_src → src` turns the new test red while AC9's no-warp
+assertion stays green, then reverts byte-identical.
 
 ## Inputs
 
@@ -154,7 +165,11 @@ Explicit scope limits. If the implementer thinks any of these need to
 happen, they should create a new spec (in this stage's backlog), not
 expand this one.
 
-- ...
+- Changing `src/develop.rs` behaviour — the wiring is correct; this spec
+  only adds the assertion that proves it for the warp branch.
+- The oracle-scope narrowing for warp-bearing pixels — that is `SPEC-021`.
+- Sourcing or fabricating a *real* Q2M frame with a bad pixel; the fixture
+  is synthetic (a hand-built `Sensor` with both opcode lists set).
 
 ## Notes for the Implementer
 

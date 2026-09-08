@@ -125,7 +125,7 @@ signals:
     status: open
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-20
+    last_touched: 2026-09-08
     raised_by: claude
     notes: |
       ⚠ MEASURED 2026-08-20 (SPEC-002 build), and it is worse than "not
@@ -158,6 +158,17 @@ signals:
       it; or narrow calibration to a single interface; or state plainly that the
       numbers are spend-tracking, not effort-estimation, and stop pretending
       otherwise. Decide before enough specs ship to make the band look credible.
+
+      ⚠ THIRD basis observed, SPEC-017 ship (2026-09-08): `SPEC-017/FU-9`.
+      SPEC-017's build round-1 session recorded `tokens_total: 570000` on
+      claude-sonnet-5 — a remaining-BUDGET-DELTA read off the running session,
+      not a transcript sum at all. It sits 16-48x below the spec's other three
+      sessions (verify-1 27,235,932; build-2 9,026,059; verify-2 3,590,211, all
+      deduped transcript-sums), so `cost.totals` 40,422,202 mixes one
+      budget-delta row with three transcript-sums and `just calibration` would
+      average across that seam. A THIRD basis on top of the agent-result vs
+      transcript-sum split above — further evidence the fix is a `basis:` field
+      (or single-interface calibration), not more figures.
 
   # --- lesson: at its bar already, on a single spec ---------------------------
   - id: attribute-text-inside-doc-comments

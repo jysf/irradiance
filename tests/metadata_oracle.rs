@@ -434,6 +434,7 @@ fn fixture_sensor() -> Sensor {
         }),
         orientation: Some(1),
         opcode_lists: [true, false, true],
+        opcode_list_1: None,
         opcode_list_3: None,
         malformed_tags: vec![],
     }

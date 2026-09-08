@@ -550,6 +550,14 @@ pub struct Sensor {
     /// Presence of `OpcodeList1`/`2`/`3`. Presence only — decoding the opcode
     /// streams is STAGE-003.
     pub opcode_lists: [bool; 3],
+    /// `OpcodeList1`'s raw bytes (tag 51008 / `0xC740`), when present and
+    /// readable. **Bytes only** — parsing them into
+    /// `crate::opcode::Opcode::FixBadPixelsConstant` happens in
+    /// `develop_into` (`SPEC-017`), the same "unread field" shape
+    /// `opcode_list_3` below uses: this field has a reader in the same
+    /// change that adds it. A malformed entry costs this field alone and is
+    /// recorded in `malformed_tags` (`DEC-012`).
+    pub opcode_list_1: Option<Vec<u8>>,
     /// `OpcodeList3`'s raw bytes (tag 51022 / `0xC74E`), when present and
     /// readable. **Bytes only** — parsing them into `crate::opcode::WarpRect`
     /// happens in `develop_into` (`SPEC-018`), which is what satisfies the
@@ -1236,6 +1244,18 @@ impl<'a> Container<'a> {
         )
         .map(|[width, height]| DefaultCropSize { width, height });
 
+        // Interpretation: OpcodeList1's raw bytes (`SPEC-017`). Same shape as
+        // OpcodeList3 below: absent tag is `Ok(None)`, never malformed; a
+        // present-but-unreadable entry costs this field alone.
+        let opcode_list_1 = Self::cost_the_field(
+            match ifd.entry(TAG_OPCODE_LIST_1) {
+                None => Ok(None),
+                Some(entry) => self.payload(entry).map(|bytes| Some(bytes.to_vec())),
+            },
+            TAG_OPCODE_LIST_1,
+            &mut malformed,
+        );
+
         // Interpretation: OpcodeList3's raw bytes (`SPEC-018`). Absent tag is
         // `Ok(None)`, never malformed; a present-but-unreadable entry (bad
         // offset/length from `payload`) costs this field alone.
@@ -1292,6 +1312,7 @@ impl<'a> Container<'a> {
                 ifd.has(TAG_OPCODE_LIST_2),
                 ifd.has(TAG_OPCODE_LIST_3),
             ],
+            opcode_list_1,
             opcode_list_3,
             malformed_tags: malformed,
         })
