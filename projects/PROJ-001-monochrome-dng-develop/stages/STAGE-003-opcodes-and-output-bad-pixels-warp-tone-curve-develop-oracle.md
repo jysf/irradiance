@@ -107,7 +107,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 Run `just frame-stage STAGE-003` to promote these outlines into real specs.
 
 - [~] SPEC-017 (design) [S] FixBadPixelsConstant opcode — depends_on: [SPEC-020]
-- [~] SPEC-018 (design) [L] WarpRectilinear radial geometric correction — depends_on: [SPEC-020]
+- [x] SPEC-018 (shipped 2026-09-07) [L shipped XL] WarpRectilinear radial geometric correction — 3 build rounds + 3 verify rounds, 169M tokens. Ship SHA `b92b30c` (code) / `f508dba` (bookkeeping). Two structural findings: pipeline order corrected in build (DEC-024 Finding 1); dnglab does not implement DNG opcodes so SPEC-020's oracle is scope-limited (DEC-024 Finding 2, formal narrowing filed as SPEC-021). SB-1/2/3 all fixed; FUs 1/2 fixed inline, 3/4/6/7/8 closed, 5/9/11 filed as new signals, 10 → SPEC-021.
 - [ ] SPEC-019 (frame) [M] Tone curve and the three output modes
 - [x] SPEC-020 (shipped 2026-09-06) [M shipped M] Develop oracle vs dnglab srgb — lands first, so SPEC-018/019/017 have a check they cannot rewrite. verify verdict: approved. Follow-ups: FU-1/FU-2 → signal `unrun-docs-carry-errors` N=6 (SPEC-018 Context patched at ship); FU-3 → closed with contract reason.
 

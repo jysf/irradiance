@@ -161,6 +161,7 @@ cost:
     tokens_total: 169055812
     estimated_usd: 179.89
     session_count: 7
+shipped_at: 2026-09-07
 ---
 
 # SPEC-018: WarpRectilinear radial geometric correction
