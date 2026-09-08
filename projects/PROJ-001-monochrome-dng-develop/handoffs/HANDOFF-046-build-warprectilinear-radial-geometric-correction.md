@@ -37,12 +37,13 @@ repo:
 # Code; usage in the API). `notes:` MUST be ONE PHYSICAL LINE — handback-sync
 # truncates multi-line YAML scalars and leaves the spec unparseable while
 # every gate reports green (`handback-sync-truncates-multi-line-scalars`).
-# ⚠ ROUND 2 (punch-list). This block carried round 1's numbers until
-# 2026-09-07; they are preserved verbatim in `## Completion — round 2`
-# below AND already transcribed into the spec's `cost.sessions` (the
-# `cycle: build` entry, 116,480,125 tokens on claude-sonnet-5), so the
-# overwrite loses nothing. `synced_at` is reset to null so
-# `just handback-sync SPEC-018` appends round 2 as a SECOND build session
+# ⚠ ROUND 3 (punch-list). This block carried round 2's numbers until
+# 2026-09-07; they are preserved verbatim in `## Completion — round 3`
+# below (14,298,209 tokens, $34.26, 29 min, on claude-opus-5) AND already
+# transcribed into the spec's `cost.sessions` (the SECOND `cycle: build`
+# entry), so the overwrite loses nothing — exactly as round 2's own
+# overwrite of round 1 did not. `synced_at` is reset to null so
+# `just handback-sync SPEC-018` appends round 3 as a THIRD build session
 # rather than skipping this file for idempotence.
 #
 # ⚠ `notes:` is ONE PHYSICAL LINE **and starts with a double quote**. That
@@ -53,14 +54,14 @@ repo:
 # reached the spec as `notes: 12/14 ACs green; AC8/AC9` — raised as FU-5.
 handback:
   status: completed                # completed | blocked | rejected
-  tokens_total: 14298209           # round 2 only; deduped by message.id, own transcript identified by scratchpad UUID 865e0a1e-8d8c-40d3-84f7-519fe88fb981 (NOT text-matched). message.model reports claude-opus-5 on all 97 metered messages, so tier_map.build's hint was right this round — its first time in 15 (round 1 was claude-sonnet-5).
-  estimated_usd: 34.26             # per-component (in 194, out 52885, cache-write 186388, cache-read 14058742) at published Opus-tier rates ($15/$75/$18.75/$1.50 per Mtok) = $28.55, + 20% handback uplift
-  duration_minutes: 29
+  tokens_total: 5579812            # round 3 only; deduped by message.id from my OWN transcript, identified by the scratchpad UUID 7e7e11d9-61a4-4474-9b50-f1b26ee9afc0 (NOT text-matched — a stale pre-/clear file can text-match and be a different model). All 51 metered messages report message.model claude-opus-5. Measured while writing this block, so the commit that lands it is not counted.
+  estimated_usd: 15.02             # per-component (in 102, out 29270, cache-write 115825, cache-read 5434615) at published Opus-tier rates ($15/$75/$18.75/$1.50 per Mtok) = $12.52, + 20% handback uplift
+  duration_minutes: 14             # first to last transcript timestamp (00:21:43Z to 00:35:51Z), wall clock, snapshot at write time
   branch: feat/spec-018-warprectilinear-radial-geometric-correction
-  pr: 16                           # round 2 did NOT open it; PR 16 was already open on arrival — recorded as observed, and untouched
+  pr: 16                           # round 3 did NOT open or modify it; PR 16 was already open on arrival — recorded as observed
   completed_at: 2026-09-07
-  notes: "Round 2 (punch-list) on HANDOFF-047's two ship blockers, both CLOSED at 08ad42e. Docs and tests only - no logic changed, decoded output byte-identical (irr develop L1021223.DNG samples[0..8] and max 51764 unchanged). SB-1: new tier-A test develop_into_crops_from_the_warped_active_area_not_the_warped_crop is the only test in the tree that develops a non-None opcode_list_3 all the way to pixels; hand-built Sensor whose ActiveArea 80x64 and DefaultCrop 60x48 at origin (7,5) genuinely differ, real L1021223 OpcodeList3 bytes, affine ramp plane. Three assertions - the fixture separates the two orders (2837 of 2880 pixels, asserted), develop_into equals crop(warp(active)) and not warp(crop(active)) whole-buffer plus two probe pixels, and an identity warp develops bit-identically to no opcode list while differing from the real warp. Red-proof observed both directions: src/develop.rs md5 318977b683d168d4572efdd5f672cc98 honest -> cf714e8c973c5b4c60c647cca181ca77 crop-then-warp -> 318977b683d168d4572efdd5f672cc98 reverted; the mutation compiles and moves real output (max 51764 -> 60918), and the suite under it is 205 passed / 1 FAILED / 2 ignored - round 1's 205 all stayed green, which is SB-1 restated as a measurement. SB-2: both false rustdoc claims rewritten citing DEC-024 - src/warp.rs no longer claims three frames scored at or above 85 through an oracle that cannot see this stage (DEC-024 Finding 2), and now rests the kernel choice on AC4/AC10, whose 339.5 px separation I re-measured by running the test rather than copying it; src/lib.rs no longer states the pre-Finding-1 pipeline order it introduced in 40f5d45, the very commit that corrected the code (verified with git show). Incidental, in the same doc comments: three dangling kernel-choice DEC-* placeholders resolved to DEC-024, and one of them exposed a further false claim of the same species - DEC-024 records no third-caller-supplied-buffer alternative - now corrected to cite what it does hold. Gates on 08ad42e: fmt, lint-ci on the PINNED clippy 0.1.98 (not local 0.1.97), typecheck, test at 206 passed / 0 failed / 2 ignored (+1, as predicted), deny and deny-fuzz, msrv 1.90.0, lint-no-allow, both red-proof scripts, and fuzz-warp at 22,937,786 runs in 61 s with zero crashes. CI GREEN on 08ad42e - run 34164609782, 10 jobs all success, fuzz smoke warp_opcode included. FU-1 through FU-10 untouched and still owed a disposition at ship; DEC-024, the ACs and PR 16 all untouched."
-  synced_at: 2026-09-07
+  notes: "Round 3 (punch-list) on HANDOFF-048's one ship blocker, SB-3 CLOSED at b92b30c. One file, one rustdoc paragraph - src/warp.rs 53-55 replaced by 53-62, 10 insertions and 3 deletions, all inside doc comments, so decoded pixel output cannot move and the suite stays at 206 passed / 0 failed / 2 ignored. SB-3 was three defects in one sentence and all three are fixed. (A) The invented alternatives are gone: DEC-024 records neither zero-fill nor error, and records no alternative at all for the out-of-extent rule - its Alternatives Considered, lines 138-168, is Options A, B and C, every one about the kernel or the DEC-005 threshold. Re-measured rather than copied: grep -rn zero-fill over the tree returns 9 hits, 6 in process documents that discuss this very finding and 3 in source (tests/ifd_reader.rs 333, tests/support/perturb.rs 14, and the claim itself); grep -c on DEC-024 returns 0. (B) AC11 replaced by AC7: AC11 governs the KERNEL choice with measured per-frame scores (SPEC-018 428-433), while AC7 is the criterion that pre-registered the out-of-extent rule (SPEC-018 387-395) and is the AC DEC-024 itself names in the same clause that records the choice. (C) The 'records no per-frame oracle scores' clause is replaced by the measurement DEC-024 does hold - AC8 at -60.169 on L1021223.DNG (DEC-024 97-98) - reproduced by running the reader rather than quoted from the handback, since just test prints that same figure back in the ignore reason for warp_scores_at_least_eightyfive_via_spec_020_oracle. Phrased non-exclusively because DEC-024 also records AC9's -60.193 / -55.075 pair; a cleft would have been a fresh 16-rule-1 over-generalisation inside the sentence fixing an imprecision. WARNING, the one judgement call: the dispatch's suggested wording, clamps to edge per DNG 6.4.1, would have inherited SB-3's own precondition. DEC-024 195-196 records that 6.4.1 is SILENT on the out-of-extent rule, confirmed by full-text search, and src/warp.rs 36-43 - the reverify-approved heading five lines above the rewrite - says the same, so citing 6.4.1 as the SOURCE of a clamp rule would have been the same species of false citation one paragraph later. The rewrite takes the intent (the honest citation is the DNG spec and AC7, not a DEC that never weighed it) and states it as 6.4.1's SILENCE plus AC7, which is what both sources support. DEC-024 is byte-unchanged: git diff 08ad42e..b92b30c -- decisions/ is empty. Gates on b92b30c: lint-ci on the PINNED clippy 0.1.98 (not local 0.1.97), cargo fmt --check clean - note just fmt is NOT a recipe in this repo, fmt runs inside just lint - just test at 206 passed / 0 failed / 2 ignored run TWICE, once with IRRADIANCE_CORPUS_DIR pointed at the real corpus (4 frames present) and once with it unset (12 SKIP lines, default root absent), identical counts both ways; just deny licenses ok; just msrv 1.90.0; just fuzz-warp 23,438,651 runs in 61 s, zero crashes, cov 172 ft 457. CI GREEN on b92b30c - push run 34173566347 and pull_request run 34173569505, 10 jobs each, all success, fuzz smoke warp_opcode included, both watched to completion with gh run watch --exit-status rather than inferred. Nothing else touched: FU-1 through FU-11 all still open and owed a ship disposition, DEC-024, SPEC-018's body and ACs, src/lib.rs's SB-2 rewrite, src/develop.rs, every test including SB-1's, and PR 16, which was open on arrival and received a git push only. WARNING for the orchestrator: FU-11 will bite this entry too. HANDOFF-046's to_agent is still claude-sonnet-5 from round 1 and handback-sync line 97 reads it, but all 51 metered messages this session report claude-opus-5, so the round-3 cost.sessions entry will carry the WRONG agent exactly as round 2's did. Left unedited because the dispatch forbids the fix; FU-11 restated with one more instance."
+  synced_at: null
 ---
 
 # HANDOFF-046: Build SPEC-018 — WarpRectilinear radial geometric correction
@@ -763,3 +764,208 @@ oracle-narrowing question, which `DEC-024` explicitly leaves open),
 operations. PR **#16** was already open on arrival and is untouched —
 this round pushed to the branch with `git push` only, and opened,
 closed and modified nothing on GitHub.
+
+---
+
+## Completion — round 3 (punch-list)
+
+Dispatched 2026-09-07 via `specs/prompts/SPEC-018-rebuild-2.md` after
+`HANDOFF-048` returned `⚠ PUNCH LIST (round 3)` at `08ad42e`. Scope:
+`SB-3` only — one rustdoc sentence. No new build handoff was minted
+(`PATCH-003`'s round-2 pattern, continued); this section continues
+`HANDOFF-046`, and the `handback:` block above now carries round 3's
+numbers. **Round 2's, replaced there, were `tokens_total: 14298209`,
+`estimated_usd: 34.26`, `duration_minutes: 29`, `completed_at:
+2026-09-07`, on `claude-opus-5`**, and are already transcribed into the
+spec's `cost.sessions` (the second `cycle: build` entry), so the
+overwrite loses nothing. `synced_at` is reset to `null` so `just
+handback-sync SPEC-018` appends round 3 as a THIRD build session rather
+than skipping this file for idempotence.
+
+Ship SHA: **`b92b30c`**. One commit, on top of `32599d2`.
+
+### Summary
+
+**One file, one paragraph, ten lines for three.** `src/warp.rs:53-55`
+is the only change in the round: a doc comment in the module header.
+No code, no test, no `DEC-*`, no spec text — `git diff --stat` for the
+round is `src/warp.rs | 13 +++++++---`, and the decoded pixel output
+cannot move because nothing outside a `//!` comment was touched. Test
+count unchanged at **206 passed / 0 failed / 2 ignored**.
+
+### `SB-3` — the false `DEC-024` citation is gone
+
+**Before** (`src/warp.rs:53-55` at `08ad42e`, quoted verbatim):
+
+```rust
+//! The alternatives (zero-fill, error) are recorded in the kernel-choice
+//! decision, `DEC-024` (`AC11`) — which records no per-frame oracle scores,
+//! for the reason the Kernel section below states.
+```
+
+**After** (`src/warp.rs:53-62` at `b92b30c`, quoted verbatim):
+
+```rust
+//! The rule rests on §6.4.1's silence, searched above, plus `AC7` — the
+//! acceptance criterion that pre-registered it — and not on any weighing of
+//! candidates. `DEC-024` records the choice in a single Consequences
+//! "Neutral" line: clamp-to-edge, on simplicity and determinism grounds,
+//! pinned by `AC7`'s test. It records no alternative against it; its
+//! "Alternatives Considered" (Options A, B, C) is entirely kernel and oracle
+//! threshold. `DEC-024` does record measured oracle scores — `AC8` is
+//! **-60.169** on `L1021223.DNG` — and those measurements are what
+//! established that the oracle cannot validate this stage at all, for the
+//! reason the Kernel section below states.
+```
+
+All three of the reverify's problems, in its own order:
+
+**(A) The invented alternatives are gone.** `DEC-024` records neither
+"zero-fill" nor "error" as an alternative to clamp-to-edge — it records
+**no alternative at all** for the out-of-extent rule, and the rewrite now
+says exactly that. Re-measured rather than carried from the handback
+(§16 rule 4): `grep -rn zero-fill` over the working tree returns **9**
+hits, six of them in process documents that discuss this very finding
+(`SPEC-018.md:135`, its timeline `:87`, `prompts/SPEC-018-rebuild-2.md`
+`:57,:62,:63`, `HANDOFF-048:44`) and three in source —
+`tests/ifd_reader.rs:333` ("`600..616` stay zero-filled by `resize`") and
+`tests/support/perturb.rs:14`, both unrelated, plus the claim itself at
+`src/warp.rs:53`. `grep -c 'zero-fill\|zero fill'` on `DEC-024` returns
+**0**. The reverify's "exactly 3 hits" and this "9" are the same
+measurement over different scopes: its three are the source hits, and the
+extra six are the documents the finding itself has since been written
+into — including the dispatch that sent me here.
+
+**(B) `AC11` → `AC7`.** `AC11` reads "the WarpRectilinear **kernel
+choice** is a `DEC-*`, with measured scores... alternatives considered
+(bilinear, bicubic, Lanczos), the chosen kernel, the measured score on
+each of the three decodable frames" (`SPEC-018.md:428-433`) — nothing to
+do with out-of-extent pixels. `AC7` is the criterion that pre-registered
+this rule: "pixels whose source lands OUTSIDE the input extent are
+handled per the DNG spec... If it says undefined, pick one and record in
+the kernel-choice DEC" (`:387-395`), with
+`outside_pixels_follow_the_dng_spec_rule` as its test. `AC7` is also the
+AC `DEC-024` itself names in the same sentence that records the choice,
+so the two now agree.
+
+**(C) "records no per-frame oracle scores" → the measurement.**
+`DEC-024:97-98` records `AC8` at **-60.169** on `L1021223.DNG`, and
+`:109-110` `AC9`'s honest/mutated pair **-60.193 / -55.075**. The
+rewrite states the `AC8` figure and says what it established. Phrased
+non-exclusively ("does record measured oracle scores — `AC8` is...")
+because those are not the only measurements in the record; a cleft
+("what it records **is** the `AC8` score") would have been a fresh §16
+rule 1 over-generalisation in the sentence fixing an imprecision. The
+`AC8` figure was independently reproduced by running the reader, not
+copied: `just test` prints it back in the `#[ignore]` reason for
+`warp_scores_at_least_eightyfive_via_spec_020_oracle` — "Measured
+-60.169 on L1021223.DNG".
+
+### ⚠ Where this fix did NOT inherit its predecessor's precondition
+
+The dispatch's own suggested wording was "the out-of-extent handling
+clamps to edge **per DNG § 6.4.1**", and taking it literally would have
+made round 3 the third instance of the same species — a fix inheriting
+the precondition of the thing it fixes, which is precisely what
+`HANDOFF-048` flagged.
+
+**DNG 1.7.0.0 §6.4.1 does not hold a clamp-to-edge rule. It is silent.**
+That is not my reading of the spec (I did not open it); it is what the
+two documents this rustdoc must agree with already record:
+
+- `DEC-024:195-196` — "The out-of-extent pixel rule (**DNG 1.7.0.0
+  §6.4.1 is silent** — confirmed by full-text search of the
+  specification) is clamp-to-edge".
+- `src/warp.rs:36-43` — the section heading five lines above the
+  rewrite, **approved by this same reverify**: "# Out-of-extent pixels —
+  DNG 1.7.0.0 **is silent**; this build clamps", followed by the
+  full-text search that established it.
+
+So "clamps to edge per §6.4.1" would have contradicted the approved
+paragraph it sits inside, one screen below its own heading. The rewrite
+takes the dispatch's *intent* — the honest citation for this rule is the
+DNG spec and this spec's own `AC7`, not a decision record that never
+weighed it — and states it as **§6.4.1's silence plus `AC7`**, which is
+what both sources actually support.
+
+### What `DEC-024` was verified against, clause by clause
+
+Read during the rewrite, not from memory (§16 rule 4). Every claim in
+the ten new lines maps to one clause:
+
+| New text | `DEC-024` clause |
+|---|---|
+| "records the choice in a single Consequences \"Neutral\" line: clamp-to-edge" | `## Consequences`, 5th bullet, **lines 195-196** — "**Neutral.** The out-of-extent pixel rule... is clamp-to-edge" |
+| "on simplicity and determinism grounds" | same bullet, **line 197** — "chosen for simplicity and determinism" |
+| "pinned by `AC7`'s test" | same bullet, **lines 197-199** — "`AC7` (`outside_pixels_follow_the_dng_spec_rule`, `src/warp.rs`) pins this choice" |
+| "It records no alternative against it" | absence, asserted over the whole record: `## Alternatives Considered`, **lines 138-168**, holds Options A, B and C and nothing else |
+| "its \"Alternatives Considered\" (Options A, B, C) is entirely kernel and oracle threshold" | **line 140** Option A "bicubic or Lanczos-3, chasing the `>= 85` score"; **line 148** Option B "relax `DEC-005`'s `>= 85` threshold"; **line 158** Option C "(chosen): keep bilinear... rely on the analytic checks" |
+| "`AC8` is **-60.169** on `L1021223.DNG`" | `### Finding 2`, **lines 97-98** — "on `L1021223.DNG` scored **-60.169** (`AC8`)" |
+| "those measurements... established that the oracle cannot validate this stage at all" | `### Finding 2` heading, **line 95** — "`SPEC-020`'s oracle cannot see `WarpRectilinear` at all"; mechanism at **lines 116-130** |
+
+`DEC-024` is **byte-unchanged** this round — `git diff 08ad42e..b92b30c
+-- decisions/` is empty.
+
+### Gates run (stating the list — `the-gate-count-is-not-defined-anywhere`)
+
+All on `b92b30c`:
+
+- **`just lint-ci`** — clippy **0.1.98** (`88d9e12ae1 2026-08-18`), the
+  pinned/CI-floating version, printed by the recipe. Clean under
+  `-D warnings`.
+- **`cargo fmt --check`** — clean. ⚠ **`just fmt` is not a recipe in
+  this repo** (the dispatch's gate list names it); `cargo fmt --check`
+  is what `just lint` runs, and is what I ran.
+- **`just test`** — **206 passed / 0 failed / 2 ignored**, unchanged, and
+  run **twice**: with `IRRADIANCE_CORPUS_DIR` pointed at
+  `~/PSeven/experiments/crustimg_redo_plus/images` (`corpus: present` on
+  all four frames) and with the variable **unset** (`corpus: SKIP` ×
+  12, default root absent). Same 206/0/2 both ways — the tier-B
+  discipline holds.
+- **`just deny`** — `licenses ok`, exit 0. Only output is the
+  pre-existing unmatched-`Zlib`-allowance warning.
+- **`just msrv`** — `cargo +1.90.0 check --all-targets --all-features`,
+  exit 0.
+- **`just fuzz-warp`** (60 s) — **23,438,651 runs in 61 s, zero
+  crashes**, `cov: 172 ft: 457 corp: 77/19Kb`. `git status` clean after.
+
+No new dependency in either cargo graph; `Cargo.toml` is 0 lines
+changed. `just typecheck` was not run separately — `just lint-ci` and
+`just msrv` both compile `--all-targets --all-features`.
+
+**CI observed green on the ship SHA `b92b30c`** — `push` run
+[`34173566347`](https://github.com/jysf/irradiance/actions/runs/34173566347),
+`conclusion: success`, **10 jobs, all success**: `rust / fuzz smoke —
+warp_opcode (60s)`, `rust / test`, `rust / clippy -D warnings`, `rust /
+fmt --check`, `rust / MSRV (1.90.0)`, both `cargo-deny` jobs, `rust /
+lint policy red-proof (must fail red)`, `rust / panic-free policy — no
+#[allow] escape (--lib)`, and `cost-capture audit`. The paired
+`pull_request` run
+[`34173569505`](https://github.com/jysf/irradiance/actions/runs/34173569505)
+is also `success`, 10/10. Watched to completion with `gh run watch
+--exit-status`, both exit 0 — observed, not inferred from a green
+predecessor.
+
+### Files touched
+
+**One:** `src/warp.rs` (10 insertions, 3 deletions, all inside `//!`).
+Plus this handback file, in a separate commit. `SPEC-018`'s timeline
+already carried `build (round 3)` at `[~]` from the orchestrator's
+dispatch and was left alone. Not touched, per the dispatch: `FU-1`
+through `FU-11` (all dispositioned at ship — **including `FU-11`**, so
+`cost.sessions` and `scripts/handback-sync.sh` are unedited), `DEC-024`,
+`SPEC-018`'s body and ACs, `src/lib.rs`'s `SB-2` rewrite,
+`src/develop.rs`, every test including `SB-1`'s, and all PR operations —
+PR **#16** was open on arrival, and this round pushed to the branch with
+`git push` only.
+
+### ⚠ Carried forward for the orchestrator: `FU-11` will bite this entry too
+
+`HANDOFF-046`'s `to_agent` is still `claude-sonnet-5` (round 1's value),
+and per `HANDOFF-048` that is the field `scripts/handback-sync.sh:97`
+reads. This session is **`claude-opus-5`** on every metered message.
+Left unedited because the dispatch is explicit — *"Do NOT fix
+HANDOFF-046's `to_agent` field"* — but that means the round-3
+`cost.sessions` entry `handback-sync` writes will carry the **wrong
+agent**, exactly as round 2's did. Not a new finding; `FU-11` restated
+with one more instance for its ship-cycle fix.
