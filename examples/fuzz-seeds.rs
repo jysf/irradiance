@@ -1,5 +1,9 @@
 //! Write the fuzz seed corpus for `fuzz/fuzz_targets/ifd.rs`,
-//! `fuzz/fuzz_targets/plane.rs`, and `fuzz/fuzz_targets/develop.rs`.
+//! `fuzz/fuzz_targets/plane.rs`, `fuzz/fuzz_targets/develop.rs`,
+//! `fuzz/fuzz_targets/warp_opcode.rs`, and `fuzz/fuzz_targets/opcode.rs`
+//! (`SPEC-017`'s own target — `OpcodeList1`'s `FixBadPixelsConstant`, real
+//! bytes plus adversarial variants from `tests/support/opcode.rs::
+//! fix_bad_pixels_fuzz_seed_corpus`).
 //!
 //! `SPEC-003`, extended by `SPEC-012` and `SPEC-014`. The `ifd` seeds are the
 //! hand-built tier-A fixtures in `tests/support/tiff.rs` — the same list
@@ -426,6 +430,10 @@ fn main() {
         std::process::exit(1);
     }
     if let Err(e) = write_seeds("warp_opcode", "bin", opcode::fuzz_seed_corpus()) {
+        eprintln!("fuzz-seeds: {e}");
+        std::process::exit(1);
+    }
+    if let Err(e) = write_seeds("opcode", "bin", opcode::fix_bad_pixels_fuzz_seed_corpus()) {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);
     }

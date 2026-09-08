@@ -1,19 +1,29 @@
 //! `SPEC-018` — the `OpcodeList` byte-stream parser (`AC1`, `AC2`, `AC3`).
+//! `SPEC-017` adds its own `AC1`-`AC3` below (`FixBadPixelsConstant`,
+//! `OpcodeID` 4) — same module, same split rationale, so its parser-only
+//! tests land in this file too rather than a second one; the applier's
+//! algorithm (`AC4`-`AC9`) lives in `tests/develop.rs`, where
+//! `apply_fix_bad_pixels_constant` itself does (state-which choice, `##
+//! Outputs`).
 //!
 //! Byte-level parsing only. `WarpRectilinear`'s geometric APPLICATION
 //! (`AC4`-`AC12`) is `tests/warp.rs` — see that file's own header for why the
 //! split (`## Failing Tests` states the choice: opcode parsing here, warp
 //! application there).
 //!
-//! All three tests here are tier A: real bytes committed as hex fixtures
-//! (`tests/oracle-fixtures/opcodelist3-*.hex`, extracted with `exiftool -b
-//! -OpcodeList3` — a design-time probe, not a re-derivation) plus hand-built
-//! adversarial streams. No corpus, no tools, run everywhere including CI.
+//! Every test here is tier A: real bytes committed as hex fixtures
+//! (`tests/oracle-fixtures/opcodelist3-*.hex`, `opcodelist1-q2m.hex`,
+//! extracted with `exiftool -b -OpcodeList1`/`-OpcodeList3` — a design-time
+//! probe, not a re-derivation, and independently re-verified against all
+//! three decodable Q2M frames during this build) plus hand-built adversarial
+//! streams. No corpus, no tools, run everywhere including CI.
 
 #[path = "support/opcode.rs"]
 mod support;
 
-use irradiance::opcode::{parse_opcode_list, parse_warp_rectilinear, Opcode};
+use irradiance::opcode::{
+    parse_fix_bad_pixels_constant, parse_opcode_list, parse_warp_rectilinear, Opcode,
+};
 use irradiance::Error;
 
 /// SPEC-020/FU-1's per-frame coefficient table (measured independently by
@@ -145,5 +155,79 @@ fn opcode_parser_rejects_mandatory_unknown() {
     assert!(
         matches!(err, Error::UnsupportedMandatoryOpcode { id: 0xDEAD_BEEF }),
         "{err:?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-017 — FixBadPixelsConstant (OpcodeID 4), byte-level parsing only.
+// The applier's algorithm (AC4-AC9) lives in tests/develop.rs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `AC1` — the parser round-trips the probed Q2M `OpcodeList1` bytes.
+/// Reproduced independently against all three decodable frames during this
+/// build (`exiftool -b -OpcodeList1`, byte-identical on every one) before
+/// this test was written — `AGENTS.md` §16 rule 4,
+/// `unrun-docs-carry-errors`.
+#[test]
+fn parse_opcode_list_reads_the_q2m_fixbadpixels_bytes() {
+    let bytes = support::load_hex_fixture("opcodelist1-q2m");
+    let opcodes = parse_opcode_list(&bytes).unwrap_or_else(|e| panic!("parse: {e}"));
+    assert_eq!(
+        opcodes,
+        vec![Opcode::FixBadPixelsConstant {
+            constant: 0,
+            bayer_phase: 2,
+        }],
+        "the probed 28-byte Q2M OpcodeList1 payload must decode to exactly this one opcode"
+    );
+    assert_eq!(
+        parse_fix_bad_pixels_constant(&bytes).unwrap_or_else(|e| panic!("parse: {e}")),
+        Some(0),
+        "the develop_into entry point must read the same Constant"
+    );
+}
+
+/// `AC2` — panic-free on adversarial input. Same shape as
+/// `warp_opcode_fuzz_smoke_no_crashes_after_60s` above: runs the `opcode`
+/// fuzz target's exact seed corpus directly through the parser (the real
+/// 60s `cargo fuzz run opcode` / `just fuzz-opcode` is run separately during
+/// build/CI, `AGENTS.md` §12 bar 2).
+#[test]
+fn opcode_parser_fuzz_seeds_do_not_panic() {
+    for (name, bytes) in support::fix_bad_pixels_fuzz_seed_corpus() {
+        // A panic here fails THIS test with the panicking seed's name in the
+        // backtrace; Err or Ok are both a pass (`no-panics-on-untrusted-input`).
+        let _ = parse_opcode_list(&bytes);
+        let _ = name;
+    }
+}
+
+/// `AC3` — the parser records `Opcode::Unknown` for unknown IDs and
+/// preserves their bytes, round-tripping opcode ID 99 with a 4-byte payload.
+///
+/// ⚠ **SPEC-017/FU-1** — this spec's own pre-registered example used
+/// `flags: 0` (mandatory) and expected `Ok(Opcode::Unknown{..})`. SPEC-018,
+/// which built this module FIRST, already dispatches mandatory-vs-optional
+/// AT PARSE TIME: an unrecognized ID with `Flags` bit 0 clear is
+/// `Error::UnsupportedMandatoryOpcode` (`mandatory_unknown_opcode_is_rejected`,
+/// `src/opcode.rs`; `opcode_parser_rejects_mandatory_unknown`, this file) —
+/// `Opcode::Unknown` for an unrecognized ID is reachable ONLY with `Flags`
+/// bit 0 SET (optional). This test uses `flags: 1` for that reason; `AC6`'s
+/// mandatory-unknown-in-`OpcodeList1` case is covered separately by
+/// `develop_errors_on_mandatory_unknown_opcode` (`tests/develop.rs`), which
+/// exercises `parse_opcode_list`'s existing error through `develop_into`,
+/// not a second dispatch layer inside this module.
+#[test]
+fn opcode_parser_returns_unknown_for_ninetynine() {
+    let bytes = support::opcode_list(&[support::raw_opcode(99, 0x0103_0000, 1, &[1, 2, 3, 4])]);
+    let opcodes = parse_opcode_list(&bytes)
+        .unwrap_or_else(|e| panic!("optional-unknown must not error: {e}"));
+    assert_eq!(
+        opcodes,
+        vec![Opcode::Unknown {
+            id: 99,
+            flags: 1,
+            params: vec![1, 2, 3, 4],
+        }]
     );
 }

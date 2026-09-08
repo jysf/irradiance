@@ -207,10 +207,23 @@ fuzz-warp seconds="60":
     PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run warp_opcode \
         fuzz/corpus/warp_opcode fuzz/seeds/warp_opcode -- -max_total_time={{seconds}}
 
+# Run the OPCODE fuzz target (SPEC-017, AGENTS.md §12 bar 2) — OpcodeList1's
+# own new input surface (FixBadPixelsConstant bytes are attacker-influenced
+# exactly like every other IFD tag payload; shares parse_opcode_list with
+# `warp_opcode` above but ships its own recipe + seed corpus per this spec's
+# handoff). Same `+toolchain` trap and two-corpus-dirs reasoning as `just
+# fuzz`/`just fuzz-plane`/`just fuzz-develop`/`just fuzz-warp` above.
+fuzz-opcode seconds="60":
+    mkdir -p fuzz/corpus/opcode
+    PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run opcode \
+        fuzz/corpus/opcode fuzz/seeds/opcode -- -max_total_time={{seconds}}
+
 # Regenerate the committed fuzz seed corpus from tests/support/tiff.rs (`ifd`
-# target), examples/fuzz-seeds.rs's own plane/develop fixtures, and
-# tests/opcode.rs's fuzz_seed_corpus() (`warp_opcode` target), so a fixture
-# added to any hostile-input lane lands in its fuzz lane too.
+# target), examples/fuzz-seeds.rs's own plane/develop fixtures,
+# tests/opcode.rs's fuzz_seed_corpus() (`warp_opcode` target), and
+# tests/support/opcode.rs's fix_bad_pixels_fuzz_seed_corpus() (`opcode`
+# target), so a fixture added to any hostile-input lane lands in its fuzz
+# lane too.
 fuzz-seeds:
     cargo run --quiet --all-features --example fuzz-seeds
 

@@ -3,12 +3,17 @@
 //! `src/plane.rs` produces a **correct, uncropped, un-normalised** `u16`
 //! plane and `tests/plane_oracle.rs` (`SPEC-013`) asserts it bit-for-bit
 //! against `dnglab --raw-checksum`. This module turns that plane into the
-//! image a consumer would actually display: black subtracted, white
-//! normalized, `OpcodeList3`'s `WarpRectilinear` geometric correction
-//! applied over the `ActiveArea` window (`SPEC-018`), then `DefaultCrop` →
-//! `Orientation` extracts the final displayed rectangle. See
-//! [`develop_into`]'s own doc for why the warp runs BEFORE the crop, not
-//! after (a correction from `SPEC-018`'s own design-time assumption).
+//! image a consumer would actually display: `OpcodeList1`'s
+//! `FixBadPixelsConstant` defect correction applied to the raw plane FIRST
+//! (`SPEC-017`), then black subtracted, white normalized, `OpcodeList3`'s
+//! `WarpRectilinear` geometric correction applied over the `ActiveArea`
+//! window (`SPEC-018`), then `DefaultCrop` → `Orientation` extracts the
+//! final displayed rectangle. See [`develop_into`]'s own doc for why the
+//! warp runs BEFORE the crop, not after (a correction from `SPEC-018`'s own
+//! design-time assumption), and for why `FixBadPixelsConstant` runs before
+//! normalization at all (DNG 1.7.0.0 Chapter 7's own pipeline: opcodes act
+//! on the raw plane's own value range, not the normalized `[0, 65535]`
+//! output range).
 //!
 //! # No oracle covers this — `DEC-004`
 //!
@@ -68,8 +73,24 @@
 //! internal allocation, not a third caller-facing parameter (see
 //! [`develop_into`]'s own "Allocation" doc for why). Re-measured peak RSS
 //! after `SPEC-018`: see `docs/provenance-ledger.md`'s `src/warp.rs` row.
+//!
+//! ⚠ **Amended again by `SPEC-017`.** `apply_fix_bad_pixels_constant` needs
+//! a MUTABLE plane (the opcode replaces pixels in place), but
+//! `develop_into`'s `src` parameter is a shared `&[u16]`
+//! (`DEC-016`'s caller-owned-buffer shape predates this spec and is not
+//! reopened here). When `OpcodeList1` carries a real `FixBadPixelsConstant`
+//! (every Q2M frame, mandatory), `develop_into` copies `src` into one
+//! internal `Vec<u16>` the FULL raw-plane size (`width * height` — larger
+//! than `SPEC-018`'s `ActiveArea`-sized scratch buffers, because a bad
+//! pixel's 3x3 neighbourhood can reach into the padding OUTSIDE
+//! `ActiveArea`, `SPEC-017`'s own `## Notes for the Implementer`) and
+//! develops from that copy instead of `src`. Same internal-allocation
+//! reasoning as `SPEC-018`'s addition above: not a caller-facing parameter,
+//! paid only when a real `OpcodeList1` is present — every hand-built test
+//! `Sensor` in this crate carries `opcode_list_1: None` and takes the
+//! original zero-extra-copy path unchanged.
 
-use crate::ifd::Sensor;
+use crate::ifd::{ActiveArea, Sensor};
 use crate::Error;
 
 /// Resolved geometry, defaults applied, every rectangle validated to fit.
@@ -299,6 +320,176 @@ fn normalize(sample: u16, black: u32, white: u32) -> u16 {
     u16::try_from(scaled).unwrap_or(u16::MAX)
 }
 
+/// The eight 3x3-neighbour offsets, excluding the centre — `SPEC-017`'s
+/// `## Notes for the Implementer`, rule 1.
+const NEIGHBOR_OFFSETS: [(i8, i8); 8] = [
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+    (-1, 0),
+    (1, 0),
+    (-1, 1),
+    (0, 1),
+    (1, 1),
+];
+
+/// Apply `delta` (`-1`, `0`, or `1`) to `v`, returning `None` if the result
+/// would be negative or `>= bound` — the plane-extent exclusion rule
+/// (`SPEC-017` Notes rule 1), expressed with `checked_add`/`checked_sub`
+/// rather than a signed cast so this stays inside
+/// `clippy::arithmetic_side_effects`'s allowed operations.
+fn offset_coord(v: u32, delta: i8, bound: u32) -> Option<u32> {
+    let candidate = match delta {
+        -1 => v.checked_sub(1)?,
+        0 => v,
+        1 => v.checked_add(1)?,
+        _ => return None,
+    };
+    (candidate < bound).then_some(candidate)
+}
+
+/// Row-major index into a `width`-wide plane, bounds-checked against
+/// `usize`/`u64` overflow the same way every other index computation in this
+/// module is (`crop_orient_normalize_into`, etc.).
+fn plane_index(width: u32, x: u32, y: u32) -> Option<usize> {
+    u64::from(y)
+        .checked_mul(u64::from(width))
+        .and_then(|v| v.checked_add(u64::from(x)))
+        .and_then(|v| usize::try_from(v).ok())
+}
+
+/// The lower-of-two-middles median of a non-empty, ALREADY-SORTED slice
+/// (`SPEC-017` Notes rule 3's deterministic tie-break: odd count -> the
+/// middle; even count -> the lower of the two middles). `None` only if
+/// `sorted` is empty — callers only reach this with `>= 1` element.
+fn lower_median(sorted: &[u16]) -> Option<u16> {
+    let len = sorted.len();
+    let half = len.checked_div(2)?;
+    let is_odd = len.checked_rem(2) == Some(1);
+    let index = if is_odd { half } else { half.checked_sub(1)? };
+    sorted.get(index).copied()
+}
+
+/// `OpcodeList1`'s `FixBadPixelsConstant` (`SPEC-017`, DNG 1.7.0.0 Chapter 7
+/// p.95, `src/opcode.rs`'s own module doc for the chapter correction):
+/// replace every raw-plane sample equal to `constant`, within
+/// `active_area`, with the median of its 3x3 valid neighbours. Mutates
+/// `plane` in place — DNG's own semantics for this opcode, not a
+/// `develop_into`-specific choice (module docs, "Amended again by
+/// `SPEC-017`").
+///
+/// Candidate pixels are restricted to `active_area` (`## Notes`: the
+/// padding columns outside it are not a real image region, matching
+/// `dnglab`'s own boundary). Each candidate's NEIGHBOURHOOD is drawn from
+/// the full `width x height` plane extent, not clipped to `active_area` — a
+/// bad pixel at the active-area edge may still borrow a genuine sensor
+/// reading from the padding (Notes rule 1 names the PLANE extent, not
+/// `active_area`, as the neighbour boundary).
+///
+/// # Rules (pre-registered, `SPEC-017`'s `## Notes for the Implementer`)
+///
+/// 1. Neighbours outside the plane extent (`0..width`, `0..height`) are
+///    excluded.
+/// 2. Neighbours whose value equals `constant` are excluded (they are
+///    themselves bad).
+/// 3. With `>= 1` valid neighbour, replace with [`lower_median`] of the
+///    valid ones.
+/// 4. With `0` valid neighbours, the pixel is left AT `constant` and is
+///    **not** counted in the returned total — `AC5`'s `count > 0` refers to
+///    rules 1-3 only. A pixel left this way is still `constant` after this
+///    function returns, so a caller can recover that sub-count by
+///    rescanning `active_area` for remaining `constant` values (this
+///    build's `## Notes`-required separate reporting, kept out of the
+///    `AC4`-pinned `Result<usize, Error>` signature rather than widened
+///    into a tuple).
+///
+/// # Errors
+///
+/// [`Error::FixBadPixelsPlaneWrongLength`] if `plane` does not hold exactly
+/// `width * height` samples.
+pub fn apply_fix_bad_pixels_constant(
+    plane: &mut [u16],
+    width: u32,
+    height: u32,
+    active_area: ActiveArea,
+    constant: u32,
+) -> Result<usize, Error> {
+    let expected = u64::from(width).checked_mul(u64::from(height)).ok_or(
+        Error::FixBadPixelsPlaneWrongLength {
+            expected: u64::MAX,
+            actual: plane.len(),
+        },
+    )?;
+    let expected_len =
+        usize::try_from(expected).map_err(|_| Error::FixBadPixelsPlaneWrongLength {
+            expected,
+            actual: plane.len(),
+        })?;
+    if plane.len() != expected_len {
+        return Err(Error::FixBadPixelsPlaneWrongLength {
+            expected,
+            actual: plane.len(),
+        });
+    }
+
+    let top = active_area.top.min(height);
+    let left = active_area.left.min(width);
+    let bottom = active_area.bottom.min(height);
+    let right = active_area.right.min(width);
+    if bottom <= top || right <= left {
+        return Ok(0);
+    }
+
+    let mut replaced = 0usize;
+    let mut neighbours: Vec<u16> = Vec::with_capacity(8);
+    for y in top..bottom {
+        for x in left..right {
+            let Some(index) = plane_index(width, x, y) else {
+                continue;
+            };
+            let Some(&value) = plane.get(index) else {
+                continue;
+            };
+            if u32::from(value) != constant {
+                continue;
+            }
+
+            neighbours.clear();
+            for (dx, dy) in NEIGHBOR_OFFSETS {
+                let Some(nx) = offset_coord(x, dx, width) else {
+                    continue;
+                };
+                let Some(ny) = offset_coord(y, dy, height) else {
+                    continue;
+                };
+                let Some(nidx) = plane_index(width, nx, ny) else {
+                    continue;
+                };
+                let Some(&nv) = plane.get(nidx) else {
+                    continue;
+                };
+                if u32::from(nv) != constant {
+                    neighbours.push(nv);
+                }
+            }
+
+            if neighbours.is_empty() {
+                continue; // rule 4: left at constant, not counted here
+            }
+            neighbours.sort_unstable();
+            let Some(median) = lower_median(&neighbours) else {
+                continue;
+            };
+            if let Some(slot) = plane.get_mut(index) {
+                *slot = median;
+            }
+            replaced = replaced.saturating_add(1);
+        }
+    }
+
+    Ok(replaced)
+}
+
 /// The crop+orient+normalize pass — the fast, no-warp path: reads directly
 /// from the raw plane and writes the final oriented+cropped+normalized
 /// image straight into `dst` in one pass. Used when `OpcodeList3` is absent
@@ -452,9 +643,20 @@ fn crop_and_orient_from_active_into(
 }
 
 /// Develop the sensor plane [`crate::plane::unpack_into`] produced into the
-/// image a consumer would display: levels normalized, `OpcodeList3`'s
-/// `WarpRectilinear` geometric correction applied (`SPEC-018`), then the
-/// three-stage crop applied and oriented.
+/// image a consumer would display: `OpcodeList1`'s `FixBadPixelsConstant`
+/// defect correction applied to the raw plane FIRST (`SPEC-017`), levels
+/// normalized, `OpcodeList3`'s `WarpRectilinear` geometric correction
+/// applied (`SPEC-018`), then the three-stage crop applied and oriented.
+///
+/// ⚠ **`FixBadPixelsConstant` runs before normalization, not after.** DNG
+/// 1.7.0.0 Chapter 7: `OpcodeList1` opcodes act on the raw plane in its own
+/// value range (`Constant` is a raw sample value, e.g. `0` on every Q2M
+/// frame — nowhere near the normalized `[0, 65535]` range `WhiteLevel`
+/// would otherwise scale it into). `docs/measured-q2m-dng.md` line 44 states
+/// the same order. See [`apply_fix_bad_pixels_constant`]'s own doc for the
+/// replacement rules, and this module's own doc ("Allocation — amended
+/// again by `SPEC-017`") for why a real `OpcodeList1` costs one internal
+/// full-plane-sized copy.
 ///
 /// ⚠ **Pipeline order, corrected from `SPEC-018`'s own design-time
 /// assumption.** `SPEC-018`'s own design pass stated "OpcodeList3
@@ -525,6 +727,10 @@ fn crop_and_orient_from_active_into(
 /// - [`Error::UnsupportedOrientation`] if `Orientation` is present and
 ///   outside `1..=8`.
 /// - [`Error::InvalidLevels`] if `BlackLevel >= WhiteLevel`.
+/// - Whatever [`crate::opcode::parse_fix_bad_pixels_constant`] or
+///   [`apply_fix_bad_pixels_constant`] return, if `OpcodeList1` is present
+///   — including [`Error::UnsupportedMandatoryOpcode`] if the list carries a
+///   DIFFERENT, unrecognized mandatory opcode (`AC6`).
 /// - Whatever [`crate::opcode::parse_warp_rectilinear`] or
 ///   [`crate::warp::apply_warp_into`] return, if `OpcodeList3` is present.
 pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
@@ -572,6 +778,43 @@ pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(),
         });
     }
 
+    // `OpcodeList1`'s `FixBadPixelsConstant` (`SPEC-017`) runs FIRST, on the
+    // raw plane, before levels normalize (module docs, "Pipeline order" /
+    // "Amended again by SPEC-017"). `parse_fix_bad_pixels_constant` propagates
+    // `Error::UnsupportedMandatoryOpcode` for any DIFFERENT unrecognized
+    // mandatory opcode in the same list (`AC6`) — no second dispatch layer
+    // needed here, `src/opcode.rs::parse_opcode_list` already refuses to
+    // silently drop one.
+    let fix_bad_pixels_constant = match &sensor.opcode_list_1 {
+        Some(bytes) => crate::opcode::parse_fix_bad_pixels_constant(bytes)?,
+        None => None,
+    };
+    let mut fixed_plane: Option<Vec<u16>> = None;
+    if let Some(constant) = fix_bad_pixels_constant {
+        let mut plane = src.to_vec();
+        let fix_active_area = ActiveArea {
+            top: geometry.active_top,
+            left: geometry.active_left,
+            bottom: geometry
+                .active_top
+                .checked_add(geometry.active_height)
+                .unwrap_or(sensor.height),
+            right: geometry
+                .active_left
+                .checked_add(geometry.active_width)
+                .unwrap_or(sensor.width),
+        };
+        apply_fix_bad_pixels_constant(
+            &mut plane,
+            sensor.width,
+            sensor.height,
+            fix_active_area,
+            constant,
+        )?;
+        fixed_plane = Some(plane);
+    }
+    let effective_src: &[u16] = fixed_plane.as_deref().unwrap_or(src);
+
     let warp = match &sensor.opcode_list_3 {
         Some(bytes) => crate::opcode::parse_warp_rectilinear(bytes)?,
         None => None,
@@ -580,7 +823,7 @@ pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(),
 
     match warp {
         None => {
-            crop_orient_normalize_into(sensor, &geometry, black, white, src, dst);
+            crop_orient_normalize_into(sensor, &geometry, black, white, effective_src, dst);
         }
         Some(warp) => {
             let active_len = u64::from(geometry.active_width)
@@ -596,7 +839,7 @@ pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(),
                 &geometry,
                 black,
                 white,
-                src,
+                effective_src,
                 &mut active_normalized,
             );
 
@@ -649,6 +892,7 @@ mod tests {
             default_crop_size: None,
             orientation: None,
             opcode_lists: [false, false, false],
+            opcode_list_1: None,
             opcode_list_3: None,
             malformed_tags: vec![],
         }

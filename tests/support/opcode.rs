@@ -83,6 +83,17 @@ pub fn single_warp_rectilinear_list(
     opcode_list(&[raw_opcode(1, 0x0104_0000, flags, &params)])
 }
 
+/// A complete `OpcodeList` byte stream carrying exactly one
+/// `FixBadPixelsConstant` opcode (`OpcodeID` 4) with the given `flags` — the
+/// shape every real Q2M `OpcodeList1` takes (`flags = 0`: mandatory,
+/// confirmed against all three decodable frames, `SPEC-017`).
+pub fn single_fix_bad_pixels_constant_list(constant: u32, bayer_phase: u32, flags: u32) -> Vec<u8> {
+    let mut params = Vec::new();
+    params.extend_from_slice(&constant.to_be_bytes());
+    params.extend_from_slice(&bayer_phase.to_be_bytes());
+    opcode_list(&[raw_opcode(4, 0x0103_0000, flags, &params)])
+}
+
 /// Load a committed hex fixture from `tests/oracle-fixtures/<name>.hex`
 /// (e.g. `opcodelist3-L1021223`) — the exact `OpcodeList3` bytes read
 /// straight from the real file with `exiftool -b -OpcodeList3` (AGENTS.md §12
@@ -150,6 +161,46 @@ pub fn fuzz_seed_corpus() -> Vec<(&'static str, Vec<u8>)> {
         "unknown-mandatory-opcode",
         opcode_list(&[raw_opcode(0xDEAD_BEEF, 0x0104_0000, 0, &[1, 2, 3, 4])]),
     ));
+
+    seeds
+}
+
+/// The `opcode` fuzz target's seed corpus (`SPEC-017`) — the real 28-byte
+/// `OpcodeList1` payload (byte-identical across all three decodable Q2M
+/// frames, `tests/oracle-fixtures/opcodelist1-q2m.hex`) plus the three
+/// hand-crafted adversarial variants pre-registered in `SPEC-017`'s `##
+/// Implementation Context`. Shared by `tests/opcode.rs`'s smoke test and
+/// `examples/fuzz-seeds.rs`'s `fuzz/seeds/opcode/` writer, so the two can
+/// never drift apart (same pattern as `fuzz_seed_corpus` above, `SPEC-018`).
+pub fn fix_bad_pixels_fuzz_seed_corpus() -> Vec<(&'static str, Vec<u8>)> {
+    let mut seeds: Vec<(&'static str, Vec<u8>)> =
+        vec![("opcodelist1-q2m", load_hex_fixture("opcodelist1-q2m"))];
+
+    // Truncated header: count says "one opcode" (1), but only the OpcodeID
+    // follows (4) -- no version/flags/size/params.
+    let mut truncated_header = Vec::new();
+    truncated_header.extend_from_slice(&1u32.to_be_bytes());
+    truncated_header.extend_from_slice(&4u32.to_be_bytes());
+    seeds.push(("truncated-header", truncated_header));
+
+    // Unknown opcode ID 99 (0x63) with Flags = 0 (mandatory) -- the
+    // FixBadPixelsList-flavoured shape SPEC-017's Implementation Context
+    // pre-registers.
+    seeds.push((
+        "unknown-mandatory-opcode",
+        opcode_list(&[raw_opcode(99, 0x0100_0000, 0, &[0xDE, 0xAD, 0xBE, 0xEF])]),
+    ));
+
+    // Length overflow: DataSize = 0xFFFFFFFF on an otherwise well-formed
+    // header, with NO parameter bytes actually following -- the parser must
+    // reject this on the bounds check rather than allocate 4 GB.
+    let mut length_overflow = Vec::new();
+    length_overflow.extend_from_slice(&1u32.to_be_bytes()); // count
+    length_overflow.extend_from_slice(&4u32.to_be_bytes()); // OpcodeID 4
+    length_overflow.extend_from_slice(&0x0103_0000u32.to_be_bytes()); // DNG version
+    length_overflow.extend_from_slice(&0u32.to_be_bytes()); // Flags: mandatory
+    length_overflow.extend_from_slice(&0xFFFF_FFFFu32.to_be_bytes()); // DataSize
+    seeds.push(("length-overflow", length_overflow));
 
     seeds
 }

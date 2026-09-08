@@ -146,6 +146,7 @@ fn decode_and_develop(
         .sensor()
         .unwrap_or_else(|e| panic!("sensor {path}: {e}"));
     let sensor_no_warp = Sensor {
+        opcode_list_1: None,
         opcode_list_3: None,
         ..sensor.clone()
     };
@@ -216,6 +217,7 @@ fn minimal_sensor(width: u32) -> Sensor {
         default_crop_size: None,
         orientation: None,
         opcode_lists: [false, false, false],
+        opcode_list_1: None,
         opcode_list_3: None,
         malformed_tags: vec![],
     }
@@ -649,6 +651,7 @@ fn main() {
         default_crop_size: None,
         orientation: Some(6),
         opcode_lists: [false, false, false],
+        opcode_list_1: None,
         opcode_list_3: None,
         malformed_tags: vec![],
     };
