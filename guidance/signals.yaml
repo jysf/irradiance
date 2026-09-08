@@ -805,6 +805,58 @@ signals:
       three review rounds. Related: [measurement-over-generalised] (one shape is
       not a boundary) and [named-tests-can-pass-vacuously].
 
+  - id: handback-sync-treats-hash-as-comment-in-unquoted-notes
+    type: process-debt
+    summary: "handback-sync silently truncates notes: at the first bare `#` character, treating it as a YAML comment marker even though the whole value was meant as prose."
+    evidence: "N=1, filed 2026-09-07. SPEC-018 HANDOFF-046 round-1 build handback wrote notes: 12/14 ACs green; AC8/AC9 #[ignore]d — dnglab/rawler implement no DNG opcode processing at all (DEC-024), so SPEC-020's oracle cannot validate WarpRectilinear in either direction. handback-sync transcribed this into cost.sessions[build].notes but the archived value reads only `12/14 ACs green; AC8/AC9` — everything after the bare `#` (unquoted string), including the entire finding about the broken oracle, dropped silently. Round-2 verify (HANDOFF-047 FU-5) caught it. Sibling of handback-sync-truncates-multi-line-scalars: same script, same line-oriented extraction, different YAML corner case. Round-2 build fix was to require `notes:` be double-quoted in HANDOFF-046 going forward, but the round-1 archived entry remains truncated in cost.sessions and the tooling is unchanged."
+    bar: 3
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-09-07
+    last_touched: 2026-09-07
+    raised_by: claude
+    notes: |
+      Same fix as [[handback-sync-truncates-multi-line-scalars]]: emit a
+      block scalar or double-quote the value in the sync output. A YAML parse
+      on write would catch both.
+
+  - id: dnglab-source-reading-tempts-behavior-check
+    type: process-debt
+    summary: "When behavior-check evidence for a foreign implementation is available (behavioural probe, source inspection), builds default to source inspection even though the repo forbids reading copyleft code for anything in the default build."
+    evidence: "N=1, filed 2026-09-07. SPEC-018 HANDOFF-046 round-1 build's Finding 2 (dnglab does not implement DNG OpcodeList processing) was reached by reading dnglab source directly. HANDOFF-047 round-1 verify recognised the tension with provenance-recorded-per-algorithm and re-verified behaviourally instead (NCC-tile analysis against dnglab --srgb output, invariant to affine tone changes) — same conclusion, no copyleft-source reading. AGENTS.md §15 says dnglab's source is not a reference; the constraint is a hard rule for the default build but the discipline for feature-presence questions like Finding 2 was not codified before this instance. FU-9 raised at round-1 verify, dispositioned to signal at ship."
+    bar: 3
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-09-07
+    last_touched: 2026-09-07
+    raised_by: claude
+    notes: |
+      Fix candidate: an explicit rule in AGENTS.md — "feature-presence
+      questions about a copyleft implementation are settled by behavioural
+      probe, not source inspection." The verifier's NCC-tile method is the
+      pattern to codify.
+
+  - id: handback-sync-inherits-stale-to-agent-across-punch-list-rounds
+    type: process-debt
+    summary: "handback-sync reads handoff.to_agent from the SAME handoff file for every round of a punch-list, so the actual model that ran a later round is mis-attributed in cost.sessions when the sub-agent tier changes."
+    evidence: "N=2, filed 2026-09-07 (2 rounds of the same defect). SPEC-018 HANDOFF-046 round 2 and round 3 both ran on claude-opus-5 (per each round's own handback and independent transcript verification — 97 metered messages round 2, 51 round 3, priced at Opus rates in each handback), but scripts/handback-sync.sh reads to_agent from the handoff file, which was set to claude-sonnet-5 at round-1 dispatch and never updated. Result: both round-2 and round-3 build entries in cost.sessions[build] carry agent: claude-sonnet-5, mis-attributing 19.9M Opus tokens (~$50 at published rates) to a Sonnet-tier session. Just calibration reads these fields; the mis-attribution therefore reaches the token-per-cycle statistics silently. Round-2 verify (HANDOFF-048 FU-11) raised it and round-3 build explicitly flagged that its own entry would land the same way."
+    bar: 2
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-09-07
+    last_touched: 2026-09-07
+    raised_by: claude
+    notes: |
+      At bar (N=2, same session). Two fix candidates:
+
+      1. handback-sync snapshots to_agent per-round when it appends a new
+         cost.sessions entry, reading the value at the time the handback was
+         written rather than the current file state.
+      2. Punch-list rounds get their own HANDOFF, not a reuse of the round-1
+         file — that would fix this and several related bookkeeping issues
+         (a handback edited between syncs, a to_agent that becomes stale, a
+         round that runs on a different tier).
+
   - id: handback-sync-truncates-multi-line-scalars
     type: process-debt
     summary: "handback-sync transcribes only the FIRST physical line of a multi-line YAML scalar, leaving an unterminated quote that makes a spec's whole front matter unparseable — and every gate passes anyway."
