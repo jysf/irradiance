@@ -6,7 +6,7 @@
 task:
   id: SPEC-017
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
                                    # ⚠ RAISED from the frame stub's `medium`.
@@ -103,11 +103,19 @@ cost:
   # If it lands near 90M, the OpcodeList parser turned out to be more work
   # than "the smallest possible parser" implies — a signal SPEC-018's
   # tokens_estimate (130M) should be re-examined.
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-sonnet-5
+      interface: other
+      tokens_total: 570000
+      estimated_usd: 4.10
+      duration_minutes: 90
+      recorded_at: 2026-09-07
+      notes: "AC5 measured HIT=0 on all 3 Q2M frames (SB-1, real finding); AC1-4/6/8/9 green, AC7 green; SPEC-018 landed opcode.rs first, extended it; see handback narrative"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 570000
+    estimated_usd: 4.10
+    session_count: 1
 ---
 
 # SPEC-017: FixBadPixelsConstant opcode

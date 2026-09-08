@@ -49,5 +49,15 @@ Cycle prompts live in `prompts/SPEC-017-<cycle>.md`.
   PDF directly during build. Pushed as `cd82ca8`; CI run `34191738033`
   completed/success, 11/11 jobs green (including the new `fuzz smoke
   — opcode (60s)` job).
-- [ ] **verify** — ready to start; SB-1/FU-1/FU-2 await disposition.
-- [ ] **ship** — awaits verify.
+- [~] **verify** — `HANDOFF-050` dispatched 2026-09-07 via
+  `prompts/SPEC-017-verify.md`. Judges the three build-raised findings:
+  SB-1 (all three Q2M frames measure HIT = 0 — verifier independently
+  reads raw plane bytes to confirm; if 0 samples equal `Constant`, SB-1
+  downgrades to FU-N with disposition = spec-amendment or closed with
+  reason; if > 0 with applier returning 0, real code bug and SB-1
+  stands); FU-1 (AC3's Flags=0 case adapted to Flags=1 inline; confirm
+  documentation is clear); FU-2 (dnglab ignores Orientation — same
+  species as SPEC-018/FU-6, judge whether it re-instances or is
+  materially different). Standard 12 bars.
+- [ ] **ship** — awaits verify. If SB-1 downgrades, all three findings
+  are FU-N and ship disposes them. If SB-1 stands, round-2 build.

@@ -61,7 +61,7 @@ handback:
   pr: null
   completed_at: 2026-09-07
   notes: "AC5 measured HIT=0 on all 3 Q2M frames (SB-1, real finding); AC1-4/6/8/9 green, AC7 green; SPEC-018 landed opcode.rs first, extended it; see handback narrative"
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-09-07
 ---
 
 # HANDOFF-044: Build SPEC-017 — FixBadPixelsConstant opcode
