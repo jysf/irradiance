@@ -373,9 +373,16 @@ Every one green:
 - `./scripts/cost-audit-red-proof.sh`: pass (pre-existing gate, unaffected).
 - `just fuzz-opcode` (60s): **13,696,114 runs, 0 crashes.**
 
-**Return Criteria 3 — push and CI.** Not yet done as of this handback
-being written; will push this branch and report the SHA/run id/job count
-next.
+**Return Criteria 3 — push and CI.** Pushed as `cd82ca86f065a12592c8804c31357596e89d738d`
+(`cc129d6..cd82ca8`). CI run `34191738033`: **`completed` / `success`,
+11/11 jobs green**, including the new `rust / fuzz smoke — opcode (60s)`
+job this build added (`.github/workflows/ci.yml`) — `cost-capture audit`,
+`rust / fmt --check`, `rust / license policy (cargo-deny)`, `rust /
+license policy — fuzz graph (cargo-deny)`, `rust / test`, `rust / lint
+policy red-proof (must fail red)`, `rust / fuzz smoke — warp_opcode
+(60s)`, `rust / panic-free policy — no #[allow] escape (--lib)`, `rust /
+MSRV (1.90.0)`, `rust / clippy -D warnings`, `rust / fuzz smoke — opcode
+(60s)`. Observed via `gh run view 34191738033`, not self-reported.
 
 **Return Criteria 4 — AC8 red-proof, watched.** `DEC-017`'s mutate-copy-
 rebuild-run mechanism (own copy in `tests/develop.rs`, mirroring

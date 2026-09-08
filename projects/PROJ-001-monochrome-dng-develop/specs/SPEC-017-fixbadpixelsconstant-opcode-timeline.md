@@ -46,6 +46,8 @@ Cycle prompts live in `prompts/SPEC-017-<cycle>.md`.
   corrected: `FixBadPixelsConstant` is DNG 1.7.0.0 **Chapter 7**
   "Opcode List Processing" (p.95), not Chapter 6 as this handoff and
   the spec both said — verified against the published DNG 1.6.0.0
-  PDF directly during build.
-- [ ] **verify** — awaits build's push + CI.
+  PDF directly during build. Pushed as `cd82ca8`; CI run `34191738033`
+  completed/success, 11/11 jobs green (including the new `fuzz smoke
+  — opcode (60s)` job).
+- [ ] **verify** — ready to start; SB-1/FU-1/FU-2 await disposition.
 - [ ] **ship** — awaits verify.
