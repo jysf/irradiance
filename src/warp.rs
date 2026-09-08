@@ -50,9 +50,16 @@
 //! invitation to choose when it is silent: **clamp-to-edge** — the sampled
 //! coordinate is clamped into `[0, width-1] x [0, height-1]` before
 //! interpolation, so an out-of-extent pixel repeats its nearest edge pixel.
-//! The alternatives (zero-fill, error) are recorded in the kernel-choice
-//! decision, `DEC-024` (`AC11`) — which records no per-frame oracle scores,
-//! for the reason the Kernel section below states.
+//! The rule rests on §6.4.1's silence, searched above, plus `AC7` — the
+//! acceptance criterion that pre-registered it — and not on any weighing of
+//! candidates. `DEC-024` records the choice in a single Consequences
+//! "Neutral" line: clamp-to-edge, on simplicity and determinism grounds,
+//! pinned by `AC7`'s test. It records no alternative against it; its
+//! "Alternatives Considered" (Options A, B, C) is entirely kernel and oracle
+//! threshold. `DEC-024` does record measured oracle scores — `AC8` is
+//! **-60.169** on `L1021223.DNG` — and those measurements are what
+//! established that the oracle cannot validate this stage at all, for the
+//! reason the Kernel section below states.
 //!
 //! # Kernel — bilinear (pre-registered rule, `## The design decision this
 //! spec rests on`)
