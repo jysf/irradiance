@@ -68,12 +68,25 @@ Cycle prompts live in `prompts/SPEC-017-<cycle>.md`.
   FU-5 provenance row placement, FU-6 peak-RSS ledger drift, FU-7
   in-place neighbour semantics, FU-8 stale AC text, FU-9 tokens_total
   method inconsistency) dispositioned at ship.
-- [~] **build (round 2, punch-list)** — dispatched 2026-09-08 via
-  `prompts/SPEC-017-rebuild.md`. TIGHT scope: extend
-  `develop_output_is_bit_identical_across_two_runs` (AC9's test) with
-  a centre-pixel assertion that turns red under the `effective_src =
-  src` mutation verifier documented. No new handoff minted (matches
-  PATCH-003's round-2 pattern); handback appended to HANDOFF-044 as
-  round 2. FUs 1-9 stay open for ship.
-- [ ] **verify (round 2)** — awaits round-2 build. Fresh handoff
-  confirms SB-2 closed cleanly and no new SB introduced by the diff.
+- [x] **build (round 2, punch-list)** — completed 2026-09-08 at ship
+  SHA `6e4376b` (bookkeeping tip `759f200`). HANDOFF-044 round-2
+  handback: 9,026,059 tokens on claude-opus-5 ($ per-component + 20%
+  uplift), to_agent correctly verified before handback-sync (FU-11
+  discipline holding for the second round). SB-2 closed by extending
+  `develop_output_is_bit_identical_across_two_runs` with a
+  centre-pixel assertion at `tests/develop.rs:594-599`
+  (`dst1[2 * 5 + 2] == 1000`). Red-proof: sever `effective_src → src`
+  in src/develop.rs (md5 b3b922d0 → 1c4f4e34, compiles), assertion
+  turns red at :594 with "left: 0 / right: 1000"; reverted, tree
+  byte-identical, green. Suite 231/0/3 → 230/1/3 under mutation.
+  Note: round-1 verify's md5 (548e240f) not reproducible from the
+  edit text recorded — semantic mutation is same, exact edit differs.
+  Round-2 build also flagged (courtesy) that the applier is in
+  src/develop.rs not src/opcode.rs — FU-5 from round-1 already
+  covers this split. CI 11/11 green on both SHAs. FUs 1-9 remain
+  open.
+- [~] **verify (round 2)** — `HANDOFF-051` dispatched 2026-09-08 via
+  `prompts/SPEC-017-reverify.md`. VERY tight scope: reproduce the
+  SB-2 red-proof semantically (mutation md5 need not match), check
+  no new SB introduced by the diff, confirm src/ untouched. Round-1
+  findings and FU-1..9 out of scope.
