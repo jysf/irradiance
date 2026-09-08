@@ -49,15 +49,31 @@ Cycle prompts live in `prompts/SPEC-017-<cycle>.md`.
   PDF directly during build. Pushed as `cd82ca8`; CI run `34191738033`
   completed/success, 11/11 jobs green (including the new `fuzz smoke
   — opcode (60s)` job).
-- [~] **verify** — `HANDOFF-050` dispatched 2026-09-07 via
-  `prompts/SPEC-017-verify.md`. Judges the three build-raised findings:
-  SB-1 (all three Q2M frames measure HIT = 0 — verifier independently
-  reads raw plane bytes to confirm; if 0 samples equal `Constant`, SB-1
-  downgrades to FU-N with disposition = spec-amendment or closed with
-  reason; if > 0 with applier returning 0, real code bug and SB-1
-  stands); FU-1 (AC3's Flags=0 case adapted to Flags=1 inline; confirm
-  documentation is clear); FU-2 (dnglab ignores Orientation — same
-  species as SPEC-018/FU-6, judge whether it re-instances or is
-  materially different). Standard 12 bars.
-- [ ] **ship** — awaits verify. If SB-1 downgrades, all three findings
-  are FU-N and ship disposes them. If SB-1 stands, round-2 build.
+- [x] **verify (round 1)** — completed 2026-09-08, `⚠ PUNCH LIST` at
+  ship SHA `cd82ca8`. HANDOFF-050 handback: 27,235,932 tokens on
+  claude-opus-5 ($65.83, 30 min), to_agent CORRECTLY verified before
+  handback-sync (second spec where FU-11 discipline holds). SB-1
+  DOWNGRADED to FU-3 with mechanical evidence: verifier wrote a C
+  14-bit unpacker from the DNG packing rule and reproduced `irr unpack`
+  independently — ZERO zeros inside ActiveArea on all three frames,
+  whole-plane minima 2/30/2. Applier is correct; AC5's "small but
+  positive" assumption was wrong. **SB-2 NEW, ship-blocking:** nothing
+  asserts `develop_into` USES the fixed plane — mirrors SPEC-018/SB-1
+  exactly. Severing `effective_src → src` (md5 `b3b922d0` → `548e240f`)
+  compiles, leaves 231/0/3 green, and the mutant AC7 passes with delta
+  +0.000 on both comparable frames because HIT=0 makes before/after
+  bit-identical. Direct hit on STAGE-003's "assert branch HIT, not
+  merely image unchanged". One-line fix pre-registered by verifier.
+  All four repo-specific bars pass; several FUs (FU-4 false rustdoc,
+  FU-5 provenance row placement, FU-6 peak-RSS ledger drift, FU-7
+  in-place neighbour semantics, FU-8 stale AC text, FU-9 tokens_total
+  method inconsistency) dispositioned at ship.
+- [~] **build (round 2, punch-list)** — dispatched 2026-09-08 via
+  `prompts/SPEC-017-rebuild.md`. TIGHT scope: extend
+  `develop_output_is_bit_identical_across_two_runs` (AC9's test) with
+  a centre-pixel assertion that turns red under the `effective_src =
+  src` mutation verifier documented. No new handoff minted (matches
+  PATCH-003's round-2 pattern); handback appended to HANDOFF-044 as
+  round 2. FUs 1-9 stay open for ship.
+- [ ] **verify (round 2)** — awaits round-2 build. Fresh handoff
+  confirms SB-2 closed cleanly and no new SB introduced by the diff.
