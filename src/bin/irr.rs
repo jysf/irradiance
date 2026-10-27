@@ -24,13 +24,18 @@
 //!   "maximum resident set size" for the whole process, caller's buffer
 //!   included — see `docs/provenance-ledger.md`'s `src/plane.rs` row for the
 //!   measured number.
-//! - `irr develop <file>` — unpack, then normalize levels and apply the
-//!   `ActiveArea` -> `DefaultCrop` -> `Orientation` geometry (`SPEC-014`,
-//!   `DEC-018`/`DEC-019`), and print the resolved geometry plus the
-//!   developed min/max. This is the surface `SPEC-014` acceptance criterion
-//!   7's peak-RSS measurement runs through — see `docs/provenance-ledger.md`'s
-//!   `src/develop.rs` row for the measured number, which is TWO buffers now
-//!   (the raw plane AND the developed image), unlike `irr unpack`'s one.
+//! - `irr develop [--format linear-f32|srgb16|srgb8] <file>` — unpack, then
+//!   normalize levels and apply the `ActiveArea` -> `DefaultCrop` ->
+//!   `Orientation` geometry (`SPEC-014`, `DEC-018`/`DEC-019`), then encode the
+//!   developed scene-linear `u16` image into the chosen output representation
+//!   (`SPEC-019`, `DEC-025`; default `srgb8`), printing the resolved geometry,
+//!   the developed min/max, and the encoded head/min/max. The `--format` flag
+//!   is the **reader** that keeps all three `tone` modes from being unread
+//!   (AGENTS.md §11, `AC9`). This is also the surface `SPEC-014` acceptance
+//!   criterion 7's peak-RSS measurement runs through — see
+//!   `docs/provenance-ledger.md`'s `src/develop.rs` row for the measured
+//!   number, which is TWO buffers now (the raw plane AND the developed image),
+//!   unlike `irr unpack`'s one.
 //!
 //! `irr ifd`/`irr unpack`/`irr develop` read a file, which the library never
 //! does — the library takes bytes. The I/O is here, on purpose, and stays
@@ -46,7 +51,8 @@ irr — irradiance's internal dev/oracle binary
 usage:
   irr ifd     [--entries] <file>   walk the TIFF/IFD container and report the sensor plane
   irr unpack  <file>               unpack the sensor plane and report samples/min/max
-  irr develop <file>               unpack, normalize levels, apply the crop and orientation
+  irr develop [--format linear-f32|srgb16|srgb8] <file>
+                                   unpack, develop, then encode (default srgb8)
 ";
 
 fn main() -> ExitCode {
@@ -259,7 +265,27 @@ fn cmd_unpack(args: &[&str]) -> ExitCode {
 }
 
 fn cmd_develop(args: &[&str]) -> ExitCode {
-    let Some(path) = args.first().copied() else {
+    // `--format <mode>` picks the SPEC-019 output encoder; default `srgb8`.
+    let mut format = "srgb8";
+    let mut path = None;
+    let mut rest = args.iter().copied();
+    while let Some(arg) = rest.next() {
+        match arg {
+            "--format" => match rest.next() {
+                Some(value) => format = value,
+                None => {
+                    eprintln!("irr develop: --format needs a value\n\n{USAGE}");
+                    return ExitCode::FAILURE;
+                }
+            },
+            other => path = Some(other),
+        }
+    }
+    if !matches!(format, "linear-f32" | "srgb16" | "srgb8") {
+        eprintln!("irr develop: unknown --format {format:?} (want linear-f32|srgb16|srgb8)\n\n{USAGE}");
+        return ExitCode::FAILURE;
+    }
+    let Some(path) = path else {
         eprintln!("irr develop: expected a file\n\n{USAGE}");
         return ExitCode::FAILURE;
     };
@@ -329,6 +355,44 @@ fn cmd_develop(args: &[&str]) -> ExitCode {
     println!("max             {max}");
     println!("raw_plane_bytes {}", plane.len() * 2);
     println!("developed_bytes {}", developed.len() * 2);
+
+    // SPEC-019: encode the developed scene-linear `u16` into the chosen output
+    // representation and report it, so every `tone` mode has a reader (AC9).
+    // The `expect`s are fine here (dev/oracle binary; the buffers are sized to
+    // `developed.len()`, so the encoders cannot return a length mismatch).
+    println!("format          {format}");
+    match format {
+        "linear-f32" => {
+            let mut out = vec![0f32; developed.len()];
+            irradiance::tone::to_linear_f32_into(&developed, &mut out).expect("length matches");
+            let head: Vec<f32> = out.iter().take(8).copied().collect();
+            let omin = out.iter().copied().fold(f32::INFINITY, f32::min);
+            let omax = out.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            println!("encoded[0..8]   {head:?}");
+            println!("encoded_min     {omin}");
+            println!("encoded_max     {omax}");
+            println!("encoded_bytes   {}", out.len() * 4);
+        }
+        "srgb16" => {
+            let mut out = vec![0u16; developed.len()];
+            irradiance::tone::encode_srgb16_into(&developed, &mut out).expect("length matches");
+            let head: Vec<u16> = out.iter().take(8).copied().collect();
+            println!("encoded[0..8]   {head:?}");
+            println!("encoded_min     {}", out.iter().min().copied().unwrap_or(0));
+            println!("encoded_max     {}", out.iter().max().copied().unwrap_or(0));
+            println!("encoded_bytes   {}", out.len() * 2);
+        }
+        // Validated to be one of the three above; `srgb8` is the remaining case.
+        _ => {
+            let mut out = vec![0u8; developed.len()];
+            irradiance::tone::encode_srgb8_into(&developed, &mut out).expect("length matches");
+            let head: Vec<u8> = out.iter().take(8).copied().collect();
+            println!("encoded[0..8]   {head:?}");
+            println!("encoded_min     {}", out.iter().min().copied().unwrap_or(0));
+            println!("encoded_max     {}", out.iter().max().copied().unwrap_or(0));
+            println!("encoded_bytes   {}", out.len());
+        }
+    }
 
     ExitCode::SUCCESS
 }

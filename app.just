@@ -227,6 +227,21 @@ fuzz-opcode seconds="60":
 fuzz-seeds:
     cargo run --quiet --all-features --example fuzz-seeds
 
+# Regenerate the committed sRGB OETF encode tables (src/tone_table.rs) from the
+# sRGB OETF (IEC 61966-2-1), SPEC-019. Mirrors `fuzz-seeds`: an example + a
+# recipe regenerate committed data from its source of truth. `powf` runs HERE
+# only; the library is table-driven and calls no transcendental on the encode
+# path (AC4). Each array is `#[rustfmt::skip]`, so the generator's 16-per-line
+# layout is the format of record and `cargo fmt --check` leaves it alone.
+# `git diff --exit-code` is the AC7 "reproduces with no diff" proof, on the
+# maintainer's machine; cross-platform byte-identity is pinned by the committed
+# const data + the anchor test, NOT by re-running powf in CI (powf can differ in
+# the last bit — the analytic oracle's ±1 tolerance in tests/tone_oracle.rs
+# absorbs that).
+gen-tone-table:
+    cargo run --quiet --all-features --example gen-tone-table
+    git diff --exit-code -- src/tone_table.rs
+
 # The MSRV gate (rust-version = "1.90" in Cargo.toml).
 #
 # ⚠ The `~/.cargo/bin/` prefix is load-bearing — this is the THIRD instance of
