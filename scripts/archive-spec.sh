@@ -131,9 +131,24 @@ fi
 # `## Spec Backlog` may still list unwritten specs, and we can't
 # reliably read that list (it's manually maintained markdown).
 if [ -n "$STAGE_ID" ]; then
-    REMAINING=$(find "$SPEC_DIR" -maxdepth 1 -name "SPEC-*.md" 2>/dev/null \
-                | xargs -I{} awk -v sid="$STAGE_ID" '/^---$/{f=!f; next} f && /^[[:space:]]+stage:/ && $2 == sid {print FILENAME; exit}' {} \
-                | wc -l | tr -d ' ')
+    # Count active specs whose front-matter `stage:` is this stage. A plain
+    # shell loop replaces `find … | xargs -I{} awk … {}`, which errored at
+    # ship time with BSD xargs' "command line cannot be assembled, too long"
+    # — its -I per-invocation line budget is small and version-dependent.
+    # Because this is the script's last block under `set -euo pipefail`, that
+    # non-zero xargs aborted the whole script after the archive already
+    # succeeded. The loop has no such limit and needs no `{}` placeholder.
+    REMAINING=0
+    while IFS= read -r spec; do
+        [ -n "$spec" ] || continue
+        if awk -v sid="$STAGE_ID" '
+                /^---$/ { f = !f; next }
+                f && /^[[:space:]]+stage:/ && $2 == sid { found = 1; exit }
+                END     { exit(found ? 0 : 1) }
+            ' "$spec"; then
+            REMAINING=$((REMAINING + 1))
+        fi
+    done < <(find "$SPEC_DIR" -maxdepth 1 -name "SPEC-*.md" 2>/dev/null)
     if [ "$REMAINING" = "0" ]; then
         echo ""
         echo "${GREEN}No active specs remain for ${STAGE_ID}.${RESET}"
