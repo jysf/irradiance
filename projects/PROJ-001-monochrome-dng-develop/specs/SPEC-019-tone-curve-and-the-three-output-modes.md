@@ -6,7 +6,7 @@
 task:
   id: SPEC-019
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -52,6 +52,13 @@ cost:
       estimated_usd: null
       recorded_at: 2026-10-26
       notes: "main-loop, not separately metered (design); real-file probe + spec + handoff + build prompt"
+    - cycle: build
+      interface: claude-code
+      tokens_total: 41313385
+      duration_minutes: 25
+      estimated_usd: 105.42
+      recorded_at: 2026-10-26
+      notes: "HANDOFF-052; summed from this session's Claude Code transcript (in+out+cache-create+cache-read, 165 usage records); USD at per-category Opus list rates (in $15/out $75/cache-write $18.75/cache-read $1.50 per Mtok); see handback"
   totals:
     tokens_total: 0
     estimated_usd: 0

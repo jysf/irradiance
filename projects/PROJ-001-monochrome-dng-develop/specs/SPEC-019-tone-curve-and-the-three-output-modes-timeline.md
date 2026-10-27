@@ -13,10 +13,15 @@ Cycle prompts live in `prompts/SPEC-019-<cycle>.md`.
   encode layer over `develop_into` (`DEC-018` not reopened). Spec + 10 ACs +
   Failing Tests written; `HANDOFF-052` (build) minted; `prompts/SPEC-019-build.md`
   written. New `DEC-025` (tone/output model) pre-specified for build to emit.
-- [ ] **build** — `HANDOFF-052`, to `claude-opus-5` (implementer). Not started.
-  Make the Failing Tests pass; add `src/tone.rs` + committed generated table +
-  `examples/gen-tone-table.rs` + `tests/tone_oracle.rs`; `irr develop --format`
-  reader; provenance row; emit `DEC-025`. `just lint-ci` before every push.
+- [x] **build** — 2026-10-26, `HANDOFF-052`. PR
+  [#18](https://github.com/jysf/irradiance/pull/18) against `main` from
+  `claude/spec-019-tone-curve-13488a`. All 10 ACs met: `src/tone.rs` (three
+  encoders) + committed generated `src/tone_table.rs` + `examples/gen-tone-table.rs`
+  + `just gen-tone-table` + `tests/tone_oracle.rs` (analytic ±1 oracle, red-proof
+  observed red with green control) + `irr develop --format` reader + provenance
+  row + `DEC-025`. `just lint-ci`/`lint-no-allow`/`test`/`deny`/`deny-fuzz`/`msrv`
+  green locally; CI observed on the shipping SHA. Build cost ~41.3M tokens
+  (handback). 10 tone tests confirmed run (5 oracle + 5 unit).
 - [ ] **verify** — a separate agent reviews cold: analytic oracle red-proof
   actually reds, no runtime `powf`, byte-identity anchors, `develop_into`
   untouched, gates green with CI observed on the shipping SHA.
