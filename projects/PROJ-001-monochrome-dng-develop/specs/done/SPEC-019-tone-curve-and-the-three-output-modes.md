@@ -10,8 +10,8 @@ task:
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
-  verify_verdict: null             # approved | punch-list | rejected — set when it leaves verify
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
+  verify_verdict: approved         # approved | punch-list | rejected — set when it leaves verify
 
 project:
   id: PROJ-001
@@ -67,9 +67,10 @@ cost:
       recorded_at: 2026-10-27
       notes: "HANDOFF-053; summed from the verify session's Claude Code transcript (in 200/out 119,153/cache-create 490,945/cache-read 15,521,479, 100 records, all claude-opus-4-8); USD at per-category Opus list rates; transcribed by orchestrator (verifier worktree on a different branch)"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 57445162
+    estimated_usd: 146.85
+    session_count: 3
+shipped_at: 2026-10-27
 ---
 
 # SPEC-019: Tone curve and the three output modes
@@ -371,21 +372,30 @@ this one.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**, 2026-10-27.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Commit the design artifacts before cutting the build branch. Design, build
+   and verify ended up on three branches off a squashed PR, so the ship needed a
+   merge with three (resolvable) conflicts; a single shared branch would have
+   avoided it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No new decision beyond `DEC-025`. The cross-branch handback bookkeeping
+   (build handback on the PR branch, verify handback on the orchestrator's) is a
+   process wrinkle worth a signal, not a code change.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new one from this spec. STAGE-005 already carries the related debt
+   (SPEC-021 narrows the develop oracle, SPEC-022 covers the warp branch).
 
 4. **Where was the worst defect caught?** — one word:
    `design` | `build` | `verify` | `ship` | `escaped` | `none`.
-   — <one word>
+   — none
 
 5. **What can a user do now that they couldn't before?** — one sentence,
    before → after.
-   — <answer | none>
+   — Before: `develop_into` returned a dark scene-linear `u16` plane only;
+   after: a consumer encodes that into a display-ready image in three modes
+   (scene-linear f32, 16-bit sRGB, 8-bit sRGB) via a deterministic sRGB tone
+   curve — the first output a person would actually look at.

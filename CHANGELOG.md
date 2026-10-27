@@ -81,6 +81,20 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
     and confirms re-running on the unpatched bytes is clean again.
   - `just oracle-meta` runs this file alone; both tool-absence and
     corpus-absence skip loudly, naming what is missing.
+- **Tone curve and the three output modes** (`src/tone.rs`, SPEC-019). The
+  scene-linear `u16` develop result is encoded for display through a
+  **table-driven sRGB OETF** (IEC 61966-2-1): the library runs no `powf` — the
+  curve is two committed, regenerable lookup tables (`just gen-tone-table`),
+  byte-identical across platforms by construction. Three caller-owned encoders:
+  `to_linear_f32_into` (scene-linear, no curve), `encode_srgb16_into` (16-bit
+  sRGB) and `encode_srgb8_into` (8-bit sRGB); `irr develop --format` selects
+  among them. `develop_into` is unchanged — `DEC-018`'s scene-linear output
+  stands; the encoders are a composable layer on top (`DEC-025`).
+  - **Analytic tone oracle, proven red** (`oracle-must-be-shown-red`,
+    `tests/tone_oracle.rs`): every table entry is checked against the sRGB
+    formula recomputed in `f64` to within ±1 code value — independent of rawler
+    — and a deliberately perturbed entry is confirmed to turn the oracle red,
+    then reverted byte-identical.
 
 ### Known gaps
 
