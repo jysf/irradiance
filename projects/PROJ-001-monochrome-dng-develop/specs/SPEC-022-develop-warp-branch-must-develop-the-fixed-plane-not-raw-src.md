@@ -6,7 +6,7 @@
 task:
   id: SPEC-022
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design  # frame | design | build | verify | ship
   blocked: false
   priority: low                    # critical | high | medium | low
                                    #   Low: no current defect — HIT=0 on every
@@ -32,8 +32,8 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # build delegated via HANDOFF-054
+  created_at: 2026-10-27
 
 references:
   decisions: [DEC-024]             # [DEC-NNN, DEC-MMM]
@@ -67,8 +67,15 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 25000000        # build + verify; XS test-only, no punch-list expected
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-10-27
+      notes: "Design in the orchestrator main loop (un-metered; null-with-note per AGENTS.md §4). A read-only Explore subagent gathered the opcode/fixture recipe (140,152 tokens, 24 tool-uses) — the subagent's cost, not transcribed into this spec total."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -124,40 +131,126 @@ assertion stays green, then reverts byte-identical.
 
 ## Inputs
 
-What the implementer will read or consume.
+What the implementer will read or consume. (All `file:line` cites are against
+this worktree at design time; treat them as "within ±a few lines" — read the
+named function, not the exact line.)
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **`src/develop.rs`** — `develop_into`'s `Some(warp)` arm (~`:836–864`): it
+  reads `effective_src` into `normalize_active_area_into` (~`:850`), then
+  `apply_warp_into`, then `crop_and_orient_from_active_into`. `effective_src`
+  is resolved once (~`:824`) to the `FixBadPixelsConstant`-repaired plane when
+  `OpcodeList1` carries the fix, else raw `src`. **The red-proof mutates the
+  `~:850` use site** (`effective_src → src`). Also read
+  `apply_fix_bad_pixels_constant` (~`:418–499`): a sample inside the active
+  area whose value equals the `Constant` sentinel is replaced by the
+  **lower-median of its valid 3×3 neighbours**; it returns the fix count
+  (HIT), which `develop_into` discards.
+- **`tests/develop.rs`** — SPEC-017's AC9 `develop_output_is_bit_identical_across_two_runs`
+  (~`:562–615`): the **no-warp-branch** mirror of this spec. Its centre-pixel
+  assertion `dst1[2*5+2] == 1000` (~`:594`) is exactly what SPEC-022 replays
+  through the warp arm. Reuse `minimal_sensor(w,h)` (~`:60–84`).
+- **`tests/warp.rs`** — `develop_into_crops_from_the_warped_active_area_not_the_warped_crop`
+  (~`:402–540`) and `seam_sensor` (~`:318–353`): the only existing model that
+  drives `develop_into` all the way through the `Some(warp)` arm on a synthetic
+  plane. Copy its structure.
+- **`tests/support/opcode.rs`** — `single_fix_bad_pixels_constant_list`
+  (~`:90–95`) and `single_warp_rectilinear_list` (~`:74–84`). **Build the
+  opcode blobs with these helpers; do NOT hand-encode opcode bytes.**
+- **`src/warp.rs`** — `is_identity` (~`:107–109`) and `apply_warp_into`
+  (~`:221–272`): the optical-centre fixed-point property (a dest pixel at the
+  optical centre maps to that exact source pixel regardless of `kr`), bilinear
+  clamp-to-edge sampling.
+- **`decisions/DEC-024`** — why the SSIMULACRA2 oracle cannot see this stage
+  end-to-end, so analytic tier-A assertions like this one are load-bearing.
+- **`projects/PROJ-001-monochrome-dng-develop/specs/done/SPEC-017-fixbadpixelsconstant-opcode.md`**
+  — SB-2 (round 2) is the no-warp half of this exact fix; its handback
+  documents the red-proof shape (scratchpad-copy mutation, md5 pair,
+  `--no-fail-fast` suite total) to replicate here.
 
 ## Outputs
 
-What the implementer will produce.
+What the implementer will produce. This is a **test-only** spec — one new
+tier-A test plus its red-proof. No `src/` change.
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified: `tests/develop.rs`** — the new tier-A test(s) below, built
+  on `minimal_sensor` + the `opcode_support` helpers. **Choice stated, not
+  silent:** the test lives in `tests/develop.rs` (beside AC9, same helpers and
+  the same `normalize`-is-identity fixture), **not** `tests/warp.rs`. The
+  fixture is a hand-built in-code `Sensor`; **no new fixture file** (the opcode
+  bytes come from the helpers, not a committed `.hex`).
+- **No `src/` change** — the warp branch already develops `effective_src`
+  (Non-Goal below). Touching `src/develop.rs` beyond the red-proof's
+  throwaway mutation fails this spec.
+- **No new dependencies, no new `DEC-*`, no new provenance-ledger row** — the
+  `FixBadPixelsConstant` and `WarpRectilinear` algorithms this test composes
+  are already recorded (SPEC-017, SPEC-018). No new fuzz target.
+- **The red-proof is discharged and recorded in the build handback** (md5
+  before/after the `effective_src → src` sever, suite delta under mutation),
+  **not** a committed script — it is a one-shot mutation proof like SPEC-017's
+  SB-2, not a standing gate like `lint-red-proof.sh`.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
+The fixture (reused by AC1–AC4) — all values measured, not assumed:
+`minimal_sensor(5, 5)` with `black_level = Some(0)`, `white_level =
+Some(65535)` (⇒ `normalize` is the identity map), `default_crop_size =
+Some(5×5)`, no `ActiveArea` (⇒ whole 5×5 plane, optical centre at the integer
+pixel `(2, 2)`), no orientation (⇒ 1); `opcode_list_1 =
+single_fix_bad_pixels_constant_list(0, 2, 0)` (sentinel `Constant = 0`);
+`opcode_list_3 = single_warp_rectilinear_list([1.0, -0.1, 0.0, 0.0], [0.0,
+0.0], 0.5, 0.5, 1, 0)` (non-identity ⇒ the `Some(warp)` arm runs); raw plane
+`vec![1000u16; 25]` with `src[2*5+2] = 0` (one bad pixel at the optical centre).
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] **AC1 — the warp branch develops the FIXED plane.** `develop_into` on the
+      fixture (which routes through `src/develop.rs`'s `Some(warp)` arm) yields
+      `developed[2*5+2] == 1000`: the centre bad pixel reaches `dst` as its
+      neighbours' lower-median (`1000`), **not** the raw marker `0`. This holds
+      because `(2,2)` is the warp's optical-centre fixed point, so it samples
+      `active_normalized[2][2]` exactly (no interpolation).
+      **Test:** `develop_warp_branch_develops_the_fixed_plane` (tier A).
+- [ ] **AC2 — the fix is non-vacuous (HIT > 0).** A direct
+      `apply_fix_bad_pixels_constant` call on a copy of the raw plane returns a
+      count of exactly `1`, so AC1 cannot pass merely because no pixel was ever
+      bad. Mirrors AC9's `count` check.
+      **Test:** same test as AC1 (companion assertion).
+- [ ] **AC3 — the warp arm did real resampling (branch non-vacuous).** With the
+      SAME fixture but a non-uniform ramp background (`value = 1000 + 100*x`,
+      bad pixel still `0` at `(2,2)`; its neighbours' lower-median is `1200`),
+      `develop_into` with `opcode_list_3 = Some(...)` differs from the same
+      sensor with `opcode_list_3 = None` at off-centre pixels (proving the warp
+      ran), while the centre still equals the fixed value (`1200`) under both.
+      **Test:** `develop_warp_branch_actually_warps` (tier A).
+- [ ] **AC4 — red-proof (`oracle-must-be-shown-red`, §16 rule 2, three
+      clauses).** In a scratchpad copy (working tree untouched): severing the
+      warp arm's `effective_src → src` at `~src/develop.rs:850` (① file changed)
+      **compiles** (② builds), turns `develop_warp_branch_develops_the_fixed_plane`
+      **RED** at `developed[12]: left 0, right 1000` while SPEC-017's AC9
+      (no-warp branch) stays **GREEN** (③ output changed on the asserted path
+      only), then reverting is **byte-identical** and the test is green again.
+      Suite total measured with `--no-fail-fast` (plain `cargo test`
+      fail-stops at the develop binary). The build handback records its own
+      md5 pair — spellings of the sever vary, so the md5 need not match
+      SPEC-017's; the RED is the proof.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+Specified here at **design**; the implementer writes them in **build** and
+discharges the red-proof. Note the inversion for a completeness spec: on the
+honest tree both tests are **GREEN** (the wiring is already correct). What
+makes them load-bearing is AC4's red-proof — they go **RED** only when the warp
+arm is severed to read raw `src`. "Failing" here means "fails under the sever,"
+not "fails on the current code."
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`tests/develop.rs`**
+  - `develop_warp_branch_develops_the_fixed_plane` — asserts
+    `developed[2*5+2] == 1000` from `develop_into` on the AC1 fixture (the
+    `Some(warp)` arm), and that a direct `apply_fix_bad_pixels_constant` on a
+    copy returns `count == 1` (AC1 + AC2). RED under the `~:850` sever
+    (`left 0, right 1000`); AC9 stays green.
+  - `develop_warp_branch_actually_warps` — asserts the ramp-background develop
+    differs between `opcode_list_3 = Some(...)` and `= None` at off-centre
+    pixels, while the centre equals `1200` under both (AC3). Proves the
+    `Some(warp)` arm did real resampling, not an identity pass-through.
 
 ## Non-Goals
 
@@ -173,8 +266,28 @@ expand this one.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **This is the exact mirror of SPEC-017's SB-2 fix** (`tests/develop.rs:594`,
+  the `dst1[2*5+2] == 1000` assertion), routed through the `Some(warp)` arm
+  instead of the `None` arm. Read that test first.
+- **Reuse the helpers** (`single_fix_bad_pixels_constant_list`,
+  `single_warp_rectilinear_list`); do not hand-encode opcode bytes. The stream
+  is always big-endian regardless of TIFF byte order.
+- **Optical-centre fixed-point** is why the assertion is exact: on a 5×5
+  whole-plane sensor the dest pixel `(2,2)` maps to source `(2,2)` for any
+  `kr`, so `developed[12]` is `1000` (fixed) or `0` (raw) with no interpolation
+  blur. Keep the bad pixel at the centre; don't move it.
+- The warp coeffs `kr = [1.0, -0.1, 0.0, 0.0]`, `kt = [0.0, 0.0]` are chosen so
+  `f(r) = 1 − 0.1·r² ≤ 1` (source stays in-extent, no clamp surprises) and
+  `kt = [0,0]` dodges `Error::UnsupportedWarpTangentialTerms`. `kr1 ≠ 0` is
+  what makes `is_identity` false.
+- **Red-proof hygiene:** mutate a scratchpad COPY of the tree (`rsync` minus
+  `target/` and `.git/`), never the working tree; record the honest→severed→
+  reverted md5 triple for `src/develop.rs` and read exit codes directly (this
+  shell is zsh — `PIPESTATUS` is a bashism; use `$pipestatus` or capture `$?`).
+  Use `cargo test --no-fail-fast` for the true suite total.
+- Don't touch `src/develop.rs` (Non-Goal) except as the throwaway red-proof
+  mutation, which must be fully reverted. `git status` ends clean apart from
+  `tests/develop.rs`.
 
 ---
 
