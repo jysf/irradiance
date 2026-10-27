@@ -261,7 +261,10 @@ added `just fuzz-warp` (the `OpcodeList`/`WarpRectilinear` byte-stream
 parser's own fuzz target — `just fuzz-seeds` now regenerates all four
 targets' seeds); `SPEC-017` added `just fuzz-opcode` (`OpcodeList1`/
 `FixBadPixelsConstant`'s own fuzz target and seed corpus — `just fuzz-seeds`
-now regenerates all five targets' seeds).
+now regenerates all five targets' seeds); `SPEC-019` added `just gen-tone-table`
+(regenerates the committed sRGB OETF encode tables `src/tone_table.rs` from the
+sRGB OETF — the first recipe that generates committed Rust source rather than
+binary fuzz seeds).
 Every recipe's commands appear in the block below and nothing in
 the block is unrunnable: that correspondence is acceptance criterion 8, so a
 recipe that gains a command gains a line here in the same change.
@@ -421,6 +424,16 @@ PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run opcode \
 #              (ifd target) and examples/fuzz-seeds.rs's own fixtures (plane,
 #              develop, warp_opcode and opcode targets)
 cargo run --quiet --all-features --example fuzz-seeds
+
+# gen-tone-table — regenerate the committed sRGB OETF encode tables
+#              (src/tone_table.rs) from the sRGB OETF (IEC 61966-2-1), SPEC-019.
+#              powf runs HERE only; the library is table-driven and calls no
+#              transcendental on the encode path. Mirrors fuzz-seeds; the
+#              arrays are #[rustfmt::skip] so `cargo fmt --check` leaves them
+#              alone, and `git diff --exit-code` proves the committed table
+#              reproduces with no diff.
+cargo run --quiet --all-features --example gen-tone-table
+git diff --exit-code -- src/tone_table.rs
 ```
 
 Oracle commands (run as **tools**, never linked) live in

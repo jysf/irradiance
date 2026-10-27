@@ -66,10 +66,15 @@
 //! neighbours, this build's own algorithm since the spec names only the
 //! marker value and leaves the kernel unspecified), applied inside
 //! `develop_into` on the raw plane BEFORE levels normalization — the
-//! opposite end of the pipeline from `SPEC-018`'s warp stage. Still absent,
-//! by design: the tone curve (`SPEC-019`), `ASCII` and the signed field
-//! types (no DNG tag PROJ-001 reads needs them yet), and any
-//! compressed-plane decode (PROJ-003).
+//! opposite end of the pipeline from `SPEC-018`'s warp stage. `SPEC-019`
+//! added [`tone`], the display-encode layer: the sRGB OETF (IEC 61966-2-1) as
+//! three committed, table-driven encoders ([`tone::to_linear_f32_into`],
+//! [`tone::encode_srgb16_into`], [`tone::encode_srgb8_into`]) that turn
+//! `develop_into`'s scene-linear `u16` into scene-linear `f32` or
+//! display-referred 8-/16-bit sRGB — an additive layer that does not reopen
+//! `DEC-018` (`develop_into` stays scene-linear). Still absent, by design:
+//! `ASCII` and the signed field types (no DNG tag PROJ-001 reads needs them
+//! yet), and any compressed-plane decode (PROJ-003).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -84,7 +89,13 @@ pub mod develop;
 pub mod ifd;
 pub mod opcode;
 pub mod plane;
+pub mod tone;
 pub mod warp;
+
+/// The committed, generated sRGB OETF encode tables backing [`tone`]. Private:
+/// it is data, not API — `examples/gen-tone-table.rs` writes it, `just
+/// gen-tone-table` regenerates it. See `DEC-025`.
+mod tone_table;
 
 use core::fmt;
 
@@ -419,6 +430,18 @@ pub enum Error {
         /// `plane.len()` as given.
         actual: usize,
     },
+
+    /// `SPEC-019`. A [`tone`] encoder's `dst` does not hold exactly as many
+    /// elements as its `linear` source. The caller owns and sizes the output
+    /// buffer (`DEC-016`); its length is the one precondition an encoder
+    /// checks before writing, and a mismatch is this typed error, never a
+    /// panic.
+    OutputBufferWrongLength {
+        /// The required length — the `linear` source's length.
+        expected: usize,
+        /// `dst.len()` as given.
+        actual: usize,
+    },
 }
 
 impl fmt::Display for Error {
@@ -619,6 +642,12 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "fix-bad-pixels plane holds {actual} sample(s), expected {expected}"
+                )
+            }
+            Error::OutputBufferWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "output buffer holds {actual} element(s), expected {expected}"
                 )
             }
         }
