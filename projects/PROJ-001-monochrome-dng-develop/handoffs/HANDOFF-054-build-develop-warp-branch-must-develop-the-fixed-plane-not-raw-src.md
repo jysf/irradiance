@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-10-27
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-022
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 7430645            # REAL combined count — what cost-audit reads
+  estimated_usd: null              # Max subscription, extra-usage disabled — no per-token meter; tokens_total is the real figure
+  duration_minutes: 20
+  branch: claude/optimistic-leakey-0367f3
+  pr: https://github.com/jysf/irradiance/pull/21
+  completed_at: 2026-10-27         # YYYY-MM-DD
+  notes: "Test-only, zero src/ change. tokens_total is a transcript sum DEDUPED BY message.id (43 distinct ids from 126 raw usage objects = 2.93x; 96.8% cache-read) — a FLOOR, written before the session closed. Worktree was cut from main (1cf848d), not from the design commit 4bb57a0 as the handoff assumed; cherry-picked 4bb57a0 (clean, byte-identical parents) to bring SPEC-022 + this handoff into the branch."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -194,38 +194,100 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/optimistic-leakey-0367f3` → https://github.com/jysf/irradiance/pull/21
+- **Completed at:** 2026-10-27
+- **All acceptance criteria met?** yes.
+  - **AC1** — `develop_warp_branch_develops_the_fixed_plane`: `develop_into` on
+    the 5×5 whole-plane fixture (bad pixel `0` at the optical centre `(2,2)`,
+    non-identity `WarpRectilinear` `kr1 = -0.1`) routes through the `Some(warp)`
+    arm and yields `developed[12] == 1000` — the neighbours' lower-median, not
+    the raw marker. Green.
+  - **AC2** — same test: a direct `apply_fix_bad_pixels_constant` on a copy of
+    the raw plane returns HIT count `1` (non-vacuous). Green.
+  - **AC3** — `develop_warp_branch_actually_warps`: with a `1000 + 100*x` ramp
+    background, `opcode_list_3 = Some(..)` differs from `= None` (the warp
+    resampled off-centre) while the optical-centre fixed point develops the fixed
+    lower-median `1200` under both. Green.
+  - **AC4** — red-proof discharged in a scratchpad copy (`rsync` minus
+    `target/`/`.git/`; working tree never touched). Severing the warp arm's
+    `effective_src → src` at the `normalize_active_area_into` call:
+    ① **file changed** — md5 honest `ab3d771288e36b5353c84dcb0e16ee6f` → severed
+    `3f0689bcbb4ebbf9eb0ea7843454d90f`; ② **compiles** — the severed copy built
+    and ran; ③ **output moved on the asserted path only** —
+    `develop_warp_branch_develops_the_fixed_plane` went **RED** at
+    `developed[12]: left 0, right 1000` (its companion red too, at
+    `left 0, right 1200`) while SPEC-017's AC9
+    (`develop_output_is_bit_identical_across_two_runs`, the no-warp branch)
+    stayed **GREEN**. Revert is **byte-identical** (md5 back to
+    `ab3d771288e36b5353c84dcb0e16ee6f`). The sever touched only the warp
+    branch's use site (`normalize_active_area_into`, ~`src/develop.rs:850`); the
+    no-warp site (`crop_orient_normalize_into`, ~`:834`, AC9's path) was left
+    intact — which is what makes AC9 the green control.
+  - **`--no-fail-fast` suite delta** (both measured without the corpus, the CI
+    configuration): honest **243 passed / 0 failed / 3 ignored** → severed
+    **241 / 2 / 3**. Exactly the two new tests flip; no other binary moves.
+    (Plain `cargo test` fail-stops at the develop binary and would have hidden
+    ~190 downstream tests; `$pipestatus` read directly — this shell is zsh.)
+- **Committed diff:** `tests/develop.rs` only for the test deliverable (+159
+  lines, one commit); the design docs ride in via the cherry-picked `4bb57a0`,
+  and this handoff + the timeline carry the build bookkeeping. `src/develop.rs`
+  is byte-identical to the honest tree — the only src edit was the throwaway
+  red-proof mutation, which lived and died in the scratchpad copy.
+- **All eight gates green locally:** `fmt --check`, `lint-ci` (pinned clippy
+  0.1.98, `-D warnings`), `test` (243/0/3), `deny`, `deny-fuzz`, `msrv` (1.90.0),
+  `lint-red-proof`, `cost-audit-red-proof`.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** **7,430,645** — a transcript sum **DEDUPED BY `message.id`**
+  (43 distinct ids from 126 raw usage objects = 2.93× inflation; 96.8%
+  cache-read). A FLOOR: written before the session closed, so PR follow-up and
+  CI observation are not counted.
+- **Estimated USD:** null — Max subscription with extra-usage disabled, so there
+  is no per-token meter. The token count above is the real figure.
+- **Duration (minutes):** ~20 (first transcript line 23:02Z; still open at
+  handback).
+- **Source of the number:** harness report — the session transcript's own
+  per-turn `usage` objects, located by this session's scratchpad UUID
+  (`f851eb08…`) and summed (deduped by `message.id`). `/cost` is unavailable as
+  a slash command in this desktop Code session; this is its equivalent.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none.
 - **Deviations from spec:**
-  - [list]
+  - None in substance. One setup correction: the worktree was cut from `main`
+    (`1cf848d`), not from the design commit `4bb57a0` the handoff assumed, so
+    SPEC-022's spec/handoff/prompt were absent. Cherry-picked `4bb57a0` onto the
+    branch (clean — its two modified files were byte-identical between my HEAD
+    and its parent), bringing the intended state. No change to the spec's own
+    content.
+  - AC3's assertion is stated as "the two whole outputs differ while the centre
+    agrees under both" (equivalently, they differ only at off-centre pixels) —
+    a robust restatement of the spec's "differs at off-centre pixels," not a
+    narrowing.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - none. The spec's own Non-Goals (SPEC-021 oracle-scope narrowing; a real Q2M
+    frame with a bad pixel) are already tracked.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing in the spec itself; its Inputs/AC1–AC4 were precise enough to write
+   the tests and predict every value (centre 1000/1200, HIT 1, lower-median of 8)
+   before running anything. The one real friction was the worktree base: the
+   handoff said "your worktree already has HANDOFF-054 and the SPEC-022 spec,"
+   but it was cut from `main`, not from the design commit — a one-time
+   cherry-pick, noted above, not a spec defect.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `oracle-must-be-shown-red`, `test-before-implementation`, and
+   `no-panics-on-untrusted-input` were the right three, and DEC-024 is exactly
+   why the analytic red-proof carries the weight here.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Verify the worktree base against the design commit before reading for files
+   that "should already be here," rather than discovering the divergence from a
+   failed read. The rest — reuse the committed helpers, keep the bad pixel at the
+   optical centre, mutate a scratchpad copy — the spec already routed correctly.
