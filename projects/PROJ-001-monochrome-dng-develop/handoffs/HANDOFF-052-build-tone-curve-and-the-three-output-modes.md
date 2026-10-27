@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-10-26
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-019
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 41313385           # REAL combined count — what cost-audit reads
+  estimated_usd: 105.42            # tokens_total × your rate, or your harness's number
+  duration_minutes: 25
+  branch: claude/spec-019-tone-curve-13488a
+  pr: https://github.com/jysf/irradiance/pull/18
+  completed_at: 2026-10-26         # YYYY-MM-DD
+  notes: "all 10 ACs met; combined token total (in+out+cache-create+cache-read) summed from this session's own Claude Code transcript (interface exposes no /cost); estimated_usd at per-category Opus list rates (in $15 / out $75 / cache-write $18.75 / cache-read $1.50 per Mtok)"
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -228,10 +228,18 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-019-tone-curve-13488a` → https://github.com/jysf/irradiance/pull/18
+- **Completed at:** 2026-10-26
+- **All acceptance criteria met?** Yes — AC1–AC10.
+  - **AC1** `to_linear_f32_into` maps `0→0.0`, `65535→1.0`, `v→v/65535.0`; length mismatch → `Error::OutputBufferWrongLength` (never a panic).
+  - **AC2/AC3** `encode_srgb16_into`/`encode_srgb8_into`: anchors `0→0`, `65535→65535`/`255`, monotonic non-decreasing, within ±1 of the analytic OETF.
+  - **AC4** no `powf`/`exp`/`ln` on the encode path — committed const tables + integer lookup; proven by compile-time const assertions (tables are `const`, not `static`) **and** a comment-stripped source scan of `src/tone.rs`/`src/tone_table.rs`.
+  - **AC5** analytic oracle recomputes the OETF in `f64` for all 65536 indices, within ±1, independent of dnglab/rawler; **0 violations** on both tables.
+  - **AC6** red-proof: `+40` on a **copy** of a table turns the ±1 oracle red, with the unmutated table the green negative control; the shipped table carries no fault switch (DEC-021's in-process shape; see DEC-025 for why not DEC-017's crate rebuild). Observed both halves in one run.
+  - **AC7** committed const data → byte-identical across platforms; anchors pinned; `just gen-tone-table` reproduces with **no diff** (verified after commit).
+  - **AC8** provenance row added (`src/tone.rs`+`src/tone_table.rs`, sRGB OETF, IEC 61966-2-1, class 1).
+  - **AC9** `irr develop --format linear-f32|srgb16|srgb8` (default `srgb8`) reads every mode — smoke-tested on `L1021223.DNG` (scene-linear max 51764 → srgb8 230 / srgb16 59063 / f32 0.790), bad format exits 1; plus the three encoders' unit tests.
+  - **AC10** `just lint-ci` (clippy 0.1.98), `just lint-no-allow`, `just test`, `just deny` + `just deny-fuzz`, `just msrv` (1.90.0) all green locally; CI observed on the shipping SHA (see PR #18).
 
 ### Cost self-report
 
@@ -239,27 +247,48 @@ Mirror what you put in the `handback:` front-matter, and say where the number
 came from. **This is the number that lands in the spec** — the orchestrator
 transcribes it via `just handback-sync`, it does not estimate it.
 
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 41,313,385
+- **Estimated USD:** 105.42
+- **Duration (minutes):** 25
+- **Source of the number:** harness report — summed from this session's own
+  Claude Code transcript JSONL (`input + output + cache_creation + cache_read`
+  across all 165 usage records; this desktop Code interface exposes no `/cost`
+  slash command). This matches the all-inclusive convention prior specs used
+  (SPEC-005 30.1M, SPEC-002 9.5M). `estimated_usd` is computed at per-category
+  Opus list rates (in $15 / out $75 / cache-write $18.75 / cache-read $1.50 per
+  Mtok) — an order-of-magnitude figure, cache-read-dominated.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-025` — the tone curve is the sRGB OETF; output has three modes; `develop_into` stays scene-linear.
 - **Deviations from spec:**
-  - [list]
+  - One non-policy lint allow added in the generated table: `#[allow(clippy::large_const_arrays)]`. The lint (warn-by-default, so `-D warnings`/`lint-ci` would fail on it) wants `static`, but `const` is what AC4's const-context proof and the spec's stated shape require. It is **not** one of the five panic-policy lints, so `just lint-no-allow` stays green; rationale recorded in DEC-025 and in `examples/gen-tone-table.rs`. No behavioural deviation from the spec.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - None ship-blocking. (The end-to-end SSIMULACRA2 score vs `dnglab --srgb` remains out of scope per the spec / DEC-024; correctness here is the analytic oracle.)
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing material. The one thing the spec left to the implementer that had a
+   real build consequence was *table visibility*: the spec says the tables are
+   `pub(crate)`, but `tests/tone_oracle.rs` is a separate crate and cannot see
+   `pub(crate)` items. Reconstructing each table through the public encoder
+   (`encode_srgb16_into(&[i], dst)` writes `SRGB_ENCODE_16[i]`) resolved it
+   cleanly and actually tests the shipped path. Worth a sentence in the spec.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `clippy::large_const_arrays` interaction with a committed const table
+   is the kind of toolchain fact `guidance/toolchain-brief.md` exists for; it is
+   not currently noted there. A one-liner ("a committed `const` lookup table over
+   ~16 KB trips `large_const_arrays` under `-D warnings`; allow it, don't switch
+   to `static`") would save the next table-driven spec a loop. Filing as a
+   lesson candidate, not blocking.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Emit `#[rustfmt::skip]` on the tables from the first generator draft (I did),
+   but also run `cargo fmt` on the *hand-written* files before the first push —
+   CI's `fmt --check` caught three long lines I'd have caught locally one step
+   earlier. `just lint-ci` sees CI's clippy but nothing in the recipe set sees
+   CI's rustfmt; running `cargo fmt --check` (or a pinned equivalent) belongs in
+   the pre-push ritual next to `just lint-ci`.
