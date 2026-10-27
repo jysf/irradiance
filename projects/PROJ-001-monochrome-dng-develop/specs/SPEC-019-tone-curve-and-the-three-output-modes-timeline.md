@@ -18,9 +18,16 @@ Cycle prompts live in `prompts/SPEC-019-<cycle>.md`.
   reported met; CI observed green on head SHA (fmt, clippy -D, test, MSRV,
   both cargo-deny graphs, lint red-proof, no-#[allow], fuzz smokes).
   Orchestrator reconciled against the remote + `gh pr checks` 2026-10-26.
-- [~] **verify** — `HANDOFF-053`, delegated to a separate session on a worktree
-  cut from the PR branch. Cold review of PR #18 vs the 10 ACs; the one check the
-  orchestrator could not do from outside — actually forcing the oracle red — is
-  the verifier's required step. Returns one verdict; no fixes.
-- [ ] **ship** — merge, CHANGELOG, `cost.totals`, `just cost-audit`, Reflection,
-  follow-up disposition; this closes STAGE-003's spec backlog → stage reflection.
+- [x] **verify** — `HANDOFF-053`, separate session `spec-019-verify` (branch
+  `claude/spec-019-verify-4d9fa5`). ✅ **APPROVED** at `46b5f78`, no findings /
+  no punch list. All AC1–AC10 verified cold (each AC → a test confirmed to run);
+  gates exit 0 locally; CI 22/0 on the SHA; oracle red-proof forced
+  independently then reverted byte-identical; `develop_into`/`plane`/`ifd`
+  0 lines changed (DEC-018 intact); DEC-025 present/honest. Verify cost
+  16,131,777 tokens (~$41.43), transcribed to HANDOFF-053's handback by the
+  orchestrator. Reconciled against PR #18 (OPEN, MERGEABLE/CLEAN, head `46b5f78`).
+- [ ] **ship** — NOT started (awaiting go-ahead; merge is irreversible). Merge
+  PR #18 → main, CHANGELOG `[Unreleased] → Added`, `cost.totals` +
+  `just cost-audit` (needs HANDOFF-052's build handback, which lands with the
+  merge), spec Reflection, `just archive-spec SPEC-019`. This is the last spec in
+  STAGE-003 → write the stage-level reflection and mark STAGE-003 shipped.

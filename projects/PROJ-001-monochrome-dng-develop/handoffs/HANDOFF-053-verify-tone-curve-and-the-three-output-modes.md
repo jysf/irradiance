@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-10-26
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-019
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 16131777           # REAL combined count — what cost-audit reads
+  estimated_usd: 41.43             # Opus list rates, no cache discount
+  duration_minutes: 20
+  branch: claude/spec-019-verify-4d9fa5
+  pr: 18
+  completed_at: 2026-10-27         # YYYY-MM-DD
+  notes: "verdict APPROVED at 46b5f78; number transcribed by orchestrator from the verify session's /cost report (handoff lives on a different branch than the verifier's worktree)"
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -201,12 +201,18 @@ If you cannot complete the task:
 *Filled in by the receiving agent. The orchestrator does not reconstruct any of
 this — it transcribes it. The reflection questions are part of completion.*
 
+> Transcribed by the orchestrator from the verify session's final report
+> (session `spec-019-verify`, branch `claude/spec-019-verify-4d9fa5`); the
+> handoff lives on a different branch than the verifier's worktree, so the
+> verifier reported in its message and the orchestrator recorded it here. Full
+> evidence note the verifier left: `side-session-notes/…/SPEC-019-verify-findings.md`.
+
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** PR #18 (https://github.com/jysf/irradiance/pull/18), reviewed at head `46b5f78`; verifier worktree `claude/spec-019-verify-4d9fa5`.
+- **Completed at:** 2026-10-27
+- **All acceptance criteria met?** Yes — AC1–AC10 all verified cold, each mapped to a test confirmed to have actually run (5 unit in `src/tone.rs`, 5 integration in `tests/tone_oracle.rs`).
+- **For `verify`:** ✅ **APPROVED** at `46b5f7863fe356a7b21a55689b95de7ab0666fc6`. Gates run locally (test / lint-ci clippy 0.1.98 / lint-no-allow / deny + deny-fuzz / msrv all exit 0); CI 22/0 on the SHA; oracle red-proof forced independently (`SRGB_ENCODE_16[5]` 65→999 ⇒ AC5 red, reverted byte-identical); `develop_into`/`plane`/`ifd` 0 lines changed (DEC-018 intact); DEC-025 present and honest.
 
 ### Cost self-report
 
@@ -214,27 +220,24 @@ Mirror what you put in the `handback:` front-matter, and say where the number
 came from. **This is the number that lands in the spec** — the orchestrator
 transcribes it via `just handback-sync`, it does not estimate it.
 
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 16,131,777 (in 200 / out 119,153 / cache-create 490,945 / cache-read 15,521,479; 100 records, all `claude-opus-4-8`)
+- **Estimated USD:** ~41.43 (Opus list rates, no cache discount — an order-of-magnitude estimate)
+- **Duration (minutes):** ~20
+- **Source of the number:** `/cost` (claude-code), summed from the verifier's own transcript at the verdict
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+- **New decisions emitted:** none by verify (`DEC-025` was emitted by build and reviewed here — present, accepted 0.85, in `INDEX.md`, honest).
+- **Deviations from spec:** none.
+- **Follow-up work identified:** none — no findings, no punch list.
 
-### Reflection (3 questions, short answers)
+### Reflection (3 questions, short answers) — transcribed from the verifier's report
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing material; the design pre-answered the load-bearing choices (curve, modes, determinism) and the ACs were directly checkable.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No; `DEC-018`/`DEC-002`/`oracle-must-be-shown-red` were the right ones and all held.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing — the one external-blind spot (actually forcing the oracle red) was called out in the handoff and done independently.
