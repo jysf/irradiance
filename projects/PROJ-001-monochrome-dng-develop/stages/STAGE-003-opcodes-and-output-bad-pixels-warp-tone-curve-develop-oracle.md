@@ -5,7 +5,9 @@
 
 stage:
   id: STAGE-003                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
+                                    # active since its first spec entered design (SPEC-020,
+                                    # 2026-09-06); SPEC-019 is the last open spec in the backlog
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -108,7 +110,7 @@ Run `just frame-stage STAGE-003` to promote these outlines into real specs.
 
 - [x] SPEC-017 (shipped 2026-09-08) [S shipped S] FixBadPixelsConstant opcode — depends_on: [SPEC-020]. 2 build + 2 verify rounds, 40.4M tokens / $104.03. Ship SHA `6e4376b` (verified code; ship commit adds doc-only FU fixes). verify verdict: approved. SB-1 → FU-3; SB-2 fixed (AC9 centre-pixel assertion @ `6e4376b`). FU-4/5/6/8 fixed (doc corrections, incl. re-measured peak RSS 559,939,584 B); FU-1/3/7 closed; FU-2 → SPEC-021; FU-9 → signal `token-counts-not-comparable`; FU-10 → new SPEC-022 (STAGE-005).
 - [x] SPEC-018 (shipped 2026-09-07) [L shipped XL] WarpRectilinear radial geometric correction — 3 build rounds + 3 verify rounds, 169M tokens. Ship SHA `b92b30c` (code) / `f508dba` (bookkeeping). Two structural findings: pipeline order corrected in build (DEC-024 Finding 1); dnglab does not implement DNG opcodes so SPEC-020's oracle is scope-limited (DEC-024 Finding 2, formal narrowing filed as SPEC-021). SB-1/2/3 all fixed; FUs 1/2 fixed inline, 3/4/6/7/8 closed, 5/9/11 filed as new signals, 10 → SPEC-021.
-- [ ] SPEC-019 (frame) [M] Tone curve and the three output modes
+- [ ] SPEC-019 (design) [M] Tone curve and the three output modes — designed 2026-10-26, HANDOFF-052 (build) minted; sRGB OETF, additive encode layer over develop_into
 - [x] SPEC-020 (shipped 2026-09-06) [M shipped M] Develop oracle vs dnglab srgb — lands first, so SPEC-018/019/017 have a check they cannot rewrite. verify verdict: approved. Follow-ups: FU-1/FU-2 → signal `unrun-docs-carry-errors` N=6 (SPEC-018 Context patched at ship); FU-3 → closed with contract reason.
 
 **Count:** 0 shipped / 4 active / 0 pending
