@@ -13,12 +13,14 @@ Cycle prompts live in `prompts/SPEC-019-<cycle>.md`.
   encode layer over `develop_into` (`DEC-018` not reopened). Spec + 10 ACs +
   Failing Tests written; `HANDOFF-052` (build) minted; `prompts/SPEC-019-build.md`
   written. New `DEC-025` (tone/output model) pre-specified for build to emit.
-- [ ] **build** — `HANDOFF-052`, to `claude-opus-5` (implementer). Not started.
-  Make the Failing Tests pass; add `src/tone.rs` + committed generated table +
-  `examples/gen-tone-table.rs` + `tests/tone_oracle.rs`; `irr develop --format`
-  reader; provenance row; emit `DEC-025`. `just lint-ci` before every push.
-- [ ] **verify** — a separate agent reviews cold: analytic oracle red-proof
-  actually reds, no runtime `powf`, byte-identity anchors, `develop_into`
-  untouched, gates green with CI observed on the shipping SHA.
+- [x] **build** — `HANDOFF-052`, `claude-opus-5` (implementer). PR #18
+  (branch `claude/spec-019-tone-curve-13488a`, head `46b5f78`), all 10 ACs
+  reported met; CI observed green on head SHA (fmt, clippy -D, test, MSRV,
+  both cargo-deny graphs, lint red-proof, no-#[allow], fuzz smokes).
+  Orchestrator reconciled against the remote + `gh pr checks` 2026-10-26.
+- [~] **verify** — `HANDOFF-053`, delegated to a separate session on a worktree
+  cut from the PR branch. Cold review of PR #18 vs the 10 ACs; the one check the
+  orchestrator could not do from outside — actually forcing the oracle red — is
+  the verifier's required step. Returns one verdict; no fixes.
 - [ ] **ship** — merge, CHANGELOG, `cost.totals`, `just cost-audit`, Reflection,
   follow-up disposition; this closes STAGE-003's spec backlog → stage reflection.
