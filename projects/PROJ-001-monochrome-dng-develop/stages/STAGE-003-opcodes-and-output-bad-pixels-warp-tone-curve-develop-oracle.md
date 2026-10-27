@@ -5,9 +5,9 @@
 
 stage:
   id: STAGE-003                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
-                                    # active since its first spec entered design (SPEC-020,
-                                    # 2026-09-06); SPEC-019 is the last open spec in the backlog
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
+                                    # shipped 2026-10-27 — SPEC-019 (last in the backlog) merged
+                                    # as PR #18; all four specs (017/018/019/020) now shipped
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -17,7 +17,7 @@ repo:
   id: irradiance
 
 created_at: 2026-08-15
-shipped_at: null
+shipped_at: 2026-10-27
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -50,10 +50,11 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
-                                    #   estimated_usd: N
-                                    #   recorded_at: YYYY-MM-DD
-                                    #   notes: "framing + spec breakdown"
+  sessions:
+    - tokens_total: 27001968
+      estimated_usd: 56.84
+      recorded_at: 2026-10-27
+      notes: "Stage grain (DEC-013 section 5). Covers SPEC-019's design->ship orchestration in ONE orchestrator session (work-status-next-steps): status review, the real-file probe + design, HANDOFF-052/053, three reconciliations against git/CI, and this stage close. Measured floor from that session's own Claude Code transcript (c0b7ec9b-2be4-41ad-9dea-77f3b6690343.jsonl, identified by scratchpad-dir uuid, NOT text grep), 119 unique usage records deduped by message.id, all claude-opus-4-8; in 238/out 153,774/cache-create 291,940/cache-read 26,556,016 (98.4% cache-read); priced per-component at Opus list ($15/$75/$18.75-write/$1.50-read). KNOWN UNDERCOUNT: SPEC-017/018/020 were orchestrated in a separate prior session not captured here, and the few turns after this measurement (push + ship PR) are not included."
 ---
 
 # STAGE-003: Opcodes and output: bad pixels, warp, tone curve, develop oracle
@@ -110,10 +111,10 @@ Run `just frame-stage STAGE-003` to promote these outlines into real specs.
 
 - [x] SPEC-017 (shipped 2026-09-08) [S shipped S] FixBadPixelsConstant opcode — depends_on: [SPEC-020]. 2 build + 2 verify rounds, 40.4M tokens / $104.03. Ship SHA `6e4376b` (verified code; ship commit adds doc-only FU fixes). verify verdict: approved. SB-1 → FU-3; SB-2 fixed (AC9 centre-pixel assertion @ `6e4376b`). FU-4/5/6/8 fixed (doc corrections, incl. re-measured peak RSS 559,939,584 B); FU-1/3/7 closed; FU-2 → SPEC-021; FU-9 → signal `token-counts-not-comparable`; FU-10 → new SPEC-022 (STAGE-005).
 - [x] SPEC-018 (shipped 2026-09-07) [L shipped XL] WarpRectilinear radial geometric correction — 3 build rounds + 3 verify rounds, 169M tokens. Ship SHA `b92b30c` (code) / `f508dba` (bookkeeping). Two structural findings: pipeline order corrected in build (DEC-024 Finding 1); dnglab does not implement DNG opcodes so SPEC-020's oracle is scope-limited (DEC-024 Finding 2, formal narrowing filed as SPEC-021). SB-1/2/3 all fixed; FUs 1/2 fixed inline, 3/4/6/7/8 closed, 5/9/11 filed as new signals, 10 → SPEC-021.
-- [ ] SPEC-019 (design) [M] Tone curve and the three output modes — designed 2026-10-26, HANDOFF-052 (build) minted; sRGB OETF, additive encode layer over develop_into
+- [x] SPEC-019 (shipped on 2026-10-27) [M] Tone curve and the three output modes — designed 2026-10-26, HANDOFF-052 (build) minted; sRGB OETF, additive encode layer over develop_into
 - [x] SPEC-020 (shipped 2026-09-06) [M shipped M] Develop oracle vs dnglab srgb — lands first, so SPEC-018/019/017 have a check they cannot rewrite. verify verdict: approved. Follow-ups: FU-1/FU-2 → signal `unrun-docs-carry-errors` N=6 (SPEC-018 Context patched at ship); FU-3 → closed with contract reason.
 
-**Count:** 0 shipped / 4 active / 0 pending
+**Count:** 4 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -181,11 +182,31 @@ circular.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
+*Filled in 2026-10-27 at ship (SPEC-019 merged as PR #18).*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. A Q2M DNG now
+  becomes a viewable image: both opcode lists execute (`FixBadPixelsConstant`,
+  `WarpRectilinear`), a table-driven sRGB tone curve is applied, and output is
+  available as scene-linear f32, 16-bit sRGB, or 8-bit sRGB. The one caveat is
+  the oracle (see below), not the output.
+- **How many specs did it actually take?** 4 as planned (SPEC-017/018/019/020),
+  in dependency order (020 oracle first). Verify spawned three follow-ups
+  deferred out of the stage: SPEC-021 (narrow the oracle) and SPEC-022 (warp
+  branch coverage) into STAGE-005, plus the SPEC-016 rescope.
+- **How many outlines survived unchanged?** N/A — specs were designed
+  just-in-time, not frame-staged ahead (per the repo rule against framing
+  STAGE-001+ before the facts exist); all 4 backlog items shipped.
+- **What changed between starting and shipping?** `DEC-024` discovered mid-stage
+  that dnglab/rawler implement no DNG opcode processing, so the SSIMULACRA2
+  develop oracle cannot validate the warp — correctness rests on analytic checks,
+  and the perceptual end-to-end score became scope-limited (formal narrowing:
+  SPEC-021). The warp↔crop pipeline order was also corrected from SPEC-018's
+  design-time assumption.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - The single-sourced oracle (`--raw-checksum`/`--srgb` both = rawler) is strong
+    for decompression but weak for developed output; **analytic oracles are
+    load-bearing here**, not a nicety — this stage proved it three times
+    (levels SPEC-015, warp SPEC-018, tone SPEC-019).
+  - Measure-before-build via reading the real file's tags paid off every spec
+    (SPEC-019's "no ProfileToneCurve" probe settled the whole tone design) —
+    already the repo's strongest efficiency lesson; this stage is another N.
