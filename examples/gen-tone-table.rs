@@ -64,10 +64,7 @@ fn render_array(name: &str, elem_type: &str, values: &[String]) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#[rustfmt::skip]");
     let _ = writeln!(out, "#[allow(clippy::large_const_arrays)] // see DEC-025: const is required by AC4/determinism, not static");
-    let _ = writeln!(
-        out,
-        "pub(crate) const {name}: [{elem_type}; 65536] = ["
-    );
+    let _ = writeln!(out, "pub(crate) const {name}: [{elem_type}; 65536] = [");
     for chunk in values.chunks(16) {
         out.push_str("    ");
         out.push_str(&chunk.join(", "));

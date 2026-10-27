@@ -282,7 +282,9 @@ fn cmd_develop(args: &[&str]) -> ExitCode {
         }
     }
     if !matches!(format, "linear-f32" | "srgb16" | "srgb8") {
-        eprintln!("irr develop: unknown --format {format:?} (want linear-f32|srgb16|srgb8)\n\n{USAGE}");
+        eprintln!(
+            "irr develop: unknown --format {format:?} (want linear-f32|srgb16|srgb8)\n\n{USAGE}"
+        );
         return ExitCode::FAILURE;
     }
     let Some(path) = path else {

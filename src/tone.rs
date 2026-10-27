@@ -95,7 +95,10 @@ pub fn encode_srgb16_into(linear: &[u16], dst: &mut [u16]) -> Result<(), Error> 
         // `0..=65535` — in bounds for a `[_; 65536]` table. `.get()` keeps the
         // path total without `indexing_slicing`; the `0` fallback is
         // unreachable and exists only to stay panic-free.
-        *out = SRGB_ENCODE_16.get(usize::from(sample)).copied().unwrap_or(0);
+        *out = SRGB_ENCODE_16
+            .get(usize::from(sample))
+            .copied()
+            .unwrap_or(0);
     }
     Ok(())
 }
@@ -247,8 +250,13 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            assert!(!text.is_empty() && code.contains("["), "scanned no real code in {rel}");
-            for call in [".powf(", ".powi(", ".exp(", ".exp2(", ".ln(", ".log(", ".sqrt(", ".cbrt("] {
+            assert!(
+                !text.is_empty() && code.contains("["),
+                "scanned no real code in {rel}"
+            );
+            for call in [
+                ".powf(", ".powi(", ".exp(", ".exp2(", ".ln(", ".log(", ".sqrt(", ".cbrt(",
+            ] {
                 assert!(
                     !code.contains(call),
                     "{rel} calls {call} on the encode path — the table must carry the curve"
