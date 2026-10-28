@@ -6,7 +6,7 @@
 task:
   id: SPEC-022
   type: story                      # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: low                    # critical | high | medium | low
                                    #   Low: no current defect — HIT=0 on every
@@ -16,9 +16,9 @@ task:
                                    #   is harness completeness, not a live bug.
   complexity: XS                   # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: XS            # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -76,10 +76,27 @@ cost:
       estimated_usd: null
       recorded_at: 2026-10-27
       notes: "Design in the orchestrator main loop (un-metered; null-with-note per AGENTS.md §4). A read-only Explore subagent gathered the opcode/fixture recipe (140,152 tokens, 24 tool-uses) — the subagent's cost, not transcribed into this spec total."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 7430645
+      estimated_usd: null
+      duration_minutes: 20
+      recorded_at: 2026-10-27
+      notes: "Test-only, zero src/ change. tokens_total is a transcript sum DEDUPED BY message.id (43 distinct ids from 126 raw usage objects = 2.93x; 96.8% cache-read) — a FLOOR, written before the session closed. Worktree was cut from main (1cf848d), not from the design commit 4bb57a0 as the handoff assumed; cherry-picked 4bb57a0 (clean, byte-identical parents) to bring SPEC-022 + this handoff into the branch."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 3663255
+      estimated_usd: null
+      duration_minutes: 15
+      recorded_at: 2026-10-27
+      notes: "✅ APPROVED at f412ac3. Independent red-proof reproduced the build's md5 triple (ab3d77→3f0689→ab3d77) and the 243/0/3→241/2/3 suite delta exactly; AC9 stayed GREEN under the sever. tokens_total is a transcript sum DEDUPED BY message.id (32 ids from 82 raw usage objects; 97.1% cache-read) — a FLOOR, written before session close. No per-token USD meter (Max, extra-usage disabled)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 11093900
+    estimated_usd: 0.00
+    session_count: 3
+shipped_at: 2026-10-27
 ---
 
 # SPEC-022: develop warp branch must develop the fixed plane not raw src
@@ -201,26 +218,26 @@ single_fix_bad_pixels_constant_list(0, 2, 0)` (sentinel `Constant = 0`);
 0.0], 0.5, 0.5, 1, 0)` (non-identity ⇒ the `Some(warp)` arm runs); raw plane
 `vec![1000u16; 25]` with `src[2*5+2] = 0` (one bad pixel at the optical centre).
 
-- [ ] **AC1 — the warp branch develops the FIXED plane.** `develop_into` on the
+- [x] **AC1 — the warp branch develops the FIXED plane.** `develop_into` on the
       fixture (which routes through `src/develop.rs`'s `Some(warp)` arm) yields
       `developed[2*5+2] == 1000`: the centre bad pixel reaches `dst` as its
       neighbours' lower-median (`1000`), **not** the raw marker `0`. This holds
       because `(2,2)` is the warp's optical-centre fixed point, so it samples
       `active_normalized[2][2]` exactly (no interpolation).
       **Test:** `develop_warp_branch_develops_the_fixed_plane` (tier A).
-- [ ] **AC2 — the fix is non-vacuous (HIT > 0).** A direct
+- [x] **AC2 — the fix is non-vacuous (HIT > 0).** A direct
       `apply_fix_bad_pixels_constant` call on a copy of the raw plane returns a
       count of exactly `1`, so AC1 cannot pass merely because no pixel was ever
       bad. Mirrors AC9's `count` check.
       **Test:** same test as AC1 (companion assertion).
-- [ ] **AC3 — the warp arm did real resampling (branch non-vacuous).** With the
+- [x] **AC3 — the warp arm did real resampling (branch non-vacuous).** With the
       SAME fixture but a non-uniform ramp background (`value = 1000 + 100*x`,
       bad pixel still `0` at `(2,2)`; its neighbours' lower-median is `1200`),
       `develop_into` with `opcode_list_3 = Some(...)` differs from the same
       sensor with `opcode_list_3 = None` at off-centre pixels (proving the warp
       ran), while the centre still equals the fixed value (`1200`) under both.
       **Test:** `develop_warp_branch_actually_warps` (tier A).
-- [ ] **AC4 — red-proof (`oracle-must-be-shown-red`, §16 rule 2, three
+- [x] **AC4 — red-proof (`oracle-must-be-shown-red`, §16 rule 2, three
       clauses).** In a scratchpad copy (working tree untouched): severing the
       warp arm's `effective_src → src` at `~src/develop.rs:850` (① file changed)
       **compiles** (② builds), turns `develop_warp_branch_develops_the_fixed_plane`
@@ -296,22 +313,30 @@ expand this one.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Land the design on `main` (or pass the branch at start) before delegating:
+   the proposal **card** dropped `source_branch`, so the build worktree was cut
+   from `main` and had to cherry-pick the design commit `4bb57a0` to see the
+   spec + handoff. It recovered cleanly, but a card can't inherit an
+   unmerged branch — worth knowing for the next delegated spec.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No. The test-completeness + one-shot red-proof pattern (mutation recorded
+   in the handback, not a standing script) worked cleanly — a faithful mirror of
+   SPEC-017's SB-2. It's the second instance of "assert a develop branch uses
+   the fixed plane" (no-warp was SPEC-017, warp is this); if a third branch ever
+   appears, that's a `lesson` worth recording, but two is not yet a pattern.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. This spec spawned none; verify found no blockers and no follow-ups.
+   STAGE-005 still carries SPEC-011, SPEC-016 and SPEC-021. (The lossless-JPEG
+   decoder gap seen in the develop demo is out of STAGE-005's scope — a future
+   stage, not a follow-up here.)
 
 4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
    the defect-escape distribution is greppable across specs:
    `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
    `none` (clean first try).
-   — <one word>
+   — none
    *(Runtime/operational defects — the escape-prone class — only exist once the
    artifact meets its real host. `escaped` here is a signal to strengthen the
    §12 behavioral pre-flight for that surface.)*
@@ -323,4 +348,9 @@ expand this one.
    `impact` field is transcribed from, and both halves are already written above
    (## Context is the before, ## Goal is the after): confirm the prediction,
    don't reconstruct it from memory.
-   — <answer | none>
+   — Nothing user-visible today — this is latent hardening. Before: the warp
+   branch developed the fixed plane but nothing proved it, and severing it to
+   raw `src` left the whole suite green (SPEC-017's verify measured exactly
+   that). After: the guarantee is pinned by a tier-A test proven red under that
+   sever (suite 243/0/3 → 241/2/3), so once a frame carries a bad pixel (HIT>0)
+   *and* a warp, `develop_into` cannot silently develop from unrepaired pixels.

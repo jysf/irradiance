@@ -95,6 +95,17 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
     formula recomputed in `f64` to within ±1 code value — independent of rawler
     — and a deliberately perturbed entry is confirmed to turn the oracle red,
     then reverted byte-identical.
+- **The develop warp branch is now pinned to the fixed plane** (`tests/develop.rs`,
+  SPEC-022). `develop_into`'s `WarpRectilinear` branch already developed the
+  `FixBadPixelsConstant`-repaired plane, but nothing asserted it — SPEC-017's
+  coverage reached only the no-warp branch, and every real Q2M frame takes the
+  warp branch. A synthetic tier-A fixture (a bad pixel at the warp's
+  optical-centre fixed point plus a non-identity warp) now proves the fixed
+  value reaches the developed output through the warp branch, **shown red**
+  (`oracle-must-be-shown-red`): severing the branch to the raw source turns the
+  two new tests red (suite 243/0/3 → 241/2/3) while SPEC-017's no-warp assertion
+  stays green. No `src/` change — latent hardening that closes the hole before a
+  bad-pixel-bearing frame arrives.
 
 ### Known gaps
 

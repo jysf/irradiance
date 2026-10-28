@@ -14,7 +14,7 @@ handoff:
   id: HANDOFF-054
   cycle: build                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # from tier_map.<cycle> — the executing agent
+  to_agent: claude-opus-4-8         # actual implementer model (tier_map default is claude-opus-5)
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-10-27
@@ -50,7 +50,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/21
   completed_at: 2026-10-27         # YYYY-MM-DD
   notes: "Test-only, zero src/ change. tokens_total is a transcript sum DEDUPED BY message.id (43 distinct ids from 126 raw usage objects = 2.93x; 96.8% cache-read) — a FLOOR, written before the session closed. Worktree was cut from main (1cf848d), not from the design commit 4bb57a0 as the handoff assumed; cherry-picked 4bb57a0 (clean, byte-identical parents) to bring SPEC-022 + this handoff into the branch."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-10-27
 ---
 
 # HANDOFF-054: develop warp branch must develop the fixed plane not raw src
