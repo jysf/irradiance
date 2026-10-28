@@ -6,7 +6,7 @@
 task:
   id: SPEC-021
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,13 +27,13 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # build delegated via HANDOFF-058
+  created_at: 2026-10-27
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  decisions: [DEC-024, DEC-005, DEC-022]
+  constraints: [oracle-must-be-shown-red, test-before-implementation]
+  related_specs: [SPEC-020, SPEC-018, SPEC-017, SPEC-015]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -47,7 +47,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-005's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "STAGE-005: SPEC-020's develop oracle stops asserting a tolerance it cannot meet — its declared scope (warp-free, Orientation-1 pixels) now matches the signal dnglab actually provides; warp-bearing pixels are verified analytically instead."
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -62,8 +62,15 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 20000000        # build + verify; S, docs + test-reframe, no new oracle
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-10-27
+      notes: "Design in the orchestrator main loop (un-metered; null-with-note per AGENTS.md §4). A read-only Explore subagent gathered the oracle-scope inputs (152,372 tokens, 29 tool-uses): the two #[ignore]'d SPEC-018 tests in tests/warp.rs, DEC-005's >=85 scope clause, DEC-024's deferred consequence, docs/oracle-contract.md's gaps, and the SPEC-015 AC5(a) reframe precedent. That cost is the subagent's, not transcribed here."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -113,53 +120,193 @@ retire the current #[ignore] on AC8/AC9 in favour of an explicit
 
 ## Inputs
 
-What the implementer will read or consume.
+(All `file:line` cites are design-time; read the named item, not the exact line.)
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **`tests/warp.rs`** — the two `#[ignore]`'d tests to retire:
+  `warp_scores_at_least_eightyfive_via_spec_020_oracle` (SPEC-018 AC8, ~`:628`,
+  asserts `score >= 85.0`) and `warp_oracle_is_red_on_a_zeroed_kr1_coefficient`
+  (SPEC-018 AC9, ~`:675`, asserts the mutant `< 85.0` **vacuously**). Read their
+  full `#[ignore]` reason strings (they carry the measured numbers). Also the
+  **real** gate this spec points at: `warp_moves_corner_impulse_to_spike_001s_source_coord`
+  (AC4, ~`:156`) and `warp_tier_a_red_proof_kr1_zeroed_moves_peak_20px_or_more`
+  (AC10, ~`:239`, the CI-visible red-proof); `develop_and_score` (~`:550`) whose
+  dimension `assert_eq!` (~`:583`) **panics on L1026016 before scoring**;
+  `DECODABLE_Q2M` (~`:619`).
+- **`tests/perceptual_oracle.rs`** — SPEC-020's actual SSIMULACRA2-vs-`dnglab
+  analyze --srgb` oracle (`THRESHOLD: f64 = 85.0`, ~`:89`). **Not**
+  `tests/develop_oracle.rs` (that is SPEC-015's analytic oracle, no `#[ignore]`s).
+- **`decisions/DEC-005-develop-oracle-mechanics.md`** — the ≥85 clause (~`:47–50`:
+  scoped to "geometry and gross tonal correctness only", levels → DEC-004, but
+  **silent on warp and Orientation**) and the `## Validation` premise (~`:132–140`,
+  "below 85 = the render is wrong, the bar does not move"). `affected_scope`
+  already names `docs/oracle-contract.md`.
+- **`decisions/DEC-024-warprectilinear-kernel-pipeline-order-and-the-broken-oracle.md`**
+  — Finding 2 (dnglab/rawler implement **no** DNG opcodes; measured warp
+  `-60.169` vs no-warp baseline `+83.145`), and its Consequences (~`:185–191`)
+  that **explicitly defer** the DEC-005/SPEC-020 scope amendment "as a follow-up
+  for ship to disposition" — i.e. to this spec. DEC-024 does **not** record the
+  Orientation leg.
+- **`docs/oracle-contract.md`** — the layer-3 row (~`:22`) and "What the layers
+  do NOT cover" (~`:187–197`, which carves out levels/crop/orientation → DEC-004
+  only); `warp`/`opcode` appear nowhere.
+- **`specs/done/SPEC-015-analytic-levels-and-geometry-oracle.md`** — the template.
+  **AC5(a)** reframes a blind-spot into a *passing characterization assertion*
+  (a levels fault scores 95.62 and passes — documenting the blindness as a
+  fact); AC6 forces the red-proof CI-visible; **AC7: 0 lines changed in `src/`**.
+- **`decisions/DEC-022-stage-orchestration-cost-is-a-gate-not-a-warning.md`** —
+  the DEC-amendment shape ("… amending DEC-013 §5"): quote the amended clause
+  verbatim + a "Why amend rather than revert" note.
+- **SPEC-018/FU-6 + FU-10 and SPEC-017/FU-2** (in `specs/done/`) — the follow-ups
+  routed here; **FU-6 is the Orientation leg DEC-024 does not record**
+  (`dnglab --srgb` emits `8368×5584` for the Orientation-6 frame L1026016, whose
+  correct render is `5584×8368`).
 
 ## Outputs
 
-What the implementer will produce.
+A **documentation + test-reframe** spec. No new oracle, no `src/` logic change.
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **`decisions/DEC-026-…-amending-dec-005-oracle-scope.md`** (new) — amends
+  DEC-005's scope clause, in the DEC-022 shape (quote DEC-005's ≥85 clause
+  verbatim, then a "Why amend rather than revert" note). It records: the ≥85
+  develop-layer oracle covers geometry + gross tone of **warp-free,
+  Orientation-1** pixels only; **OpcodeList3 `WarpRectilinear` pixels and
+  Orientation ≠ 1 frames are OUT of scope** — `dnglab --srgb` applies neither
+  (warp: DEC-024 Finding 2; Orientation: the re-measurement in SPEC-018/FU-6 +
+  SPEC-017/FU-2, which DEC-024 does not record) — and are verified analytically
+  instead (`tests/warp.rs` AC4/AC10 for warp geometry; DEC-004/SPEC-015 for
+  levels+geometry). It neutralizes DEC-005's `## Validation` "below 85 = render
+  wrong, bar does not move" premise **for warp-bearing and rotated frames only**.
+- **`decisions/DEC-005-develop-oracle-mechanics.md`** — a short pointer added so
+  a reader lands on DEC-026 (e.g. a `## Scope amended by DEC-026` note); the
+  pre-registered table and `## Validation` prose above it stay intact (history
+  preserved).
+- **`decisions/INDEX.md`** — regenerated (`just decisions-index`).
+- **`docs/oracle-contract.md`** — extend "What the layers do NOT cover"
+  (~`:187–197`) with a warp + Orientation paragraph mirroring the levels one,
+  and annotate the layer-3 row (~`:22`) so the ≥85 verdict is explicitly scoped
+  to warp-free / Orientation-1 pixels. Cite DEC-024 Finding 2 and DEC-026.
+- **`tests/warp.rs`** — retire the two `#[ignore]`s (**reframe, don't delete the
+  evidence**):
+  - AC8's `score >= 85` becomes a **passing characterization test** on the
+    Orientation-1 frames only, asserting the oracle's blindness is *real*: the
+    warp-bearing score diverges **below** the no-warp baseline (`-60.169 <
+    +83.145`) — present-and-correct warp matches dnglab's uncorrected reference
+    *worse*, not better (SPEC-015 AC5(a) shape).
+  - The Orientation ≠ 1 case (L1026016) becomes an **explicit, documented skip**
+    keyed on `Orientation != 1`, so the dimension mismatch is a named
+    out-of-scope disposition — not the latent `assert_eq!` panic at ~`:583`.
+  - Rustdoc on both points at AC4/AC10 as the real gate and at DEC-026 /
+    `oracle-contract.md` for scope. Tier-B (needs `dnglab` + corpus): skip
+    loudly when absent, like the other tier-B tests — never `#[ignore]`d.
+- **Stale cross-references fixed (comment-only):** `tests/develop_oracle.rs`
+  (~`:85–86`, which points the warp oracle at the wrong file —
+  `tests/perceptual_oracle.rs` — and the wrong ACs), and the related pointers in
+  `src/warp.rs` (~`:72`) and `src/lib.rs`. **These are doc-comment edits; 0 `src/`
+  logic lines change** (assert it, SPEC-015 AC7).
+- **No new provenance-ledger row** — no algorithm added.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
+- [ ] **AC1 — DEC-026 narrows DEC-005's scope.** A new `DEC-026` exists,
+      amending DEC-005 (DEC-022 shape: the ≥85 clause quoted verbatim + a "Why
+      amend rather than revert" note). It names **warp-bearing (OpcodeList3) and
+      Orientation ≠ 1** as out of the ≥85 oracle's scope, with the measured
+      evidence (warp `-60.169` vs no-warp `+83.145`; L1026016 `5584×8368` correct
+      vs dnglab `8368×5584`), cites DEC-024 Finding 2 (warp) and SPEC-018/FU-6 +
+      SPEC-017/FU-2 (Orientation), and neutralizes DEC-005's `## Validation`
+      premise for those cases only. DEC-005 carries a pointer to DEC-026.
+      `decisions/INDEX.md` regenerated; `just decisions-audit` clean.
+      **Checked by:** `just decisions-audit` + a design-time grep the verifier
+      reproduces (DEC-026 present, DEC-005 points to it).
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] **AC2 — `docs/oracle-contract.md` states the carve-out.** "What the layers
+      do NOT cover" gains a warp + Orientation paragraph (mirroring the levels
+      one), and the layer-3 row is annotated as scoped to warp-free /
+      Orientation-1 pixels. `warp`, `opcode`, and the "dnglab ignores
+      Orientation" fact now appear where they did not. Cites DEC-026.
+
+- [ ] **AC3 — the two `#[ignore]`s are retired and reframed (not deleted).**
+      `tests/warp.rs` has **zero `#[ignore]`** (repo-wide drops from 3 to 1 — the
+      unrelated SPEC-017 one in `tests/develop.rs` stays). AC8 → a passing
+      characterization test on Orientation-1 frames asserting the warp-bearing
+      score is **below** the no-warp baseline (the `-60.169 < +83.145`
+      inversion). The Orientation ≠ 1 frame (L1026016) → an **explicit documented
+      skip** with a loud reason, not the latent `assert_eq!` panic at ~`:583`.
+      Both carry rustdoc pointing at AC4/AC10 and DEC-026. Tier-B: they skip
+      loudly (not error, not ignore) when `dnglab`/corpus is absent.
+      **Tests:** `warp_pixels_are_below_the_srgb_oracle_baseline` (characterization)
+      and the Orientation skip (name stated in the handback).
+
+- [ ] **AC4 — the analytic gate is untouched and remains the real proof.** AC4
+      (`warp_moves_corner_impulse…`, corners `503.7 / 437.7 / 407.0 px`) and AC10
+      (`warp_tier_a_red_proof…`, `339.5 px ≥ 20`) still pass, unchanged. The
+      `oracle-must-be-shown-red` constraint is satisfied by the already-shipped,
+      CI-visible **AC10** — cite it, do not duplicate a red-proof. **No `src/`
+      logic change:** `git diff` shows 0 non-comment lines under `src/` (the only
+      `src/` edits are the AC5 cross-ref doc-comments).
+
+- [ ] **AC5 — stale cross-references fixed (comment-only).**
+      `tests/develop_oracle.rs` (~`:85–86`), `src/warp.rs` (~`:72`) and
+      `src/lib.rs` no longer point the warp oracle at the wrong file
+      (`perceptual_oracle.rs` is SPEC-020's; the warp ACs live in `tests/warp.rs`).
+
+- [ ] **AC6 — gates green, CI observed on the shipping SHA.** `just lint-ci`
+      (pinned clippy), `test`, `decisions-audit`, the standing red-proofs. The
+      un-ignored tests skip cleanly in CI (corpus absent there); report the
+      suite count delta (ignored 3 → 1). Name the gate list you ran.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+Note the inversion (as in SPEC-022): the reframed tests PASS on the correct code
+— the warp render is right; dnglab is the one that is blind. What makes them
+load-bearing is that they *document the measured blindness* as a green
+assertion, while the real warp red-proof (AC10) already ships. "Failing" here is
+the reframe: the old `#[ignore]`'d `score >= 85` could never pass; the new
+characterization asserts the opposite (and true) fact.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`tests/warp.rs`**
+  - `warp_pixels_are_below_the_srgb_oracle_baseline` — on Orientation-1 frames,
+    asserts the warp-bearing SSIMULACRA2 score is below the no-warp baseline
+    (`-60.169 < +83.145`), proving dnglab provides no usable signal for
+    OpcodeList3 pixels. Tier-B; skips loudly without `dnglab`/corpus.
+  - the Orientation ≠ 1 disposition (L1026016) — an explicit skip with a loud
+    reason (dnglab ignores Orientation → dimension mismatch), replacing the
+    latent `assert_eq!` panic. Name it in the handback.
 
 ## Non-Goals
 
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
-
-- ...
+- **Any `src/` logic change** — the warp render is correct (AC4/AC10 prove it);
+  this spec narrows only what the oracle *claims*. The sole `src/` edits are the
+  cross-ref doc-comments (AC5).
+- **Building a new oracle** — the analytic replacement (`tests/warp.rs`
+  AC4/AC10) already shipped with SPEC-018. Point at it; do not duplicate.
+- **Finding a second, opcode-capable reference decoder** — DEC-024's Validation
+  already says "revisit if one becomes available". Out of scope here.
+- **Changing the ≥85 threshold itself** — the number stands for the pixels it
+  covers; this spec only states which pixels those are.
+- **Re-litigating DEC-024's kernel / pipeline-order decision.**
+- The other STAGE-005 items (SPEC-011 fuzz lint; the gate-script audit).
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- Docs + test-reframe; **0 `src/` logic lines** (SPEC-015 AC7: stop and report
+  if the oracle finds a real defect). Comment-only `src/` cross-ref fixes are
+  the exception.
+- **Reframe, don't delete** the `#[ignore]`s (SPEC-015 AC5(a) — assert the
+  blindness as a passing fact; keep the measured numbers in the test/rustdoc).
+- The Orientation ≠ 1 case (L1026016) must become an **explicit skip with a loud
+  reason**, never the latent `assert_eq!` panic at `tests/warp.rs:~583`.
+- Amend DEC-005 via the **new DEC-026** (DEC-022 shape); `just decisions-index`
+  to regenerate INDEX; `just decisions-audit` must stay clean.
+- Cite **DEC-024 Finding 2** for the warp evidence — don't re-inspect dnglab
+  source. The **Orientation leg is not in DEC-024** — record it from
+  SPEC-018/FU-6 + SPEC-017/FU-2.
+- `oracle-must-be-shown-red` is discharged by the already-shipped **AC10**
+  (CI-visible, corpus-free). Cite it; do not add a second red-proof.
+- Key numbers: warp `-60.169` vs no-warp `+83.145`; AC9 honest `-60.193` /
+  kr1=0 `-55.075`; AC4 `503.7 / 437.7 / 407.0 px`; AC10 `339.5 px` vs 20;
+  L1026016 correct `5584×8368`, dnglab `8368×5584`.
+- zsh: `$pipestatus`, not `PIPESTATUS`. `just lint-ci` (pinned clippy), read CI.
 
 ---
 
