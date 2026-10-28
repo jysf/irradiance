@@ -130,10 +130,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] (not yet written) [XS] `req()`'s single-value assumption is enforced, not documented — SPEC-016 pre-rescope AC2; carries SPEC-005/FU-2 and SPEC-010/FU-2 (mis-dispositioned twice); measurements at git 3238dcb
 - [ ] (not yet written) [XS] `SUPPORTED_BITS` cannot outrun its tests — SPEC-016 pre-rescope AC3; carries SPEC-012/FU-1; measurements at git 3238dcb
 - [ ] (not yet written) [XS] plane fuzz seeds reach `SampleExceedsWhiteLevel` — SPEC-016 pre-rescope AC4; carries SPEC-012/FU-2; measurements at git 3238dcb
+- [x] SPEC-021 (shipped on 2026-10-27) [S] Narrow SPEC-020's develop oracle scope excluding warp-bearing pixels — DEC-026 amends DEC-005; the two SPEC-018 `#[ignore]`'d oracle tests reframed to a passing characterization + explicit Orientation skip; dnglab implements no DNG opcodes (DEC-024 F2) and ignores Orientation (SPEC-018/FU-6, SPEC-017/FU-2)
 - [x] SPEC-022 (shipped on 2026-10-27) [XS] develop's warp branch must develop the FIXED plane, not raw `src` — carries SPEC-017/FU-10; AC9 asserts only the no-warp branch (`src/develop.rs:826`), the `:842` warp branch every real Q2M frame takes is unasserted (severing it leaves the whole suite green)
 - [ ] (not yet written) [S] Audit every gate script for the mute-death shape
 
-**Count:** 3 shipped / 5 active / 1 pending
+**Count:** 4 shipped / 5 active / 1 pending
 
 ## Design Notes
 

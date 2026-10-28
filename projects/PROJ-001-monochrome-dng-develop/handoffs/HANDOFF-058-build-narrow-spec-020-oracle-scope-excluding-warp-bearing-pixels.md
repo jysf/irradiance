@@ -14,7 +14,7 @@ handoff:
   id: HANDOFF-058
   cycle: build                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # from tier_map.<cycle> — the executing agent
+  to_agent: claude-opus-4-8         # actual implementer model (tier_map default is claude-opus-5)
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-10-27
@@ -50,7 +50,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/26
   completed_at: 2026-10-27         # YYYY-MM-DD
   notes: "tokens_total is the Claude Code session budget-delta (15,000,000 start minus tokens-left at handback), NOT a transcript input+output sum — not comparable with other specs' transcript-summed figures (SPEC-017/FU-9, token-counts-not-comparable). estimated_usd null: budget-delta has no clean input/output split to price. pr filled in a follow-up commit once opened. All 13 gates green; src/ diff comment-only (0 logic lines); suite ignored 3 -> 1."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-10-27
 ---
 
 # HANDOFF-058: narrow spec 020 oracle scope excluding warp-bearing pixels
