@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-10-28
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-023
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 33110588           # REAL combined count — what cost-audit reads
+  estimated_usd: 67.72             # tokens_total × your rate, or your harness's number
+  duration_minutes: 41
+  branch: claude/spec-023-build
+  pr: https://github.com/jysf/irradiance/pull/PENDING
+  completed_at: 2026-10-28         # YYYY-MM-DD
+  notes: "Transcript-sum (deduped by message.id over this build session's own transcript, anchored on the scratchpad UUID — NOT a budget delta); all 128 assistant messages are claude-opus-4-8. tokens_total is the cache-inclusive sum (input 256 + output 171,181 + cache_creation 317,243 + cache_read 32,621,908), matching the repo's recorded-cycle convention. estimated_usd is a list-price estimate (output $75/M, cache-write $18.75/M, cache-read $1.50/M). No src/ change."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -195,38 +195,111 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-023-build` → PR against `main` (link in the front-matter `pr:`).
+- **Completed at:** 2026-10-28
+- **All acceptance criteria met?** Yes.
+  - **AC1** — `scripts/gate-audit.sh` scans the 8 verdict-bearing gate scripts
+    (`validate`, `cost-audit`, `decisions-audit`, `decisions-index`,
+    `handback-sync`, `ready`, `_lib`, `test`), flags all three mute-death shapes,
+    excludes comments (the honest tree is green even though `validate.sh`'s own
+    header now contains `done < <(front_matter_parse_report …)` in prose), and
+    asserts its own scan count (dies if the glob or the exclusion list drops a
+    gate, or if the engine examines fewer files than it was handed). A CI step runs it.
+  - **AC2** — `scripts/gate-audit-red-proof.sh`: clean control, each of the three
+    shapes injected into a COPIED gate caught BY NAME + shape slug, a shape-shaped
+    COMMENT NOT flagged, isolation restores green, working tree untouched. Paired
+    adjacently with AC1's CI step.
+  - **AC3** — all three offenders fixed and each proven in a temp copy (working
+    tree untouched): (a) `validate.sh` now captures the oracle's rc from a temp
+    file, asserts it SCANNED every target, and treats rc≠0-with-no-FAIL as a crash;
+    the ruby helper's rescue was broadened to a bare `rescue` wrapping `File.read`,
+    so a non-`Psych::SyntaxError` fault (proof form: an **unreadable file** →
+    `Errno::EACCES`, which the old `rescue Psych::SyntaxError` left uncaught and a
+    `done < <(…)` swallowed into a green "0 parsed") now goes RED by name;
+    `validate-red-proof.sh` still passes. (b) `handback-sync.sh` skips a
+    `handoff.status: superseded` handoff (tallied `superseded`, not `pending`); a
+    temp-copy run proved HANDOFF-038 skips clean with exit 0, and the counter-proof
+    (flip it to `pending`) returns exit 1 — the skip is specific to superseded.
+    HANDOFF-038's manual `synced_at` kludge + note were removed, its handback
+    restored to null. (c) `decisions-audit.sh` guards the `^# DEC-` title grep with
+    `|| true`; a temp git copy proved a DEC with no H1 no longer aborts the lint.
+    `gate-audit` flags none of the three after the fixes.
+  - **AC4** — the only lower-risk variant `gate-audit` flagged was **`test.sh`** (19
+    unguarded `grep`s in command substitutions; the design cited ~`:2451/2747`,
+    there were more). All 19 guarded with `|| true`. `cost-audit.sh` and
+    `scripts/_lib.sh:get_active_project` were handled too: `_lib.sh:136` had a bare
+    `find … | grep -v example | sort` (multi-line command sub) — guarded. `cost-audit.sh`
+    was NOT flagged (its `done < <(find_all_* …)` process subs feed enumerators,
+    not verdict oracles, so they are not shape-1); it ships unchanged and
+    `cost-audit` + `cost-audit-red-proof` still pass.
+  - **AC5** — `gate-audit` + `gate-audit-red-proof` appear in AGENTS.md §6's block
+    and as `app.just` recipes; `git diff` touches **no `src/`** (asserted). Gate
+    list run green locally: `gate-audit`, `gate-audit-red-proof`, `validate`,
+    `validate-red-proof`, `cost-audit`, `cost-audit-red-proof`, `decisions-index
+    --check`, `decisions-audit`, `lint-ci` (clippy clean, pinned `+stable`). The
+    two new CI steps sit in the `cost-data` job adjacent to the `validate` pair.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 33,110,588 — transcript-sum, deduped by `message.id` over
+  this build session's own transcript (anchored on the scratchpad UUID
+  `00c62d73-…`, not a text grep), cache-inclusive (input 256 + output 171,181 +
+  cache_creation 317,243 + cache_read 32,621,908). All 128 assistant messages are
+  `claude-opus-4-8`. **Not** a budget delta.
+- **Estimated USD:** ≈ 67.72 — list-price estimate (output $75/M, cache-write
+  $18.75/M, cache-read $1.50/M, input $15/M).
+- **Duration (minutes):** 41 (first→last transcript timestamp).
+- **Source of the number:** transcript `message.usage`, summed and deduped.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None. The mute-death convention lives in AGENTS.md §16; the red-proof
+    mechanism is DEC-009 / DEC-017, cited not re-decided (per the spec).
 - **Deviations from spec:**
-  - [list]
+  - `validate.sh`'s count-assert is phrased as `scanned == ${#parse_targets[@]}`
+    (the oracle now reports how many targets it examined), **not** the literal
+    `parsed == ${#parse_targets[@]}` the Notes suggested: `parsed` counts only
+    files that HAVE front matter, and many targets legitimately have none (prompt
+    files, timelines), so a literal `parsed == target` assert would fire on the
+    honest tree. `scanned` is the faithful realization — it proves the oracle ran
+    to completion over every target. Combined with the rc-capture it is strictly
+    stronger.
+  - `handback-sync` tallies the superseded skip in a NEW `superseded` counter
+    (not lumped into `skipped`/"already synced"), so the summary does not claim a
+    never-dispatched handoff was synced — truer to this spec's own theme.
+  - CI: the two new checks are adjacent STEPS in the existing language-agnostic
+    `cost-data` job (the literal `ci.yml:24–33` pattern, where `cost-audit` +
+    `cost-audit-red-proof` are steps), not separate top-level jobs.
+  - shellcheck job: deferred (Non-Goals) — it would churn on pre-existing style
+    and is not the engine for this semantic class.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - `next-id-scans-test-fixtures` (already a `process-debt` signal, status
+    `watch`) — the `next_id` fixture-pollution bug; fix is a separate patch.
+  - The red-proof scripts (`*-red-proof.sh`) and `gate-audit.sh` itself are
+    excluded from `gate-audit`'s subject set by design (they embed the shape as
+    injection fixtures / detection patterns). A future spec could add a narrower
+    "no mute-death OUTSIDE the deliberate injection" check for red-proofs if ever
+    warranted; not needed today.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — The literal `parsed == ${#parse_targets[@]}` assert in the Notes is
+   self-contradictory against the repo's real files (many targets have no front
+   matter, so `parsed` < targets on the honest tree). It took a measurement to
+   see that the faithful realization is an oracle-reported *scanned* count, not
+   `parsed`.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `oracle-must-be-shown-red` (gates), `test-before-implementation`,
+   DEC-009/DEC-017, and AGENTS §16 rules 2–3 covered everything; no new DEC was
+   needed, exactly as the spec predicted.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the `gate-audit` engine in Ruby from the start. The precise part is
+   not the regexes but the *masking* — comments, heredoc bodies, and multi-line
+   single-quoted spans (the embedded awk/ruby in `_lib.sh`/`handback-sync.sh`),
+   which a line-oriented grep/awk scanner cannot do without false positives. Two
+   early iterations were lost to the US-ASCII default encoding on stdin-fed Ruby
+   before setting `Encoding.default_external = UTF_8`.

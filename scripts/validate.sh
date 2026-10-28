@@ -293,22 +293,48 @@ while IFS= read -r f; do
     [ -n "$f" ] && parse_targets+=("$f")
 done < <(find "${REPO_ROOT}/projects" "$(decisions_dir)" -type f -name '*.md' 2>/dev/null | sort)
 if [ "${#parse_targets[@]}" -gt 0 ]; then
-    # Process substitution: the report's non-zero exit (on a parse failure) is
-    # invisible to `set -e`/pipefail here, and we track failures by the FAIL
-    # lines anyway, so a red parse result does not abort the loop before the JSON
-    # emit / die below can act on it.
+    # ⚠ The mute-death this spec closes (SPEC-023, §16 rule 3 / DEC-017): a
+    # process substitution `done < <(front_matter_parse_report …)` hides the
+    # oracle's exit status from `set -e`, so a ruby fault that is NOT a
+    # Psych::SyntaxError — an unreadable file, an invalid UTF-8 byte that makes
+    # `rstrip` raise — could crash the parser mid-run and still leave this gate
+    # reporting green "0 … parseable". So: run the oracle to a temp file with its
+    # rc CAPTURED, assert it SCANNED every target it was handed (the completion
+    # sentinel), and a non-zero rc with no FAIL line is a crash, not a verdict.
+    parse_report="$(mktemp)"
+    set +e
+    front_matter_parse_report "${parse_targets[@]}" > "$parse_report"; parse_rc=$?
+    set -e
+    scanned=0
+    parse_fails=0
     while IFS=$'\t' read -r tag a b; do
         case "$tag" in
-            PARSED) parsed="$a" ;;
+            SCANNED) scanned="$a" ;;
+            PARSED)  parsed="$a" ;;
             FAIL)
                 pname=$(basename "$a" .md)
                 off_names+=("$pname"); off_problems+=(" front-matter-did-not-parse")
                 off_kinds+=("parse"); off_messages+=("$b")
                 [ "$JSON_OUT" = 1 ] || printf "  %-52s front matter did not parse: %s\n" "$pname" "$b"
                 offenders=$((offenders + 1))
+                parse_fails=$((parse_fails + 1))
                 ;;
         esac
-    done < <(front_matter_parse_report "${parse_targets[@]}")
+    done < "$parse_report"
+    rm -f "$parse_report"
+    # The oracle examined every target → it ran to completion. A short count
+    # means it died before the sentinel, which an exit-swallowing process sub
+    # would have reported green.
+    if [ "$scanned" -ne "${#parse_targets[@]}" ]; then
+        die "validate: the front-matter parser examined ${scanned} of ${#parse_targets[@]} target(s) before stopping — it crashed mid-run rather than finishing. Refusing to report green on a parse check that did not complete (SPEC-023, §16 rule 3 / DEC-017)."
+    fi
+    # A non-zero rc is only legitimate when it carries at least one FAIL (that is
+    # how the oracle signals an unparseable file). rc≠0 with zero FAILs is a
+    # crash for some other reason — a wrong parser API, a ruby fault — and must
+    # not pass as green.
+    if [ "$parse_rc" -ne 0 ] && [ "$parse_fails" -eq 0 ]; then
+        die "validate: the front-matter parser exited ${parse_rc} without naming a single unparseable file — it failed for a reason other than a parse error. Refusing to report green on a check that did not run (SPEC-023, §16 rule 3)."
+    fi
 fi
 
 # --- Machine-readable output (DEC-001 §2): the gate's findings, not just its

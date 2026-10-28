@@ -57,6 +57,24 @@ jobs:
       - name: validate parse gate goes red on unparseable front matter
         run: ./scripts/validate-red-proof.sh
 
+      # SPEC-023. The gate OVER the gates: scans the verdict-bearing scripts/*.sh
+      # for the mute-death shape (a gate that reports green, or dies, without its
+      # check running — a swallowed verdict-oracle exit, an unguarded grep, a
+      # success line with no count asserted). It excludes comments and asserts its
+      # own scan count, so a glob that matched nothing is a loud failure. This is
+      # what keeps the shape from creeping back into a FUTURE gate unnoticed, the
+      # way it took three specs to notice `validate`'s.
+      - name: gate-audit — no mute-death shape in any gate script
+        run: ./scripts/gate-audit.sh
+
+      # SPEC-023 red-proof (oracle-must-be-shown-red covers gates, SPEC-003/FU-14):
+      # a gate that has never gone red cannot be told from one that never ran.
+      # Proves gate-audit catches each of the three mute-death shapes injected into
+      # a COPIED gate, by name, with a clean control, comment-exclusion and
+      # isolation. Runs in a temp copy; paired with the gate it proves.
+      - name: gate-audit goes red on an injected mute-death shape
+        run: ./scripts/gate-audit-red-proof.sh
+
   fmt:
     name: rust / fmt --check
     runs-on: ubuntu-latest
