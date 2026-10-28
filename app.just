@@ -117,6 +117,18 @@ lint-red-proof:
 cost-audit-red-proof:
     ./scripts/cost-audit-red-proof.sh
 
+# SPEC-016's red-proof for the front-matter PARSE gate in `just validate`.
+# `just validate` reported "valid required front-matter" by GREPPING for keys —
+# it never parsed — so front matter no YAML parser could read was reported valid
+# (one such artifact shipped and was archived). This proves the parse gate is not
+# decorative: a grep-satisfiable, parse-broken fixture is REJECTED by name with
+# the parser's OWN message (an exit code alone cannot tell a real parse failure
+# from a check that never ran — a wrong parser API fails uniformly), while the
+# required-keys half still passes it, and the tree is green again once the
+# fixture is removed. Runs entirely in a temp copy. See the script's header.
+validate-red-proof:
+    ./scripts/validate-red-proof.sh
+
 # Close the #[allow] escape hatch on the LIBRARY (SPEC-006).
 #
 # `just lint-red-proof` pins the crate-root #![deny(...)] policy; it cannot see

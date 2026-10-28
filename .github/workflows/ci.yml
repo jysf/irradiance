@@ -39,6 +39,24 @@ jobs:
       - name: decisions-index is not stale
         run: ./scripts/decisions-index.sh --check
 
+      # SPEC-016. The schema gate now PARSES every artifact's front matter with a
+      # real YAML parser (ruby's Psych), not just greps for required keys, so an
+      # artifact no parser can read can no longer ship claiming valid front
+      # matter. This step is what put it in CI — `just validate` was not run here
+      # before, which is how an unparseable handoff slipped the old specs-only
+      # scope. ruby ships on the GitHub runner images; the gate fails loudly if
+      # it is ever absent rather than reporting green on an unrun check (AC1).
+      - name: validate parses every artifact's front matter
+        run: ./scripts/validate.sh
+
+      # SPEC-016 red-proof (oracle-must-be-shown-red): a gate that has never gone
+      # red cannot be told from one that never ran. Proves the parse gate rejects
+      # a grep-satisfiable, parse-broken fixture BY NAME with the parser's own
+      # message, while the required-keys half still passes it. Runs in a temp
+      # copy; see scripts/validate-red-proof.sh's header.
+      - name: validate parse gate goes red on unparseable front matter
+        run: ./scripts/validate-red-proof.sh
+
   fmt:
     name: rust / fmt --check
     runs-on: ubuntu-latest
