@@ -74,8 +74,8 @@ handback:
   branch: null
   pr: null
   completed_at: null               # YYYY-MM-DD
-  notes: "Superseded, never dispatched (handoff.status: superseded; SPEC-016's L->S rescope, 2026-09-06). Contributes NO cost session — it never ran. synced_at set manually at SPEC-016 ship to exclude it from handback-sync, which has no superseded-handoff skip yet (follow-up: handback-sync should skip handoff.status: superseded)."
-  synced_at: 2026-10-27            # excluded (superseded, never ran) — see notes
+  notes: null                      # one line if unusual (rework, no meter, etc.)
+  synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
 # HANDOFF-038: Build SPEC-016 — the harness stops claiming what it has not checked

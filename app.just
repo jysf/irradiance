@@ -129,6 +129,27 @@ cost-audit-red-proof:
 validate-red-proof:
     ./scripts/validate-red-proof.sh
 
+# SPEC-023's gate OVER the gates. Scans the verdict-bearing scripts/*.sh for the
+# mute-death shape — a gate that reports green (or dies) without its check
+# running: a process/command substitution that swallows a verdict oracle's exit,
+# an unguarded `grep` in a command substitution (a zero-match aborts the gate
+# under set -e), or a `success`/green line with no count asserted (§16 rules 2-3,
+# signal a-gate-that-fails-mutely-is-a-gate-that-never-ran). It excludes comments
+# and asserts its own scan count — a glob that matched nothing is a loud failure,
+# not a green pass. shellcheck is NOT the engine (SC2143/2181/2015 miss this
+# semantic class). See scripts/gate-audit.sh's header.
+gate-audit:
+    ./scripts/gate-audit.sh
+
+# SPEC-023's red-proof for `just gate-audit` (oracle-must-be-shown-red covers
+# gates, SPEC-003/FU-14): control clean, then each of the three mute-death shapes
+# injected into a COPIED gate is caught BY NAME and shape, a shape-shaped COMMENT
+# is NOT flagged (the comment-exclusion trap gate-audit itself must survive), and
+# the tree is green once the injections are removed. Runs entirely in a temp
+# copy; the working tree is never written to. See the script's header.
+gate-audit-red-proof:
+    ./scripts/gate-audit-red-proof.sh
+
 # Close the #[allow] escape hatch on the LIBRARY (SPEC-006).
 #
 # `just lint-red-proof` pins the crate-root #![deny(...)] policy; it cannot see

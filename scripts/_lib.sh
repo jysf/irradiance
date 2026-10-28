@@ -131,10 +131,14 @@ get_active_project() {
         echo "${ACTIVE_PROJECT}"
         return
     fi
-    # Non-example PROJ-* dirs, lowest number first.
+    # Non-example PROJ-* dirs, lowest number first. `|| true` guards the grep:
+    # a tree with only example projects (or none) is a zero-match, which under
+    # set -e/pipefail would otherwise abort every command that resolves the
+    # active project (SPEC-023, §16 rule 3 — a gate dies through its own message,
+    # not a pipeline's exit status).
     local dirs
     dirs=$(find "${REPO_ROOT}/projects" -maxdepth 1 -type d -name "PROJ-*" 2>/dev/null \
-           | grep -v "example" | sort)
+           | grep -v "example" | sort || true)
     # Prefer a project explicitly marked `status: active`. Without this, a
     # SHIPPED earlier wave silently captures every default-scoped command once a
     # second project exists — `just status`/`cost-audit`/`backlog` would target
@@ -368,33 +372,46 @@ get_spike_field() {
 # event, tab-separated:
 #     FAIL<TAB><file><TAB><parser message>   — for each unparseable file
 #     PARSED<TAB><n>                          — count of files actually parsed
+#     SCANNED<TAB><n>                         — count of files the parser examined
 # Exit 0 if every file parsed, 1 if any failed. Callers collect the lines.
+#
+# ⚠ The rescue is a BARE `rescue` (StandardError), not `rescue Psych::SyntaxError`
+# only, and it wraps the whole per-file body — `File.read`, the `rstrip` scans,
+# AND `YAML.parse`. A non-syntax fault (an unreadable file, an invalid UTF-8 byte
+# in `rstrip`) therefore emits a named FAIL and exits non-zero, instead of an
+# uncaught exception that a `done < <(…)` caller swallows (SPEC-023, §16 rule 3).
+# `SCANNED` is the completion sentinel: a caller asserts it equals the number of
+# paths it handed in, so a crash that stops the parser mid-run cannot be read as
+# a green "0 parsed" (the mute-death this closes).
 front_matter_parse_report() {
     ruby -ryaml -e '
 had_error = false
 parsed = 0
+scanned = 0
 ARGV.each do |path|
-  lines = File.read(path).lines
-  next unless lines[0] && lines[0].rstrip == "---"
-  body = []
-  closed = false
-  lines[1..-1].each do |l|
-    if l.rstrip == "---"
-      closed = true
-      break
-    end
-    body << l
-  end
-  next unless closed              # no closing fence → no front matter to parse
-  parsed += 1
+  scanned += 1
   begin
+    lines = File.read(path).lines
+    next unless lines[0] && lines[0].rstrip == "---"
+    body = []
+    closed = false
+    lines[1..-1].each do |l|
+      if l.rstrip == "---"
+        closed = true
+        break
+      end
+      body << l
+    end
+    next unless closed            # no closing fence → no front matter to parse
+    parsed += 1
     YAML.parse(body.join)
-  rescue Psych::SyntaxError => e
+  rescue => e
     had_error = true
     puts "FAIL\t#{path}\t#{e.message}"
   end
 end
 puts "PARSED\t#{parsed}"
+puts "SCANNED\t#{scanned}"
 exit(had_error ? 1 : 0)
 ' "$@"
 }

@@ -939,3 +939,21 @@ signals:
       sized, one gate script; keep it one-defect-per-spec and give it its own
       patch rather than folding it into unrelated work. Related:
       [handback-sync-truncates-multi-line-scalars] (same script).
+
+  - id: next-id-scans-test-fixtures
+    type: process-debt
+    summary: "scripts/_lib.sh next_id() scans the WHOLE repo for <PREFIX>-*.md, so a test fixture named like an artifact (SPEC-900-...) poisons ID minting — new-spec assigned SPEC-901 instead of 023."
+    evidence: "SPEC-023 scaffolding, 2026-10-28. just new-spec (new-spec.sh:68 -> next_id SPEC; _lib.sh:198-213) finds the max SPEC-*.md repo-wide; tests/oracle-fixtures/SPEC-900-unparseable-front-matter.md (SPEC-016's validate red-proof fixture) is the repo-wide max, so next_id returned SPEC-901. Hand-renamed to SPEC-023 (the real max is 022). All the new-* scaffolders (new-stage/new-handoff/new-patch/new-spike) pass no search_dir and inherit the same whole-repo scan."
+    bar: "N=1"
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-10-28
+    last_touched: 2026-10-28
+    raised_by: claude
+    notes: |
+      Fix: scope next_id's `find` to where real artifacts live (projects/ +
+      decisions/), or exclude tests/ (`-not -path '*/tests/*'`), so a fixture
+      named <PREFIX>-NNN can't be mistaken for the highest artifact. Patch-sized,
+      scripts/_lib.sh only; OUT of SPEC-023's gate-mute-audit scope (next_id is a
+      scaffolder, emits no verdict — not a gate). Related:
+      [spec-ids-collide-across-unmerged-branches] (same next_id, different cause).
