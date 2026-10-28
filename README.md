@@ -131,8 +131,10 @@ current wave:
 
 Intentionally **not** implemented yet (by design, not omission): compressed-plane
 decode (`PROJ-003`), and the `ASCII`/signed DNG tag types (no tag `PROJ-001`
-reads needs them). See [`projects/`](projects/) for active briefs and
-[`docs/ROADMAP.md`](docs/ROADMAP.md) for the long view.
+reads needs them). The long view — colour/Bayer (`PROJ-002`), lossless JPEG
+(`PROJ-003`), and more vendor formats — is in
+[`docs/future-plans.md`](docs/future-plans.md); see [`projects/`](projects/)
+for active briefs.
 
 ## How this repo is built
 
