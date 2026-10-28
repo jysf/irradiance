@@ -14,7 +14,7 @@ handoff:
   id: HANDOFF-056
   cycle: build                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # from tier_map.<cycle> — the executing agent
+  to_agent: claude-opus-4-8         # actual implementer model (tier_map default is claude-opus-5)
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-10-27
@@ -50,7 +50,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/23
   completed_at: 2026-10-27         # YYYY-MM-DD
   notes: "Parser: ruby Psych via YAML.parse (syntax-only, so created_at date scalars are not false positives and the Ruby 2.6 safe_load permitted_classes trap is avoided; portable 2.6-3.x), confirmed present on the ubuntu-latest CI runner by the new validate step passing. Scope broadened to every *.md under projects/ + decisions/ (121 parsed; was specs+patches+spikes = 26). HANDOFF-039 was the sole live falsifier (embedded unescaped double-quotes in handback.notes giving did-not-find-expected-key); fixed by escaping its interior quotes, 0 of 121 fail now. The named test validate_rejects_front_matter_that_no_parser_can_read ships as scripts/validate-red-proof.sh (standalone shell + just recipe + CI step), fixture at tests/oracle-fixtures/SPEC-900-unparseable-front-matter.md. tokens_total is the transcript floor (deduped by message.id, all components) rounded up for the uncaptured handback/CI turns; measured floor 9,430,941 / 25.67 USD."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-10-27
 ---
 
 # HANDOFF-056: the harness stops claiming what it has not checked

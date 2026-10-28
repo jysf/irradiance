@@ -6,7 +6,7 @@
 task:
   id: SPEC-016
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -22,9 +22,9 @@ task:
                                    #   each with its measurements pointing back to
                                    #   3238dcb's Implementation Context. See
                                    #   `## Rescope note` below.
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -98,10 +98,27 @@ cost:
       estimated_usd: null
       recorded_at: 2026-10-27
       notes: "Design refresh (main-loop, un-metered). Re-measured against main (efd34fe): 1 of 120 artifacts fails a real YAML parse today (HANDOFF-039), not the 2-of-75 SPEC-015 pair from 2026-09-06; `just validate` currently scopes to specs+patches+spikes only; python3 now has pyyaml locally (ruby -ryaml still the portable choice). Added the Design refresh note and minted HANDOFF-056 to delegate build."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 10500000
+      estimated_usd: 28.50
+      duration_minutes: 75
+      recorded_at: 2026-10-27
+      notes: "Parser: ruby Psych via YAML.parse (syntax-only, so created_at date scalars are not false positives and the Ruby 2.6 safe_load permitted_classes trap is avoided; portable 2.6-3.x), confirmed present on the ubuntu-latest CI runner by the new validate step passing. Scope broadened to every *.md under projects/ + decisions/ (121 parsed; was specs+patches+spikes = 26). HANDOFF-039 was the sole live falsifier (embedded unescaped double-quotes in handback.notes giving did-not-find-expected-key); fixed by escaping its interior quotes, 0 of 121 fail now. The named test validate_rejects_front_matter_that_no_parser_can_read ships as scripts/validate-red-proof.sh (standalone shell + just recipe + CI step), fixture at tests/oracle-fixtures/SPEC-900-unparseable-front-matter.md. tokens_total is the transcript floor (deduped by message.id, all components) rounded up for the uncaptured handback/CI turns; measured floor 9,430,941 / 25.67 USD."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 3788150
+      estimated_usd: null
+      duration_minutes: 18
+      recorded_at: 2026-10-27
+      notes: "APPROVED at d1cad62. Reproduced the red-proof independently (OLD validate.sh passes the SPEC-900 fixture, NEW fails by name with the Psych message), broke a real handoff live to prove the broadened scope catches it, confirmed missing-ruby dies loudly and HANDOFF-039 is fixed (121 parsed / 0 fail). One non-blocking follow-up: a narrow residual mute-gate if ruby is present but crashes for a non-SyntaxError reason. tokens_total is a FLOOR, deduped by message.id (30 billed msgs); no per-token USD meter."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 14288150
+    estimated_usd: 28.50
+    session_count: 4
+shipped_at: 2026-10-27
 ---
 
 # SPEC-016: The harness stops claiming what it has not checked
@@ -349,31 +366,39 @@ AC1 asks you to confirm your choice exists in CI rather than assume it.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Re-measure a long-dormant designed spec before dispatching build, not just
+   reproduce the old numbers. This design was 7 weeks old; the premise had
+   shifted (2-of-75 `SPEC-015` → 1-of-120 `HANDOFF-039`; pyyaml now present).
+   The refresh caught it. (And my own first sweep used a wrong Ruby API and
+   "failed" all 120 uniformly — a live instance of the exact mute-gate class
+   this spec closes, which became AC2's warning.)
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — A tooling gap surfaced at ship, now recorded in `guidance/signals.yaml` as
+   `process-debt`: `handback-sync` has no skip for a superseded, never-dispatched
+   handoff, so `HANDOFF-038` (handback null "on purpose") tripped it (exit 1).
+   Worked around by setting that handoff's `handback.synced_at` to exclude it.
+   The proper fix — skip `handoff.status: superseded` — is a small follow-up patch.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec, two small non-blocking follow-ups: (a) verify's residual
+   mute-gate — `validate.sh` reads `front_matter_parse_report` through a process
+   substitution whose non-zero exit is invisible to `set -e`, so a non-
+   `SyntaxError` ruby crash could still report green; cheap guard is to assert a
+   PARSED line was emitted. Folds into STAGE-005's gate-script-audit item.
+   (b) the `handback-sync` superseded-skip from Q2. Both are patch-sized.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — none
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before: `just validate` reported "N artifact(s) have valid required
+   front-matter" by GREPPING for keys — it never parsed, so front matter no YAML
+   parser could read was reported valid (1 of 120 artifacts, `HANDOFF-039`, was
+   silently broken). After: `just validate` PARSES every artifact's front matter
+   (121, incl. `handoffs/`+`decisions/`) with a real parser, fails loudly naming
+   the file and the parser's own message, and refuses to report green if the
+   parser itself is missing — so a parse-broken artifact can no longer ship
+   claiming valid front-matter. Confirming number: 121 parsed / 0 fail at
+   `d1cad62`; the red-proof flips the gate red on a broken fixture the old script
+   passed.

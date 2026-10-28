@@ -125,6 +125,20 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Fixed
 
+- **`just validate` now PARSES every artifact's front matter** instead of only
+  grepping for required keys. The old gate reported *"valid required
+  front-matter"* without ever running a YAML parser, so an artifact no parser
+  could read was reported valid — one shipped, was archived, and survived three
+  later specs. Now it parses every `*.md` under `projects/` + `decisions/`
+  (**121** artifacts, a superset of the old specs+patches+spikes scope) with
+  `ruby`'s `YAML.parse`, fails loudly naming the file and the parser's own
+  message, and — closing the mute-gate class — **refuses to report green if the
+  parser itself is missing** rather than silently skipping the check. Proven
+  red (`oracle-must-be-shown-red`): the old script passes a parse-broken fixture
+  the new one rejects, with the parser's message shown. Fixed the one live
+  offender (`HANDOFF-039`) that broadening the scope to `handoffs/` revealed
+  (SPEC-016; ships the `validate` half of the
+  `handback-sync-truncates-multi-line-scalars` signal).
 - **`just cost-audit` no longer scans patch/spec bodies as front matter** and no
   longer requires build+verify totals on patches whose verify handoff has not
   handed back — DEC-013 says `handback-sync` is the ledger, not the audit
