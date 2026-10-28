@@ -125,6 +125,27 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Fixed
 
+- **Gate scripts can no longer report green without their check running**
+  (SPEC-023, STAGE-005's capstone — the generalisation of SPEC-016/021/011).
+  Every gate here is a `set -euo pipefail` shell script, and in that context an
+  unguarded `grep` aborts the whole script on no-match while a process- or
+  command-substitution's non-zero exit is invisible to `set -e` — either way a
+  gate can print a green verdict (or die) with its check never having run. A new
+  `just gate-audit` (`scripts/gate-audit.sh`) + a CI job scan all **8**
+  verdict-bearing `scripts/*.sh` for that shape, name each offender and which
+  shape, exclude comments, and — because the audit is itself source-matching
+  tooling — **assert their own scan count**, so a glob matching nothing is a loud
+  failure, not a silent pass. Shipped with a red-proof
+  (`oracle-must-be-shown-red`, which covers gates): a shape injected into a
+  **copied** gate is caught by name with a clean negative control and isolation,
+  the working tree untouched. The three live offenders are fixed and each proven:
+  `validate.sh` (a non-`SyntaxError` ruby fault now turns the gate RED instead of
+  a green *"0 … parseable"*), `handback-sync.sh` (a `superseded` handoff is
+  skipped, not treated as `pending` — closing the
+  `handback-sync-trips-on-superseded-handoffs` signal and retiring the manual
+  `synced_at` kludge SPEC-016's ship needed for `HANDOFF-038`), and
+  `decisions-audit.sh` (a DEC missing its `# DEC-` H1 no longer aborts the lint
+  silently). No `src/` change.
 - **The fuzz crate is now linted** (SPEC-011). `fuzz/` is a second cargo graph
   DEC-011 keeps outside the library's `[dependencies]`, so `cargo clippy
   --all-targets -- -D warnings` at the repo root mentioned `irradiance-fuzz`
