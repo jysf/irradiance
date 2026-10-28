@@ -6,14 +6,14 @@
 task:
   id: SPEC-023
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -71,10 +71,27 @@ cost:
       estimated_usd: null
       recorded_at: 2026-10-28
       notes: "Design in the orchestrator main loop (un-metered; null-with-note per AGENTS.md §4). A read-only Explore subagent surveyed all 50 gate scripts (168,430 tokens, 56 tool-uses): re-measured the mute-death shape (8-of-13 at 3238dcb -> 3 reachable offenders today: validate.sh, handback-sync.sh, decisions-audit.sh), confirmed SPEC-016's two follow-ups live, recommended a bespoke gate-audit over shellcheck, and confirmed the next_id fixture-pollution bug. That cost is the subagent's, not transcribed here."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 33110588
+      estimated_usd: 67.72
+      duration_minutes: 41
+      recorded_at: 2026-10-28
+      notes: "Transcript-sum (deduped by message.id over this build session's own transcript, anchored on the scratchpad UUID — NOT a budget delta); all 128 assistant messages are claude-opus-4-8. tokens_total is the cache-inclusive sum (input 256 + output 171,181 + cache_creation 317,243 + cache_read 32,621,908), matching the repo's recorded-cycle convention. estimated_usd is a list-price estimate (output $75/M, cache-write $18.75/M, cache-read $1.50/M). No src/ change."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 3812629
+      estimated_usd: null
+      duration_minutes: 13
+      recorded_at: 2026-10-28
+      notes: "APPROVED at 69d9a1b2. Independent cold review: re-ran the red-proof and every gate and wrote its OWN injections for all three offenders (unreadable .md -> validate RED by name; superseded handoff skipped vs flipped-to-pending rc 1; DEC grep-guard aborts vs reaches). AC1-AC5 all hold; src/ diff EMPTY; just lint-ci + 13 CI jobs green on 69d9a1b2; decisions-audit 0 structural errors. tokens_total is a transcript SUM deduped by message.id (scratchpad-UUID anchored, cache-inclusive, all claude-opus-4-8) -- a floor, not a budget delta."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 36923217
+    estimated_usd: 67.72
+    session_count: 3
+shipped_at: 2026-10-28
 ---
 
 # SPEC-023: Audit every gate script for the mute-death shape
@@ -306,31 +323,37 @@ that exist as behaviors today (red until fixed).
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing in the approach — the design's Explore subagent re-measured the
+   shape LIVE (the stale "8 of 13 unguarded greps" at `3238dcb` → **3 reachable
+   offenders** today), which set the gate's real scope instead of inheriting an
+   old count. The one friction: `just new-spec` minted this as `SPEC-901` because
+   `next_id` scanned the `SPEC-900` *test fixture* as the repo's highest spec. I
+   hand-renamed and logged it — next time I'd fence `next_id` off `tests/` before
+   it bites the next spike, not after.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No template change. This spec's superseded-handoff skip **resolves** the
+   `handback-sync-trips-on-superseded-handoffs` signal (closed at this ship — and
+   proven: this very sync reported `0 superseded` with the manual `synced_at`
+   kludge gone). `next_id` scanning test fixtures stays an open `watch` signal
+   (`next-id-scans-test-fixtures`) — a scaffolder bug, deliberately out of scope.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. The `next_id` fix is a small scaffolder patch the open signal
+   already records, not a spec. STAGE-005's four remaining `[XS]` items stay in
+   the backlog.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — none — the build reconciled clean (26/26, `src/` empty) and the cold verify
+   re-proved every AC with its own injections and found no blocking defect.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before: a `set -euo pipefail` gate could report green (or die) *without its
+   check running* — a process substitution's failure is invisible to `set -e`, an
+   unguarded `grep` aborts the script on no-match — and nothing looked for it;
+   three live gates (`validate`, `handback-sync`, `decisions-audit`) had exactly
+   that shape. After: `just gate-audit` + a CI job scan all 8 verdict-bearing gate
+   scripts for the mute-death shape, with a red-proof that catches an injected
+   shape by name, and the three offenders are fixed. Confirming: `gate-audit`
+   exit 0, the red-proof catches its injections, 13 CI jobs green. A harness/gate
+   hardening — no runtime change.
