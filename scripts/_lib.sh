@@ -339,6 +339,66 @@ get_spike_field() {
     ' "$file"
 }
 
+# ── Front-matter PARSE gate (SPEC-016) ──────────────────────────────────────
+# Parse the YAML front matter of each FILE given as an argument with a REAL YAML
+# parser, and report every file whose front matter does not parse.
+#
+# The schema checks in validate.sh read front matter with the line-oriented
+# awk/grep helpers above: they confirm required KEYS are present, but they never
+# PARSE. So front matter that no YAML parser can read was reported "valid
+# required front-matter" — one such artifact shipped, was archived, and survived
+# three later specs before anyone noticed (SPEC-016 Context). This closes that
+# class: a parse error fails the gate, names the file, and prints the parser's
+# OWN message so the reader sees the exact line/column the YAML broke at.
+#
+# Parser: ruby's Psych via `YAML.parse`. ruby ships with macOS and the GitHub
+# runner images (SPEC-016 AC1). `YAML.parse` checks SYNTAX only — it builds the
+# node tree and never materializes objects — which is deliberate, not incidental:
+#   * a `created_at: 2026-10-27` date scalar is NOT a false positive. Psych 4
+#     (Ruby 3.1+) made `YAML.load`/`safe_load` reject an un-permitted Date; parse
+#     never instantiates it, so the gate behaves identically on Ruby 2.6 → 3.x.
+#   * it never touches `safe_load`'s `permitted_classes:` keyword, which does not
+#     exist on Ruby 2.6's `safe_load` and raises ArgumentError UNIFORMLY on every
+#     file — a wrong parser API that masquerades as 120 findings while the check
+#     never actually ran. That is the exact failure class SPEC-016 closes, and is
+#     why AC2's third clause demands the parser's MESSAGE, not just an exit code.
+#
+# A file whose first line is not `---`, or whose front matter has no closing
+# `---`, is skipped: it has no front matter to parse. Output is one line per
+# event, tab-separated:
+#     FAIL<TAB><file><TAB><parser message>   — for each unparseable file
+#     PARSED<TAB><n>                          — count of files actually parsed
+# Exit 0 if every file parsed, 1 if any failed. Callers collect the lines.
+front_matter_parse_report() {
+    ruby -ryaml -e '
+had_error = false
+parsed = 0
+ARGV.each do |path|
+  lines = File.read(path).lines
+  next unless lines[0] && lines[0].rstrip == "---"
+  body = []
+  closed = false
+  lines[1..-1].each do |l|
+    if l.rstrip == "---"
+      closed = true
+      break
+    end
+    body << l
+  end
+  next unless closed              # no closing fence → no front matter to parse
+  parsed += 1
+  begin
+    YAML.parse(body.join)
+  rescue Psych::SyntaxError => e
+    had_error = true
+    puts "FAIL\t#{path}\t#{e.message}"
+  end
+end
+puts "PARSED\t#{parsed}"
+exit(had_error ? 1 : 0)
+' "$@"
+}
+
 # Find the timeline file paired with a spec. Returns empty if none.
 # Usage: find_spec_timeline SPEC-001
 find_spec_timeline() {
