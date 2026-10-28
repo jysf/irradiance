@@ -6,14 +6,14 @@
 task:
   id: SPEC-021
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -71,10 +71,27 @@ cost:
       estimated_usd: null
       recorded_at: 2026-10-27
       notes: "Design in the orchestrator main loop (un-metered; null-with-note per AGENTS.md §4). A read-only Explore subagent gathered the oracle-scope inputs (152,372 tokens, 29 tool-uses): the two #[ignore]'d SPEC-018 tests in tests/warp.rs, DEC-005's >=85 scope clause, DEC-024's deferred consequence, docs/oracle-contract.md's gaps, and the SPEC-015 AC5(a) reframe precedent. That cost is the subagent's, not transcribed here."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 360000
+      estimated_usd: null
+      duration_minutes: 60
+      recorded_at: 2026-10-27
+      notes: "tokens_total is the Claude Code session budget-delta (15,000,000 start minus tokens-left at handback), NOT a transcript input+output sum — not comparable with other specs' transcript-summed figures (SPEC-017/FU-9, token-counts-not-comparable). estimated_usd null: budget-delta has no clean input/output split to price. pr filled in a follow-up commit once opened. All 13 gates green; src/ diff comment-only (0 logic lines); suite ignored 3 -> 1."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 3715683
+      estimated_usd: null
+      duration_minutes: 15
+      recorded_at: 2026-10-27
+      notes: "APPROVED at b37a70e. Exercised both reframed tests against the REAL corpus (non-vacuous): warp_pixels_are_below_the_srgb_oracle_baseline measured L1021223 -60.169 / L1026192 -40.281 < 83.145 and skips the Orientation-6 frame loudly; rotated_frame_is_out_of_the_srgb_oracle_scope asserts real dims 8368x5584 != 5584x8368. src diff comment-only (0 logic), #[ignore] 3->1, CI 11/11 green. Flagged the build handback tokens_total 360000 as a budget-delta (non-comparable). This figure is a FLOOR deduped by message.id (28 ids); no per-token USD meter."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 4075683
+    estimated_usd: 0.00
+    session_count: 3
+shipped_at: 2026-10-27
 ---
 
 # SPEC-021: narrow spec 020 oracle scope excluding warp-bearing pixels
@@ -315,31 +332,36 @@ characterization asserts the opposite (and true) fact.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Gather the actual `file:line` before authoring a spec that references
+   another spec's tests from a long-ago frame. The frame pointed at "SPEC-020's
+   oracle (`develop_oracle.rs`)" and "AC8/AC9"; a design-time subagent sweep
+   corrected it (the SSIMULACRA2 oracle is `tests/perceptual_oracle.rs`; the
+   `#[ignore]`'d AC8/AC9 are SPEC-018's in `tests/warp.rs`; the analytic
+   replacement already shipped) — which is what kept the build from narrowing
+   the wrong file.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — DEC-005's scope clause is now amended by the new DEC-026 (this spec's own
+   output). Otherwise no: the build's budget-delta `tokens_total` (360,000, not
+   a transcript sum) is the already-recorded `token-counts-not-comparable` class
+   (SPEC-017/FU-9) — flagged in the handbacks and the cost note, no new signal.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. The two extra comment-only cross-ref fixes the build made are in scope.
+   DEC-024's "revisit if a second opcode-capable reference decoder appears"
+   stays the standing re-open condition, not a follow-up to write now.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — none
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before: SPEC-020's develop oracle advertised a ≥85 SSIMULACRA2 tolerance
+   over all pixels, but for warp-bearing and rotated frames the `dnglab`
+   reference applies no opcodes and ignores Orientation, so the comparison was
+   structurally meaningless (a correct warp scores −60.169) — hidden behind two
+   dead `#[ignore]`'d tests. After: the oracle's declared scope formally excludes
+   those pixels (DEC-026, `oracle-contract.md`), and the two `#[ignore]`s are
+   replaced by a passing characterization that asserts the blindness is real
+   (−60.169 / −40.281 < +83.145, measured on the corpus) plus an explicit
+   Orientation skip — so the oracle's silence on warp can no longer be mistaken
+   for a passing verdict. No runtime change (docs + test-reframe).
