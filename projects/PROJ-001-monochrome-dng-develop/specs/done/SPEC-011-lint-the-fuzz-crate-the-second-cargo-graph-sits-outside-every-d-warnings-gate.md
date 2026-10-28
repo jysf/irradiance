@@ -6,14 +6,14 @@
 task:
   id: SPEC-011
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -71,10 +71,27 @@ cost:
       estimated_usd: null
       recorded_at: 2026-10-27
       notes: "Design in the orchestrator main loop (un-metered; null-with-note per AGENTS.md §4). A read-only Explore subagent gathered the inputs (112,053 tokens, 27 tool-uses): the lint-ci/deny-fuzz recipes + their CI jobs, the lint-red-proof mechanism (DEC-009), the fuzz crate state, and a LIVE clippy-on-fuzz run (clean, 0 warnings on 0.1.98 and 0.1.99, even under the five panic-free lints). That cost is the subagent's, not transcribed here."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 8894582
+      estimated_usd: null
+      duration_minutes: 50
+      recorded_at: 2026-10-28
+      notes: "Transcript sum deduped by message.id over this session's scratchpad-UUID JSONL (42 assistant messages, all claude-opus-4-8), cache-inclusive (input+output+cache_creation+cache_read); NOT a remaining-budget delta. Input+output alone was 79,890. No code fixes — the fuzz crate was already clippy-clean."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 1806524
+      estimated_usd: null
+      duration_minutes: 15
+      recorded_at: 2026-10-28
+      notes: "APPROVED at 06ae10e. Ran the red-proof itself (not the CI badge): control clean -> injected unnecessary_cast into opcode.rs caught at exit 101 with the clippy help-URL match -> the same copy WITHOUT -D warnings exits 0, proving -D warnings is the only teeth (the fuzz crate has no #![deny]). src/+fuzz_targets diff EMPTY; CI 26/26; decisions-audit clean. One cosmetic non-issue (AGENTS.md section 6 lint-fuzz block drops a trailing 2>&1 - still runnable, not a finding). tokens_total is a FLOOR deduped by message.id (16 ids) - a transcript sum, not a budget-delta; no per-token USD meter."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 10701106
+    estimated_usd: 0.00
+    session_count: 3
+shipped_at: 2026-10-28
 ---
 
 # SPEC-011: Lint the fuzz crate — the second cargo graph sits outside every -D warnings gate
@@ -300,31 +317,33 @@ belongs upstream in the template, not here.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing I'd change — running clippy on `fuzz/` LIVE during design (via the
+   Explore subagent) was the move that mattered: it turned "the crate may have
+   warnings to fix" into a measured "0 warnings, gate ships green" and set the
+   red-proof's shape (inject a default-clippy fault, since a panic-free-only one
+   would catch nothing). Measure a gate's current state at design, don't infer it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — DEC-027 is this spec's new decision (fuzz lint scope). No template change.
+   The spec-ID-collision signal this spec was itself born from
+   (`spec-ids-collide-across-unmerged-branches`) stays open upstream, not fixed
+   here. Verify's one cosmetic note (AGENTS.md §6's `lint-fuzz` block drops a
+   trailing `2>&1`) is below the finding bar — runnable, left as-is.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. The gate-script audit (STAGE-005's remaining item) could adopt the
+   temp-copy red-proof discipline this spec reused, but that's the existing
+   backlog item, not a new spec.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — none
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before: the `fuzz/` crate — a separate cargo graph (DEC-011) — was linted by
+   nothing; `cargo clippy --all-targets -- -D warnings` at the repo root mentioned
+   `irradiance-fuzz` **0** times, so a clippy regression in a fuzz target would
+   ship silently. After: `just lint-fuzz` and a CI job run clippy `-D warnings`
+   on the fuzz graph (the lint gate is now two invocations, both required — the
+   licence-gate pattern DEC-011 established), with a red-proof proving
+   `-D warnings` is the teeth. Confirming: CI 26/26, the red-proof catches an
+   injected `unnecessary_cast` (exit 101). No runtime change — a CI/lint gate.

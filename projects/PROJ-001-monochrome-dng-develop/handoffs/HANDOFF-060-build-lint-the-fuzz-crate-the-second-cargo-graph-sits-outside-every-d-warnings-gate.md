@@ -14,7 +14,7 @@ handoff:
   id: HANDOFF-060
   cycle: build                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # from tier_map.<cycle> — the executing agent
+  to_agent: claude-opus-4-8         # actual implementer model (tier_map default is claude-opus-5)
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-10-27
@@ -50,7 +50,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/28
   completed_at: 2026-10-27         # YYYY-MM-DD
   notes: "Transcript sum deduped by message.id over this session's scratchpad-UUID JSONL (42 assistant messages, all claude-opus-4-8), cache-inclusive (input+output+cache_creation+cache_read); NOT a remaining-budget delta. Input+output alone was 79,890. No code fixes — the fuzz crate was already clippy-clean."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-10-28
 ---
 
 # HANDOFF-060: lint the fuzz crate — the second cargo graph sits outside every -D warnings gate

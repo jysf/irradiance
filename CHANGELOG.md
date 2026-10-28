@@ -125,6 +125,19 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Fixed
 
+- **The fuzz crate is now linted** (SPEC-011). `fuzz/` is a second cargo graph
+  DEC-011 keeps outside the library's `[dependencies]`, so `cargo clippy
+  --all-targets -- -D warnings` at the repo root mentioned `irradiance-fuzz`
+  **zero** times — a clippy regression in a fuzz target would have shipped
+  silently. A new `just lint-fuzz` (`cargo clippy --manifest-path fuzz/Cargo.toml
+  --all-targets -- -D warnings`) and a CI job close it, exactly as `deny-fuzz`
+  did for the licence gate: the gate is now **two invocations, both required**.
+  Scope is clippy's default `-D warnings`, **not** the library's five panic-free
+  lints (the fuzz harness is dev-only glue, not an attacker-surface — `DEC-027`,
+  extending DEC-011). Shipped with a red-proof (`oracle-must-be-shown-red`, which
+  covers gates): an injected `unnecessary_cast` is caught only because
+  `-D warnings` promotes it, with a clean negative control. No `src/` or
+  fuzz-target change — the crate was already clippy-clean.
 - **The develop oracle stops claiming warp-bearing pixels it cannot see**
   (SPEC-021). SPEC-020's SSIMULACRA2-vs-`dnglab --srgb` tolerance (≥85) was
   advertised over all pixels, but `dnglab`/`rawler` implement **no** DNG
