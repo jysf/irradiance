@@ -19,7 +19,7 @@ dev-dependency, without its own decision.
 | Metadata | `exiftool -T -n -s3` (primary) + `dnglab analyze --meta --json` (six-DNG cross-check) — see below | exact, machine-diffable, live (`SPEC-005`) |
 | File structure | `dnglab analyze --structure` | validates the IFD walk |
 | **Sensor plane** | `dnglab analyze --raw-checksum` | **bit-exact** |
-| Developed output | `dnglab analyze --srgb` → **16-bit PNM, not a TIFF** ⚠ | SSIMULACRA2 **≥ 85** (DEC-005) |
+| Developed output | `dnglab analyze --srgb` → **16-bit PNM, not a TIFF** ⚠ | SSIMULACRA2 **≥ 85**, warp-free + Orientation-1 pixels only (DEC-005, scoped by DEC-026) |
 
 There is also a **layer 0** that costs nothing: the packing arithmetic must
 reproduce `StripByteCounts` exactly. See `measured-q2m-dng.md`.
@@ -195,6 +195,29 @@ black level — still scores 87.5**, passing the ≥85 bar.
 **Levels, crop and orientation are therefore verified analytically (DEC-004), not
 by any oracle in this document.** Do not add a perceptual check for them; that is
 a category error, and it was very nearly shipped as one.
+
+**Neither does the develop layer cover `WarpRectilinear` (`OpcodeList3`) geometry
+or `Orientation ≠ 1` frames — measured 2026-09-06 / 2026-09-08 (DEC-026).** The
+develop layer is blind here not because the metric is perceptual but because the
+reference is uncorrected: `dnglab`/`rawler` implement **no** DNG `OpcodeList`
+processing (DEC-024 Finding 2), and `dnglab analyze --srgb` **ignores EXIF
+`Orientation`** (SPEC-018/FU-6, re-measured in SPEC-017/FU-2 — it prints
+`8368 5584` for an `Orientation`-6 frame as well as an `Orientation`-1 one). So a
+*present-and-correct* warp makes the match **worse**, not better: `L1021223.DNG`
+scores **−60.169** with the correct warp versus a **+83.145** no-warp baseline,
+and the `kr1`-zeroed red-proof's `< 85` is satisfied vacuously (honest −60.193,
+mutant −55.075). A rotated frame cannot be scored at all: `L1026016.DNG`'s correct
+render is **5584×8368** while `dnglab` emits **8368×5584**. The ≥ 85 verdict in the
+layer table above is therefore scoped to **warp-free, Orientation-1 pixels only**.
+
+**Warp geometry is verified analytically instead — `tests/warp.rs`'s `AC4`/`AC10`,
+not any oracle in this document** (`AC4` reproduces each frame's DNG 1.7.0.0 §6.4.1
+corner displacement within 1 px; `AC10` is the corpus-free, CI-visible red-proof —
+a `kr1`-zeroed mutation moves the peak 339.5 px against a 20 px bar). The
+`Orientation ≠ 1` case is an explicit out-of-scope disposition, not a score. Do
+not add a perceptual warp check against `dnglab`; it cannot see the stage in
+either direction, the same category error the levels paragraph warns about one
+pipeline stage over.
 
 ## Every oracle must be shown to go red
 

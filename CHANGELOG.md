@@ -125,6 +125,35 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Fixed
 
+- **The develop oracle stops claiming warp-bearing pixels it cannot see**
+  (SPEC-021). SPEC-020's SSIMULACRA2-vs-`dnglab --srgb` tolerance (≥85) was
+  advertised over all pixels, but `dnglab`/`rawler` implement **no** DNG
+  OpcodeList processing and `dnglab` ignores EXIF `Orientation`, so for
+  warp-bearing and rotated frames the comparison is structurally meaningless (a
+  *correct* `WarpRectilinear` scores −60.169 against dnglab's uncorrected
+  reference, vs a +83.145 no-warp baseline). The oracle's scope is now formally
+  narrowed to **warp-free, Orientation-1 pixels** (new `DEC-026` amending
+  DEC-005; a carve-out in `docs/oracle-contract.md`), and SPEC-018's two dead
+  `#[ignore]`'d oracle tests are **retired, not hidden**: replaced by a passing
+  characterization asserting the blindness is real (−60.169 / −40.281 < +83.145,
+  measured) plus an explicit `Orientation ≠ 1` skip — so the oracle's silence on
+  warp can't be mistaken for a passing verdict. Warp geometry stays verified
+  analytically (`tests/warp.rs` AC4/AC10). No `src/` logic change; repo-wide
+  `#[ignore]` drops 3 → 1.
+- **`just validate` now PARSES every artifact's front matter** instead of only
+  grepping for required keys. The old gate reported *"valid required
+  front-matter"* without ever running a YAML parser, so an artifact no parser
+  could read was reported valid — one shipped, was archived, and survived three
+  later specs. Now it parses every `*.md` under `projects/` + `decisions/`
+  (**121** artifacts, a superset of the old specs+patches+spikes scope) with
+  `ruby`'s `YAML.parse`, fails loudly naming the file and the parser's own
+  message, and — closing the mute-gate class — **refuses to report green if the
+  parser itself is missing** rather than silently skipping the check. Proven
+  red (`oracle-must-be-shown-red`): the old script passes a parse-broken fixture
+  the new one rejects, with the parser's message shown. Fixed the one live
+  offender (`HANDOFF-039`) that broadening the scope to `handoffs/` revealed
+  (SPEC-016; ships the `validate` half of the
+  `handback-sync-truncates-multi-line-scalars` signal).
 - **`just cost-audit` no longer scans patch/spec bodies as front matter** and no
   longer requires build+verify totals on patches whose verify handoff has not
   handed back — DEC-013 says `handback-sync` is the ledger, not the audit

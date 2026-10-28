@@ -68,8 +68,12 @@
 //! because nothing measured argued for escalating past it — **not** because
 //! it scored well through `SPEC-020`'s oracle. That oracle produced no score
 //! to ship on: `dnglab`/`rawler` do not implement DNG `OpcodeList`
-//! processing, so it cannot see this stage in either direction, and `AC8`/
-//! `AC9` are `#[ignore]`-marked with that reason inline (`DEC-024`
+//! processing, so it cannot see this stage in either direction. `SPEC-021`
+//! formally narrowed `SPEC-020`'s oracle scope to exclude warp-bearing pixels
+//! (`DEC-026`, amending `DEC-005`) and retired `SPEC-018`'s `#[ignore]`d
+//! `AC8`/`AC9` into a passing characterization of that blindness
+//! (`tests/warp.rs`'s `warp_pixels_are_below_the_srgb_oracle_baseline`, which
+//! measures the warp-bearing score below the no-warp baseline — `DEC-024`
 //! Finding 2). The pre-registered escalation trigger was an oracle score
 //! below the bar; no such score exists, and a sharper kernel could not have
 //! moved a number the reference never computes.
