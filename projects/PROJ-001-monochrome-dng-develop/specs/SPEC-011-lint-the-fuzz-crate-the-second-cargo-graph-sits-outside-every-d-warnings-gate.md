@@ -6,7 +6,7 @@
 task:
   id: SPEC-011
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                    # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,13 +27,13 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # build delegated via HANDOFF-060
+  created_at: 2026-10-27
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  decisions: [DEC-011, DEC-009, DEC-006]
+  constraints: [oracle-must-be-shown-red, test-before-implementation]
+  related_specs: [SPEC-003, SPEC-006, SPEC-016]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -47,7 +47,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-002's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "STAGE-005: the fuzz crate — the second cargo graph the library's -D warnings gate never sees — gets its own clippy gate, closing the same uncovered-graph hole the licence gate had before deny-fuzz."
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -62,8 +62,15 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 20000000        # build + verify; S, a lint gate + red-proof + a DEC, no code fixes
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-10-27
+      notes: "Design in the orchestrator main loop (un-metered; null-with-note per AGENTS.md §4). A read-only Explore subagent gathered the inputs (112,053 tokens, 27 tool-uses): the lint-ci/deny-fuzz recipes + their CI jobs, the lint-red-proof mechanism (DEC-009), the fuzz crate state, and a LIVE clippy-on-fuzz run (clean, 0 warnings on 0.1.98 and 0.1.99, even under the five panic-free lints). That cost is the subagent's, not transcribed here."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -106,45 +113,138 @@ decided.
 
 ## Goal
 
-1–2 sentences. Unambiguous. If you can't write the goal in two
-sentences, split the spec.
+Close the gap where `fuzz/` — the separate cargo graph DEC-011 keeps outside the
+library's `[dependencies]` — is seen by no `-D warnings` lint gate: add a
+`just lint-fuzz` recipe (`cargo clippy --manifest-path fuzz/Cargo.toml
+--all-targets -- -D warnings`) and a CI job, mirroring the `deny-fuzz` /
+`licenses-fuzz` precedent, with a **red-proof** proving the new gate catches an
+injected fault (`oracle-must-be-shown-red` covers gates). Record the lint
+**scope** in a new decision: the fuzz crate gets clippy's default `-D warnings`,
+**not** the library's five panic-free lints — it is dev-only tooling, and the
+`irr` / `#[cfg(test)]` exemptions and the `no-panics-on-untrusted-input` `--lib`
+scope are the precedent.
 
 ## Inputs
 
-What the implementer will read or consume.
+(All `file:line` cites are design-time; read the named item.)
 
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **`app.just`** (all lint recipes live here, not `justfile`): `deny-fuzz`
+  (~`:97`, `cargo deny --manifest-path fuzz/Cargo.toml check licenses`) — the
+  exact one-flag shape to mirror for clippy; `lint` (~`:62`) and `lint-ci`
+  (~`:155`, the PINNED `~/.cargo/bin/cargo +stable clippy … --all-targets
+  --all-features -- -D warnings` with the load-bearing `PATH` prefix);
+  `lint-no-allow` (~`:134`) and `lint-red-proof` (~`:108`).
+- **`.github/workflows/ci.yml`** — the jobs to mirror: `licenses-fuzz`
+  (~`:106–114`, `cargo-deny-action` with `manifest-path: fuzz/Cargo.toml` — the
+  structural template), `clippy` (~`:52–60`, the library's `clippy -D warnings`
+  job — the command template), and `lint-policy-red-proof` (~`:166–200`, runs a
+  red-proof script). A fuzz clippy job needs **no nightly** (fuzz is a plain
+  cargo crate for clippy; only the `cargo-fuzz` smoke jobs need nightly).
+- **`scripts/lint-red-proof.sh`** — the red-proof mechanism (DEC-009): copy the
+  crate to a temp dir, a **negative control** (unmutated copy clean), inject a
+  violation, assert it is caught and is `deny`-severity; working tree untouched.
+  The template for the fuzz-lint red-proof (⚠ `scripts/validate-red-proof.sh`
+  does **not** exist — do not cite it).
+- **`fuzz/Cargo.toml`** (`irradiance-fuzz`; `libfuzzer-sys` + `irradiance` path
+  dep; **no `[lints]` table**) and **`fuzz/fuzz_targets/*.rs`** (5 targets:
+  `ifd`, `plane`, `develop`, `warp_opcode`, `opcode` — all written defensively,
+  already clippy-clean).
+- **`decisions/DEC-011-libfuzzer-sys-in-a-separate-fuzz-crate.md`** — the
+  "two invocations, both required" argument (~`:158–213`); it is dependency-
+  hygiene only and says nothing about linting, so SPEC-011 extends it.
+- **`guidance/constraints.yaml`** — `no-panics-on-untrusted-input` (~`:29–33`,
+  scope **`--lib` only**, explicitly excluding `#[cfg(test)]` and `src/bin/irr.rs`)
+  and `oracle-must-be-shown-red` (covers gates, SPEC-003/FU-14). **`src/lib.rs`**
+  (~`:79–86`, the five-lint `#![deny]`) and **`src/bin/irr.rs`** (~`:8–11`, the
+  dev-tool exemption precedent — "unwrap is fine there").
 
 ## Outputs
 
-What the implementer will produce.
+A CI/lint gate spec — no `src/` or fuzz-target code change (the fuzz crate is
+already clippy-clean).
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **`app.just`** — a new **`lint-fuzz`** recipe mirroring `deny-fuzz`:
+  `cargo clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings`,
+  plus a **`lint-fuzz-red-proof`** recipe (`./scripts/lint-fuzz-red-proof.sh`).
+  ⚠ The clippy-version divergence (local Homebrew 0.1.97/0.1.99 vs CI's pinned
+  stable) cost this repo 17 red runs (PATCH-004): state whether `lint-fuzz` is
+  unpinned-local (like `lint`) with the CI job as the authoritative gate, or
+  carries the `~/.cargo/bin/cargo +stable` PATH pin (like `lint-ci`). Add both
+  recipes' commands to **AGENTS.md §6**'s code block (the "every recipe's
+  commands appear in the block" rule).
+- **`.github/workflows/ci.yml`** — a new clippy-on-fuzz job (mirror
+  `licenses-fuzz` structurally + `clippy` for the command; `--manifest-path
+  fuzz/Cargo.toml`, `dtolnay/rust-toolchain@stable` + `components: clippy`, no
+  nightly), and a job running `scripts/lint-fuzz-red-proof.sh` (mirror
+  `lint-policy-red-proof`).
+- **`scripts/lint-fuzz-red-proof.sh`** (new) — the red-proof, modeled on
+  `lint-red-proof.sh` (DEC-009) but simpler: copy `fuzz/` (+ the library it path-
+  depends on) to a temp dir, **negative control** (unmutated copy passes
+  `-D warnings`), inject **one default-clippy violation** into a copied fuzz
+  target, assert the gate catches it (non-zero, named), revert/clean. The fault
+  must be something **default `-D warnings` catches** (the chosen scope) — NOT a
+  panic-free-lint-only violation, since those are not in scope and the crate
+  passes them anyway.
+- **`decisions/DEC-027-…-fuzz-crate-lint-scope.md`** (new) — records: (a) the
+  lint gate is a **second clippy invocation** on `fuzz/Cargo.toml`, extending
+  DEC-011's "two invocations, both required" principle from licensing to
+  linting; (b) **scope = clippy default `-D warnings`, NOT the five panic-free
+  lints** — rationale (fuzz is dev-only glue; a harness panic is a test bug
+  libFuzzer already catches, not a product vulnerability; precedent: the
+  `irr`/`#[cfg(test)]` exemptions and `no-panics-on-untrusted-input`'s `--lib`
+  scope), with the counter-argument weighed (the targets pass the five for free
+  today, so a future spec could tighten). Cites DEC-011. `just decisions-index`
+  regenerated; a pointer added in DEC-011.
+- **No `src/` or `fuzz/fuzz_targets/` change** — the crate is already clean. No
+  new provenance row.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
+- [ ] **AC1 — the fuzz graph is linted.** `just lint-fuzz` runs
+      `cargo clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings`
+      and exits 0 on the honest tree (the crate is already clean — measured 0
+      warnings on CI-pinned clippy 0.1.98 and on 0.1.99). A CI job runs it. The
+      library's root `clippy` job is unchanged and still does **not** see `fuzz/`
+      (two invocations, both required — DEC-011's shape). State in the handback
+      which clippy the recipe and CI job use.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] **AC2 — the gate is shown red (`oracle-must-be-shown-red`, covers gates).**
+      `scripts/lint-fuzz-red-proof.sh`, run from CI and locally: (i) a **negative
+      control** — the unmutated `fuzz/` copy passes `-D warnings` (exit 0); (ii)
+      a **default-clippy** violation injected into a COPIED fuzz target is
+      **caught** — the mutated copy exits non-zero and the offending lint is
+      named (matched robustly, not by a string that also appears in the source);
+      (iii) the working tree is never mutated. The injected fault is a
+      default-lint violation (the chosen scope), not a panic-free-only one.
+
+- [ ] **AC3 — the lint scope is decided and recorded.** `DEC-027` exists: the
+      fuzz crate gets clippy default `-D warnings`, **not** the five panic-free
+      lints, with the rationale and the counter-argument weighed; it extends
+      DEC-011's two-invocations principle to clippy and cites it. DEC-011 carries
+      a pointer. `just decisions-index` regenerated; `just decisions-audit` clean.
+
+- [ ] **AC4 — the recipes are discoverable.** `lint-fuzz` and
+      `lint-fuzz-red-proof` appear with their commands in **AGENTS.md §6**'s code
+      block (the repo's "every recipe's commands appear in the block" rule).
+
+- [ ] **AC5 — gates green, CI observed on the shipping SHA.** `just lint-ci`
+      (pinned clippy), the existing suite, and the two new fuzz jobs. Name the
+      gate list you ran; report CI green by observation, not inference. **No
+      `src/` or `fuzz_targets/` change** (assert `git diff` is limited to
+      `app.just`, `ci.yml`, the new script, the DEC, INDEX, and AGENTS.md).
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+The deliverable's "test" is the red-proof shell gate (AC2), not a cargo test —
+and as in SPEC-016, `lint-fuzz` itself PASSES on the honest tree (the crate is
+clean). What makes the gate load-bearing is the red-proof.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`scripts/lint-fuzz-red-proof.sh`** (new)
+  - negative control: the unmutated `fuzz/` copy passes `cargo clippy
+    --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings` (exit 0).
+  - injected fault: one default-clippy violation in a COPIED fuzz target is
+    caught (exit non-zero, lint named robustly); working tree untouched. State
+    its exact form (which lint, which target) in the handback.
 
 ## Non-Goals
 
@@ -152,7 +252,15 @@ Explicit scope limits. If the implementer thinks any of these need to
 happen, they should create a new spec (in this stage's backlog), not
 expand this one.
 
-- ...
+- **Applying the five panic-free lints to the fuzz crate** — DEC-027 decides
+  against (default `-D warnings` only). A future spec may tighten; the targets
+  pass the five for free today.
+- **Fixing fuzz warnings** — there are none; the crate is already clippy-clean.
+- **Changing DEC-011's dependency-hygiene / separate-graph decision** — SPEC-011
+  extends it to linting, it does not revisit it.
+- **Any `src/`, `fuzz/fuzz_targets/`, or `Cargo.toml` change.**
+- **The `cargo-fuzz` nightly smoke jobs** (`fuzz-opcode` / `fuzz-warp`) — unchanged.
+- The other STAGE-005 item (the gate-script audit).
 
 ## Notes for the Implementer
 
@@ -165,8 +273,25 @@ and continuous across the repo*. Renamed to **011** by hand before it landed.
 Recorded as a signal (`spec-ids-collide-across-unmerged-branches`); the fix
 belongs upstream in the template, not here.
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **The fuzz crate is ALREADY clippy-clean** (0 warnings on 0.1.98 and 0.1.99,
+  even under all five panic-free lints) — the gate ships green with no code
+  fixes. So the red-proof's injected fault must be a **default-clippy** violation
+  the `-D warnings` scope catches (an unused variable / import, or a clippy
+  default like `needless_return`), NOT a panic-free-only one.
+- **Model**: `lint-fuzz` on `deny-fuzz` (`app.just:~97`); the CI job on
+  `licenses-fuzz` (`ci.yml:~106`) + `clippy` (`ci.yml:~52`); the red-proof on
+  `scripts/lint-red-proof.sh` (DEC-009 two-run shape, but one injected fault, not
+  five). No nightly — `fuzz/` is a plain cargo crate for clippy. ⚠
+  `scripts/validate-red-proof.sh` does not exist; don't cite it.
+- **Clippy pinning** (PATCH-004, 17 red runs): the CI job uses
+  `dtolnay/rust-toolchain@stable`; a local `lint-fuzz` can be unpinned, but say
+  so and make the CI job the authoritative gate — or add the `~/.cargo/bin/cargo
+  +stable` PATH pin like `lint-ci`.
+- **The red-proof's lint-name match must be robust** — `lint-red-proof.sh`
+  matches clippy's help-URL fragment, not the bare name, so the proof can't pass
+  on a string coincidence. Borrow that discipline.
+- zsh: `$pipestatus`, not `PIPESTATUS`. Working tree stays clean (the red-proof
+  mutates a temp copy only).
 
 ---
 
