@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-10-27
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-021
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
+  status: completed                # completed | blocked | rejected
+  tokens_total: 360000             # REAL combined count — what cost-audit reads
   estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
+  duration_minutes: 60
+  branch: claude/spec-021-build
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  completed_at: 2026-10-27         # YYYY-MM-DD
+  notes: "tokens_total is the Claude Code session budget-delta (15,000,000 start minus tokens-left at handback), NOT a transcript input+output sum — not comparable with other specs' transcript-summed figures (SPEC-017/FU-9, token-counts-not-comparable). estimated_usd null: budget-delta has no clean input/output split to price. pr filled in a follow-up commit once opened. All 13 gates green; src/ diff comment-only (0 logic lines); suite ignored 3 -> 1."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -199,38 +199,105 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-021-build` → `main`; PR link recorded in a
+  follow-up commit once opened (this build commit lands first so the PR carries
+  it).
+- **Completed at:** 2026-10-27
+- **All acceptance criteria met?** Yes.
+  - **AC1** — `DEC-026` written in the `DEC-022` shape (quotes `DEC-005`'s ≥85
+    clause AND its `## Validation` premise verbatim + a "Why amend rather than
+    revert" note); names warp (`OpcodeList3`) and `Orientation ≠ 1` out of
+    scope, with the measured evidence (−60.169 vs +83.145; honest −60.193 /
+    kr1=0 −55.075; L1026016 correct 5584×8368 vs dnglab 8368×5584); cites
+    `DEC-024` Finding 2 (warp) and `SPEC-018/FU-6` + `SPEC-017/FU-2`
+    (Orientation). `DEC-005` carries a `## Scope amended by DEC-026` pointer.
+    `decisions/INDEX.md` regenerated (26 decisions); `just decisions-audit`
+    clean (0 structural errors; the one added scope warning is the expected
+    `DEC-005`/`DEC-026` overlap on `docs/oracle-contract.md`, advisory/exit-0,
+    same shape as the existing `DEC-018`/`019`/`024` overlaps).
+  - **AC2** — `docs/oracle-contract.md` gains a warp + Orientation paragraph
+    mirroring the levels one, and the layer-3 row is annotated "warp-free +
+    Orientation-1 pixels only"; `warp`, `opcode`, and the "dnglab ignores
+    Orientation" fact now appear where they did not; cites `DEC-024` Finding 2
+    and `DEC-026`.
+  - **AC3** — the two `#[ignore]`s retired and reframed (not deleted):
+    `warp_pixels_are_below_the_srgb_oracle_baseline` (characterization, the
+    −60.169 < +83.145 inversion, Orientation-1 frames) and
+    `rotated_frame_is_out_of_the_srgb_oracle_scope` (explicit documented skip
+    for L1026016, keyed on Orientation; replaces the latent `assert_eq!` panic,
+    which is now a loud skip in `develop_and_score`). Measured numbers kept in
+    rustdoc. `tests/warp.rs` has 0 `#[ignore]`; repo-wide 3 → 1 (the SPEC-017
+    `q2m_frames_have_at_least_one_replaced_pixel` in `tests/develop.rs` stays).
+    Tier-B: both skip loudly when corpus/`dnglab` absent — never `#[ignore]`d.
+  - **AC4** — AC4/AC10 untouched and still pass (warp 17/0/0 with corpus).
+    `oracle-must-be-shown-red` discharged by the already-shipped CI-visible
+    AC10 — cited, not duplicated. **`git diff main -- src/` is comment-only: 0
+    non-comment lines** (only `src/warp.rs`, 6 doc-comment lines).
+  - **AC5** — stale cross-refs fixed, comment-only: `tests/develop_oracle.rs`
+    (two spots) and `src/warp.rs` no longer point the warp oracle at
+    `tests/perceptual_oracle.rs`/`AC8`/`AC9` — they now name the analytic gate
+    (`AC4`/`AC10`, `tests/warp.rs`) and `DEC-026`'s scope. `src/lib.rs` carries
+    **no** such stale cross-ref (see Deviations). Also fixed (comment-only, not
+    enumerated in AC5): `tests/develop.rs` and `tests/warp.rs`'s own header,
+    which named the retired AC8 test (see Deviations).
+  - **AC6** — all gates green; CI observed on the PR head (recorded in the
+    follow-up commit / PR). Suite ignored-count delta: **3 → 1**.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** ~360,000
+- **Estimated USD:** null
+- **Duration (minutes):** ~60
+- **Source of the number:** Claude Code session **budget-delta** (15,000,000
+  start minus tokens-left at handback). ⚠ This is NOT a transcript input+output
+  sum and is **not comparable** with other specs' transcript-summed figures —
+  the exact caveat `SPEC-017/FU-9` raised (`token-counts-not-comparable`).
+  `estimated_usd` left null because a budget-delta has no clean input/output
+  split to price. (The orchestrator transcribes this verbatim via
+  `just handback-sync` — I did not run it.)
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-026` — the ≥85 develop oracle covers warp-free, Orientation-1 pixels
+    only — amending `DEC-005`'s scope clause.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - **`src/lib.rs` had no stale warp-oracle cross-ref to fix** (AC5/Inputs
+    named it). Its module doc only describes `SPEC-018`'s pipeline order
+    (`DEC-024` Finding 1), which is correct and unchanged; it never pointed the
+    warp oracle at `perceptual_oracle.rs` or `AC8`/`AC9`. The design-time cite
+    was approximate ("read the named item, not the exact line"). Grep-verified:
+    no `perceptual_oracle`, `AC8`, `AC9`, `dnglab`, or `>= 85` warp-oracle
+    reference in `src/lib.rs`.
+  - **Two additional stale cross-refs fixed that AC5 did not enumerate**
+    (comment-only, same class): `tests/develop.rs`'s `score_against` named the
+    retired `warp_scores_at_least_eightyfive_via_spec_020_oracle` as the "same
+    shape ... were it ever run un-ignored"; and `tests/warp.rs`'s own module
+    header line listed `AC8`-`AC10` as if those tests still existed. Both now
+    point at the reframe / `DEC-026`.
+- **Follow-up work identified:** none beyond `DEC-024`'s standing Validation
+  ("revisit if a second DNG-opcode-capable reference decoder becomes
+  available"), which `DEC-026` carries forward unchanged.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Only `src/lib.rs` in AC5/Inputs: it is named as carrying a stale
+   warp-oracle cross-ref, but it carries none. Cost one grep to confirm. The
+   two genuine stale refs (`tests/develop_oracle.rs`, `src/warp.rs`) were exact;
+   a third (`tests/develop.rs`) was unlisted but obvious once the test was
+   renamed.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No missing constraint. The only addition to the file list was
+   `tests/develop.rs:~771`, which referenced the retired `AC8` test name — a
+   stale cross-ref of exactly the AC5 class, just not enumerated. Fixed
+   comment-only.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing material. Re-measuring the live `AC8`/`AC9` scores first
+   (−60.169 / −60.193 / −55.075, reproduced exactly, plus L1026192 −40.281 and
+   the L1026016 8368×5584-vs-5584×8368 mismatch) up front made the
+   characterization's baseline-constant choice and the Orientation skip obvious
+   and removed all guesswork from the reframe. Worth doing early every time a
+   spec's load-bearing numbers can be reproduced locally.

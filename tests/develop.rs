@@ -766,11 +766,11 @@ fn score_against(
         // it (`SPEC-014`, already-shipped, already-tested behaviour —
         // `orientation_six_swaps_the_output_dimensions`). The two outputs
         // are therefore structurally incomparable on any frame carrying a
-        // non-identity `Orientation`, not a `SPEC-017` regression: the SAME
-        // shape of `develop_and_score` in `tests/warp.rs`
-        // (`warp_scores_at_least_eightyfive_via_spec_020_oracle`, `#[ignore]`d)
-        // would hit this identical mismatch were it ever run un-ignored
-        // against `L1026016.DNG`/`L1026192.DNG`.
+        // non-identity `Orientation`, not a `SPEC-017` regression. `SPEC-021`
+        // folded this leg into `DEC-026` and gave `tests/warp.rs`'s own
+        // `develop_and_score` the same loud dimension-mismatch skip; its
+        // `rotated_frame_is_out_of_the_srgb_oracle_scope` asserts the
+        // disposition directly for `L1026016.DNG` (`Orientation` 6).
         eprintln!(
             "SKIP {path} — dnglab's --srgb output ({}x{}) is never orientation-rotated, but our \
              developed image ({out_width}x{out_height}) is (Orientation applied) — structurally \
