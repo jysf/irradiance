@@ -47,7 +47,7 @@ handback:
   estimated_usd: null              # tokens_total × your rate, or your harness's number
   duration_minutes: 60
   branch: claude/spec-021-build
-  pr: null
+  pr: https://github.com/jysf/irradiance/pull/26
   completed_at: 2026-10-27         # YYYY-MM-DD
   notes: "tokens_total is the Claude Code session budget-delta (15,000,000 start minus tokens-left at handback), NOT a transcript input+output sum — not comparable with other specs' transcript-summed figures (SPEC-017/FU-9, token-counts-not-comparable). estimated_usd null: budget-delta has no clean input/output split to price. pr filled in a follow-up commit once opened. All 13 gates green; src/ diff comment-only (0 logic lines); suite ignored 3 -> 1."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -199,9 +199,8 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-021-build` → `main`; PR link recorded in a
-  follow-up commit once opened (this build commit lands first so the PR carries
-  it).
+- **Branch / PR:** `claude/spec-021-build` → `main`;
+  https://github.com/jysf/irradiance/pull/26 (PR #26).
 - **Completed at:** 2026-10-27
 - **All acceptance criteria met?** Yes.
   - **AC1** — `DEC-026` written in the `DEC-022` shape (quotes `DEC-005`'s ≥85
