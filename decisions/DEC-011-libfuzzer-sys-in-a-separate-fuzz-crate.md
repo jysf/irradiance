@@ -211,3 +211,11 @@ reason, and the reason is a licence *read*, not a licence *remembered*.
   covers the library; `just deny-fuzz` covers `fuzz/`. Neither sees the other's
   graph. Running one and reporting "licences green" is the exact mistake this
   decision made on its first pass.
+- **The same shape now holds for LINTING (SPEC-011, DEC-027).** `cargo clippy`
+  at the repo root compiles not one fuzz target either, so the fuzz graph sat
+  outside every `-D warnings` gate — the identical hole, closed the identical
+  way: `just lint-fuzz` (`--manifest-path fuzz/Cargo.toml`). DEC-027 extends this
+  decision's "two invocations, both required" principle from licensing to
+  linting, and records the lint SCOPE — clippy's default lints, **not** the
+  library's five panic-free lints, because `fuzz/` is dev-only glue (the same
+  reasoning that exempts `irr` and `#[cfg(test)]`).

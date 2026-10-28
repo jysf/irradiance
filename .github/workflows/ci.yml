@@ -77,6 +77,34 @@ jobs:
           components: clippy
       - run: cargo clippy --all-targets --all-features -- -D warnings
 
+  # SPEC-011 / DEC-027. The SAME move `licenses-fuzz` made for cargo-deny, for
+  # clippy. This repo has TWO cargo graphs — the library at the root and
+  # `irradiance-fuzz` under fuzz/ (DEC-011), kept out of the library's graph so
+  # `[dependencies]` stays empty — and clippy, like cargo-deny, lints ONE
+  # manifest's graph per invocation. The `clippy` job above (rooted at the repo
+  # Cargo.toml) therefore compiles not a single fuzz target, so the fuzz crate
+  # sat outside every `-D warnings` gate until this job. `--manifest-path
+  # fuzz/Cargo.toml` is the whole fix; this job is not redundant with the one
+  # above and neither substitutes for the other (two invocations, both required).
+  #
+  # Scope is clippy's DEFAULT lints under `-D warnings`, NOT the library's five
+  # panic-free lints — fuzz is dev-only glue (DEC-027). The crate is already
+  # clippy-clean, so this ships green with no code fixes (SPEC-011).
+  #
+  # No nightly: `fuzz/` is a plain cargo crate for clippy — only the `cargo-fuzz`
+  # smoke jobs (`fuzz-warp`/`fuzz-opcode`) need nightly. `@stable` floats, which
+  # is the authoritative gate `just lint-fuzz` pins locally (`+stable`) so a push
+  # can see what CI sees (PATCH-004). Mirrors `just lint-fuzz` (app.just).
+  clippy-fuzz:
+    name: rust / clippy — fuzz graph (-D warnings)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings
+
   test:
     name: rust / test
     runs-on: ubuntu-latest
@@ -216,6 +244,34 @@ jobs:
       # entire point. A lint policy that has never rejected anything is not a
       # policy.
       - run: ./scripts/lint-red-proof.sh
+
+  # SPEC-011 / DEC-027. The fuzz clippy gate (`clippy-fuzz` above) is a gate, so
+  # `oracle-must-be-shown-red` (widened to cover gates, SPEC-003/FU-14) requires
+  # it ship with a red-proof: a gate that has never gone red cannot be told from
+  # one that never ran. The script copies the fuzz graph to a temp dir and runs
+  # the SAME clippy invocation twice — once UNMUTATED, which must exit 0 (the
+  # NEGATIVE CONTROL, the load-bearing assertion: without it a red proves only
+  # "clippy failed", not "the gate rejected the injection"), and once with ONE
+  # default-clippy violation (`unnecessary_cast`) injected into a COPIED fuzz
+  # target, which must exit non-zero with that lint named by its help-URL
+  # fragment (not a bare string that also appears in source).
+  #
+  # The fuzz crate carries no `#![deny]` — unlike the library, whose red-proof
+  # pins a source-level policy — so `-D warnings` is the gate's only teeth. The
+  # script proves that directly: the SAME injected copy exits 0 WITHOUT
+  # `-D warnings`. Drop the flag from `clippy-fuzz` or `just lint-fuzz` and this
+  # job goes red; that is the point. The working tree is never mutated. Runs the
+  # bare `cargo clippy` the `@stable` toolchain provides. See
+  # scripts/lint-fuzz-red-proof.sh's header; mirrors `just lint-fuzz-red-proof`.
+  lint-fuzz-red-proof:
+    name: rust / fuzz lint red-proof (must fail red)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: ./scripts/lint-fuzz-red-proof.sh
 
   lint-policy-no-allow:
     name: "rust / panic-free policy — no #[allow] escape (--lib)"
