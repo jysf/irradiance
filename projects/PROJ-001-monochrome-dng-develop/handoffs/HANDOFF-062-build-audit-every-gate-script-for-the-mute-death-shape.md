@@ -47,7 +47,7 @@ handback:
   estimated_usd: 67.72             # tokens_total × your rate, or your harness's number
   duration_minutes: 41
   branch: claude/spec-023-build
-  pr: https://github.com/jysf/irradiance/pull/PENDING
+  pr: https://github.com/jysf/irradiance/pull/31
   completed_at: 2026-10-28         # YYYY-MM-DD
   notes: "Transcript-sum (deduped by message.id over this build session's own transcript, anchored on the scratchpad UUID — NOT a budget delta); all 128 assistant messages are claude-opus-4-8. tokens_total is the cache-inclusive sum (input 256 + output 171,181 + cache_creation 317,243 + cache_read 32,621,908), matching the repo's recorded-cycle convention. estimated_usd is a list-price estimate (output $75/M, cache-write $18.75/M, cache-read $1.50/M). No src/ change."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
