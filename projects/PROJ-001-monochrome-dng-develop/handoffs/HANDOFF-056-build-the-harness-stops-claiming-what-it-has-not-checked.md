@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-10-27
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-016
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 10500000           # REAL combined count — what cost-audit reads
+  estimated_usd: 28.50             # tokens_total × your rate, or your harness's number
+  duration_minutes: 75
+  branch: claude/spec-016-build-9736e8
+  pr: https://github.com/jysf/irradiance/pull/23
+  completed_at: 2026-10-27         # YYYY-MM-DD
+  notes: "Parser: ruby Psych via YAML.parse (syntax-only, so created_at date scalars are not false positives and the Ruby 2.6 safe_load permitted_classes trap is avoided; portable 2.6-3.x), confirmed present on the ubuntu-latest CI runner by the new validate step passing. Scope broadened to every *.md under projects/ + decisions/ (121 parsed; was specs+patches+spikes = 26). HANDOFF-039 was the sole live falsifier (embedded unescaped double-quotes in handback.notes giving did-not-find-expected-key); fixed by escaping its interior quotes, 0 of 121 fail now. The named test validate_rejects_front_matter_that_no_parser_can_read ships as scripts/validate-red-proof.sh (standalone shell + just recipe + CI step), fixture at tests/oracle-fixtures/SPEC-900-unparseable-front-matter.md. tokens_total is the transcript floor (deduped by message.id, all components) rounded up for the uncaptured handback/CI turns; measured floor 9,430,941 / 25.67 USD."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -206,38 +206,98 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-016-build-9736e8` → https://github.com/jysf/irradiance/pull/23
+- **Completed at:** 2026-10-27
+- **All acceptance criteria met?** yes.
+  - **AC1** — `just validate` now parses every artifact's front matter under
+    `projects/**` and `decisions/` with a real YAML parser (ruby Psych via
+    `YAML.parse`) and fails non-zero, naming the file and printing the parser's
+    own message. 121 artifacts parsed (broadened from the 26-artifact
+    specs+patches+spikes scope). Parser confirmed present on CI (the new
+    `validate` step passed on `ubuntu-latest`). Required-keys check retained.
+    The named test `validate_rejects_front_matter_that_no_parser_can_read` ships
+    as `scripts/validate-red-proof.sh` — a **standalone shell script** with a
+    `just validate-red-proof` recipe and a CI step (not a bats test, not a case
+    in the template-only `scripts/test.sh`); the hand-crafted fixture (unescaped
+    quote in a multi-line scalar — the `handback-sync` shape) is committed at
+    `tests/oracle-fixtures/SPEC-900-unparseable-front-matter.md`.
+  - **AC2** — red-proof shown, same fixture bytes (md5 `0c30e518…`): **OLD**
+    `validate.sh` exits **0** (`27 artifact(s) … valid required front-matter`);
+    **NEW** exits **1** with `SPEC-900-unparseable-front-matter  front matter
+    did not parse: (<unknown>): did not find expected key while parsing a block
+    mapping at line 15 column 1`. The parser's **message** is shown, not just the
+    exit code — which is what distinguishes a real parse failure from a wrong
+    parser API that fails uniformly (DEC-017; the `safe_load(permitted_classes:)`
+    trap the Design refresh warns about). The durable red-proof also isolates the
+    coverage: the required-keys half still passes the fixture; only the parse gate
+    objects.
+  - **AC3** — `just lint-ci` ran with clippy **0.1.98 (88d9e12ae1 2026-08-18)**
+    via the pinned `PATH="$HOME/.cargo/bin:$PATH" … +stable` path (matches CI's
+    floating stable; Homebrew's local 0.1.97 would not). CI **observed** on the PR
+    head, not inferred. The gate count is genuinely ambiguous here
+    (`the-gate-count-is-not-defined-anywhere`, open) — the list I ran is named
+    below; I did not try to resolve the ambiguity.
+- **Gate list run (named per AC3):** locally green — `validate`,
+  `validate-red-proof`, `cost-audit`, `cost-audit-red-proof`,
+  `decisions-index --check`, `cargo fmt --check`, `just lint-ci`. No `src/` or
+  `Cargo.toml` change, so the Rust jobs (`test`, `clippy`, `deny`, `deny-fuzz`,
+  `msrv`, `fuzz-warp`, `fuzz-opcode`, `lint-red-proof`, `lint-no-allow`) are
+  unaffected and were left to CI as the observed source of truth.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 10,500,000 — the transcript floor rounded up for the
+  handback/push/CI turns not yet in the file.
+- **Estimated USD:** $28.50 (floor $25.67).
+- **Duration (minutes):** ~75.
+- **Source of the number:** transcript sum, deduped by `message.id`, all
+  components (input + output + cache-read + cache-write). No `/cost` in this
+  interface (Claude desktop app, Code tab). Transcript located via the
+  scratchpad-dir UUID `6e73a035-e343-493a-b80e-91dcc5580266` (not a text grep —
+  all 46 unique assistant turns carry `model == claude-opus-4-8`, so it is this
+  session, not a stale pre-`/clear` file). Measured floor **9,430,941** tokens;
+  96.8% cache-read; priced per-component at Opus rates ($15/$75 in/out,
+  $30-write, $1.50-read) = $25.67. The headroom (~11%) covers the turns that
+  wrote this handback and observed CI, which post-date the measurement.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none. DEC-001 §1 already charters `validate` as the
+  schema gate; parsing the front matter it validates is an extension of that
+  gate, not a new decision. The parser choice (`YAML.parse`) is a mechanism, not
+  a policy.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - The spec's Outputs said *"no change to `ci.yml` if `just validate` already
+    runs in CI; a new job if not."* It did **not** run in CI (that gap is exactly
+    how the unparseable `HANDOFF-039` slipped the old specs-only scope), so I
+    added steps for `validate` **and** its red-proof to the `cost-data` job
+    (language-agnostic, `ubuntu-latest`, ruby present) rather than a whole new
+    job — same runner, same job family as the other shell gates/red-proofs.
+  - Repo-wide pre-fix count is **1 of 121**, not the spec's 1 of 120 — the +1 is
+    `HANDOFF-056` itself, minted in this worktree today. Post-fix: **0 of 121**.
+- **Follow-up work identified:** none new. The four deferred pre-rescope ACs and
+  the full gate-script `pipefail`/unguarded-`grep` audit stay on STAGE-005's
+  backlog (explicitly out of scope). Fixing `handback-sync`'s **writer** (the
+  producer of this defect class) also remains open — this spec made the defect
+  detectable, it did not fix the producer, per Non-Goals.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Little. The AC1 body still carried the stale `2 of 75` numbers while the
+   Design refresh carried `1 of 120`; I followed the refresh (the handoff points
+   there first). The `python3`-has-no-`pyyaml`/now-has-`pyyaml` back-and-forth
+   turned out moot: `YAML.parse` is syntax-only and needs neither `pyyaml` nor a
+   `load`/`safe_load` policy, so the parser-availability history didn't bear on
+   the choice.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `oracle-must-be-shown-red`, `test-before-implementation`,
+   `cost-captured-per-cycle`, DEC-013 and DEC-017 all applied and were listed.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Reach for `YAML.parse` (syntax-only) from the start instead of `safe_load`.
+   My first probe used `safe_load(permitted_classes: [Date, Time])` and failed
+   uniformly (`uninitialized constant Date`) — the exact wrong-parser-API trap
+   the spec warns about. It cost one loop, but it also confirmed the spec's point
+   first-hand, which is partly why AC2 insists on showing the parser's message.
