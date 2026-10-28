@@ -6,7 +6,7 @@
 task:
   id: SPEC-016
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -38,8 +38,8 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # build delegated via HANDOFF-056
+  created_at: 2026-10-27
 
 references:
   decisions: [DEC-013]
@@ -91,6 +91,13 @@ cost:
       duration_minutes: null
       recorded_at: 2026-09-06
       notes: "main-loop, not separately metered (AGENTS.md section 4). The pre-rescope design at 3238dcb measured all five carried findings (AC1 corpus-status overclaim; AC2 req() truncation; AC3 SUPPORTED_BITS test coverage; AC4 fuzz seed white_level; AC5 just validate greps instead of parsing). Rescope 2026-09-06: kept AC5 (the half that generalises — a gate that fails when the harness lies about structure); deferred the other four to STAGE-005's backlog as separate items, each pointing back to 3238dcb for measurements. Reason: bundling five independent gate changes with five red-proofs is the shape that produced three patches on one gate this week (PATCH-002 through PATCH-004). One-defect-per-spec is what closes that class."
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-10-27
+      notes: "Design refresh (main-loop, un-metered). Re-measured against main (efd34fe): 1 of 120 artifacts fails a real YAML parse today (HANDOFF-039), not the 2-of-75 SPEC-015 pair from 2026-09-06; `just validate` currently scopes to specs+patches+spikes only; python3 now has pyyaml locally (ruby -ryaml still the portable choice). Added the Design refresh note and minted HANDOFF-056 to delegate build."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -128,6 +135,34 @@ line-scalars` (signal, bar 2, open). That defect wrote unterminated quotes
 into spec front matter, and every gate — including `just validate` — passed
 green over it. A parse gate on `validate` is one of the two candidate fixes
 that signal names; this spec ships that candidate.
+
+## Design refresh (2026-10-27)
+
+The measurements above are from `3238dcb` (2026-09-06). Re-measured today
+against `main` (`efd34fe`) with `ruby -ryaml` (2.6.10), parsing the front matter
+of every artifact under `projects/`, `decisions/`, `handoffs/`, `patches/`:
+
+- **1 of 120** artifacts with front matter fails a real YAML parse (was 2 of
+  75). The original two (`SPEC-015/FU-4`, `FU-12`) no longer fail — SPEC-015
+  shipped and archived cleanly. The live failure now is **`HANDOFF-039`**
+  (`…orchestration-cost-is-documented-at-stage-close…`): *"did not find expected
+  key while parsing a block mapping"* at ~line 49, col 3. Adding the gate flags
+  it, so **fixing HANDOFF-039's front matter is part of this spec** — the gate
+  doing its job on its first run (and the current live falsifier, alongside the
+  hand-crafted AC1 fixture).
+- **`just validate` today parses only `specs + patches + spikes`** (26
+  artifacts), not `handoffs/` or `decisions/` — which is why HANDOFF-039 slipped
+  through. AC1's scope broadens coverage *and* adds the parser.
+- **`python3` now HAS `pyyaml`** here (the 2026-09-06 note said absent —
+  environment drift). `ruby -ryaml` is still present and remains the portable
+  choice (macOS + GitHub runners); confirm whichever you pick exists on the CI
+  image, per AC1.
+- ⚠ **A wrong parser API fails uniformly, which looks like a finding but is a
+  bug in the check.** A `safe_load(…, permitted_classes:)` call (that keyword
+  does not exist on Ruby 2.6's `safe_load`) raised `ArgumentError` on all 120,
+  masquerading as 120 parse failures. This is the very class SPEC-016 closes:
+  AC2's third clause — show the parser's *message*, not just the exit code —
+  is what tells a real parse failure from a check that never ran.
 
 ## Goal
 
