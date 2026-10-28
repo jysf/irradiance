@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-10-27
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-011
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
+  status: completed                # completed | blocked | rejected
+  tokens_total: 8894582            # REAL combined count — what cost-audit reads
   estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  duration_minutes: 50
+  branch: claude/nostalgic-taussig-d61c60
+  pr: https://github.com/jysf/irradiance/pull/28
+  completed_at: 2026-10-27         # YYYY-MM-DD
+  notes: "Transcript sum deduped by message.id over this session's scratchpad-UUID JSONL (42 assistant messages, all claude-opus-4-8), cache-inclusive (input+output+cache_creation+cache_read); NOT a remaining-budget delta. Input+output alone was 79,890. No code fixes — the fuzz crate was already clippy-clean."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -194,10 +194,29 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/nostalgic-taussig-d61c60` →
+  https://github.com/jysf/irradiance/pull/28 (base `main`).
+- **Completed at:** 2026-10-27
+- **All acceptance criteria met?** **yes** — AC1 (`just lint-fuzz` green on the
+  honest tree, CI job added, library clippy unchanged), AC2 (red-proof: control
+  clean + injected `unnecessary_cast` caught by help-URL fragment + tree
+  untouched), AC3 (DEC-027 + DEC-011 pointer + INDEX regenerated +
+  `decisions-audit` clean, 0 structural errors), AC4 (both recipes in AGENTS.md
+  §6's block), AC5 (all gates green; `git diff` limited to app.just, ci.yml, the
+  new script, DEC-027, DEC-011, INDEX, AGENTS.md — no `src/`/`fuzz_targets/`).
+- **Gate list (all green locally):** `cargo fmt --check`, `just lint-ci`
+  (library, pinned +stable 0.1.98), **`just lint-fuzz`** (new, pinned +stable
+  0.1.98), `just typecheck`, `just test`, `just deny` + `just deny-fuzz`,
+  `just msrv`, `just lint-red-proof`, **`just lint-fuzz-red-proof`** (new),
+  `just lint-no-allow`, `just validate` + `just validate-red-proof`,
+  `just cost-audit` + `just cost-audit-red-proof`, `just decisions-index
+  --check`, `just decisions-audit`. **Clippy per gate:** the `clippy` and new
+  `clippy-fuzz` CI jobs float on `dtolnay/rust-toolchain@stable` (0.1.98 today);
+  `just lint-ci`/`just lint-fuzz` pin `~/.cargo/bin/cargo +stable` (0.1.98)
+  locally; the two red-proof scripts run bare `cargo clippy` (Homebrew 0.1.99
+  locally, `@stable` in CI) — the injected `unnecessary_cast` fires on all.
+- **CI:** observed on the PR head (PR #28) — see the Cost self-report note for
+  the method; reported green by observation, not inference.
 
 ### Cost self-report
 
@@ -205,27 +224,57 @@ Mirror what you put in the `handback:` front-matter, and say where the number
 came from. **This is the number that lands in the spec** — the orchestrator
 transcribes it via `just handback-sync`, it does not estimate it.
 
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** **8,894,582** — a transcript sum, deduped by
+  `message.id`, over this session's own JSONL (found by anchoring on the
+  scratchpad-dir UUID, not a text grep — the maintainer's standing rule for this
+  handback). 42 unique assistant messages, all model `claude-opus-4-8`.
+  Cache-inclusive: input 84 + output 79,806 + cache_creation 210,235 +
+  cache_read 8,604,457. **Input+output alone is 79,890** — the gap is
+  prompt-cache reads of a large spec-driven context, which is why the
+  cache-inclusive figure is the comparable one (SPEC-016's build recorded
+  10.5M on the same convention). This is **not** a remaining-budget delta.
+- **Estimated USD:** null — no reliable per-token rate for this harness; the
+  cost gate reads `tokens_total`, not USD.
+- **Duration (minutes):** ~50 (estimate).
+- **Source of the number:** harness report (transcript JSONL sum, deduped by
+  `message.id`).
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - `DEC-027` — the fuzz crate gets clippy's default `-D warnings`, not the five
+    panic-free lints (extends DEC-011's two-invocations principle to linting).
+- **Deviations from spec:** none. The one open choice the spec left to the
+  implementer (pinning) was resolved: `just lint-fuzz` carries the
+  `~/.cargo/bin/cargo +stable` PATH pin like `just lint-ci`, not unpinned like
+  `just lint` — PATCH-004's 17 red runs are the argument, and an unpinned fuzz
+  recipe would reopen the same gap for the second graph. Stated in the recipe,
+  DEC-027, and the PR.
+- **Follow-up work identified:** a future spec *could* tighten `fuzz/` to the
+  five panic-free lints (the targets pass them for free today) — DEC-027 records
+  this as deliberately deferred, not forgotten. No new spec written; it belongs
+  in STAGE-005's backlog only if a fuzz target ever needs `unwrap()` we would
+  rather it did not.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing blocking. The spec and handoff were unusually precise (the four
+   traps, the exact templates, the "already clean" fact). The only judgment left
+   open — pinning — was flagged as mine to make, which is correct. The one thing
+   worth a line: the toolchain brief pins local clippy at 0.1.97, but the
+   machine is now on 0.1.99; the brief's facts drift, so I re-measured rather
+   than trusting them (both 0.1.98-pinned and 0.1.99-bare are clean).
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `DEC-011`, `DEC-009`, `oracle-must-be-shown-red` (widened to gates) and
+   the `--lib`/`irr` scope precedent were all listed and were exactly what the
+   work needed.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Settle the red-proof's injected fault empirically first (which I did):
+   `eq_op` works but is deny-by-default, so it would pass even if the gate lost
+   `-D warnings`; a warn-level lint (`unnecessary_cast`) lets the proof show that
+   `-D warnings` is the gate's only teeth, since the fuzz crate carries no
+   `#![deny]`. Choosing the lint for what it lets you *prove*, not just for being
+   caught, is the reusable lesson.
