@@ -921,3 +921,21 @@ signals:
       is itself worth naming: any oracle rewrite that changes performance,
       not just any that changes behavior, should still re-run the red-proof
       and the honest-tree control before being trusted.
+
+  - id: handback-sync-trips-on-superseded-handoffs
+    type: process-debt
+    summary: "handback-sync requires a terminal handback.status on EVERY handoff for a spec and has no skip for a superseded, never-dispatched one, so a null-on-purpose handback blocks the whole sync (exit 1)."
+    evidence: "SPEC-016 ship, 2026-10-27. HANDOFF-038 (the pre-rescope L-scope build; handoff.status: superseded; handback left null 'on purpose, this handoff never ran') tripped `just handback-sync SPEC-016` with exit 1 ('handback.status not set'). It keys on handback.status, not handoff.status, so a dead handoff looks like an unreported cycle. Worked around by setting HANDOFF-038's handback.synced_at manually to exclude it (the loop skips an already-synced handoff); the real build (HANDOFF-056) and verify (HANDOFF-057) had already transcribed in the same failed run before the final exit, so the ledger was correct once 038 was excluded."
+    bar: "N=1"
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-10-27
+    last_touched: 2026-10-27
+    raised_by: claude
+    notes: |
+      Cheap fix: in scripts/handback-sync.sh's per-handoff loop, skip any handoff
+      whose handoff.status is `superseded` (or `cancelled`) before the
+      handback.status check — a dead handoff is not an unreported cycle. Patch-
+      sized, one gate script; keep it one-defect-per-spec and give it its own
+      patch rather than folding it into unrelated work. Related:
+      [handback-sync-truncates-multi-line-scalars] (same script).
