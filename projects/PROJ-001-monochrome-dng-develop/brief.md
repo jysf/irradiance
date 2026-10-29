@@ -4,8 +4,8 @@
 
 project:
   id: PROJ-001
-  status: active
-  activity: build
+  status: on_hold
+  activity: blocked
   priority: high
   target_ship: null
 
