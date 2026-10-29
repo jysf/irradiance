@@ -1,6 +1,6 @@
 [package]
 name = "irradiance"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 # Measured, not guessed — see guidance/toolchain-brief.md and
 # projects/PROJ-001-monochrome-dng-develop/specs/SPEC-001-*.md. 1.90.0 is the
