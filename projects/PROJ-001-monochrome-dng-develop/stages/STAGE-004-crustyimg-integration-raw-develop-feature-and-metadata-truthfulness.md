@@ -30,7 +30,7 @@ value_contribution:
   explicitly_does_not:
     - "Any change to crustyimg's 8-bit operation pipeline — that is its own project"
     - "LUT — it belongs in this library, in linear, and is the next wave"
-    - "Publishing to crates.io — that waits until a second camera is supported"
+    - "Broadening irradiance's published scope beyond one camera — DEC-028 reverses the earlier 'publishing waits for a second camera' line: irradiance 0.1.0 is published now, honestly scoped (monochrome, uncompressed DNG, one camera). Widening that scope is a later wave, not this stage"
 
 # Orchestration cost — the spend that has no spec to attach to (roadmap:
 # orchestration + framing cost attribution). Framing a stage, deciding the spec
@@ -93,7 +93,7 @@ parses.
 ### Explicitly out of scope
 - crustyimg's 16-bit pipeline and its linear-light resize defect — both recorded in crustyimg's own backlog
 - `crustyimg-lab`
-- Publishing `irradiance` to crates.io
+- Broadening `irradiance`'s published scope to a second camera — DEC-028 reverses the original "wait for a second camera" publish-wait: 0.1.0 is published now, honestly scoped. What is out of scope here is *widening* that scope, not the publish itself.
 
 ## Spec Backlog
 
