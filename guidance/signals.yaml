@@ -921,3 +921,46 @@ signals:
       is itself worth naming: any oracle rewrite that changes performance,
       not just any that changes behavior, should still re-run the red-proof
       and the honest-tree control before being trusted.
+
+  - id: handback-sync-trips-on-superseded-handoffs
+    type: process-debt
+    summary: "handback-sync requires a terminal handback.status on EVERY handoff for a spec and has no skip for a superseded, never-dispatched one, so a null-on-purpose handback blocks the whole sync (exit 1)."
+    evidence: "SPEC-016 ship, 2026-10-27. HANDOFF-038 (the pre-rescope L-scope build; handoff.status: superseded; handback left null 'on purpose, this handoff never ran') tripped `just handback-sync SPEC-016` with exit 1 ('handback.status not set'). It keys on handback.status, not handoff.status, so a dead handoff looks like an unreported cycle. Worked around by setting HANDOFF-038's handback.synced_at manually to exclude it (the loop skips an already-synced handoff); the real build (HANDOFF-056) and verify (HANDOFF-057) had already transcribed in the same failed run before the final exit, so the ledger was correct once 038 was excluded."
+    bar: "N=1"
+    status: done
+    disposition_at: project-close
+    first_flagged: 2026-10-27
+    last_touched: 2026-10-28
+    raised_by: claude
+    notes: |
+      CLOSED by SPEC-023 (shipped 2026-10-28): handback-sync.sh's per-handoff loop
+      now skips any handoff whose handoff.status is `superseded` (or `cancelled`)
+      before the handback.status check, so a dead, never-dispatched handoff is no
+      longer mistaken for an unreported cycle. Proven at this very ship — `just
+      handback-sync SPEC-023` reported `0 superseded` and needed no manual
+      `synced_at` kludge (HANDOFF-038's kludge was removed in the same spec).
+      ORIGINAL NOTE FOLLOWS.
+      Cheap fix: in scripts/handback-sync.sh's per-handoff loop, skip any handoff
+      whose handoff.status is `superseded` (or `cancelled`) before the
+      handback.status check — a dead handoff is not an unreported cycle. Patch-
+      sized, one gate script; keep it one-defect-per-spec and give it its own
+      patch rather than folding it into unrelated work. Related:
+      [handback-sync-truncates-multi-line-scalars] (same script).
+
+  - id: next-id-scans-test-fixtures
+    type: process-debt
+    summary: "scripts/_lib.sh next_id() scans the WHOLE repo for <PREFIX>-*.md, so a test fixture named like an artifact (SPEC-900-...) poisons ID minting — new-spec assigned SPEC-901 instead of 023."
+    evidence: "SPEC-023 scaffolding, 2026-10-28. just new-spec (new-spec.sh:68 -> next_id SPEC; _lib.sh:198-213) finds the max SPEC-*.md repo-wide; tests/oracle-fixtures/SPEC-900-unparseable-front-matter.md (SPEC-016's validate red-proof fixture) is the repo-wide max, so next_id returned SPEC-901. Hand-renamed to SPEC-023 (the real max is 022). All the new-* scaffolders (new-stage/new-handoff/new-patch/new-spike) pass no search_dir and inherit the same whole-repo scan."
+    bar: "N=1"
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-10-28
+    last_touched: 2026-10-28
+    raised_by: claude
+    notes: |
+      Fix: scope next_id's `find` to where real artifacts live (projects/ +
+      decisions/), or exclude tests/ (`-not -path '*/tests/*'`), so a fixture
+      named <PREFIX>-NNN can't be mistaken for the highest artifact. Patch-sized,
+      scripts/_lib.sh only; OUT of SPEC-023's gate-mute-audit scope (next_id is a
+      scaffolder, emits no verdict — not a gate). Related:
+      [spec-ids-collide-across-unmerged-branches] (same next_id, different cause).

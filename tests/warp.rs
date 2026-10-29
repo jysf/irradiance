@@ -1,6 +1,8 @@
-//! `SPEC-018` — `WarpRectilinear` application (`AC4`, `AC6`, `AC8`-`AC10`,
-//! `AC12`). Byte-level opcode PARSING is `tests/opcode.rs` — see that file's
-//! header for the split.
+//! `SPEC-018` — `WarpRectilinear` application (`AC4`, `AC6`, `AC10`, `AC12`);
+//! `SPEC-021` reframed `SPEC-018`'s `AC8`/`AC9` oracle tests into the
+//! characterization + Orientation-skip in the `SPEC-021` section below
+//! (`DEC-026`). Byte-level opcode PARSING is `tests/opcode.rs` — see that
+//! file's header for the split.
 //!
 //! `AC5`/`AC12`/(part of `AC7`) are unit tests inside `src/warp.rs` itself
 //! (`identity_warp_is_the_identity_transform`,
@@ -23,9 +25,13 @@
 //!   develops a `Sensor` whose `opcode_list_3` is non-`None` all the way to
 //!   pixels, so it is the only one that can see `develop_into`'s pipeline
 //!   order at all.
-//! - **Tier B** (`warp_scores_at_least_eightyfive_via_spec_020_oracle`,
-//!   `warp_oracle_is_red_on_a_zeroed_kr1_coefficient`) need the real corpus
-//!   and `dnglab` on `PATH`, and skip loudly, per-entry, when absent.
+//! - **Tier B** (`warp_pixels_are_below_the_srgb_oracle_baseline`,
+//!   `rotated_frame_is_out_of_the_srgb_oracle_scope`) need the real corpus and
+//!   `dnglab` on `PATH`, and skip loudly, per-entry, when absent. They are
+//!   `SPEC-021` CHARACTERIZATIONS of `SPEC-020`'s oracle blindness for
+//!   warp-bearing and `Orientation != 1` pixels (`DEC-026`), not correctness
+//!   gates — the tier-A `AC4`/`AC10` above are the warp's real, oracle-free
+//!   proof. They replace `SPEC-018`'s two `#[ignore]`d `AC8`/`AC9` tests.
 
 #[path = "support/corpus.rs"]
 mod corpus;
@@ -540,13 +546,23 @@ fn develop_into_crops_from_the_warped_active_area_not_the_warped_crop() {
     );
 }
 // ─────────────────────────────────────────────────────────────────────────────
-// AC8 + AC9 — the develop-oracle score, and its red-proof (tier B)
+// SPEC-021 — the develop oracle's warp + Orientation blind spot, characterized
+// (tier B). SPEC-018's AC8/AC9 were `#[ignore]`d because SPEC-020's SSIMULACRA2
+// oracle cannot see WarpRectilinear or Orientation at all (DEC-024 Finding 2;
+// SPEC-018/FU-6 + SPEC-017/FU-2). DEC-026 narrows the oracle's declared scope;
+// these two tests retire those `#[ignore]`s into a PASSING characterization of
+// that blindness (SPEC-015 AC5(a) shape) + an explicit Orientation skip. The
+// real, oracle-free warp gate is AC4/AC10 above — cited, never duplicated
+// (`oracle-must-be-shown-red` is discharged by AC10's CI-visible red-proof).
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A full decode-and-develop-and-score against `dnglab analyze --srgb`
 /// (`SPEC-020`'s oracle) for one corpus file, using the given `Sensor`
 /// (already loaded, possibly mutated) as the develop input. `None` with the
-/// skip already announced when the corpus or `dnglab` is absent.
+/// skip already announced when the corpus or `dnglab` is absent — or when our
+/// developed image and `dnglab`'s differ in size, which happens on an
+/// `Orientation != 1` frame (`dnglab` ignores `Orientation`, `DEC-026`): an
+/// explicit, loud, out-of-scope SKIP rather than a panic.
 fn develop_and_score(
     path: &str,
     sensor: &Sensor,
@@ -580,11 +596,23 @@ fn develop_and_score(
     }
     let reference = pnm::read_dnglab_srgb(&dnglab.stdout)
         .unwrap_or_else(|e| panic!("{path}: dnglab --srgb output must parse: {e}"));
-    assert_eq!(
-        (reference.width, reference.height),
-        (out_width, out_height),
-        "{path}: dnglab's own output and our developed image must be the same size"
-    );
+    if (reference.width, reference.height) != (out_width, out_height) {
+        // SPEC-018/FU-6 + SPEC-017/FU-2, folded into DEC-026: `dnglab --srgb`
+        // ignores EXIF `Orientation` and emits the un-rotated sensor-native
+        // size, while `develop_into` applies `Orientation` (`SPEC-014`). On an
+        // `Orientation != 1` frame the two images are structurally
+        // incomparable, so this is an explicit, loud, out-of-scope SKIP — not
+        // the latent `assert_eq!` panic this once was. The dedicated
+        // `rotated_frame_is_out_of_the_srgb_oracle_scope` test asserts the
+        // disposition directly.
+        eprintln!(
+            "SKIP {path} — dnglab's --srgb output ({}x{}) is never Orientation-rotated, but our \
+             developed image ({out_width}x{out_height}) is — structurally incomparable for a \
+             rotated frame, out of the >=85 oracle's scope (DEC-026), not a defect",
+            reference.width, reference.height
+        );
+        return None;
+    }
 
     Some(
         metric::score(out_width, out_height, &reference.samples, &developed)
@@ -620,19 +648,44 @@ const DECODABLE_Q2M: [&str; 3] = [
     "LEICA-Q2-MONO/L1026192.DNG",
 ];
 
-/// `AC8` — the primary acceptance: `develop_into`'s real output on ALL THREE
-/// decodable Q2M frames scores >= 85 through `SPEC-020`'s oracle. Reports
-/// the measured score per frame (handback data — `measurement-over-
-/// generalised`).
+/// `SPEC-021` (reframes `SPEC-018`'s `#[ignore]`d `AC8`) — a PASSING
+/// characterization of `SPEC-020`'s oracle blindness for warp-bearing pixels,
+/// on the `Orientation`-1 frames only. `develop_into`'s real, warp-applied
+/// output scores **below** the no-warp baseline through `SPEC-020`'s oracle:
+/// applying the present-and-correct `WarpRectilinear` makes the match to
+/// `dnglab analyze --srgb` WORSE, not better, because `dnglab`/`rawler`
+/// implement no DNG `OpcodeList` processing (`DEC-024` Finding 2) — the
+/// reference is uncorrected, so a more correct render diverges further from it.
+///
+/// This is the `SPEC-015` `AC5(a)` shape: a measured blind spot asserted as a
+/// green fact, documenting what the oracle cannot see rather than pretending it
+/// can. It is **not** a correctness gate and **not** a red-proof — the warp's
+/// real, oracle-free proof is `AC4`/`AC10` in this file (`AC10`'s `kr1`-zeroed
+/// mutation moves the peak 339.5 px against a 20 px bar, corpus-free and
+/// CI-visible, which is what discharges `oracle-must-be-shown-red`; `DEC-026`
+/// cites it, this spec does not duplicate it). Scope: `DEC-026`,
+/// `docs/oracle-contract.md`.
+///
+/// Measured numbers (design + reproduced 2026-10-27): the warp-bearing render
+/// of `L1021223.DNG` scores **-60.169** (`AC8`'s own finding), `L1026192.DNG`
+/// **-40.281** — both far below the **+83.145** no-warp baseline (same
+/// pipeline, warp stage skipped, measured with an approximate sRGB gamma
+/// stand-in for the tone comparison, since `develop_into`'s output is
+/// scene-linear per `DEC-018`; a diagnostic only, never shipped). The retired
+/// `AC9` red-proof measured honest **-60.193** / `kr1`-zeroed **-55.075** —
+/// zeroing a real coefficient moves the correction CLOSER to `dnglab`'s
+/// uncorrected reference, the same inversion, so its `< 85` was vacuous.
+///
+/// Tier B: needs the real corpus and `dnglab`; skips loudly, per-entry, when
+/// absent — never `#[ignore]`d.
 #[test]
-#[ignore = "DEC-024: dnglab/rawler does not implement DNG OpcodeList processing at all \
-            (verified against the dnglab/dnglab source), so SPEC-020's oracle cannot score \
-            WarpRectilinear in either direction. Measured -60.169 on L1021223.DNG, worse than \
-            a synthetic no-warp baseline (83.145 with an approximate gamma stand-in) -- applying \
-            the correct warp diverges FURTHER from dnglab's uncorrected reference, not less. \
-            Run explicitly with `cargo test -- --ignored` to re-measure. AC4/AC10 in this same \
-            file are this spec's real, oracle-free correctness proof."]
-fn warp_scores_at_least_eightyfive_via_spec_020_oracle() {
+fn warp_pixels_are_below_the_srgb_oracle_baseline() {
+    // The no-warp SSIMULACRA2 baseline against dnglab's uncorrected `--srgb`
+    // reference (DEC-024 Finding 2 / DEC-026). 83.145 on L1021223.DNG — a
+    // no-warp render nearly matches dnglab; the warp-bearing render must score
+    // below it, proving the oracle gives no usable signal for OpcodeList3.
+    const NO_WARP_SRGB_BASELINE: f64 = 83.145;
+
     let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
     let root = CorpusRoot::resolve();
 
@@ -640,93 +693,74 @@ fn warp_scores_at_least_eightyfive_via_spec_020_oracle() {
         let Some((sensor, plane, file_path)) = load_corpus_frame(&manifest, &root, path) else {
             continue; // SKIP already announced by CorpusFile::require
         };
+        // Orientation-1 frames only: a rotated frame is structurally
+        // incomparable against dnglab's un-rotated reference (DEC-026), and is
+        // the subject of `rotated_frame_is_out_of_the_srgb_oracle_scope`.
+        if sensor.orientation != Some(1) {
+            eprintln!(
+                "SKIP {path} — Orientation {:?} != 1; dnglab ignores Orientation, so this frame \
+                 is out of the >=85 oracle's scope (DEC-026) — see \
+                 rotated_frame_is_out_of_the_srgb_oracle_scope",
+                sensor.orientation
+            );
+            continue;
+        }
         let Some(score) = develop_and_score(path, &sensor, &plane, &file_path) else {
             continue; // SKIP already announced by develop_and_score
         };
-        eprintln!("AC8 {path}: SSIMULACRA2 score = {score:.3}");
+        eprintln!(
+            "SPEC-021 {path}: warp-bearing SSIMULACRA2 = {score:.3} (below the no-warp baseline \
+             {NO_WARP_SRGB_BASELINE})"
+        );
         assert!(
-            score >= 85.0,
-            "{path}: AC8 requires >= 85 via SPEC-020's oracle; got {score:.3} — this is a \
-             FINDING, not a threshold to relax"
+            score < NO_WARP_SRGB_BASELINE,
+            "{path}: the present-and-correct warp must score BELOW the no-warp baseline \
+             ({NO_WARP_SRGB_BASELINE}) — dnglab applies no OpcodeList processing (DEC-024 \
+             Finding 2), so a correct warp diverges further from its uncorrected reference; got \
+             {score:.3}. A score at or above the baseline would mean dnglab's behaviour changed \
+             (revisit DEC-026), not a pass"
         );
     }
 }
 
-/// `AC9` — the red-proof: replacing `kr1` with `0.0` in the PARSED
-/// `WarpRect` (code-side mutation of a TEST COPY, `SPEC-013`'s precedent,
-/// `DEC-017`'s mechanism — not a mutation of the opcode bytes) must drop the
-/// score below 85 on a real frame. Isolates the "pre-warp" developed image
-/// via a sensor clone with `opcode_list_3` cleared (same technique
-/// `tests/develop_oracle.rs` uses post-`SPEC-018`), applies the honest and
-/// the mutated warp with [`apply_warp_into`] directly, and scores both.
+/// `SPEC-021` (reframes the latent `assert_eq!` panic the `#[ignore]`d `AC8`
+/// path carried on `L1026016.DNG`) — an EXPLICIT, documented out-of-scope
+/// disposition for `Orientation != 1` frames, keyed on `Orientation`.
 ///
-/// ⚠ **Honest limit, recorded in `DEC-024`.** The HONEST score never reaches
-/// 85 either (measured -60.193 on `L1021223.DNG`, `AC8`'s own finding:
-/// `dnglab`/`rawler` do not implement DNG `OpcodeList` processing at all, so
-/// `SPEC-020`'s oracle cannot see this feature in either direction). This
-/// test's `< 85` assertion on the mutated score is therefore satisfied
-/// VACUOUSLY — not because the mutation was caught against a passing
-/// baseline, but because neither score ever passes. It is NOT the
-/// "green-then-red" shape `oracle-must-be-shown-red` intends. `AC10`
-/// (`tests/warp.rs`, tier A, no corpus) is this spec's REAL red-proof: it
-/// measures a 339.5 px peak displacement from the same mutation against an
-/// independent, oracle-free ground truth (the DNG spec's own formula).
+/// `dnglab analyze --srgb` ignores EXIF `Orientation` and emits the un-rotated
+/// sensor-native size, while `develop_into` applies it (`SPEC-014`). So for
+/// `L1026016.DNG` (`Orientation` 6) our correct render is **5584x8368** while
+/// `dnglab` emits **8368x5584** — structurally incomparable, no score possible.
+/// This test asserts that incomparability as a named fact (`SPEC-018/FU-6`,
+/// re-measured in `SPEC-017/FU-2`; folded into `DEC-026`) rather than letting
+/// `develop_and_score`'s dimension check panic. The warp on this frame is still
+/// proven correct, analytically and oracle-free, by `AC4`/`AC10`.
+///
+/// Tier B: needs the real corpus and `dnglab`; skips loudly when absent — never
+/// `#[ignore]`d.
 #[test]
-#[ignore = "DEC-024: this assertion is satisfied VACUOUSLY -- the honest score never reaches 85 \
-            either (measured -60.193 on L1021223.DNG, same root cause as AC8's ignore reason), \
-            so the mutated score being < 85 proves nothing about whether the mutation was \
-            caught. Measured: honest -60.193, kr1=0 mutated -55.075 (LESS negative -- zeroing \
-            kr1 moves the applied correction CLOSER to dnglab's always-uncorrected reference, \
-            not further). AC10 in this same file is this spec's real red-proof. Run explicitly \
-            with `cargo test -- --ignored` to re-measure."]
-fn warp_oracle_is_red_on_a_zeroed_kr1_coefficient() {
+fn rotated_frame_is_out_of_the_srgb_oracle_scope() {
+    const ROTATED_FRAME: &str = "LEICA-Q2-MONO/L1026016.DNG";
+
     let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
     let root = CorpusRoot::resolve();
-    let path = "LEICA-Q2-MONO/L1021223.DNG";
 
-    let Some((sensor, plane, file_path)) = load_corpus_frame(&manifest, &root, path) else {
+    let Some((sensor, _, file_path)) = load_corpus_frame(&manifest, &root, ROTATED_FRAME) else {
         return; // SKIP already announced by CorpusFile::require
     };
 
-    let bytes = sensor
-        .opcode_list_3
-        .as_ref()
-        .unwrap_or_else(|| panic!("{path}: must carry a real OpcodeList3"));
-    let honest_warp = parse_warp_rectilinear(bytes)
-        .unwrap_or_else(|e| panic!("{path}: parse: {e}"))
-        .unwrap_or_else(|| panic!("{path}: expected a WarpRectilinear opcode"));
+    // Premise: this frame genuinely carries a non-identity Orientation, so the
+    // disposition below is about a real rotated frame, not a vacuous skip.
+    assert_ne!(
+        sensor.orientation,
+        Some(1),
+        "{ROTATED_FRAME}: expected an Orientation != 1 frame (measured Orientation 6); got {:?} \
+         — if the corpus frame changed, this disposition no longer applies",
+        sensor.orientation
+    );
 
-    let sensor_no_warp = Sensor {
-        opcode_list_3: None,
-        ..sensor.clone()
-    };
     let (out_width, out_height) =
-        output_dimensions(&sensor_no_warp).unwrap_or_else(|e| panic!("{path}: {e}"));
-    let mut unwarped = vec![0u16; out_width as usize * out_height as usize];
-    develop_into(&sensor_no_warp, &plane, &mut unwarped)
-        .unwrap_or_else(|e| panic!("{path}: develop_into (no warp): {e}"));
-
-    let mut mutated_warp = honest_warp;
-    mutated_warp.kr[1] = 0.0;
-
-    let mut honest_developed = vec![0u16; unwarped.len()];
-    apply_warp_into(
-        &honest_warp,
-        out_width,
-        out_height,
-        &unwarped,
-        &mut honest_developed,
-    )
-    .expect("honest warp applies");
-    let mut mutated_developed = vec![0u16; unwarped.len()];
-    apply_warp_into(
-        &mutated_warp,
-        out_width,
-        out_height,
-        &unwarped,
-        &mut mutated_developed,
-    )
-    .expect("mutated warp applies");
+        output_dimensions(&sensor).unwrap_or_else(|e| panic!("{ROTATED_FRAME}: {e}"));
 
     let dnglab = match std::process::Command::new("dnglab")
         .args(["analyze", "--srgb"])
@@ -736,7 +770,7 @@ fn warp_oracle_is_red_on_a_zeroed_kr1_coefficient() {
         Ok(o) if o.status.success() => o,
         Ok(o) => {
             eprintln!(
-                "SKIP warp_oracle_is_red_on_a_zeroed_kr1_coefficient — dnglab exited {:?}: {}",
+                "SKIP rotated_frame_is_out_of_the_srgb_oracle_scope — dnglab exited {:?}: {}",
                 o.status.code(),
                 String::from_utf8_lossy(&o.stderr)
             );
@@ -744,32 +778,30 @@ fn warp_oracle_is_red_on_a_zeroed_kr1_coefficient() {
         }
         Err(e) => {
             eprintln!(
-                "SKIP warp_oracle_is_red_on_a_zeroed_kr1_coefficient — dnglab: could not run \
+                "SKIP rotated_frame_is_out_of_the_srgb_oracle_scope — dnglab: could not run \
                  ({e}) — is it on PATH?"
             );
             return;
         }
     };
     let reference = pnm::read_dnglab_srgb(&dnglab.stdout)
-        .unwrap_or_else(|e| panic!("{path}: dnglab --srgb output must parse: {e}"));
+        .unwrap_or_else(|e| panic!("{ROTATED_FRAME}: dnglab --srgb output must parse: {e}"));
 
-    let honest_score = metric::score(out_width, out_height, &reference.samples, &honest_developed)
-        .unwrap_or_else(|e| panic!("{path}: scoring honest: {e}"));
-    let mutated_score = metric::score(
-        out_width,
-        out_height,
-        &reference.samples,
-        &mutated_developed,
-    )
-    .unwrap_or_else(|e| panic!("{path}: scoring mutated: {e}"));
-
+    // The out-of-scope fact, asserted: dnglab's un-rotated output and our
+    // Orientation-applied render have DIFFERENT dimensions, so SPEC-020's
+    // oracle cannot score this frame at all (DEC-026). Measured: dnglab
+    // 8368x5584, ours 5584x8368.
     eprintln!(
-        "AC9 {path}: honest score = {honest_score:.3}, kr1=0 mutated score = {mutated_score:.3}, \
-         delta = {:.3}",
-        honest_score - mutated_score
+        "SPEC-021 {ROTATED_FRAME}: Orientation {:?} — dnglab --srgb = {}x{} (un-rotated), \
+         develop_into = {out_width}x{out_height} (Orientation applied); out of the >=85 oracle's \
+         scope (DEC-026), warp verified analytically by AC4/AC10",
+        sensor.orientation, reference.width, reference.height
     );
-    assert!(
-        mutated_score < 85.0,
-        "{path}: zeroing kr1 must drop the score below 85; got {mutated_score:.3} (honest {honest_score:.3})"
+    assert_ne!(
+        (reference.width, reference.height),
+        (out_width, out_height),
+        "{ROTATED_FRAME}: dnglab is expected to IGNORE Orientation (emit an un-rotated size) \
+         while develop_into applies it ({out_width}x{out_height}) — if they now match, dnglab \
+         started honouring Orientation and DEC-026's Orientation leg needs revisiting"
     );
 }

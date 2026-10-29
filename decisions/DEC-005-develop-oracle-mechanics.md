@@ -48,6 +48,19 @@ Two things, decided together because the second is meaningless without the first
    verifies **geometry and gross tonal correctness only**. Levels are **out of its
    scope** and belong to `DEC-004`.
 
+## Scope amended by DEC-026
+
+⚠ `DEC-026` narrows this decision's scope clause (item 2 above) and its
+`## Validation` premise, for **warp-bearing (`OpcodeList3`) and `Orientation ≠ 1`
+pixels only**: `dnglab analyze --srgb` applies neither `WarpRectilinear` nor
+`Orientation`, so the ≥ 85 oracle provides no signal there (a *correct* warp
+scores further from the reference, not closer — measured −60.169 vs a +83.145
+no-warp baseline). Those stages are verified analytically instead
+(`tests/warp.rs` `AC4`/`AC10` for warp geometry; `DEC-004`/`SPEC-015` for levels,
+crop and orientation). The ≥ 85 bar, the P5-header workaround (item 1) and the
+history below are all unchanged; read `DEC-026` for what the oracle does and does
+not cover.
+
 ## Context
 
 ### The format defect

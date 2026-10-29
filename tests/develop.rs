@@ -766,11 +766,11 @@ fn score_against(
         // it (`SPEC-014`, already-shipped, already-tested behaviour —
         // `orientation_six_swaps_the_output_dimensions`). The two outputs
         // are therefore structurally incomparable on any frame carrying a
-        // non-identity `Orientation`, not a `SPEC-017` regression: the SAME
-        // shape of `develop_and_score` in `tests/warp.rs`
-        // (`warp_scores_at_least_eightyfive_via_spec_020_oracle`, `#[ignore]`d)
-        // would hit this identical mismatch were it ever run un-ignored
-        // against `L1026016.DNG`/`L1026192.DNG`.
+        // non-identity `Orientation`, not a `SPEC-017` regression. `SPEC-021`
+        // folded this leg into `DEC-026` and gave `tests/warp.rs`'s own
+        // `develop_and_score` the same loud dimension-mismatch skip; its
+        // `rotated_frame_is_out_of_the_srgb_oracle_scope` asserts the
+        // disposition directly for `L1026016.DNG` (`Orientation` 6).
         eprintln!(
             "SKIP {path} — dnglab's --srgb output ({}x{}) is never orientation-rotated, but our \
              developed image ({out_width}x{out_height}) is (Orientation applied) — structurally \
@@ -1105,5 +1105,164 @@ fn fix_bad_pixels_red_proof_control_is_green() {
         control,
         (honest_count, honest_pixel),
         "the UNMUTATED copy-and-rebuild apparatus must reproduce the real applier's output"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-022 — the warp branch develops the FIXED plane, not raw src. The exact
+// mirror of SPEC-017's SB-2 (the `dst1[2*5+2] == 1000` assertion in AC9's
+// `develop_output_is_bit_identical_across_two_runs` above), routed through
+// `develop_into`'s `Some(warp)` arm (`src/develop.rs`, the
+// `normalize_active_area_into(..., effective_src, ...)` call) instead of the
+// no-warp arm. AC9 carries no OpcodeList3, so it exercises only the no-warp
+// branch; every real Q2M frame carries a non-identity WarpRectilinear and so
+// takes THIS branch, which had no assertion that it develops the fixed plane.
+//
+// DEC-024: dnglab/rawler implements no DNG opcodes, so SPEC-020's SSIMULACRA2
+// oracle is blind to this stage end-to-end — these analytic tier-A assertions
+// are the only coverage, which is why AC4's red-proof is load-bearing.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The SPEC-022 fixture (shared recipe, all values measured): a 5x5
+/// whole-plane sensor whose `normalize` is the identity (`BlackLevel 0`,
+/// `WhiteLevel 65535`), a 5x5 `DefaultCrop` and no orientation (so crop and
+/// orient are identities too), a mandatory `FixBadPixelsConstant`
+/// `OpcodeList1` (sentinel `Constant = 0`) and a non-identity
+/// `WarpRectilinear` `OpcodeList3` (`kr1 = -0.1 != 0`, so `is_identity` is
+/// false and the `Some(warp)` arm runs). The bad pixel sits at the optical
+/// centre `(2, 2)`: with `cx_hat = cy_hat = 0.5` on a 5x5 plane the centre
+/// dest pixel maps to source `(2, 2)` exactly for any `kr` (at `r = 0`,
+/// `f(r) = kr0 = 1.0`), so `develop_into` samples the active plane at `(2, 2)`
+/// with no interpolation and `developed[2*5+2]` is exactly `1000`/`1200` (the
+/// fixed value) or `0` (the raw marker). `kt = [0, 0]` dodges
+/// `Error::UnsupportedWarpTangentialTerms`, and `f(r) = 1 - 0.1*r^2 <= 1`
+/// keeps the source in-extent (no clamp surprises).
+fn warp_fixed_plane_sensor() -> Sensor {
+    let mut sensor = minimal_sensor(5, 5);
+    sensor.black_level = Some(0);
+    sensor.white_level = Some(u32::from(u16::MAX));
+    sensor.default_crop_size = Some(DefaultCropSize {
+        width: 5,
+        height: 5,
+    });
+    sensor.opcode_list_1 = Some(opcode_support::single_fix_bad_pixels_constant_list(0, 2, 0));
+    sensor.opcode_list_3 = Some(opcode_support::single_warp_rectilinear_list(
+        [1.0, -0.1, 0.0, 0.0],
+        [0.0, 0.0],
+        0.5,
+        0.5,
+        1,
+        0,
+    ));
+    sensor
+}
+
+/// `AC1` + `AC2` — the `Some(warp)` arm develops the bad-pixel-FIXED plane.
+/// `develop_into` on the fixture (which routes through the warp arm because
+/// the `WarpRectilinear` is non-identity) yields `developed[2*5+2] == 1000`:
+/// the centre bad pixel reaches `dst` as its eight `1000`-valued neighbours'
+/// lower-median (`1000`), NOT the raw marker `0`. The centre is the warp's
+/// optical-centre fixed point, so it samples the fixed plane at `(2, 2)`
+/// exactly — no interpolation blur (`AC1`). A direct
+/// `apply_fix_bad_pixels_constant` call on a copy returns count `1`, so `AC1`
+/// cannot pass merely because no pixel was ever bad (`AC2`, mirroring AC9's
+/// own count check).
+///
+/// This is the exact warp-branch mirror of AC9's no-warp `dst1[2*5+2] == 1000`
+/// assertion. Severing the warp arm's `effective_src -> src` turns it RED at
+/// `developed[12]: left 0, right 1000` while AC9 stays green (SPEC-022 `AC4`'s
+/// red-proof, discharged in a scratchpad copy and recorded in HANDOFF-054).
+#[test]
+fn develop_warp_branch_develops_the_fixed_plane() {
+    let sensor = warp_fixed_plane_sensor();
+
+    let mut src = vec![1000u16; 25];
+    src[2 * 5 + 2] = 0; // one bad pixel at the optical centre (2, 2)
+
+    let (out_width, out_height) = output_dimensions(&sensor).expect("fits");
+    assert_eq!(
+        (out_width, out_height),
+        (5, 5),
+        "the fixture develops at its 5x5 DefaultCrop size"
+    );
+    let mut developed = vec![0u16; (out_width * out_height) as usize];
+    develop_into(&sensor, &src, &mut developed).expect("fits");
+
+    // AC1 — the load-bearing assertion, through the `Some(warp)` arm.
+    assert_eq!(
+        developed[2 * 5 + 2],
+        1000,
+        "the Some(warp) arm must develop the plane the applier FIXED: the centre \
+         bad pixel must reach dst as its neighbours' lower-median (1000), not the raw \
+         marker (0)"
+    );
+
+    // AC2 — the fix is non-vacuous (HIT > 0): exactly one pixel was bad, so
+    // AC1 is not green merely because nothing was ever replaced.
+    let active_area = ActiveArea {
+        top: 0,
+        left: 0,
+        bottom: 5,
+        right: 5,
+    };
+    let mut plane = src.clone();
+    let count = apply_fix_bad_pixels_constant(&mut plane, 5, 5, active_area, 0).expect("fits");
+    assert_eq!(
+        count, 1,
+        "exactly one bad pixel must be replaced, or AC1 proves nothing"
+    );
+}
+
+/// `AC3` — the `Some(warp)` arm did real resampling, not an identity
+/// pass-through. The SAME fixture, but a non-uniform ramp background
+/// (`value = 1000 + 100*x`, bad pixel still `0` at the centre; the centre's
+/// eight valid neighbours' lower-median is `1200` — which happens to equal the
+/// ramp's own value at `x = 2`, so the fixed plane is a clean horizontal ramp).
+/// The developed output with `opcode_list_3 = Some(..)` must differ from the
+/// same sensor with `opcode_list_3 = None`, so the warp demonstrably ran, while
+/// the centre equals the fixed value `1200` under BOTH branches (the
+/// optical-centre fixed point is invariant to the warp).
+#[test]
+fn develop_warp_branch_actually_warps() {
+    let mut src = vec![0u16; 25];
+    for y in 0..5u16 {
+        for x in 0..5u16 {
+            src[(y * 5 + x) as usize] = 1000 + 100 * x;
+        }
+    }
+    src[2 * 5 + 2] = 0; // one bad pixel at the optical centre (2, 2)
+
+    let warp_sensor = warp_fixed_plane_sensor();
+    let mut no_warp_sensor = warp_fixed_plane_sensor();
+    no_warp_sensor.opcode_list_3 = None;
+
+    let (out_width, out_height) = output_dimensions(&warp_sensor).expect("fits");
+    let mut developed_warp = vec![0u16; (out_width * out_height) as usize];
+    let mut developed_no_warp = vec![0u16; (out_width * out_height) as usize];
+    develop_into(&warp_sensor, &src, &mut developed_warp).expect("fits");
+    develop_into(&no_warp_sensor, &src, &mut developed_no_warp).expect("fits");
+
+    // The centre is the warp's fixed point: it develops the neighbours'
+    // lower-median (1200), fixed, under BOTH branches — never the raw 0.
+    assert_eq!(
+        developed_no_warp[2 * 5 + 2],
+        1200,
+        "no-warp branch: the centre bad pixel develops as its neighbours' lower-median"
+    );
+    assert_eq!(
+        developed_warp[2 * 5 + 2],
+        1200,
+        "warp branch: the optical-centre fixed point still develops the fixed lower-median"
+    );
+
+    // The warp actually ran. Because the centre agrees under both branches,
+    // any difference between the two whole outputs is at OFF-centre pixels,
+    // where `f(r) = 1 - 0.1*r^2 < 1` pulls the sample toward the centre on a
+    // non-uniform ramp. A `Some(warp)` arm that was structurally wired but
+    // semantically inert (an identity pass-through) would make these equal.
+    assert_ne!(
+        developed_warp, developed_no_warp,
+        "the non-identity WarpRectilinear must resample off-centre pixels; equal \
+         outputs would mean the warp arm never actually warped"
     );
 }

@@ -82,8 +82,10 @@
 //! `OpcodeList3` cleared — see its own doc for why: `WarpRectilinear`'s
 //! resampling genuinely breaks the permutation property this file's design
 //! rests on, for the two real Q2M files that carry it. This file's scope
-//! stays levels+geometry; the warp has its own oracle (`AC8`/`AC9`,
-//! `tests/perceptual_oracle.rs`).
+//! stays levels+geometry; the warp has its own ANALYTIC gate (`AC4`/`AC10`,
+//! `tests/warp.rs`) — `SPEC-020`'s perceptual oracle
+//! (`tests/perceptual_oracle.rs`) does not cover warp-bearing pixels at all
+//! (`DEC-024` Finding 2, scoped out by `DEC-026`).
 
 #[path = "support/corpus.rs"]
 mod corpus;
@@ -127,10 +129,11 @@ type DecodedFixture = (Sensor, Vec<u16>, Vec<u16>);
 /// any single source sample). `SPEC-018` correctly introduces exactly that
 /// resampling for `L1021223.DNG`/`L1026016.DNG` (both carry a real,
 /// non-identity `WarpRectilinear` opcode) — this file's job is levels and
-/// geometry, not the warp (which gets its own oracle: `AC8`/`AC9`,
-/// `tests/perceptual_oracle.rs`), so it develops with `opcode_list_3`
-/// cleared to isolate exactly the stage it verifies. `L1000622.DNG` carries
-/// no opcode lists at all, so clearing it is a no-op there.
+/// geometry, not the warp (which gets its own ANALYTIC gate: `AC4`/`AC10`,
+/// `tests/warp.rs`, and is out of `SPEC-020`'s perceptual-oracle scope per
+/// `DEC-026`), so it develops with `opcode_list_3` cleared to isolate exactly
+/// the stage it verifies. `L1000622.DNG` carries no opcode lists at all, so
+/// clearing it is a no-op there.
 fn decode_and_develop(
     manifest: &Manifest,
     root: &CorpusRoot,

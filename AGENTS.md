@@ -264,7 +264,11 @@ targets' seeds); `SPEC-017` added `just fuzz-opcode` (`OpcodeList1`/
 now regenerates all five targets' seeds); `SPEC-019` added `just gen-tone-table`
 (regenerates the committed sRGB OETF encode tables `src/tone_table.rs` from the
 sRGB OETF — the first recipe that generates committed Rust source rather than
-binary fuzz seeds).
+binary fuzz seeds); `SPEC-011` added `just lint-fuzz` (clippy over the `fuzz/`
+graph — the second cargo graph the library's clippy never sees, DEC-011/DEC-027)
+and `just lint-fuzz-red-proof` (its red-proof); `SPEC-023` added `just gate-audit`
+(the gate OVER the gates — scans the verdict-bearing `scripts/*.sh` for the
+mute-death shape) and `just gate-audit-red-proof` (its red-proof).
 Every recipe's commands appear in the block below and nothing in
 the block is unrunnable: that correspondence is acceptance criterion 8, so a
 recipe that gains a command gains a line here in the same change.
@@ -316,6 +320,21 @@ cargo fmt --check
 #              the gate it proves.
 ./scripts/cost-audit-red-proof.sh
 
+# gate-audit  — the gate OVER the gates (SPEC-023). Scans the verdict-bearing
+#              scripts/*.sh for the mute-death shape: a swallowed verdict-oracle
+#              exit, an unguarded `grep` in a command substitution, or a
+#              success/green line with no count asserted (§16 rules 2-3). Excludes
+#              comments and ASSERTS ITS OWN SCAN COUNT — a glob that matched
+#              nothing is a loud failure. shellcheck is not the engine.
+./scripts/gate-audit.sh
+
+# gate-audit-red-proof — proves `gate-audit` bites (oracle-must-be-shown-red
+#              covers gates). Control clean, each of the three shapes injected
+#              into a COPIED gate is caught by name and shape, a shape-shaped
+#              COMMENT is NOT flagged, isolation restores green. Temp copy;
+#              working tree untouched.
+./scripts/gate-audit-red-proof.sh
+
 # lint-no-allow  — closes what the red-proof structurally cannot see: an
 #              #[allow] of a policy lint BENEATH the crate root. `-F` is
 #              `--forbid`, so re-allowing one is compiler error E0453 rather
@@ -343,6 +362,28 @@ cargo clippy --lib --quiet -- \
 #              RUN THIS BEFORE EVERY PUSH.
 PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy \
     --all-targets --all-features -- -D warnings
+
+# lint-fuzz  — clippy over the FUZZ graph, the second cargo graph the library's
+#              clippy never sees (SPEC-011, DEC-027). Same one-flag move as
+#              `deny-fuzz`: DEC-011 keeps fuzz/ outside the library's graph and
+#              clippy lints one manifest's graph per run, so the repo-root
+#              `clippy` compiles not a single fuzz target. Scope is clippy's
+#              DEFAULT lints, NOT the library's five panic-free lints — fuzz is
+#              dev-only glue. PINNED like lint-ci (PATCH-004) and prints its
+#              clippy; the CI job `clippy-fuzz` (@stable) is the authoritative
+#              gate. No nightly. Two invocations, both required.
+printf 'lint-fuzz: using %s (pinned: ~/.cargo/bin/cargo +stable)\n' "$(PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy --version)"
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy \
+    --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings
+
+# lint-fuzz-red-proof — proves `lint-fuzz` actually bites (SPEC-011;
+#              oracle-must-be-shown-red covers gates). Negative control (the
+#              unmutated fuzz copy passes) + ONE injected default-clippy fault
+#              (`unnecessary_cast`) caught by its clippy help-URL fragment, with
+#              `-D warnings` proven load-bearing (the fuzz crate has no
+#              #![deny]). Temp copy; working tree untouched. DEC-009 mechanism,
+#              one fault not five.
+./scripts/lint-fuzz-red-proof.sh
 
 # typecheck  — Rust has no separate typecheck; `check` is the fast path
 cargo check --all-targets --all-features

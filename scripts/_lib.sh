@@ -131,10 +131,14 @@ get_active_project() {
         echo "${ACTIVE_PROJECT}"
         return
     fi
-    # Non-example PROJ-* dirs, lowest number first.
+    # Non-example PROJ-* dirs, lowest number first. `|| true` guards the grep:
+    # a tree with only example projects (or none) is a zero-match, which under
+    # set -e/pipefail would otherwise abort every command that resolves the
+    # active project (SPEC-023, §16 rule 3 — a gate dies through its own message,
+    # not a pipeline's exit status).
     local dirs
     dirs=$(find "${REPO_ROOT}/projects" -maxdepth 1 -type d -name "PROJ-*" 2>/dev/null \
-           | grep -v "example" | sort)
+           | grep -v "example" | sort || true)
     # Prefer a project explicitly marked `status: active`. Without this, a
     # SHIPPED earlier wave silently captures every default-scoped command once a
     # second project exists — `just status`/`cost-audit`/`backlog` would target
@@ -337,6 +341,79 @@ get_spike_field() {
             print; exit
         }
     ' "$file"
+}
+
+# ── Front-matter PARSE gate (SPEC-016) ──────────────────────────────────────
+# Parse the YAML front matter of each FILE given as an argument with a REAL YAML
+# parser, and report every file whose front matter does not parse.
+#
+# The schema checks in validate.sh read front matter with the line-oriented
+# awk/grep helpers above: they confirm required KEYS are present, but they never
+# PARSE. So front matter that no YAML parser can read was reported "valid
+# required front-matter" — one such artifact shipped, was archived, and survived
+# three later specs before anyone noticed (SPEC-016 Context). This closes that
+# class: a parse error fails the gate, names the file, and prints the parser's
+# OWN message so the reader sees the exact line/column the YAML broke at.
+#
+# Parser: ruby's Psych via `YAML.parse`. ruby ships with macOS and the GitHub
+# runner images (SPEC-016 AC1). `YAML.parse` checks SYNTAX only — it builds the
+# node tree and never materializes objects — which is deliberate, not incidental:
+#   * a `created_at: 2026-10-27` date scalar is NOT a false positive. Psych 4
+#     (Ruby 3.1+) made `YAML.load`/`safe_load` reject an un-permitted Date; parse
+#     never instantiates it, so the gate behaves identically on Ruby 2.6 → 3.x.
+#   * it never touches `safe_load`'s `permitted_classes:` keyword, which does not
+#     exist on Ruby 2.6's `safe_load` and raises ArgumentError UNIFORMLY on every
+#     file — a wrong parser API that masquerades as 120 findings while the check
+#     never actually ran. That is the exact failure class SPEC-016 closes, and is
+#     why AC2's third clause demands the parser's MESSAGE, not just an exit code.
+#
+# A file whose first line is not `---`, or whose front matter has no closing
+# `---`, is skipped: it has no front matter to parse. Output is one line per
+# event, tab-separated:
+#     FAIL<TAB><file><TAB><parser message>   — for each unparseable file
+#     PARSED<TAB><n>                          — count of files actually parsed
+#     SCANNED<TAB><n>                         — count of files the parser examined
+# Exit 0 if every file parsed, 1 if any failed. Callers collect the lines.
+#
+# ⚠ The rescue is a BARE `rescue` (StandardError), not `rescue Psych::SyntaxError`
+# only, and it wraps the whole per-file body — `File.read`, the `rstrip` scans,
+# AND `YAML.parse`. A non-syntax fault (an unreadable file, an invalid UTF-8 byte
+# in `rstrip`) therefore emits a named FAIL and exits non-zero, instead of an
+# uncaught exception that a `done < <(…)` caller swallows (SPEC-023, §16 rule 3).
+# `SCANNED` is the completion sentinel: a caller asserts it equals the number of
+# paths it handed in, so a crash that stops the parser mid-run cannot be read as
+# a green "0 parsed" (the mute-death this closes).
+front_matter_parse_report() {
+    ruby -ryaml -e '
+had_error = false
+parsed = 0
+scanned = 0
+ARGV.each do |path|
+  scanned += 1
+  begin
+    lines = File.read(path).lines
+    next unless lines[0] && lines[0].rstrip == "---"
+    body = []
+    closed = false
+    lines[1..-1].each do |l|
+      if l.rstrip == "---"
+        closed = true
+        break
+      end
+      body << l
+    end
+    next unless closed            # no closing fence → no front matter to parse
+    parsed += 1
+    YAML.parse(body.join)
+  rescue => e
+    had_error = true
+    puts "FAIL\t#{path}\t#{e.message}"
+  end
+end
+puts "PARSED\t#{parsed}"
+puts "SCANNED\t#{scanned}"
+exit(had_error ? 1 : 0)
+' "$@"
 }
 
 # Find the timeline file paired with a spec. Returns empty if none.

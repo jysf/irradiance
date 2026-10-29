@@ -1,6 +1,6 @@
 [package]
 name = "irradiance"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 # Measured, not guessed — see guidance/toolchain-brief.md and
 # projects/PROJ-001-monochrome-dng-develop/specs/SPEC-001-*.md. 1.90.0 is the
@@ -11,7 +11,26 @@ rust-version = "1.90"
 license = "MIT OR Apache-2.0"
 description = "A permissively-licensed, pure-Rust library that reads camera RAW files and develops them into images."
 repository = "https://github.com/jysf/irradiance"
-publish = false # STAGE-004 excludes crates.io publish from PROJ-001
+# Published 0.1.0, honestly scoped (monochrome, uncompressed DNG, one camera) —
+# DEC-028 reverses STAGE-004's "wait for a second camera" publish-wait. An
+# optional path dependency still needs a registry version at publish time, so a
+# bare path dep makes the consuming crate (crustyimg) unpublishable.
+keywords = ["raw", "dng", "camera", "image", "photography"]
+categories = ["multimedia::images"]
+# Strict allow-list: ship only what the crate needs to build and be understood.
+# Without it the package swept in the whole ContextCore spec system (decisions/,
+# projects/, docs/, scripts/, …) — 364 files. `include` is an allow-list, so
+# new process directories can never leak into a future release. `src/**/*.rs`
+# covers the library and the `irr` bin (no non-.rs asset is read at build time);
+# the dual licence is listed explicitly because `license = "…"` does not pull
+# the LICENSE files in on its own.
+include = [
+    "src/**/*.rs",
+    "/Cargo.toml",
+    "/README.md",
+    "/LICENSE-MIT",
+    "/LICENSE-APACHE",
+]
 
 [lib]
 name = "irradiance"

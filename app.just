@@ -117,6 +117,39 @@ lint-red-proof:
 cost-audit-red-proof:
     ./scripts/cost-audit-red-proof.sh
 
+# SPEC-016's red-proof for the front-matter PARSE gate in `just validate`.
+# `just validate` reported "valid required front-matter" by GREPPING for keys —
+# it never parsed — so front matter no YAML parser could read was reported valid
+# (one such artifact shipped and was archived). This proves the parse gate is not
+# decorative: a grep-satisfiable, parse-broken fixture is REJECTED by name with
+# the parser's OWN message (an exit code alone cannot tell a real parse failure
+# from a check that never ran — a wrong parser API fails uniformly), while the
+# required-keys half still passes it, and the tree is green again once the
+# fixture is removed. Runs entirely in a temp copy. See the script's header.
+validate-red-proof:
+    ./scripts/validate-red-proof.sh
+
+# SPEC-023's gate OVER the gates. Scans the verdict-bearing scripts/*.sh for the
+# mute-death shape — a gate that reports green (or dies) without its check
+# running: a process/command substitution that swallows a verdict oracle's exit,
+# an unguarded `grep` in a command substitution (a zero-match aborts the gate
+# under set -e), or a `success`/green line with no count asserted (§16 rules 2-3,
+# signal a-gate-that-fails-mutely-is-a-gate-that-never-ran). It excludes comments
+# and asserts its own scan count — a glob that matched nothing is a loud failure,
+# not a green pass. shellcheck is NOT the engine (SC2143/2181/2015 miss this
+# semantic class). See scripts/gate-audit.sh's header.
+gate-audit:
+    ./scripts/gate-audit.sh
+
+# SPEC-023's red-proof for `just gate-audit` (oracle-must-be-shown-red covers
+# gates, SPEC-003/FU-14): control clean, then each of the three mute-death shapes
+# injected into a COPIED gate is caught BY NAME and shape, a shape-shaped COMMENT
+# is NOT flagged (the comment-exclusion trap gate-audit itself must survive), and
+# the tree is green once the injections are removed. Runs entirely in a temp
+# copy; the working tree is never written to. See the script's header.
+gate-audit-red-proof:
+    ./scripts/gate-audit-red-proof.sh
+
 # Close the #[allow] escape hatch on the LIBRARY (SPEC-006).
 #
 # `just lint-red-proof` pins the crate-root #![deny(...)] policy; it cannot see
@@ -157,6 +190,45 @@ lint-ci:
         "$(PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy --version 2>&1)"
     PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy \
         --all-targets --all-features -- -D warnings
+
+# lint-fuzz — clippy over the FUZZ graph, which the library's clippy never sees
+# (SPEC-011, DEC-027).
+#
+# ⚠ Not redundant with `just lint`/`just lint-ci`, and the difference is not
+# cosmetic: DEC-011 keeps `fuzz/` a SEPARATE cargo graph so the library's
+# `[dependencies]` stays empty, and clippy — exactly like cargo-deny (`just
+# deny` vs `just deny-fuzz`) — evaluates ONE manifest's graph per invocation.
+# `cargo clippy` at the repo root (`just lint`/`lint-ci`, the `clippy` CI job)
+# compiles not one fuzz target, so the fuzz crate sat outside every `-D warnings`
+# gate until this recipe. `--manifest-path fuzz/Cargo.toml` is the whole fix,
+# the same one-flag move `deny-fuzz` made for licensing. Scope is clippy's
+# DEFAULT lints under `-D warnings`, NOT the library's five panic-free lints —
+# fuzz is dev-only glue (DEC-027). Two invocations, both required.
+#
+# PINNED to `~/.cargo/bin/cargo +stable` with the load-bearing PATH prefix, like
+# `just lint-ci` and for the same reason (PATCH-004, the FOURTH `+toolchain`
+# trap): CI's `@stable` clippy floats and local Homebrew clippy diverges, which
+# cost this repo 17 red runs. This is the local command that sees what CI's
+# `rust / clippy — fuzz graph` job sees, and it prints which clippy answered. No
+# nightly — `fuzz/` is a plain cargo crate for clippy (only the `cargo fuzz`
+# smoke jobs need nightly).
+lint-fuzz:
+    @printf 'lint-fuzz: using %s (pinned: ~/.cargo/bin/cargo +stable)\n' \
+        "$(PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy --version 2>&1)"
+    PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +stable clippy \
+        --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings
+
+# lint-fuzz-red-proof — proves `just lint-fuzz` actually bites (SPEC-011;
+# `oracle-must-be-shown-red` covers gates, SPEC-003/FU-14). Copies the fuzz
+# graph to a temp dir, runs the UNMUTATED copy as a negative control (must
+# pass), then injects ONE default-clippy violation (`unnecessary_cast`) into a
+# COPIED fuzz target and asserts the gate catches it — matched by clippy's
+# help-URL fragment, not the bare name — and that `-D warnings` is what gives
+# the gate its teeth (the fuzz crate carries no `#![deny]`). Working tree
+# untouched. DEC-009 mechanism, one injected fault rather than five. See
+# scripts/lint-fuzz-red-proof.sh's header.
+lint-fuzz-red-proof:
+    ./scripts/lint-fuzz-red-proof.sh
 
 # Run the IFD fuzz target (SPEC-003, AGENTS.md §12 bar 2).
 #

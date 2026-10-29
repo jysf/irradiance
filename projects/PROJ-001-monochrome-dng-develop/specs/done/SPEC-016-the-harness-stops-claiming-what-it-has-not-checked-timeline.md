@@ -38,13 +38,17 @@ Cycle prompts live in `prompts/SPEC-016-<cycle>.md`.
   four `(not yet written) [XS]` items either land as specs or get an
   explicit `closed:` disposition with a test that will fail — do not
   let them sit indefinitely.
-- [ ] **build** — new handoff pending. Mint at build time (do NOT reuse
-  `HANDOFF-038` — its `## Delegation Summary` describes five ACs and a
-  worker following it would build the L scope). The reduced-scope
-  handoff reads: rewrite `scripts/validate.sh` to parse front matter
-  through a real YAML parser (`ruby -ryaml` per the DEC), add a
-  red-proof gate step (DEC-009 mechanism), one DEC recording the
-  parser choice with the rejected alternatives, no `src/` changes.
+- [~] **build** — `HANDOFF-056` minted 2026-10-27 (NOT the stale
+  `HANDOFF-038`, which describes the L scope). Premise re-measured — see
+  the spec's **Design refresh (2026-10-27)**: 1 of 120 artifacts fails a
+  real parse today (`HANDOFF-039`), `validate` scopes to specs+patches+
+  spikes only, pyyaml now present. The handoff reads: rewrite
+  `scripts/validate.sh` to parse every artifact's front matter through a
+  real YAML parser (`ruby -ryaml`), fail loudly with the parser's own
+  message, broaden scope to `handoffs/` + `decisions/`, fix HANDOFF-039,
+  with the AC2 red-proof (DEC-017 mechanism). Parser choice recorded in
+  the handback (a DEC if the build judges it load-bearing). No `src/`
+  change. Delegated to a cold session.
 - [ ] **verify** — a separate agent runs the red-proof against a
   hand-built fixture with an unterminated multi-line scalar (the
   SPEC-015/FU-4 shape) and confirms the OLD script passes on it while
