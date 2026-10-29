@@ -150,12 +150,12 @@ currently polluted by a test fixture (returns `SPEC-901`; the real next free id
 is `SPEC-024`) — the `next_id-scans-test-fixtures` signal. Assign SPEC ids by
 hand (SPEC-024…) at frame time until that signal is fixed, or fix it first.
 
-- [ ] (not yet written) [M] — CFA sensor identity + `Cfa` mosaic model: accept `PhotometricInterpretation == 32803`; parse `CFAPattern`/`CFARepeatPatternDim`/`CFAPlaneColor`/`CFALayout` into a new `Sensor` field; mono stays `None`; mono path unchanged (regression guard)
-- [ ] (not yet written) [M] — Bit-exact mosaic plane oracle: the Bayer file's unpacked plane MD5 equals `dnglab analyze --raw-checksum`, with its red-proof
-- [ ] (not yet written) [M] — Colour metadata parse + metadata-oracle extension: `AsShotNeutral`, `ColorMatrix1/2`, `CalibrationIlluminant1/2`, `ForwardMatrix1/2`, per-channel `BlackLevel`/`WhiteLevel` — diffed against `dnglab analyze --meta` + `exiftool`
-- [ ] (not yet written) [S] — Corpus + fuzz: register the uncompressed Bayer DNG in the corpus manifest and extend the fuzz corpus; panic-free on CFA input
+- [ ] SPEC-024 (frame) — [M] CFA sensor identity + `Cfa` mosaic model: accept `PhotometricInterpretation == 32803`; parse `CFAPattern`/`CFARepeatPatternDim`/`CFAPlaneColor`/`CFALayout` into a new `Sensor` field; mono stays `None`; mono path unchanged (regression guard)
+- [ ] SPEC-025 (frame) — [M] Bit-exact mosaic plane oracle: the Bayer file's unpacked plane MD5 equals `dnglab analyze --raw-checksum`, with its red-proof
+- [ ] SPEC-026 (frame) — [M] Colour metadata parse + metadata-oracle extension: `AsShotNeutral`, `ColorMatrix1/2`, `CalibrationIlluminant1/2`, `ForwardMatrix1/2`, per-channel `BlackLevel`/`WhiteLevel` — diffed against `dnglab analyze --meta` + `exiftool`
+- [ ] SPEC-027 (frame) — [S] Corpus + fuzz: register the uncompressed Bayer DNG in the corpus manifest and extend the fuzz corpus; panic-free on CFA input
 
-**Count:** 0 shipped / 0 active / 4 pending
+**Count:** 0 shipped / 4 active / 0 pending
 
 ## Design Notes
 
