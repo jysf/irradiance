@@ -6,7 +6,7 @@
 task:
   id: SPEC-024
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -72,10 +72,8 @@ cost:
 
 # SPEC-024: CFA sensor identity + `Cfa` mosaic model: accept `PhotometricInterpretation == 32803`; parse `CFAPattern`/`CFARepeatPatternDim`/`CFAPlaneColor`/`CFALayout` into a new `Sensor` field; mono stays `None`; mono path unchanged (regression guard)
 
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-024]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
+> **DESIGN — `cycle: design`.** Approach + failing tests below; a build session
+> makes the Failing Tests pass without redesigning. SPEC-025/026/027 depend on this.
 
 ## Context
 
@@ -100,40 +98,93 @@ path stays byte-for-byte unchanged.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:**
+  - `src/ifd.rs:1035` `is_sensor_ifd` — the identity gate (NewSubfileType /
+    Photometric / SamplesPerPixel → `SensorMatch`); the one disjunct to add.
+  - `src/ifd.rs:508` `struct Sensor` — where `color_filter` is added; and
+    `src/ifd.rs:1156` `sensor()` — where it is built. Copy the shape of the
+    `black_level` / `active_area` reads at `:1201–1245` (`cost_the_field` + the
+    accessors) exactly.
+  - `src/ifd.rs:95–138` the tag-constant block + `PHOTOMETRIC_LINEAR_RAW`.
+  - Accessors: `scalar` (:960), `array::<N>` (:988), `values`/`uints` (:862),
+    `entry`/`payload` — reading a SHORT, a fixed array, a byte array.
+  - `src/ifd.rs:1344` the `Build` test DSL + `sensor(&b)` helper (:1409) and
+    `header_reads_both_byte_orders` (:1430) — the pattern the new tests mirror.
+    `src/lib.rs:515` the `NoSensorIfd` Display text.
+  - DEC-012 (structural vs interpretation tags); AGENTS.md §11.
+- **Corpus:** `CANON-EOS-5D-MARK-III/5G4A9394.DNG`, `NIKON-D300S/_DSC4615.DNG`
+  (both `CFARepeatPatternDim 2 2` RGGB, 16-bit); `LEICA-Q2-MONO/*.DNG` for the mono
+  regression.
+- **Spec:** DNG 1.x CFA tag definitions, to confirm the tag numbers/types below.
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:** `src/ifd.rs`, `src/lib.rs`. No new files, no migrations, no flags.
+- **New constants** (`src/ifd.rs`, in the tag block; confirm each against the DNG spec):
+  - `pub const PHOTOMETRIC_CFA: u32 = 32803;`
+  - `pub const TAG_CFA_REPEAT_PATTERN_DIM: u16 = 33421;` (2 × SHORT)
+  - `pub const TAG_CFA_PATTERN: u16 = 33422;` (`rows*cols` × BYTE/UNDEFINED)
+  - `pub const TAG_CFA_PLANE_COLOR: u16 = 50710;` (N × BYTE)
+  - `pub const TAG_CFA_LAYOUT: u16 = 50711;` (SHORT; default 1 = rectangular)
+- **New public type** (`src/ifd.rs`): `#[derive(Debug, Clone, PartialEq, Eq)]
+  pub struct Cfa { pub repeat_dim: [u32; 2], pub pattern: Vec<u8>,
+  pub plane_color: Vec<u8>, pub layout: u32 }`. `pattern` / `plane_color` carry the
+  DNG colour-index encoding (0=Red, 1=Green, 2=Blue, …) — no typed enum (Non-Goal).
+- **`Sensor` field:** `pub color_filter: Option<Cfa>` — `None` for a mono plane.
+- **Gate change (`is_sensor_ifd`):** accept
+  `photometric ∈ { PHOTOMETRIC_LINEAR_RAW, PHOTOMETRIC_CFA }`; the
+  `SamplesPerPixel == 1` and `NewSubfileType == 0` checks are **unchanged**.
+- **`sensor()` change:** a private `parse_cfa(ifd, &mut malformed) -> Option<Cfa>`
+  gated on `photometric == PHOTOMETRIC_CFA`, built with `cost_the_field` so a
+  malformed CFA tag on a CFA plane costs that field (→ `None`) and is recorded in
+  `malformed_tags` (DEC-012), never failing the file. Interpretation-class, like
+  `black_level`; the bit-exact plane (SPEC-025) reads regardless of CFA-metadata health.
+- **`src/lib.rs:515`:** extend the `NoSensorIfd` Display text to name CFA beside LinearRaw.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] A CFA IFD (`photometric == 32803`, `SamplesPerPixel == 1`,
+  `NewSubfileType == 0`) is `SensorMatch::Yes`, `sensor_candidates()` returns
+  exactly one for a Bayer file, and `sensor()` is `Ok`.
+- [ ] For a synthetic RGGB plane, `color_filter == Some(Cfa { repeat_dim: [2, 2],
+  pattern: vec![0, 1, 1, 2], plane_color: vec![0, 1, 2], layout: 1 })`; both corpus
+  Bayer DNGs give `Some` with `repeat_dim == [2, 2]`.
+- [ ] A monochrome `LinearRaw` plane gives `color_filter == None`, and no other
+  `Sensor` field changes (the existing Q2M `sensor()`/plane tests stay green).
+- [ ] A CFA plane with a **malformed** `CFAPattern` still returns `Ok`:
+  `color_filter == None` and `TAG_CFA_PATTERN ∈ malformed_tags`.
+- [ ] A CFA plane with the CFA tags **absent** records nothing in `malformed_tags`
+  (absent ≠ malformed) and gives `color_filter == None`.
+- [ ] A CFA IFD with `SamplesPerPixel != 1` is still `SensorMatch::No`.
+- [ ] Panic-free on a truncated/garbage CFA tag payload (typed result, no panic).
+- [ ] `color_filter` is byte-order-agnostic (II and MM give identical values).
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+All in `src/ifd.rs` `mod tests`, mirroring `sensor(&b)` /
+`header_reads_both_byte_orders`. Add a `cfa_sensor(&b)` helper (photometric 32803,
+samples 1, the four CFA tags — every count ≤ 4 bytes, so they pack inline in the
+value word; no external data block needed).
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`src/ifd.rs` `mod tests`**
+  - `a_cfa_ifd_is_selected_as_the_sensor_plane` — `c.sensor()` is `Ok` and
+    `c.sensor_candidates().len() == 1`.
+  - `a_cfa_plane_exposes_its_mosaic_model` — `color_filter == Some(Cfa {
+    repeat_dim: [2, 2], pattern: vec![0, 1, 1, 2], plane_color: vec![0, 1, 2],
+    layout: 1 })`.
+  - `a_cfa_mosaic_model_is_byte_order_agnostic` — build the CFA plane in II and MM;
+    identical `color_filter` (mirrors `header_reads_both_byte_orders`).
+  - `a_monochrome_plane_has_no_color_filter` — the existing `sensor(&b)` LinearRaw
+    plane → `color_filter == None` and no CFA tag in `malformed_tags`.
+  - `a_cfa_plane_with_more_than_one_sample_is_not_selected` — photometric 32803,
+    samples 2 → `sensor()` is `Err(NoSensorIfd)`.
+  - `a_malformed_cfa_pattern_costs_the_field_not_the_file` — `CFAPattern` as a bad
+    type → `sensor()` `Ok`, `color_filter == None`, `malformed_tags` contains
+    `TAG_CFA_PATTERN`.
+  - `absent_cfa_tags_on_a_cfa_plane_are_not_malformed` — CFA photometric, no CFA
+    tags → `Ok`, `color_filter == None`, no CFA tag in `malformed_tags`.
+- **Regression (must stay green — existing, not new):** the Q2M plane + develop
+  oracles and the current `sensor()` unit tests.
 
 ## Non-Goals
 
@@ -146,8 +197,25 @@ job in **build** is to make these pass.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **Do not touch `SamplesPerPixel == 1`.** A Bayer mosaic is one sample per pixel;
+  colour is encoded by position. The only identity change is the photometric disjunct.
+- **Parse CFA exactly like `black_level` / `active_area`** (`sensor()` :1201–1245):
+  `cost_the_field` + the `array`/`values` accessors, preserving DEC-012's
+  structural-vs-interpretation split. CFA metadata is **interpretation** —
+  best-effort, costs its field, never fails the file — so the bit-exact plane
+  (SPEC-025) reads even on a CFA file with odd metadata.
+- **Tag types:** `CFARepeatPatternDim` = 2 SHORT (`array::<2>`); `CFAPattern` =
+  `rows*cols` BYTE/UNDEFINED (`values`/`uints`); `CFAPlaneColor` = N BYTE;
+  `CFALayout` = SHORT (`scalar`, default 1).
+- **Keep the mono path byte-for-byte.** Gate the CFA parse on
+  `photometric == PHOTOMETRIC_CFA` so a LinearRaw plane never reads a CFA tag; the
+  Q2M oracles are the regression guard.
+- **Design decision (record if wanted):** one `Sensor` type with
+  `color_filter: Option<Cfa>`, not a mono/CFA split — additive, mono untouched.
+  Adds public API (`Cfa`, `Sensor::color_filter`, the new consts); if it should be
+  a DEC, reconcile the number — DEC-029 is informally reserved for the crustyimg
+  LUT boundary.
+- The full context graph lives in the handoff file when this is dispatched to build.
 
 ---
 

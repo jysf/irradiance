@@ -145,12 +145,11 @@ is written on top of a wrong plane.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 `just frame-stage STAGE-006` promotes the `(not yet written)` lines below into
-real specs at `cycle: frame` with stable IDs. ⚠ The `next_id SPEC` scan is
-currently polluted by a test fixture (returns `SPEC-901`; the real next free id
-is `SPEC-024`) — the `next_id-scans-test-fixtures` signal. Assign SPEC ids by
-hand (SPEC-024…) at frame time until that signal is fixed, or fix it first.
+real specs at `cycle: frame` with stable IDs. (The `next_id SPEC` scan used to be
+polluted by a test fixture — fixed in `f0ecc24`, so it mints clean ids and this
+stage framed as SPEC-024..027.)
 
-- [ ] SPEC-024 (frame) — [M] CFA sensor identity + `Cfa` mosaic model: accept `PhotometricInterpretation == 32803`; parse `CFAPattern`/`CFARepeatPatternDim`/`CFAPlaneColor`/`CFALayout` into a new `Sensor` field; mono stays `None`; mono path unchanged (regression guard)
+- [ ] SPEC-024 (design) — [M] CFA sensor identity + `Cfa` mosaic model: accept `PhotometricInterpretation == 32803`; parse `CFAPattern`/`CFARepeatPatternDim`/`CFAPlaneColor`/`CFALayout` into a new `Sensor` field; mono stays `None`; mono path unchanged (regression guard)
 - [ ] SPEC-025 (frame) — [M] Bit-exact mosaic plane oracle: the Bayer file's unpacked plane MD5 equals `dnglab analyze --raw-checksum`, with its red-proof
 - [ ] SPEC-026 (frame) — [M] Colour metadata parse + metadata-oracle extension: `AsShotNeutral`, `ColorMatrix1/2`, `CalibrationIlluminant1/2`, `ForwardMatrix1/2`, per-channel `BlackLevel`/`WhiteLevel` — diffed against `dnglab analyze --meta` + `exiftool`
 - [ ] SPEC-027 (frame) — [S] Corpus + fuzz: register the uncompressed Bayer DNG in the corpus manifest and extend the fuzz corpus; panic-free on CFA input
