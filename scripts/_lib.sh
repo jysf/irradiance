@@ -203,7 +203,11 @@ next_id() {
     local prefix="$1"
     local search_dir="${2:-$REPO_ROOT}"
     local max
-    max=$(find "$search_dir" -type f -name "${prefix}-*.md" 2>/dev/null \
+    # Exclude tests/ — oracle fixtures like tests/oracle-fixtures/SPEC-900-*.md
+    # are not real specs. Before this, next_id took SPEC-900 as the repo-wide max
+    # and minted SPEC-901 for the next real spec (the next_id-scans-test-fixtures
+    # signal; SPEC-023 was minted as 901 and hand-renamed to 023).
+    max=$(find "$search_dir" -type f -name "${prefix}-*.md" -not -path '*/tests/*' 2>/dev/null \
           | sed -E "s|.*/${prefix}-([0-9]+).*|\\1|" \
           | sort -n \
           | tail -n1 || true)

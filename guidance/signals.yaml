@@ -952,12 +952,19 @@ signals:
     summary: "scripts/_lib.sh next_id() scans the WHOLE repo for <PREFIX>-*.md, so a test fixture named like an artifact (SPEC-900-...) poisons ID minting — new-spec assigned SPEC-901 instead of 023."
     evidence: "SPEC-023 scaffolding, 2026-10-28. just new-spec (new-spec.sh:68 -> next_id SPEC; _lib.sh:198-213) finds the max SPEC-*.md repo-wide; tests/oracle-fixtures/SPEC-900-unparseable-front-matter.md (SPEC-016's validate red-proof fixture) is the repo-wide max, so next_id returned SPEC-901. Hand-renamed to SPEC-023 (the real max is 022). All the new-* scaffolders (new-stage/new-handoff/new-patch/new-spike) pass no search_dir and inherit the same whole-repo scan."
     bar: "N=1"
-    status: watch
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-10-28
-    last_touched: 2026-10-28
+    last_touched: 2026-10-29
     raised_by: claude
     notes: |
+      APPLIED (not yet formally closed) 2026-10-29: the recommended fix landed
+      inline during STAGE-006 framing — scripts/_lib.sh next_id() now excludes
+      tests/ (`-not -path '*/tests/*'`), so new-spec/frame-stage mint clean ids
+      (STAGE-006 framed SPEC-024..027, not SPEC-901..). Done to unblock the frame;
+      it skipped the dedicated-patch lane the note below calls for. Remaining for a
+      clean `done`: a regression test (next_id ignores a tests/ SPEC-9xx fixture)
+      in its own patch. ORIGINAL NOTE FOLLOWS.
       Fix: scope next_id's `find` to where real artifacts live (projects/ +
       decisions/), or exclude tests/ (`-not -path '*/tests/*'`), so a fixture
       named <PREFIX>-NNN can't be mistaken for the highest artifact. Patch-sized,
