@@ -971,3 +971,25 @@ signals:
       scripts/_lib.sh only; OUT of SPEC-023's gate-mute-audit scope (next_id is a
       scaffolder, emits no verdict — not a gate). Related:
       [spec-ids-collide-across-unmerged-branches] (same next_id, different cause).
+
+  - id: cost-audit-active-scoped-hides-parked-stages
+    type: process-debt
+    summary: "cost-audit.sh scopes to get_active_project, so parking a project (status != active) drops its shipped stages/specs from the cost gate — the 'invisible absence' the gate exists to prevent — and it breaks cost-audit-red-proof.sh, which hard-codes STAGE-002 as its subject."
+    evidence: "PROJ-002 framing, 2026-10-29. Setting PROJ-001 -> on_hold to make PROJ-002 the default active wave made cost-audit (cost-audit.sh:41, project=$(get_active_project)) audit PROJ-002 only. Its red-proof mutates STAGE-002 (PROJ-001) to a shipped stage with sessions: [] and then found the gate 'decorative' (rc=0), because STAGE-002 was out of scope — the CI 'cost-capture audit' job went red. Reverted PROJ-001 to active to unblock, which is why it is not parked despite its remaining stages being blocked (STAGE-004 on crustyimg) / deferred (STAGE-005)."
+    bar: "N=1"
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-10-29
+    last_touched: 2026-10-29
+    raised_by: claude
+    notes: |
+      Fix options: (a) make cost-audit repo-wide — audit every project's shipped
+      stages/specs, not just the active one. This aligns with the gate's own
+      stated purpose (STAGE-001 shipping with sessions: [] went unnoticed for 15
+      days); a shipped stage's cost should be audited forever, not only while its
+      project is active. Update cost-audit-red-proof.sh to pick its shipped-stage
+      subject from whichever project has one, not a hard-coded STAGE-002.
+      (b) keep active-scoping but fix the red-proof to mutate a shipped stage in
+      the ACTIVE project. (a) is the real fix; it is a GATE change, so it wants its
+      own patch with the red-proof updated, not an inline edit. Until then, a
+      project with shipped stages must stay `active` or its cost gate goes dark.
