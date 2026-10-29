@@ -99,6 +99,21 @@ mod tone_table;
 
 use core::fmt;
 
+/// The develop **algorithm epoch** — bumped whenever the develop pipeline's
+/// output changes for the same input bytes (a new or changed opcode, a tone
+/// change, a geometry fix), **independently of the crate's semver**. The crate
+/// version (`Cargo.toml`) tracks API compatibility and stays `0.1.x` across
+/// many epochs; this string tracks output identity.
+///
+/// It exists for downstream determinism, not for this library's own use.
+/// `crustyimg` folds it into its build-cache key, so `crustyimg build
+/// --frozen` re-develops a RAW when the algorithm that produced the cached
+/// pixels has changed even though no source byte and no crate version did —
+/// the one signal a lockfile cannot carry. Bump it (`"2"`, `"3"`, …) in the
+/// same change that alters develop output; leave it alone for changes that
+/// cannot (docs, tests, refactors that are bit-identical). See `DEC-028`.
+pub const DEVELOP_VERSION: &str = "1";
+
 /// Errors produced while reading or developing a RAW file.
 ///
 /// Every fallible path in this crate returns this type rather than
@@ -681,5 +696,13 @@ mod tests {
         let msg = e.to_string();
         assert!(msg.contains('4'));
         assert!(msg.contains('2'));
+    }
+
+    #[test]
+    fn develop_version_is_nonempty() {
+        // DEC-028: the epoch string is folded into a downstream cache key, so
+        // an empty value would silently stop invalidating. A non-empty assert
+        // is the whole contract — the value itself is opaque to this crate.
+        assert!(!crate::DEVELOP_VERSION.is_empty());
     }
 }

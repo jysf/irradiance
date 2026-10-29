@@ -11,7 +11,12 @@ rust-version = "1.90"
 license = "MIT OR Apache-2.0"
 description = "A permissively-licensed, pure-Rust library that reads camera RAW files and develops them into images."
 repository = "https://github.com/jysf/irradiance"
-publish = false # STAGE-004 excludes crates.io publish from PROJ-001
+# Published 0.1.0, honestly scoped (monochrome, uncompressed DNG, one camera) —
+# DEC-028 reverses STAGE-004's "wait for a second camera" publish-wait. An
+# optional path dependency still needs a registry version at publish time, so a
+# bare path dep makes the consuming crate (crustyimg) unpublishable.
+keywords = ["raw", "dng", "camera", "image", "photography"]
+categories = ["multimedia::images"]
 
 [lib]
 name = "irradiance"
