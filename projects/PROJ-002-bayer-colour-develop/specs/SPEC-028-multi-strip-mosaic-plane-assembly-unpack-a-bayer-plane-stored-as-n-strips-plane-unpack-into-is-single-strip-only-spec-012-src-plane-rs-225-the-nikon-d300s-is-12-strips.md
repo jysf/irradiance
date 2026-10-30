@@ -72,10 +72,18 @@ cost:
       duration_minutes: 35
       recorded_at: 2026-10-29
       notes: "all 7 Failing Tests + the corpus check pass; one resolved spec-text tension (per-strip layer-0 is byte-ceil, not literal `== rows*width*bits`, so sub-byte strips can carry their independent tail padding — see Deviations); tests placed in tests/plane_unpack.rs (the unpack_into home, AGENTS.md §12) not src/ifd.rs mod tests; tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at Opus list rates, cache-read-dominated"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 8884772
+      estimated_usd: 21.10
+      duration_minutes: 40
+      recorded_at: 2026-10-29
+      notes: "✅ APPROVED at commit 233ae5c (PR #41, already MERGED to main before this verify ran — a retrospective independent review; no build branch remained to push to, hence this small verify-bookkeeping PR). Every AC reproduced cold: full suite (14 binaries, 0 failed, corpus 7/7 so the Nikon tier-B test actually ran, not skipped), pinned CI clippy 0.1.98 -D warnings, cargo fmt --check, just validate, just lint-no-allow (the five panic lints), and `plane` fuzz 20,465,198 runs/91s 0 crashes. Adversarial mutation (ceil->floor on per-strip layer-0) flips a_two_strip_14bit red while 16-bit stays green, control green restored. Nikon 12-strip plane assembles to 4352x2868 then trips SampleExceedsWhiteLevel (sample 741623=3835>3808) — expected, SPEC-029's to relax. Both build deviations adjudicated ACCEPTABLE; one non-blocking follow-up SPEC-028/FU-1 (amend the spec Outputs formula to the byte-ceil form at ship). tokens_total summed from this verify session's own transcript JSONL (scratchpad-UUID anchored, deduped by message.id; all 52 usage records claude-opus-4-8; input+output+cache_creation+cache_read), cache-read-dominated (8.64M of 8.88M); estimated_usd at per-category Opus list rates. Floor-by-id snapshot, not a budget delta."
   totals:
-    tokens_total: 43553730
-    estimated_usd: 102.25
-    session_count: 1
+    tokens_total: 52438502
+    estimated_usd: 123.35
+    session_count: 2
 ---
 
 # SPEC-028: Multi-strip mosaic plane assembly: unpack a Bayer plane stored as N strips (`plane::unpack_into` is single-strip-only, SPEC-012 `src/plane.rs:225`; the Nikon D300S is 12 strips)
