@@ -269,6 +269,73 @@ so out of scope for PROJ-001; dnglab decodes it.
   raw_checksum  = "c92898a1cd5acc52644c857097e1827c"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# THE BAYER (COLOUR) FILES — PROJ-002 / STAGE-006. Registered by SPEC-027. Both
+# are PhotometricInterpretation Color Filter Array (32803), SamplesPerPixel 1,
+# 16-bit, Uncompressed. `bytes` and `sha256` MEASURED from the file on disk
+# 2026-10-30; `raw_checksum` pinned against `dnglab 0.7.2 analyze --raw-checksum`.
+# `pgm_bytes`/`strip_bytes` are omitted on purpose: the oracle keys on
+# `raw_checksum` only, and the 12-strip Nikon has no single layer-0 strip figure.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[file]]
+path            = "CANON-EOS-5D-MARK-III/5G4A9394.DNG"
+tier            = "b"
+make            = "Canon"
+model           = "Canon EOS 5D Mark III"
+bits            = 16
+bytes           = 48382640
+sha256          = "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1"
+licence         = "CC0-1.0"
+source          = "https://raw.pixls.us/ — Canon EOS 5D Mark III sample (public-domain sample library)"
+provenance      = """
+Public domain dedication (CC0). An Adobe-written DNG of a raw.pixls.us Canon
+EOS 5D Mark III sample (the file's own Software tag reads "Adobe DNG Converter
+9.8 (Windows)"). CC0 => the class of third-party file that could ever be promoted
+to tier A, though colour files stay tier B until a colour pipeline wants them.
+"""
+notes           = """
+⭐ THE FIRST BAYER (COLOUR) FILE. PhotometricInterpretation Color Filter Array
+(32803), SamplesPerPixel 1, 16-bit, **Uncompressed**, 5920x3950, a SINGLE strip
+(RowsPerStrip 3950 = full height). WhiteLevel 15000 with a sample 15464 ABOVE it —
+SPEC-029's above-white falsifier for DEC-008's old "permanent invariant". Its
+unpacked mosaic plane is bit-exact against `dnglab analyze --raw-checksum`
+(SPEC-025). The oracle keys on `raw_checksum` only, so pgm_bytes/strip_bytes are
+omitted.
+"""
+
+  [file.oracle]
+  raw_checksum  = "a18235d6abced4df9948b6fbe91aba7c"   # dnglab 0.7.2
+
+[[file]]
+path            = "NIKON-D300S/_DSC4615.DNG"
+tier            = "b"
+make            = "Nikon"
+model           = "D300S"
+bits            = 16
+bytes           = 37562890
+sha256          = "c2fefd96e0125f5d5b891dff66b9ac673d6f0059db21c3a9dd469fe460f88bb7"
+licence         = "CC0-1.0"
+source          = "https://raw.pixls.us/ — Nikon D300S sample (public-domain sample library)"
+provenance      = """
+Public domain dedication (CC0). A dnglab-converted copy of a raw.pixls.us Nikon
+D300S NEF (the file's own Software tag reads "DNGLab 0.7.2"). dnglab is used here
+as a TOOL — run, never linked (AGENTS.md §1) — so its conversion imposes no
+licence; CC0 governs the underlying sample.
+"""
+notes           = """
+THE 12-STRIP BAYER PLANE. PhotometricInterpretation Color Filter Array (32803),
+SamplesPerPixel 1, 16-bit, **Uncompressed**, 4352x2868, stored in 12 strips
+(RowsPerStrip 256 x 11 + 52 = 2868) — SPEC-028's multi-strip assembly target, and
+the reference file for SPEC-025's byte-aligned red-proof so the mutation also
+exercises that assembly. Carries a sample 3835 ABOVE WhiteLevel 3808, legal and
+preserved (SPEC-029). A 12-strip plane has no single layer-0 strip figure, so
+pgm_bytes/strip_bytes are omitted and the oracle keys on `raw_checksum` only.
+"""
+
+  [file.oracle]
+  raw_checksum  = "b8e8025d370cc2e97f675e63a0e6bbdb"   # dnglab 0.7.2
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ACQUIRED 2026-08-18 (entries above). Licences verified two
 # independent ways: absent from the `?noncc0` list (111 entries, all read), AND
 # License column reads CC0 in the full 2016-row table. sha256 below is from the

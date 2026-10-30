@@ -79,12 +79,25 @@ use irradiance::plane::unpack_into;
 // AC2 — every corpus file, accounted for by name
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The four files this oracle actually decodes and hashes.
-const DECODABLE: [&str; 4] = [
+/// The two Bayer (CFA) corpus files. Named constants because `DECODABLE` below
+/// and the byte-aligned red-proof both key on them. Registered in the manifest
+/// by SPEC-027, so — like every monochrome entry — their expected checksum is
+/// read from `entry.oracle.raw_checksum`, never a hard-coded literal here.
+const CANON_BAYER: &str = "CANON-EOS-5D-MARK-III/5G4A9394.DNG";
+const NIKON_BAYER: &str = "NIKON-D300S/_DSC4615.DNG";
+
+/// The six files this oracle decodes and hashes: four monochrome LinearRaw
+/// planes and the two Bayer mosaics. SPEC-025 proved the two mosaics bit-exact
+/// against `dnglab analyze --raw-checksum`; SPEC-027 folds them onto the
+/// manifest-driven `plane_md5_matches_the_pinned_raw_checksum` so they are
+/// sourced exactly like the mono entries (no bespoke direct-path test).
+const DECODABLE: [&str; 6] = [
     "LEICA-Q2-MONO/L1021223.DNG",
     "LEICA-Q2-MONO/L1026016.DNG",
     "LEICA-Q2-MONO/L1026192.DNG",
     "LEICA-M-MONOCHROM/L1000622.DNG",
+    CANON_BAYER,
+    NIKON_BAYER,
 ];
 
 /// The reference frame for the red-proof: the same file every other spec in
@@ -912,83 +925,32 @@ fn the_honest_tree_is_the_negative_control() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SPEC-025 — the Bayer mosaic plane oracle, and its byte-aligned red-proof
+// SPEC-025 — the Bayer mosaic oracle's byte-aligned red-proof (manifest-folded)
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // STAGE-006's capstone. The mosaic is still a single sensor plane, so PROJ-001's
 // layer-0 contract — the unpacked plane's MD5 equals `dnglab analyze
 // --raw-checksum` — transfers to a Bayer file unchanged (the checksum is over
-// the raw mosaic bytes, independent of demosaic). The oracle METHOD above is
-// reused verbatim (`decode_and_hash`, `plane_md5`, `stage_probe_crate`,
-// `build_and_run_probe`); only the reference files and a byte-aligned injector
-// are new.
+// the raw mosaic bytes, independent of demosaic).
 //
-// Two things differ from the mono oracle, both deliberate:
+// **SPEC-027 folded the Bayer plane claim onto the manifest.** `CANON_BAYER` and
+// `NIKON_BAYER` are now in `DECODABLE`, so `plane_md5_matches_the_pinned_raw_checksum`
+// hashes both and compares against each one's manifest `raw_checksum`, exactly
+// like the four mono entries — and `compressed_files_are_skipped_by_name`'s
+// partition is now `DECODABLE (6) + SKIPPED_COMPRESSED (3) == 9`. The bespoke
+// direct-path Bayer oracle test and the hard-coded
+// `CANON_RAW_CHECKSUM`/`NIKON_RAW_CHECKSUM` constants it used are gone: nothing
+// here pins a Bayer checksum as a literal any more.
 //
-//  1. **Direct-path, not the manifest.** The Bayer DNGs are NOT in
-//     `tests/corpus/manifest.toml` yet — SPEC-027 registers them — so they are
-//     resolved by `CorpusRoot` + relative path with a loud skip, exactly like
-//     `tests/plane_unpack.rs`'s Nikon test, and are deliberately kept out of
-//     `DECODABLE`/`SKIPPED_COMPRESSED` so `compressed_files_are_skipped_by_name`'s
-//     count stays correct.
-//
-//  2. **The red-proof targets the BYTE-ALIGNED path.** The mono red-proof above
-//     injects a sub-byte `BitReader` fault that a 16-bit plane never reaches.
-//     Both Bayer files are 16-bit, so their red-proof swaps the byte order in
-//     `unpack_byte_aligned` instead. That is the exact swap DEC-029 moved onto
-//     this oracle: SPEC-028 assembled the Nikon's 12 strips, and the removed
-//     `SampleExceedsWhiteLevel` assertion used to be what would catch a
-//     byte-swapped (and so wildly out-of-range) sample — now nothing in `src/`
-//     asserts on sample magnitude, so the oracle is the only guard left.
-
-/// `dnglab 0.7.2 analyze --raw-checksum` of the Canon 5D-III Bayer DNG
-/// (single-strip, 16-bit, 5920×3950). Pinned at build (SPEC-025) — MD5 of the
-/// uncropped u16 mosaic plane, native-LE (`docs/oracle-contract.md`).
-const CANON_BAYER: &str = "CANON-EOS-5D-MARK-III/5G4A9394.DNG";
-const CANON_RAW_CHECKSUM: &str = "a18235d6abced4df9948b6fbe91aba7c";
-
-/// `dnglab 0.7.2 analyze --raw-checksum` of the Nikon D300S Bayer DNG
-/// (12-strip, 16-bit, 4352×2868). Pinned at build (SPEC-025). Used as the
-/// red-proof's reference file so the swap also exercises SPEC-028's multi-strip
-/// assembly.
-const NIKON_BAYER: &str = "NIKON-D300S/_DSC4615.DNG";
-const NIKON_RAW_CHECKSUM: &str = "b8e8025d370cc2e97f675e63a0e6bbdb";
-
-/// Resolve a Bayer corpus file by `CorpusRoot` + relative path, skipping loudly
-/// when the corpus is absent — the direct-path pattern from
-/// `tests/plane_unpack.rs` (the Bayer DNGs are not in the manifest until
-/// SPEC-027). `None` (after a printed SKIP) means "not available, skip".
-fn require_bayer(rel: &str) -> Option<PathBuf> {
-    let root = CorpusRoot::resolve();
-    let path = root.path.join(rel);
-    if !root.from_env || !path.exists() {
-        eprintln!("SKIP {rel}: set $IRRADIANCE_CORPUS_DIR to the corpus (SPEC-027 registers it)");
-        return None;
-    }
-    Some(path)
-}
-
-#[test]
-fn bayer_plane_md5_matches_dnglab_raw_checksum() {
-    // AC1 — the first bit-exact proof the Bayer mosaic decodes: our unpacked
-    // plane MD5 equals `dnglab analyze --raw-checksum` for BOTH corpus files.
-    for (rel, expected) in [
-        (CANON_BAYER, CANON_RAW_CHECKSUM),
-        (NIKON_BAYER, NIKON_RAW_CHECKSUM),
-    ] {
-        let Some(path) = require_bayer(rel) else {
-            continue;
-        };
-        let (_width, _height, _plane, actual) =
-            decode_and_hash(&path).unwrap_or_else(|e| panic!("{rel}: {e}"));
-        assert_eq!(
-            actual, expected,
-            "{rel}: unpacked Bayer plane MD5 must equal dnglab analyze --raw-checksum \
-             (the checksum is over the raw mosaic bytes, independent of demosaic)"
-        );
-        eprintln!("BAYER ORACLE {rel}: plane MD5 {actual} == dnglab --raw-checksum");
-    }
-}
+// What stays Bayer-specific is the RED-PROOF, for one reason: the mono red-proof
+// above injects a sub-byte `BitReader` fault that a 16-bit plane never reaches.
+// Both Bayer files are 16-bit, so their red-proof swaps the byte order in
+// `unpack_byte_aligned` instead — the exact swap DEC-029 moved onto this oracle
+// (SPEC-028 assembled the Nikon's 12 strips; the removed `SampleExceedsWhiteLevel`
+// assertion used to be what caught a byte-swapped, wildly out-of-range sample, so
+// this oracle is now the only guard left). Its reference file (the 12-strip
+// Nikon) and expected checksum are sourced from the manifest, like every other
+// decodable entry.
 
 /// The Bayer red-proof's fault: swap the two byte-order arms of
 /// `unpack_byte_aligned`'s 16-bit branch (`src/plane.rs:211–212`), so a
@@ -1035,19 +997,26 @@ fn inject_byte_order_swap_fault(plane_rs: &Path) {
 fn a_byte_order_swap_turns_the_bayer_oracle_red() {
     // AC2 — a byte-order swap injected into unpack_byte_aligned turns the Bayer
     // plane's MD5 red. The Nikon (12-strip) is the reference, so this also
-    // exercises SPEC-028's multi-strip assembly inside the staged copy.
-    let Some(file_path) = require_bayer(NIKON_BAYER) else {
-        return; // SKIP already announced by require_bayer
+    // exercises SPEC-028's multi-strip assembly inside the staged copy. Its
+    // reference file and expected checksum come from the manifest (SPEC-027),
+    // like every other decodable entry.
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
+    let root = CorpusRoot::resolve();
+    let entry = manifest
+        .get(NIKON_BAYER)
+        .unwrap_or_else(|| panic!("{NIKON_BAYER} must be in the manifest"));
+    let Some(file_path) = entry.require(&root) else {
+        return; // SKIP already announced by CorpusFile::require
     };
 
     // The honest digest, computed IN-PROCESS via the real, UNMUTATED
     // unpack_into already linked into this binary -- recomputed here (not merely
-    // read from the pinned constant) so this test does not depend on
-    // `bayer_plane_md5_matches_dnglab_raw_checksum` having run first.
+    // read from the manifest) so this test does not depend on
+    // `plane_md5_matches_the_pinned_raw_checksum` having run first.
     let (_, _, _, honest_digest) =
         decode_and_hash(&file_path).unwrap_or_else(|e| panic!("{NIKON_BAYER}: {e}"));
     assert_eq!(
-        honest_digest, NIKON_RAW_CHECKSUM,
+        honest_digest, entry.oracle.raw_checksum,
         "the honest tree must match the pinned Nikon raw-checksum before this red-proof \
          means anything"
     );
@@ -1075,9 +1044,15 @@ fn a_byte_order_swap_turns_the_bayer_oracle_red() {
 fn the_bayer_red_proof_control_is_green() {
     // AC2's negative control: without it, a red above could be the
     // copy-and-rebuild apparatus rather than the injection -- the distinction
-    // `lint-red-proof.sh` exists for (DEC-009).
-    let Some(file_path) = require_bayer(NIKON_BAYER) else {
-        return; // SKIP already announced by require_bayer
+    // `lint-red-proof.sh` exists for (DEC-009). Reference + checksum via the
+    // manifest (SPEC-027).
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
+    let root = CorpusRoot::resolve();
+    let entry = manifest
+        .get(NIKON_BAYER)
+        .unwrap_or_else(|| panic!("{NIKON_BAYER} must be in the manifest"));
+    let Some(file_path) = entry.require(&root) else {
+        return; // SKIP already announced by CorpusFile::require
     };
 
     let dir = TempDir::new("bayer-control");
@@ -1085,7 +1060,7 @@ fn the_bayer_red_proof_control_is_green() {
     let apparatus_digest = build_and_run_probe(&dir.0, &file_path);
 
     assert_eq!(
-        apparatus_digest, NIKON_RAW_CHECKSUM,
+        apparatus_digest, entry.oracle.raw_checksum,
         "the UNMUTATED copy-and-rebuild apparatus must reproduce the pinned Nikon checksum"
     );
 }

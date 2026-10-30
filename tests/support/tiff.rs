@@ -166,6 +166,54 @@ pub const BLACK_LEVEL_REPEAT_DIM: u16 = 50713;
 pub const DEFAULT_CROP_SIZE: u16 = 50720;
 pub const LINEAR_RAW: u16 = 34892;
 
+// The CFA (Bayer mosaic) tags a colour plane carries (TIFF/EP + DNG 1.x §Ch.6),
+// mirroring `irradiance::ifd::TAG_CFA_*` / `PHOTOMETRIC_CFA`. `SPEC-027`.
+/// `PhotometricInterpretation = CFA` — a single-sample Bayer mosaic (32803).
+pub const CFA_PHOTOMETRIC: u16 = 32803;
+/// `CFARepeatPatternDim` — two SHORTs, the mosaic's (rows, cols).
+pub const CFA_REPEAT_PATTERN_DIM: u16 = 33421;
+/// `CFAPattern` — `rows*cols` BYTE colour indices (row-major).
+pub const CFA_PATTERN: u16 = 33422;
+/// `CFAPlaneColor` — N BYTE, plane-index → colour.
+pub const CFA_PLANE_COLOR: u16 = 50710;
+/// `CFALayout` — SHORT; 1 = rectangular.
+pub const CFA_LAYOUT: u16 = 50711;
+
+/// Pack up to four BYTE values into an inline value word so [`tiff`] reproduces
+/// them in file order under either byte order — the inline-BYTE shape
+/// `CFAPattern`/`CFAPlaneColor` use. Mirrors `src/ifd.rs`'s test `Build`.
+fn bytes_word(bytes: [u8; 4], order: Order) -> u32 {
+    match order {
+        Order::Little => u32::from_le_bytes(bytes),
+        Order::Big => u32::from_be_bytes(bytes),
+    }
+}
+
+/// An inline BYTE array (field type BYTE = 1): `count` values packed into the
+/// value word (≤ 4 fit inline — the shape `CFAPattern`/`CFAPlaneColor` use).
+pub fn inline_bytes(tag: u16, bytes: [u8; 4], count: u32, order: Order) -> Entry {
+    Entry {
+        tag,
+        field_type: 1,
+        count,
+        value: bytes_word(bytes, order),
+    }
+}
+
+/// Two SHORTs packed into one inline value word (field type SHORT = 3, count 2)
+/// — the `CFARepeatPatternDim` shape, byte-order-correct the way [`short`] is
+/// for a single SHORT.
+pub fn two_shorts(tag: u16, a: u16, b: u16, order: Order) -> Entry {
+    let [a0, a1] = order.u16(a);
+    let [b0, b1] = order.u16(b);
+    Entry {
+        tag,
+        field_type: 3,
+        count: 2,
+        value: bytes_word([a0, a1, b0, b1], order),
+    }
+}
+
 /// The entry list of a minimal but *valid* sensor IFD: 4 x 2, 14-bit, one
 /// sample, uncompressed, LinearRaw. `4 * 2 * 14 = 112` bits = 14 bytes, so the
 /// layer-0 arithmetic closes against `StripByteCounts` too.
@@ -183,6 +231,30 @@ pub fn sensor_entries(order: Order) -> Vec<Entry> {
     ]
 }
 
+/// The entry list of a valid 2×2-RGGB Bayer (CFA) sensor IFD: the
+/// [`sensor_entries`] shape with `PhotometricInterpretation` switched to CFA
+/// (32803) and the four CFA tags added, each packed inline (every CFA payload
+/// here is ≤ 4 bytes). Mirrors `src/ifd.rs`'s own `cfa_sensor` unit-test builder
+/// byte for byte, so the reader sees the same mosaic the in-src tests assert on.
+/// `SPEC-027`.
+pub fn cfa_sensor_entries(order: Order) -> Vec<Entry> {
+    vec![
+        long(NEW_SUBFILE_TYPE, 0),
+        long(IMAGE_WIDTH, 4),
+        long(IMAGE_LENGTH, 2),
+        short(BITS_PER_SAMPLE, 14, order),
+        short(COMPRESSION, 1, order),
+        short(PHOTOMETRIC, CFA_PHOTOMETRIC, order),
+        short(SAMPLES_PER_PIXEL, 1, order),
+        long(STRIP_OFFSETS, 512),
+        long(STRIP_BYTE_COUNTS, 14),
+        two_shorts(CFA_REPEAT_PATTERN_DIM, 2, 2, order),
+        inline_bytes(CFA_PATTERN, [0, 1, 1, 2], 4, order),
+        inline_bytes(CFA_PLANE_COLOR, [0, 1, 2, 0], 3, order),
+        short(CFA_LAYOUT, 1, order),
+    ]
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The named fixtures
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,6 +267,27 @@ pub fn sensor_entries(order: Order) -> Vec<Entry> {
 /// with only malformed inputs never gets past the header.
 pub fn valid_sensor(order: Order) -> Vec<u8> {
     tiff(order, 8, &[Ifd::new(8, sensor_entries(order), 0)])
+}
+
+/// A valid container whose IFD0 is a 2×2-RGGB Bayer (CFA) sensor plane. Parses,
+/// and `sensor().color_filter` is `Some(Cfa { repeat_dim: [2, 2], pattern:
+/// [0, 1, 1, 2], .. })`. The good CFA seed: a fuzzer with only malformed CFA
+/// inputs never reaches the mosaic parse. `SPEC-027`.
+pub fn valid_cfa_sensor(order: Order) -> Vec<u8> {
+    tiff(order, 8, &[Ifd::new(8, cfa_sensor_entries(order), 0)])
+}
+
+/// A CFA plane whose `CFAPattern` payload points far past EOF with an absurd
+/// count. Per `DEC-012` the malformed *interpretation* tag is COSTED — the file
+/// still parses, `sensor()` returns with `color_filter == None` and `CFAPattern`
+/// recorded in `malformed_tags` — never a panic and never a lost file. The
+/// hostile CFA fuzz seed. `SPEC-027`.
+pub fn cfa_pattern_past_eof(order: Order) -> Vec<u8> {
+    let mut entries = cfa_sensor_entries(order);
+    entries.retain(|e| e.tag != CFA_PATTERN);
+    // BYTE (field type 1), 64 values at an offset past the end of the file.
+    entries.push(at_offset(CFA_PATTERN, 1, 64, 0xFFFF_FF00));
+    tiff(order, 8, &[Ifd::new(8, entries, 0)])
 }
 
 /// A valid container with the plane one `SubIFD` down, as every DNG has it.
@@ -450,6 +543,11 @@ pub fn all() -> Vec<(&'static str, Vec<u8>)> {
         ("valid-sensor-mm", valid_sensor(Order::Big)),
         ("valid-subifd-ii", valid_subifd(Order::Little)),
         ("valid-subifd-mm", valid_subifd(Order::Big)),
+        // SPEC-027 — the Bayer (CFA) parse path: a valid mosaic in each byte
+        // order, and a hostile CFAPattern pointing past EOF (costed, DEC-012).
+        ("cfa-sensor-ii", valid_cfa_sensor(Order::Little)),
+        ("cfa-sensor-mm", valid_cfa_sensor(Order::Big)),
+        ("cfa-pattern-past-eof", cfa_pattern_past_eof(Order::Little)),
         ("empty", empty()),
         ("truncated-header", truncated_header()),
         ("truncated-ifd0-offset", truncated_ifd0_offset()),

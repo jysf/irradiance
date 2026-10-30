@@ -64,6 +64,22 @@ fn exiftool_group(manifest_path: &str) -> &'static str {
         .1
 }
 
+/// The CFA (colour) Bayer planes are registered in the manifest (SPEC-027), but
+/// their METADATA claim is **SPEC-026's** — the colour-metadata oracle — and an
+/// explicit Non-Goal of SPEC-027. This is the monochrome scalar oracle
+/// (SPEC-005): it has no exiftool-group mapping and no colour-aware diff for a
+/// mosaic, so it skips the Bayer files by name until SPEC-026 extends it. Named
+/// here so "skipped" is a decision, not an accident — the same partition
+/// discipline `plane_oracle.rs`'s `DECODABLE`/`SKIPPED_COMPRESSED` keeps.
+const CFA_DEFERRED_TO_SPEC_026: &[&str] = &[
+    "CANON-EOS-5D-MARK-III/5G4A9394.DNG",
+    "NIKON-D300S/_DSC4615.DNG",
+];
+
+fn is_cfa_deferred(manifest_path: &str) -> bool {
+    CFA_DEFERRED_TO_SPEC_026.contains(&manifest_path)
+}
+
 /// Read and parse one corpus file's sensor plane, or `None` (already having
 /// printed a SKIP line via `CorpusFile::require`) when it is absent.
 fn sensor_at(
@@ -94,6 +110,9 @@ fn metadata_matches_exiftool_on_every_corpus_file() {
     let mut checked = 0;
 
     for file in &manifest.files {
+        if is_cfa_deferred(&file.path) {
+            continue; // Bayer metadata is SPEC-026's oracle, not this one.
+        }
         let Some((path, sensor)) = sensor_at(&root, file) else {
             continue;
         };
@@ -139,6 +158,9 @@ fn dnglab_scalars_agree_on_the_six_dng_files() {
     for file in &manifest.files {
         if file.path.ends_with(".PEF") {
             continue; // AC4.2 — excluded, its own dedicated test
+        }
+        if is_cfa_deferred(&file.path) {
+            continue; // Bayer metadata is SPEC-026's oracle, not this one.
         }
         let Some((path, sensor)) = sensor_at(&root, file) else {
             continue;
@@ -196,6 +218,9 @@ fn dnglab_crop_origin_is_active_area_plus_default_crop_origin() {
     for file in &manifest.files {
         if file.path.ends_with(".PEF") {
             continue; // AC4.2
+        }
+        if is_cfa_deferred(&file.path) {
+            continue; // Bayer metadata is SPEC-026's oracle, not this one.
         }
         let Some((path, sensor)) = sensor_at(&root, file) else {
             continue;
