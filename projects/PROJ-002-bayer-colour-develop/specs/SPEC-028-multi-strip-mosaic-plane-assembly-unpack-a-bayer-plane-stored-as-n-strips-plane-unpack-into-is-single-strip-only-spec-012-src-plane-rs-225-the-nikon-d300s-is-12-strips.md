@@ -6,7 +6,7 @@
 task:
   id: SPEC-028
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -72,10 +72,8 @@ cost:
 
 # SPEC-028: Multi-strip mosaic plane assembly: unpack a Bayer plane stored as N strips (`plane::unpack_into` is single-strip-only, SPEC-012 `src/plane.rs:225`; the Nikon D300S is 12 strips)
 
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-028]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
+> **DESIGN — `cycle: design`.** Approach + failing tests below; a build session
+> makes the Failing Tests pass without redesigning. Blocks SPEC-025 (the oracle).
 
 ## Context
 
@@ -97,40 +95,70 @@ it errored before. The single-strip path stays byte-for-byte unchanged.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:**
+  - `src/plane.rs:235` `unpack_into` — the whole function: the single-strip gate
+    (`:265`), layer-0 (`:287`), the one strip read (`:305`), and the two unpack
+    paths (`unpack_byte_aligned` / `unpack_bitstream`, `:310`).
+  - `src/lib.rs:538` `Error::UnsupportedStripLayout`; `Sensor.strip_offsets` /
+    `strip_byte_counts` / `rows_per_strip`.
+  - DEC-008 (byte-aligned vs sub-byte unpack — each strip is byte-padded
+    independently for sub-byte depths); SPEC-012 (the single-strip unpacker).
+  - The `plane` tests + the `Build` TIFF DSL (`src/ifd.rs mod tests`) — extend it to
+    write multiple strips.
+- **Corpus:** `NIKON-D300S/_DSC4615.DNG` (12 strips, 16-bit); `LEICA-Q2-MONO`
+  (14-bit) + `LEICA-M-MONOCHROM` (16-bit) single-strip for the regression.
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:** `src/plane.rs` (+ `src/lib.rs` if an error shifts).
+- **Multi-strip assembly in `unpack_into`:** replace the `strip_offsets.len() != 1`
+  gate (`:265`) with a loop over N strips (`N == strip_offsets.len() ==
+  strip_byte_counts.len()`, N ≥ 1). For strip `i`:
+  - `rows_i = min(rows_per_strip, height - i*rows_per_strip)` (last strip is the
+    remainder). `rows_per_strip` is **required** when N > 1 — typed error if absent.
+  - Per-strip layer-0: `strip_byte_counts[i] * 8 == rows_i * width * bits` (each
+    strip is byte-aligned; sub-byte strips pad to a byte boundary **independently** —
+    which is why strips unpack per-strip, not by concatenating bytes).
+  - Read that strip's bytes (bounds-checked → `Truncated`) and unpack via the
+    existing byte-aligned / bitstream path into
+    `dst[i*rows_per_strip*width .. + rows_i*width]`.
+  - Total still satisfies `sum(strip_byte_counts)*8 == packed_bits`.
+- **Single-strip (N == 1) stays the exact current path** — a degenerate loop
+  iteration, byte-for-byte identical output.
+- `UnsupportedStripLayout` fires only on a genuine mismatch (`offsets.len() !=
+  byte_counts.len()`, or N == 0); a typed error if `rows_per_strip` is missing on a
+  multi-strip plane. **No tiles** (`TileOffsets`) — still unsupported.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] A synthetic 2-strip **16-bit** plane unpacks to the same samples as the
+  single-strip equivalent (byte-aligned, per-strip assembly).
+- [ ] A synthetic 2-strip **14-bit** plane (sub-byte; each strip byte-padded
+  independently) unpacks correctly — strip 2's rows are not shifted by strip 1's padding.
+- [ ] An uneven last strip (`height % rows_per_strip != 0`) unpacks the right remainder.
+- [ ] Single-strip planes (Q2M 14-bit, M Monochrom 16-bit) unpack **byte-identically**
+  to before (regression).
+- [ ] `rows_per_strip` absent on a multi-strip plane → a typed error, not a panic.
+- [ ] A strip past EOF → `Error::Truncated`; a strip byte count ≠ its rows →
+  `Error::PackedSizeMismatch`. Panic-free on both.
+- [ ] (corpus) `NIKON-D300S/_DSC4615.DNG` unpacks into a full `width*height` plane,
+  no `UnsupportedStripLayout`.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+Extend the `Build` TIFF DSL to write a plane as **multiple strips** (N
+`StripOffsets`/`StripByteCounts` + `RowsPerStrip`).
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`src/plane.rs` / `src/ifd.rs mod tests`**
+  - `a_two_strip_16bit_plane_unpacks_like_one_strip`
+  - `a_two_strip_14bit_plane_respects_per_strip_byte_padding` — strip 2's first
+    sample is correct (not shifted by strip 1's tail padding)
+  - `an_uneven_last_strip_unpacks_the_remainder`
+  - `a_single_strip_plane_is_unchanged` (regression, Q2M / M Monochrom)
+  - `a_multi_strip_plane_without_rows_per_strip_is_a_typed_error` (no panic)
+  - `a_truncated_strip_is_truncated_not_a_panic`;
+    `a_strip_byte_count_mismatch_is_packed_size_mismatch`
+- **Regression:** the existing single-strip plane + develop oracles stay green.
 
 ## Non-Goals
 
@@ -141,8 +169,19 @@ job in **build** is to make these pass.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **Per-strip byte padding is the trap.** For sub-byte depths (12/14) each strip is
+  an independent bitstream padded to a byte boundary, so unpack each strip into its
+  own row slice — do NOT concatenate strip bytes and bit-unpack the whole. For 8/16
+  concatenation would happen to work, but write the per-strip loop once for both. The
+  Nikon corpus file is 16-bit, so the 14-bit per-strip case is covered only by the
+  synthetic test — keep it.
+- **Keep N == 1 the current path** (a degenerate iteration) so the regression holds
+  byte-for-byte; don't fork mono vs multi.
+- Panic-free: every strip offset/length bounds-checked into `Truncated`, per-strip
+  layer-0 into `PackedSizeMismatch`. General improvement the Bayer corpus surfaced —
+  not CFA-specific; benefits mono multi-strip too.
+- WhiteLevel-exceedance is **SPEC-029**'s job; a Bayer file may still trip
+  `SampleExceedsWhiteLevel` here until 029 lands (independent; SPEC-025 needs both).
 
 ---
 

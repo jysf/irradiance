@@ -6,7 +6,7 @@
 task:
   id: SPEC-029
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -72,10 +72,8 @@ cost:
 
 # SPEC-029: WhiteLevel-exceedance policy: samples above `WhiteLevel` are legal (the Canon 5D-III clips one); relax `SampleExceedsWhiteLevel` and amend DEC-008
 
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-029]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
+> **DESIGN — `cycle: design`.** Approach + failing tests below; a build session
+> makes the Failing Tests pass without redesigning. Blocks SPEC-025 (the oracle).
 
 ## Context
 
@@ -99,40 +97,61 @@ reserved for the crustyimg LUT boundary).
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:**
+  - `src/plane.rs:317-331` — the `max > WhiteLevel` assertion
+    (`SampleExceedsWhiteLevel`) inside `unpack_into`.
+  - **DEC-008** (`decisions/DEC-008-...md`) — its Consequences call this assertion
+    "a permanent invariant" that "earns its keep" (it caught SPIKE-002's 16-bit
+    byte-swap: 39186 vs WhiteLevel 16383). This spec amends that clause.
+  - `Error::SampleExceedsWhiteLevel` (`src/lib.rs`); `Sensor.white_level`.
+- **Corpus:** `CANON-EOS-5D-MARK-III/5G4A9394.DNG` — a sample `15464` > `WhiteLevel
+  15000` (unpack rejects it today); `LEICA-Q2-MONO` / `LEICA-M-MONOCHROM` (within
+  WhiteLevel) for the regression.
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:** `src/plane.rs` (relax the assertion); `src/lib.rs` (the error
+  variant's fate); **a new DEC** amending DEC-008.
+- **Relax `unpack_into`:** a sample above `WhiteLevel` is **no longer an error**. The
+  plane **preserves raw sample values — no clamping** (clamping is develop's job;
+  clamping here would change bytes and break SPEC-025's `dnglab --raw-checksum`).
+  Recommended: drop the `max > WhiteLevel` loop (`:317-331`); `Error::
+  SampleExceedsWhiteLevel` is then unused — remove it, or keep it only behind a
+  future opt-in strict mode (build's call; the **default must accept above-white**).
+- **New DEC (amends DEC-008):** samples may legitimately exceed `WhiteLevel`
+  (specular highlights), so `max ≤ WhiteLevel` is **not** an unpack invariant;
+  `WhiteLevel` is a develop-time saturation parameter. The byte-swap detection
+  DEC-008 pinned on this assertion now rests on the **bit-exact oracle (SPEC-025)**
+  plus the layer-0 packed-bits check — record that trade-off honestly (the free
+  in-library guard for the byte-aligned path is reduced). Reconcile the DEC number —
+  **DEC-029 is informally reserved for the crustyimg LUT boundary**, so take the next
+  genuinely free one.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] A synthetic plane with a sample above `WhiteLevel` unpacks **Ok** (no
+  `SampleExceedsWhiteLevel`), and that raw value is present unchanged in `dst` (not clamped).
+- [ ] Mono planes within WhiteLevel (Q2M, M Monochrom) unpack **byte-identically** to
+  before (regression).
+- [ ] (corpus) `CANON-EOS-5D-MARK-III/5G4A9394.DNG` unpacks with no
+  `SampleExceedsWhiteLevel`, its above-white sample preserved.
+- [ ] A new DEC exists amending DEC-008 (status accepted; records the reversed
+  consequence and names SPEC-025 as the byte-swap guard).
+- [ ] DEC-008's two-path byte-alignment rule is untouched — only the post-unpack
+  assertion changes.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
-
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`src/plane.rs` tests**
+  - `a_sample_above_white_level_unpacks_and_is_preserved` — build a plane whose max
+    sample exceeds `WhiteLevel`; `unpack_into` returns `Ok` and `dst` holds the raw
+    above-white value (not clamped to WhiteLevel).
+  - `a_plane_within_white_level_is_unchanged` — regression; existing Q2M / M
+    Monochrom unpack output byte-identical.
+- **Corpus (gated):** the Canon 5D-III DNG unpacks without error.
+- **Guard note:** DEC-008's byte-swap guard moves to SPEC-025's oracle; if the error
+  variant is kept for a strict mode, test that mode still fires; if removed, the spec
+  records the oracle as the replacement guard.
 
 ## Non-Goals
 
@@ -144,8 +163,16 @@ job in **build** is to make these pass.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **Do NOT clamp.** The bit-exact plane must carry raw values (including above-white),
+  or SPEC-025's `dnglab` checksum can't match. Clamp/scale to WhiteLevel is develop's
+  job (STAGE-007+).
+- **The DEC is the weighty part** — it reverses DEC-008's "permanent invariant"
+  Consequence. Write it as an amendment (amend that one clause; DEC-008's two-path
+  byte-alignment rule stays). Cite the Canon sample (15464 > 15000) as the falsifier
+  and name SPEC-025 as the replacement byte-swap guard.
+- Independent of SPEC-028 (strip layout) — both block SPEC-025; either can build first.
+- Keep `unpack_into` panic-free and the two DEC-008 unpack paths unchanged — only the
+  post-unpack WhiteLevel assertion changes.
 
 ---
 
