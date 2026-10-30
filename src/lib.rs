@@ -257,16 +257,31 @@ pub enum Error {
         bits: u32,
     },
 
-    /// The sensor IFD's `StripOffsets`/`StripByteCounts` do not describe
-    /// exactly one strip. `SPEC-012`'s unpacker reads a single strip only —
-    /// tiles and multi-strip planes are a non-goal (no corpus file needs
-    /// them, and supporting them safely needs its own bounds-checked
-    /// concatenation logic this spec does not write).
+    /// The sensor IFD's `StripOffsets`/`StripByteCounts` cannot be assembled
+    /// into a plane: the two tags carry a **different** number of values, or
+    /// there are zero strips. `SPEC-028` lifted `SPEC-012`'s single-strip
+    /// restriction — `N` strips (`N >= 1`) now assemble into the plane, each
+    /// unpacked independently (`DEC-008`) — so this no longer fires on a
+    /// well-formed multi-strip plane. It fires on the two genuinely
+    /// unassemblable shapes: a count mismatch between the two tags, and an
+    /// empty strip list. Tiled planes (`TileOffsets`/`TileByteCounts`) are
+    /// still unsupported and are the remaining case this guards.
     UnsupportedStripLayout {
         /// `StripOffsets.len()`.
         strip_offsets: usize,
         /// `StripByteCounts.len()`.
         strip_byte_counts: usize,
+    },
+
+    /// A multi-strip plane (`N > 1` strips) carries no usable `RowsPerStrip`,
+    /// so the per-strip row partition is undefined and the strips cannot be
+    /// mapped to rows. `SPEC-028`: `RowsPerStrip` is **required** once a plane
+    /// is split into more than one strip. A single strip is the whole plane and
+    /// needs none; a multi-strip plane without it (or with a zero) is this typed
+    /// error, never a panic or a silent guess at the band height.
+    MissingRowsPerStrip {
+        /// The number of strips found (always `> 1` when this fires).
+        strips: usize,
     },
 
     /// The layer-0 invariant does not hold: `width × height × bits_per_sample`
@@ -541,8 +556,16 @@ impl fmt::Display for Error {
             } => {
                 write!(
                     f,
-                    "expected exactly one strip, found {strip_offsets} StripOffsets and \
-                     {strip_byte_counts} StripByteCounts"
+                    "unsupported strip layout: {strip_offsets} StripOffsets and \
+                     {strip_byte_counts} StripByteCounts (the counts must match and be \
+                     non-zero; tiled planes are unsupported)"
+                )
+            }
+            Error::MissingRowsPerStrip { strips } => {
+                write!(
+                    f,
+                    "a {strips}-strip plane carries no RowsPerStrip, so its strips cannot \
+                     be mapped to rows"
                 )
             }
             Error::PackedSizeMismatch {

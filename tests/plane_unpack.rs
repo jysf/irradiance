@@ -27,7 +27,7 @@ mod corpus;
 mod tiff;
 
 use corpus::{CorpusRoot, Manifest};
-use irradiance::ifd::{ByteOrder, Container, TAG_WHITE_LEVEL};
+use irradiance::ifd::{ByteOrder, Container, TAG_ROWS_PER_STRIP, TAG_WHITE_LEVEL};
 use irradiance::plane::unpack_into;
 use irradiance::Error;
 use tiff::Order;
@@ -442,5 +442,446 @@ fn compressed_files_are_rejected_without_decoding() {
             matches!(err, Error::UnsupportedCompression { .. }),
             "{path}: expected UnsupportedCompression before any length check, got {err:?}"
         );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-028 — multi-strip mosaic plane assembly
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `unpack_into` assembles N strips (StripOffsets/StripByteCounts + RowsPerStrip)
+// into the plane; the single strip stays a degenerate one-iteration case, byte
+// for byte unchanged. These live here, beside the SPEC-012 unpack tests, rather
+// than in `src/ifd.rs mod tests` (which drives the IFD reader, never
+// `unpack_into`): AGENTS.md §12 puts integration tests of a public function in
+// `tests/<area>.rs`, and this is that file. The TIFF DSL the plane tests use
+// (the `Fixture` builder above, on `tests/support/tiff.rs`) is extended for N
+// strips by `MultiStrip` below. A build-note divergence from the spec's literal
+// "`src/ifd.rs mod tests`" wording, recorded in HANDOFF-066.
+
+/// A multi-strip (or single-strip) sensor-only TIFF: `IFD0` *is* the plane, with
+/// `N` strips planted contiguously from a fixed base. Each strip carries a
+/// DECLARED `StripByteCounts` kept separate from its actual payload length, so a
+/// fixture can promise bytes the file does not hold (the truncated case) or a
+/// wrong count (the mismatch case). `rows_per_strip = None` omits `RowsPerStrip`
+/// from the IFD — the "missing RowsPerStrip on a multi-strip plane" case.
+struct MultiStrip<'a> {
+    order: Order,
+    width: u32,
+    height: u32,
+    bits: u16,
+    rows_per_strip: Option<u32>,
+    /// One `(declared StripByteCounts, payload bytes)` per strip.
+    strips: &'a [(u32, Vec<u8>)],
+    white_level: Option<u32>,
+}
+
+impl MultiStrip<'_> {
+    fn build(&self) -> Vec<u8> {
+        // Well clear of the IFD block (which ends well under 200 for this many
+        // entries) and of each other, for the small N these fixtures use.
+        const OFFSETS_AT: u32 = 200;
+        const COUNTS_AT: u32 = 320;
+        const PAYLOAD_BASE: usize = 1024;
+
+        // Strip payloads are contiguous from PAYLOAD_BASE, exactly as a real
+        // file lays them out; StripOffsets point at each payload's start.
+        let mut strip_offsets: Vec<u32> = Vec::new();
+        let mut cursor = PAYLOAD_BASE;
+        for (_, bytes) in self.strips {
+            strip_offsets.push(u32::try_from(cursor).expect("fixture offset fits u32"));
+            cursor += bytes.len();
+        }
+        let strip_counts: Vec<u32> = self.strips.iter().map(|(count, _)| *count).collect();
+        let n = u32::try_from(self.strips.len()).expect("fixture strip count fits u32");
+
+        let mut entries = vec![
+            tiff::long(tiff::NEW_SUBFILE_TYPE, 0),
+            tiff::long(tiff::IMAGE_WIDTH, self.width),
+            tiff::long(tiff::IMAGE_LENGTH, self.height),
+            tiff::short(tiff::BITS_PER_SAMPLE, self.bits, self.order),
+            tiff::short(tiff::COMPRESSION, 1, self.order),
+            tiff::short(tiff::PHOTOMETRIC, tiff::LINEAR_RAW, self.order),
+            tiff::short(tiff::SAMPLES_PER_PIXEL, 1, self.order),
+        ];
+        if let Some(rows) = self.rows_per_strip {
+            entries.push(tiff::long(TAG_ROWS_PER_STRIP, rows));
+        }
+        // TIFF packs a value word of <= 4 bytes inline, so a single strip's
+        // LONG offset/count is inline; N >= 2 longs live in an external array.
+        if n == 1 {
+            entries.push(tiff::long(tiff::STRIP_OFFSETS, strip_offsets[0]));
+            entries.push(tiff::long(tiff::STRIP_BYTE_COUNTS, strip_counts[0]));
+        } else {
+            entries.push(tiff::at_offset(tiff::STRIP_OFFSETS, 4, n, OFFSETS_AT));
+            entries.push(tiff::at_offset(tiff::STRIP_BYTE_COUNTS, 4, n, COUNTS_AT));
+        }
+        if let Some(wl) = self.white_level {
+            entries.push(tiff::long(TAG_WHITE_LEVEL, wl));
+        }
+
+        let mut data = tiff::tiff(self.order, 8, &[tiff::Ifd::new(8, entries, 0)]);
+
+        // Plant the external arrays (read only when N >= 2) and the payloads.
+        if n != 1 {
+            put_u32_array(&mut data, OFFSETS_AT as usize, &strip_offsets, self.order);
+            put_u32_array(&mut data, COUNTS_AT as usize, &strip_counts, self.order);
+        }
+        for (offset, (_, bytes)) in strip_offsets.iter().zip(self.strips.iter()) {
+            let at = *offset as usize;
+            let end = at + bytes.len();
+            if data.len() < end {
+                data.resize(end, 0);
+            }
+            data[at..end].copy_from_slice(bytes);
+        }
+        data
+    }
+}
+
+/// Write a `u32` array into `data` at `at`, in `order` — resizing to fit.
+fn put_u32_array(data: &mut Vec<u8>, at: usize, vals: &[u32], order: Order) {
+    let end = at + vals.len() * 4;
+    if data.len() < end {
+        data.resize(end, 0);
+    }
+    for (i, v) in vals.iter().enumerate() {
+        let o = at + i * 4;
+        let bytes = match order {
+            Order::Little => v.to_le_bytes(),
+            Order::Big => v.to_be_bytes(),
+        };
+        data[o..o + 4].copy_from_slice(&bytes);
+    }
+}
+
+/// Pack `samples` MSB-first at `bits` per sample, padding the final byte with
+/// zero bits — the exact inverse of [`irradiance::plane`]'s `BitReader`, and the
+/// per-strip byte-boundary padding `DEC-008` describes.
+fn pack_msb(samples: &[u16], bits: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut acc: u32 = 0;
+    let mut nbits: u32 = 0;
+    let mask = (1u32 << bits) - 1;
+    for &s in samples {
+        acc = (acc << bits) | (u32::from(s) & mask);
+        nbits += bits;
+        while nbits >= 8 {
+            nbits -= 8;
+            out.push(((acc >> nbits) & 0xFF) as u8);
+        }
+    }
+    if nbits > 0 {
+        out.push(((acc << (8 - nbits)) & 0xFF) as u8);
+    }
+    out
+}
+
+/// Pack `samples` as 16-bit integers in `order` — the byte-aligned path's wire
+/// form.
+fn pack_u16(samples: &[u16], order: Order) -> Vec<u8> {
+    let mut out = Vec::with_capacity(samples.len() * 2);
+    for &s in samples {
+        let bytes = match order {
+            Order::Little => s.to_le_bytes(),
+            Order::Big => s.to_be_bytes(),
+        };
+        out.extend_from_slice(&bytes);
+    }
+    out
+}
+
+/// `pack_msb` must be the inverse of the unpacker: the Q2M head (8 x 14-bit,
+/// tightly packed, no padding) round-trips to its measured bytes.
+#[test]
+fn pack_msb_is_the_inverse_of_the_bitstream_reader() {
+    let samples = [746u16, 725, 711, 752, 646, 705, 772, 686];
+    assert_eq!(pack_msb(&samples, 14), Q2M_STRIP_HEAD.to_vec());
+}
+
+/// AC1 — a 2-strip 16-bit plane unpacks to the same samples as the single-strip
+/// equivalent (byte-aligned, per-strip assembly).
+#[test]
+fn a_two_strip_16bit_plane_unpacks_like_one_strip() {
+    // 2 x 2, 16-bit; one row per strip.
+    let samples = [1000u16, 2000, 3000, 4000];
+
+    let two = MultiStrip {
+        order: Order::Little,
+        width: 2,
+        height: 2,
+        bits: 16,
+        rows_per_strip: Some(1),
+        strips: &[
+            (4, pack_u16(&samples[0..2], Order::Little)),
+            (4, pack_u16(&samples[2..4], Order::Little)),
+        ],
+        white_level: None,
+    }
+    .build();
+    let container = Container::parse(&two).expect("parses");
+    let sensor = container.sensor().expect("has a sensor plane");
+    let mut dst = [0u16; 4];
+    unpack_into(&sensor, container.byte_order(), &two, &mut dst).expect("two-strip unpack");
+
+    // The single-strip equivalent: the same four samples as one 8-byte strip.
+    let one = MultiStrip {
+        order: Order::Little,
+        width: 2,
+        height: 2,
+        bits: 16,
+        rows_per_strip: None, // a single strip is the whole plane
+        strips: &[(8, pack_u16(&samples, Order::Little))],
+        white_level: None,
+    }
+    .build();
+    let container = Container::parse(&one).expect("parses");
+    let sensor = container.sensor().expect("has a sensor plane");
+    let mut one_dst = [0u16; 4];
+    unpack_into(&sensor, container.byte_order(), &one, &mut one_dst).expect("one-strip unpack");
+
+    assert_eq!(
+        dst, samples,
+        "two-strip assembly must reproduce the samples"
+    );
+    assert_eq!(
+        dst, one_dst,
+        "two strips must assemble to exactly the single-strip plane"
+    );
+}
+
+/// AC2 — a 2-strip 14-bit plane: each strip is byte-padded INDEPENDENTLY, so
+/// strip 2's first sample is not shifted by strip 1's tail padding. With 2 x 2
+/// samples per strip, each strip is 28 bits = 4 bytes (4 padding bits); naive
+/// concatenation would read sample 2 across strip 1's padding.
+#[test]
+fn a_two_strip_14bit_plane_respects_per_strip_byte_padding() {
+    let samples = [100u16, 200, 300, 400];
+    let strip0 = pack_msb(&samples[0..2], 14); // 28 bits -> 4 bytes, 4 pad bits
+    let strip1 = pack_msb(&samples[2..4], 14);
+    assert_eq!(strip0.len(), 4, "a padded 14-bit strip is 4 bytes, not 3.5");
+
+    let data = MultiStrip {
+        order: Order::Little,
+        width: 2,
+        height: 2,
+        bits: 14,
+        rows_per_strip: Some(1),
+        strips: &[(4, strip0), (4, strip1)],
+        white_level: None,
+    }
+    .build();
+    let container = Container::parse(&data).expect("parses");
+    let sensor = container.sensor().expect("has a sensor plane");
+    let mut dst = [0u16; 4];
+    unpack_into(&sensor, container.byte_order(), &data, &mut dst).expect("per-strip 14-bit unpack");
+    assert_eq!(
+        dst, samples,
+        "strip 2 must start at its own byte offset, not across strip 1's padding"
+    );
+}
+
+/// AC3 — an uneven last strip (`height % rows_per_strip != 0`) unpacks the right
+/// remainder. 3 rows, 2 rows per strip: strip 0 is rows 0-1, strip 1 is row 2.
+#[test]
+fn an_uneven_last_strip_unpacks_the_remainder() {
+    let samples = [11u16, 12, 21, 22, 31, 32]; // 3 rows x 2 cols
+    let data = MultiStrip {
+        order: Order::Little,
+        width: 2,
+        height: 3,
+        bits: 16,
+        rows_per_strip: Some(2),
+        strips: &[
+            (8, pack_u16(&samples[0..4], Order::Little)), // rows 0-1
+            (4, pack_u16(&samples[4..6], Order::Little)), // row 2 (remainder)
+        ],
+        white_level: None,
+    }
+    .build();
+    let container = Container::parse(&data).expect("parses");
+    let sensor = container.sensor().expect("has a sensor plane");
+    let mut dst = [0u16; 6];
+    unpack_into(&sensor, container.byte_order(), &data, &mut dst)
+        .expect("uneven-last-strip unpack");
+    assert_eq!(
+        dst, samples,
+        "the short last strip must fill exactly its remainder rows"
+    );
+}
+
+/// AC4 (regression) — a single strip stays the SPEC-012 path, byte for byte.
+/// The real-file half of this regression is the tier-B
+/// `unpacks_fourteen_bit_msb_first_samples` / `unpacks_sixteen_bit_in_file_byte_order`
+/// (Q2M 14-bit, M Monochrom 16-bit), which must also stay green.
+#[test]
+fn a_single_strip_plane_is_unchanged() {
+    let samples = [5u16, 6, 7, 8, 9, 10, 11, 12]; // 4 x 2, 16-bit
+    let data = MultiStrip {
+        order: Order::Little,
+        width: 4,
+        height: 2,
+        bits: 16,
+        rows_per_strip: None,
+        strips: &[(16, pack_u16(&samples, Order::Little))],
+        white_level: None,
+    }
+    .build();
+    let container = Container::parse(&data).expect("parses");
+    let sensor = container.sensor().expect("has a sensor plane");
+    let mut dst = [0u16; 8];
+    unpack_into(&sensor, container.byte_order(), &data, &mut dst).expect("single-strip unpack");
+    assert_eq!(dst, samples, "the single-strip path must be unchanged");
+}
+
+/// AC5 — a multi-strip plane with no `RowsPerStrip` is a typed error, not a
+/// panic: without it the per-strip row partition is undefined.
+#[test]
+fn a_multi_strip_plane_without_rows_per_strip_is_a_typed_error() {
+    let samples = [1u16, 2, 3, 4];
+    let data = MultiStrip {
+        order: Order::Little,
+        width: 2,
+        height: 2,
+        bits: 16,
+        rows_per_strip: None, // omitted on a 2-strip plane: the error under test
+        strips: &[
+            (4, pack_u16(&samples[0..2], Order::Little)),
+            (4, pack_u16(&samples[2..4], Order::Little)),
+        ],
+        white_level: None,
+    }
+    .build();
+    let container = Container::parse(&data).expect("parses");
+    let sensor = container.sensor().expect("has a sensor plane");
+    let mut dst = [0u16; 4];
+    let err = unpack_into(&sensor, container.byte_order(), &data, &mut dst)
+        .expect_err("a 2-strip plane without RowsPerStrip has no row partition");
+    assert!(
+        matches!(err, Error::MissingRowsPerStrip { strips: 2 }),
+        "expected MissingRowsPerStrip{{2}}, got {err:?}"
+    );
+}
+
+/// AC6a — a strip whose declared bytes run past EOF is `Truncated`, not a panic.
+/// Strip 1's declared count is correct for the layer-0 check (so the read is
+/// reached), but the file does not actually hold its bytes.
+#[test]
+fn a_truncated_strip_is_truncated_not_a_panic() {
+    let samples = [1u16, 2, 3, 4];
+    let data = MultiStrip {
+        order: Order::Little,
+        width: 2,
+        height: 2,
+        bits: 16,
+        rows_per_strip: Some(1),
+        strips: &[
+            (4, pack_u16(&samples[0..2], Order::Little)), // present
+            (4, Vec::new()),                              // declares 4 bytes the file does not hold
+        ],
+        white_level: None,
+    }
+    .build();
+    let container = Container::parse(&data).expect("parses");
+    let sensor = container.sensor().expect("has a sensor plane");
+    let mut dst = [0u16; 4];
+    let err = unpack_into(&sensor, container.byte_order(), &data, &mut dst)
+        .expect_err("strip 1 promises bytes past the end of the file");
+    assert!(
+        matches!(err, Error::Truncated { .. }),
+        "expected Truncated, got {err:?}"
+    );
+}
+
+/// AC6b — a strip whose declared byte count is not its rows' packed size is
+/// `PackedSizeMismatch`, not a panic. Strip 0 declares 6 bytes where 2 x 16-bit
+/// rows need 4.
+#[test]
+fn a_strip_byte_count_mismatch_is_packed_size_mismatch() {
+    let samples = [1u16, 2, 3, 4];
+    let data = MultiStrip {
+        order: Order::Little,
+        width: 2,
+        height: 2,
+        bits: 16,
+        rows_per_strip: Some(1),
+        strips: &[
+            (6, vec![0u8; 6]), // wrong: 1 row x 2 x 16 = 32 bits = 4 bytes, not 6
+            (4, pack_u16(&samples[2..4], Order::Little)),
+        ],
+        white_level: None,
+    }
+    .build();
+    let container = Container::parse(&data).expect("parses");
+    let sensor = container.sensor().expect("has a sensor plane");
+    let mut dst = [0u16; 4];
+    let err = unpack_into(&sensor, container.byte_order(), &data, &mut dst)
+        .expect_err("strip 0's declared byte count does not match its rows");
+    assert!(
+        matches!(
+            err,
+            Error::PackedSizeMismatch {
+                expected_bits: 32,
+                strip_bits: 48,
+            }
+        ),
+        "expected PackedSizeMismatch{{32, 48}}, got {err:?}"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-028 (corpus) — the Nikon D300S Bayer plane is 12 strips
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Tier B. The file is NOT yet in `tests/corpus/manifest.toml` — registering it
+// (with its sha256 and the `dnglab` raw-checksum oracle) is SPEC-027 — so this
+// resolves it through `CorpusRoot` (never a hardcoded path) and skips loudly
+// when the corpus is absent. The assertion is narrow and exactly this spec's
+// deliverable: assembly runs, so `UnsupportedStripLayout` is GONE. A Bayer file
+// may still trip `SampleExceedsWhiteLevel` after assembly — that assertion is
+// SPEC-029's to relax, and the Nikon does trip it (sample 3835 > WhiteLevel
+// 3808), which is expected here, not a failure.
+
+#[test]
+fn the_nikon_d300s_twelve_strip_plane_no_longer_rejects_the_strip_layout() {
+    const NIKON: &str = "NIKON-D300S/_DSC4615.DNG";
+    let root = CorpusRoot::resolve();
+    let path = root.path.join(NIKON);
+    if !root.from_env || !path.exists() {
+        eprintln!("SKIP {NIKON}: set $IRRADIANCE_CORPUS_DIR to the corpus (SPEC-027 registers it)");
+        return;
+    }
+
+    let bytes = std::fs::read(&path).expect("read the Nikon corpus file");
+    let container = Container::parse(&bytes).expect("Nikon DNG parses");
+    let sensor = container.sensor().expect("Nikon has a sensor plane");
+    assert!(
+        sensor.strip_offsets.len() >= 2,
+        "the Nikon D300S plane is stored in multiple strips (measured: 12)"
+    );
+    let pixel_count = usize::try_from(u64::from(sensor.width) * u64::from(sensor.height))
+        .expect("Nikon plane fits this host");
+    let mut plane = vec![0u16; pixel_count];
+    let result = unpack_into(&sensor, container.byte_order(), &bytes, &mut plane);
+
+    // The deliverable: assembly runs, so the multi-strip layout is no longer
+    // rejected. (Full width*height coverage is proven by the fact that the
+    // WhiteLevel assertion below runs over the whole plane without a length or
+    // layout error.)
+    assert!(
+        !matches!(result, Err(Error::UnsupportedStripLayout { .. })),
+        "SPEC-028: the 12-strip plane must assemble, not return UnsupportedStripLayout"
+    );
+    match result {
+        Ok(()) => eprintln!("NIKON {NIKON}: assembled and within WhiteLevel"),
+        Err(Error::SampleExceedsWhiteLevel {
+            index,
+            sample,
+            white_level,
+        }) => eprintln!(
+            "NIKON {NIKON}: assembled; sample {index} = {sample} > WhiteLevel {white_level} \
+             (expected — SPEC-029 relaxes this assertion)"
+        ),
+        Err(other) => panic!("SPEC-028: unexpected post-assembly error: {other:?}"),
     }
 }
