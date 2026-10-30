@@ -9,5 +9,5 @@ Cycle prompts live in `prompts/SPEC-024-<cycle>.md`.
 
 - [x] **design** — completed 2026-10-29 (PR #36, origin/main @ 173a426)
 - [x] **build** — prompt: `prompts/SPEC-024-build.md` · HANDOFF-064 · PR #37 · $105.56 · completed 2026-10-29
-- [ ] **verify** — prompt: pending (waiting on build)
-- [ ] **ship** — prompt: pending (waiting on verify)
+- [x] **verify** — dispatched by orchestrator (cold session) · HANDOFF-065 · ✅ APPROVED @ 2bef1d6 · $17.25 · completed 2026-10-29
+- [ ] **ship** — prompt: `prompts/SPEC-024-ship.md` (ready; PR #37 already merged — ship is the closing ritual)
