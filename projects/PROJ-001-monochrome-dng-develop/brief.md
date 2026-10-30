@@ -5,7 +5,7 @@
 project:
   id: PROJ-001
   status: active
-  activity: build
+  activity: blocked
   priority: high
   target_ship: null
 
