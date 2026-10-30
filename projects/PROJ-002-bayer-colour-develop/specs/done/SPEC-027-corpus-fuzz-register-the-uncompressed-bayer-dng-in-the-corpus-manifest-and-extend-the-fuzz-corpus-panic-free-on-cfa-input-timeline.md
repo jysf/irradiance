@@ -28,4 +28,7 @@ Cycle prompts live in `prompts/SPEC-027-<cycle>.md`.
   three build deviations adjudicated HONEST. Gates: just test 0 failed, lint-ci
   (clippy 0.1.98) / fmt / validate / ready / decisions-audit all exit 0; bounded
   ifd+plane fuzz over the CFA seed 0 crashes. HANDOFF-073; 9.9M tokens. PR #53.
-- [ ] **ship** — archive, Reflection, cost totals, brag.
+- [x] **ship** (2026-10-30) — Reflection, cost totals (build + verify = 75,323,789
+  tokens / $169.20; ship un-metered), timeline, archive, brag. `verify_verdict:
+  approved`, `complexity_actual: M` (as expected). Test/corpus/fuzz only — no
+  CHANGELOG. Worst-defect `build` (a design under-specification, handled correctly).
