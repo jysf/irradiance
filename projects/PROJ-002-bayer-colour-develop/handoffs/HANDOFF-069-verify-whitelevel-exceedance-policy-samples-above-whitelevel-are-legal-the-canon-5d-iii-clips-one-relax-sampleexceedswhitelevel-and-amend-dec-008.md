@@ -47,7 +47,7 @@ handback:
   estimated_usd: 20.83    # tokens_total × your rate, or your harness's number
   duration_minutes: 35
   branch: verify-spec-029
-  pr: null                         # verify-bookkeeping PR — filled after the PR opens
+  pr: https://github.com/jysf/irradiance/pull/45   # verify-bookkeeping PR
   completed_at: 2026-10-30          # YYYY-MM-DD
   notes: "✅ APPROVED at commit 1112c18 (PR #44, already MERGED to main before this verify ran — a retrospective independent review; no build branch remained to push to, hence a small verify-bookkeeping PR). All 5 ACs reproduced cold: full suite (14 binaries, 0 failed, corpus 7/7 so both Bayer tier-B tests + the mono md5 oracle actually RAN, not skipped), pinned CI clippy -D warnings, cargo fmt --check, just validate, just decisions-audit (0 structural errors). Both corpus Bayer DNGs unpack FULLY — Canon single-strip 5920x3950 (max 15464 > WhiteLevel 15000) and Nikon 12-strip 4352x2868 (max 4095 > WhiteLevel 3808) — confirmed via the two --nocapture corpus tests AND irr unpack. Mono regression BYTE-FOR-BYTE: plane_md5_matches_the_pinned_raw_checksum matched dnglab --raw-checksum on all 4 decodable frames (Q2M 14-bit x3 + M Monochrom 16-bit). plane fuzz 25,936,891 runs/91s, 0 crashes. DEC-029 content correct (amends DEC-008's permanent-invariant clause, two-path rule untouched, byte-swap guard moved to SPEC-025 + layer-0). The DEC-029 NUMBER choice is an ACCEPTED intentional deviation (maintainer released the LUT-boundary reservation in the build brief); one non-blocking follow-up SPEC-029/FU-1 (drop the stale reservation hedge in the spec text + 4 sibling docs — at ship). tokens_total summed from this verify session's own transcript JSONL (scratchpad-UUID anchored e997ac41, deduped by message.id; all 59 usage records claude-opus-4-8; input+output+cache_creation+cache_read), cache-read-dominated (8.91M of 9.13M); estimated_usd at per-category Opus list rates. Floor-by-id snapshot, not a budget delta."
   synced_at: 2026-10-30
@@ -115,7 +115,7 @@ verdict, open a verify-bookkeeping PR.
 
 ### Execution notes
 
-- **Branch / PR:** `verify-spec-029` → verify-bookkeeping PR (PR #44 already
+- **Branch / PR:** `verify-spec-029` → verify-bookkeeping PR #45 (PR #44 already
   MERGED at `1112c18`, so no build branch remained to push to — this is a
   retrospective independent review).
 - **Completed at:** 2026-10-30
