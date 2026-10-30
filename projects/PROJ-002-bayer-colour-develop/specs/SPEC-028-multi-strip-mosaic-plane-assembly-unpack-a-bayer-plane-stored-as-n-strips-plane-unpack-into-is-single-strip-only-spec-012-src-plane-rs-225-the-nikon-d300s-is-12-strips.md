@@ -6,7 +6,7 @@
 task:
   id: SPEC-028
   type: story                      # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -63,11 +63,19 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 43553730
+      estimated_usd: 102.25
+      duration_minutes: 35
+      recorded_at: 2026-10-29
+      notes: "all 7 Failing Tests + the corpus check pass; one resolved spec-text tension (per-strip layer-0 is byte-ceil, not literal `== rows*width*bits`, so sub-byte strips can carry their independent tail padding — see Deviations); tests placed in tests/plane_unpack.rs (the unpack_into home, AGENTS.md §12) not src/ifd.rs mod tests; tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at Opus list rates, cache-read-dominated"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 43553730
+    estimated_usd: 102.25
+    session_count: 1
 ---
 
 # SPEC-028: Multi-strip mosaic plane assembly: unpack a Bayer plane stored as N strips (`plane::unpack_into` is single-strip-only, SPEC-012 `src/plane.rs:225`; the Nikon D300S is 12 strips)

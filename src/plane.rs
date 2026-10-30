@@ -1,10 +1,22 @@
 //! Strip location and sample unpack — `SPEC-012`, `DEC-008`.
 //!
-//! The sensor IFD's `StripOffsets`/`StripByteCounts` locate one contiguous run
-//! of packed samples; this module turns that run into a linear `u16` plane,
-//! one sample per pixel, row-major, **uncropped and un-normalised** — exactly
-//! the representation `dnglab analyze --raw-pixel` compares against
-//! (`docs/oracle-contract.md`). Levels, crop and orientation are `SPEC-014`.
+//! The sensor IFD's `StripOffsets`/`StripByteCounts` locate `N` contiguous
+//! runs (strips) of packed samples — `N == 1` for every PROJ-001 corpus file,
+//! `N == 12` for the Nikon D300S Bayer plane; this module assembles those
+//! strips into a single linear `u16` plane, one sample per pixel, row-major,
+//! **uncropped and un-normalised** — exactly the representation `dnglab analyze
+//! --raw-pixel` compares against (`docs/oracle-contract.md`). Levels, crop and
+//! orientation are `SPEC-014`.
+//!
+//! # Strips — `SPEC-028`
+//!
+//! `SPEC-012` scoped the unpacker single-strip-only; `SPEC-028` generalised it
+//! to `N` strips, each `RowsPerStrip` rows (the last the remainder). The single
+//! strip stays a degenerate one-iteration case, byte-for-byte unchanged. Each
+//! strip is an **independent** bitstream padded to a byte boundary, so strips
+//! are unpacked one at a time into their own row slice — never by concatenating
+//! strip bytes, which for a sub-byte depth would read a strip's first sample
+//! across the previous strip's tail padding.
 //!
 //! # Provenance
 //!
@@ -207,8 +219,8 @@ fn unpack_byte_aligned(
 // The entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Unpack the sensor plane's single strip into `dst`, one sample per pixel,
-/// row-major, uncropped and un-normalised.
+/// Unpack the sensor plane's `N` strips into `dst`, one sample per pixel,
+/// row-major, uncropped and un-normalised (`SPEC-012` + `SPEC-028`).
 ///
 /// `dst` must hold exactly `sensor.width * sensor.height` samples — the
 /// caller owns the buffer (`library-not-application`; `DEC-016`). `byte_order`
@@ -216,17 +228,26 @@ fn unpack_byte_aligned(
 /// byte-aligned path only (`DEC-008`) and has no meaning for the sub-byte
 /// path. `file` is the whole input the sensor's tags were read from.
 ///
+/// Strip `i` holds `rows_i = min(RowsPerStrip, height - i*RowsPerStrip)` rows
+/// (the last strip is the remainder) and is unpacked independently into
+/// `dst[i*RowsPerStrip*width ..][.. rows_i*width]`. `RowsPerStrip` is required
+/// once `N > 1`; a single strip is the whole plane and consults none, so that
+/// case is byte-for-byte the `SPEC-012` path.
+///
 /// # Errors
 ///
 /// - [`Error::UnsupportedCompression`] if the plane is not `Compression = 1`.
 /// - [`Error::UnsupportedBitDepth`] if `bits_per_sample` is not 8, 12, 14 or
 ///   16.
-/// - [`Error::UnsupportedStripLayout`] if the sensor IFD does not describe
-///   exactly one strip (tiles and multi-strip planes are a non-goal).
-/// - [`Error::PackedSizeMismatch`] if the layer-0 invariant
-///   (`width * height * bits_per_sample == StripByteCounts * 8`) does not
-///   hold.
-/// - [`Error::Truncated`] if the strip's declared offset/length runs past
+/// - [`Error::UnsupportedStripLayout`] if `StripOffsets` and `StripByteCounts`
+///   disagree in count, or there are zero strips (tiled planes remain a
+///   non-goal).
+/// - [`Error::MissingRowsPerStrip`] if a multi-strip plane (`N > 1`) carries no
+///   usable `RowsPerStrip`.
+/// - [`Error::PackedSizeMismatch`] if any strip's `StripByteCounts` is not its
+///   own `rows_i * width * bits_per_sample` rounded up to a byte, or the strips
+///   do not cover the whole plane.
+/// - [`Error::Truncated`] if a strip's declared offset/length runs past
 ///   `file`'s end.
 /// - [`Error::PlaneBufferWrongLength`] if `dst.len() != width * height`.
 /// - [`Error::SampleExceedsWhiteLevel`] if any decoded sample exceeds
@@ -262,56 +283,122 @@ pub fn unpack_into(
         });
     }
 
-    if sensor.strip_offsets.len() != 1 || sensor.strip_byte_counts.len() != 1 {
+    // N strips (SPEC-028), N >= 1. The two location tags must agree in count,
+    // and a plane with no strips cannot be assembled — both are the genuine
+    // UnsupportedStripLayout cases now that N > 1 is supported (tiles aside).
+    let n = sensor.strip_offsets.len();
+    if n == 0 || n != sensor.strip_byte_counts.len() {
         return Err(Error::UnsupportedStripLayout {
             strip_offsets: sensor.strip_offsets.len(),
             strip_byte_counts: sensor.strip_byte_counts.len(),
         });
     }
-    let strip_offset = *sensor
-        .strip_offsets
-        .first()
-        .ok_or(Error::UnsupportedStripLayout {
-            strip_offsets: 0,
-            strip_byte_counts: sensor.strip_byte_counts.len(),
-        })?;
-    let strip_byte_count =
-        *sensor
-            .strip_byte_counts
-            .first()
-            .ok_or(Error::UnsupportedStripLayout {
-                strip_offsets: sensor.strip_offsets.len(),
-                strip_byte_counts: 0,
-            })?;
 
-    // Layer-0: free, needs no oracle tooling (AGENTS.md §12 bar 3). This is
-    // what would have caught SPIKE-002's byte-swapped plane had it been
-    // wired up — the swap preserves total length exactly.
-    let expected_bits = sensor.packed_bits()?;
-    let strip_bits =
-        u64::from(strip_byte_count)
-            .checked_mul(8)
+    // RowsPerStrip partitions a multi-strip plane into row bands. A single
+    // strip IS the whole plane (SPEC-012's path) and consults no RowsPerStrip,
+    // so N == 1 stays byte-for-byte the old behaviour; N > 1 requires a usable
+    // value, and its absence (or a zero) is a typed error, not a guess.
+    let rows_per_strip = if n == 1 {
+        sensor.height
+    } else {
+        match sensor.rows_per_strip {
+            Some(rows) if rows > 0 => rows,
+            _ => return Err(Error::MissingRowsPerStrip { strips: n }),
+        }
+    };
+
+    // Assemble strip by strip into disjoint, in-order row slices of `dst`. Each
+    // strip is an INDEPENDENT bitstream padded to a byte boundary (DEC-008), so
+    // it is unpacked from a fresh cursor into its own slice — never by
+    // concatenating strip bytes, which for a sub-byte depth would read a
+    // strip's first sample across the previous strip's tail padding (SPEC-028).
+    let byte_aligned = bits.checked_rem(8) == Some(0);
+    let mut rest: &mut [u16] = dst;
+    let mut row_start: u32 = 0;
+    for (strip_offset, strip_byte_count) in sensor
+        .strip_offsets
+        .iter()
+        .zip(sensor.strip_byte_counts.iter())
+    {
+        // Rows in this strip: a full band, or the remainder for the last one.
+        let remaining_rows = sensor.height.saturating_sub(row_start);
+        let rows_in_strip = rows_per_strip.min(remaining_rows);
+        let declared_bits = u64::from(*strip_byte_count).saturating_mul(8);
+
+        // Per-strip layer-0 (AGENTS.md §12 bar 3, free): this strip's declared
+        // byte count is exactly its own samples' bits rounded up to the next
+        // byte. For 8/16-bit there is never padding; for 12/14-bit the final
+        // byte of each strip independently carries up to 7 unused bits. This is
+        // what caught SPIKE-002's byte-swap (which preserved total length).
+        let strip_sample_bits = u64::from(rows_in_strip)
+            .checked_mul(u64::from(sensor.width))
+            .and_then(|samples| samples.checked_mul(u64::from(bits)))
             .ok_or(Error::PackedSizeMismatch {
-                expected_bits,
-                strip_bits: u64::MAX,
+                expected_bits: u64::MAX,
+                strip_bits: declared_bits,
             })?;
-    if expected_bits != strip_bits {
-        return Err(Error::PackedSizeMismatch {
-            expected_bits,
-            strip_bits,
-        });
+        let expected_bytes = strip_sample_bits
+            .checked_add(7)
+            .and_then(|padded| padded.checked_div(8))
+            .ok_or(Error::PackedSizeMismatch {
+                expected_bits: strip_sample_bits,
+                strip_bits: declared_bits,
+            })?;
+        if u64::from(*strip_byte_count) != expected_bytes {
+            return Err(Error::PackedSizeMismatch {
+                expected_bits: strip_sample_bits,
+                strip_bits: declared_bits,
+            });
+        }
+
+        // This strip's destination: `rows_in_strip * width` samples at the head
+        // of the remaining buffer. split_at_mut_checked keeps the write
+        // bounds-checked and panic-free, and proves the strips never overrun
+        // the plane (an undershoot is caught after the loop).
+        let samples_in_strip = u64::from(rows_in_strip)
+            .checked_mul(u64::from(sensor.width))
+            .and_then(|s| usize::try_from(s).ok())
+            .ok_or(Error::PackedSizeMismatch {
+                expected_bits: strip_sample_bits,
+                strip_bits: declared_bits,
+            })?;
+        let (chunk, tail) =
+            rest.split_at_mut_checked(samples_in_strip)
+                .ok_or(Error::PackedSizeMismatch {
+                    expected_bits: strip_sample_bits,
+                    strip_bits: declared_bits,
+                })?;
+        rest = tail;
+
+        // Locate this strip's bytes, bounds-checked into Truncated.
+        let at = offset_to_usize(*strip_offset)?;
+        let len =
+            usize::try_from(*strip_byte_count).map_err(|_| Error::Truncated { at, len: 0 })?;
+        let end = at.checked_add(len).ok_or(Error::Truncated { at, len })?;
+        let strip = file.get(at..end).ok_or(Error::Truncated { at, len })?;
+
+        if byte_aligned {
+            unpack_byte_aligned(strip, bits, byte_order, chunk)?;
+        } else {
+            unpack_bitstream(strip, bits, chunk)?;
+        }
+
+        row_start = row_start.saturating_add(rows_in_strip);
     }
 
-    let at = offset_to_usize(strip_offset)?;
-    let len = usize::try_from(strip_byte_count).map_err(|_| Error::Truncated { at, len: 0 })?;
-    let end = at.checked_add(len).ok_or(Error::Truncated { at, len })?;
-    let strip = file.get(at..end).ok_or(Error::Truncated { at, len })?;
-
-    let byte_aligned = bits.checked_rem(8) == Some(0);
-    if byte_aligned {
-        unpack_byte_aligned(strip, bits, byte_order, dst)?;
-    } else {
-        unpack_bitstream(strip, bits, dst)?;
+    // Full coverage: the strips together wrote every row. A plane whose strips
+    // do not sum to its height leaves `rest` non-empty — a strip count that
+    // disagrees with RowsPerStrip/height, reported here rather than returning a
+    // partially-filled plane. (The per-strip split above rules out an overrun,
+    // so this only catches an undershoot.)
+    if !rest.is_empty() {
+        let covered_bits = u64::from(row_start)
+            .saturating_mul(u64::from(sensor.width))
+            .saturating_mul(u64::from(bits));
+        return Err(Error::PackedSizeMismatch {
+            expected_bits: sensor.packed_bits()?,
+            strip_bits: covered_bits,
+        });
     }
 
     // The free assertion DEC-008 names: max > WhiteLevel is impossible for a
