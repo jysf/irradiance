@@ -6,7 +6,7 @@
 task:
   id: SPEC-025
   type: story                      # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -63,11 +63,19 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 15781793
+      estimated_usd: 46.15
+      duration_minutes: 18
+      recorded_at: 2026-10-30
+      notes: "test-only — no src/ change, no manifest change, no new DEC. Both corpus Bayer planes (Canon single-strip, Nikon 12-strip) MD5-match dnglab analyze --raw-checksum; the byte-aligned red-proof (byte-order swap in unpack_byte_aligned) turns the Nikon plane red with a green control — the guard DEC-029 moved onto this oracle. Added to tests/plane_oracle.rs reusing SPEC-013's apparatus; stage_probe_crate generalised from a bool to an Option<fn(&Path)> injector so the mono (sub-byte) and Bayer (byte-aligned) faults share it, mono behaviour unchanged. tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at Opus list rates, cache-read-dominated."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 15781793
+    estimated_usd: 46.15
+    session_count: 1
 ---
 
 # SPEC-025: Bit-exact mosaic plane oracle: the Bayer file's unpacked plane MD5 equals `dnglab analyze --raw-checksum`, with its red-proof

@@ -713,9 +713,13 @@ fn probe_source() -> String {
     format!("mod md5_probe {{\n{MD5_SOURCE}\n}}\n\n{PROBE_MAIN}")
 }
 
-/// Copy the crate to `dest`, optionally injecting the fault, and drop in the
-/// synthesized probe binary as a second, explicit `[[bin]]` target.
-fn stage_probe_crate(dest: &Path, mutate: bool) {
+/// Copy the crate to `dest`, optionally injecting a fault into the copy's
+/// `src/plane.rs` (`inject`, when `Some` — one of the `inject_*` fns below),
+/// and drop in the synthesized probe binary as a second, explicit `[[bin]]`
+/// target. SPEC-013 only ever mutated the sub-byte `BitReader`; SPEC-025 reuses
+/// this same machinery with a byte-aligned injector, so the injector is a
+/// parameter rather than a fixed call.
+fn stage_probe_crate(dest: &Path, inject: Option<fn(&Path)>) {
     let repo_root = corpus::crate_root();
 
     std::fs::create_dir_all(dest.join("src/bin")).expect("mkdir src/bin");
@@ -726,8 +730,8 @@ fn stage_probe_crate(dest: &Path, mutate: bool) {
     }
     copy_dir_recursive(&repo_root.join("src"), &dest.join("src"));
 
-    if mutate {
-        inject_chunk_extraction_fault(&dest.join("src/plane.rs"));
+    if let Some(inject) = inject {
+        inject(&dest.join("src/plane.rs"));
     }
 
     std::fs::write(dest.join("src/bin/plane_oracle_probe.rs"), probe_source())
@@ -805,7 +809,7 @@ fn an_injected_fault_turns_the_fixture_oracle_red_without_a_corpus() {
     std::fs::create_dir_all(&dir.0).expect("temp dir");
     std::fs::write(&fixture_path, &data).expect("write fixture");
 
-    stage_probe_crate(&dir.0, true);
+    stage_probe_crate(&dir.0, Some(inject_chunk_extraction_fault));
     let mutant_digest = build_and_run_probe(&dir.0, &fixture_path);
 
     // The third clause, on the half CI can see: assert the OUTPUT changed.
@@ -832,7 +836,7 @@ fn the_fixture_oracle_control_is_green_without_a_corpus() {
     std::fs::create_dir_all(&dir.0).expect("temp dir");
     std::fs::write(&fixture_path, &data).expect("write fixture");
 
-    stage_probe_crate(&dir.0, false);
+    stage_probe_crate(&dir.0, None);
     let apparatus_digest = build_and_run_probe(&dir.0, &fixture_path);
 
     assert_eq!(
@@ -864,7 +868,7 @@ fn an_injected_unpacker_fault_turns_the_oracle_red() {
     );
 
     let dir = TempDir::new("mutant");
-    stage_probe_crate(&dir.0, true);
+    stage_probe_crate(&dir.0, Some(inject_chunk_extraction_fault));
     let mutant_digest = build_and_run_probe(&dir.0, &file_path);
 
     // The one sentence this spec exists for: assert the OUTPUT changed
@@ -894,7 +898,7 @@ fn the_honest_tree_is_the_negative_control() {
     };
 
     let dir = TempDir::new("control");
-    stage_probe_crate(&dir.0, false);
+    stage_probe_crate(&dir.0, None);
     let apparatus_digest = build_and_run_probe(&dir.0, &file_path);
 
     // If this fails, a red result from the mutation test above is
@@ -904,5 +908,184 @@ fn the_honest_tree_is_the_negative_control() {
     assert_eq!(
         apparatus_digest, entry.oracle.raw_checksum,
         "the UNMUTATED copy-and-rebuild apparatus must reproduce the pinned digest"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-025 — the Bayer mosaic plane oracle, and its byte-aligned red-proof
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// STAGE-006's capstone. The mosaic is still a single sensor plane, so PROJ-001's
+// layer-0 contract — the unpacked plane's MD5 equals `dnglab analyze
+// --raw-checksum` — transfers to a Bayer file unchanged (the checksum is over
+// the raw mosaic bytes, independent of demosaic). The oracle METHOD above is
+// reused verbatim (`decode_and_hash`, `plane_md5`, `stage_probe_crate`,
+// `build_and_run_probe`); only the reference files and a byte-aligned injector
+// are new.
+//
+// Two things differ from the mono oracle, both deliberate:
+//
+//  1. **Direct-path, not the manifest.** The Bayer DNGs are NOT in
+//     `tests/corpus/manifest.toml` yet — SPEC-027 registers them — so they are
+//     resolved by `CorpusRoot` + relative path with a loud skip, exactly like
+//     `tests/plane_unpack.rs`'s Nikon test, and are deliberately kept out of
+//     `DECODABLE`/`SKIPPED_COMPRESSED` so `compressed_files_are_skipped_by_name`'s
+//     count stays correct.
+//
+//  2. **The red-proof targets the BYTE-ALIGNED path.** The mono red-proof above
+//     injects a sub-byte `BitReader` fault that a 16-bit plane never reaches.
+//     Both Bayer files are 16-bit, so their red-proof swaps the byte order in
+//     `unpack_byte_aligned` instead. That is the exact swap DEC-029 moved onto
+//     this oracle: SPEC-028 assembled the Nikon's 12 strips, and the removed
+//     `SampleExceedsWhiteLevel` assertion used to be what would catch a
+//     byte-swapped (and so wildly out-of-range) sample — now nothing in `src/`
+//     asserts on sample magnitude, so the oracle is the only guard left.
+
+/// `dnglab 0.7.2 analyze --raw-checksum` of the Canon 5D-III Bayer DNG
+/// (single-strip, 16-bit, 5920×3950). Pinned at build (SPEC-025) — MD5 of the
+/// uncropped u16 mosaic plane, native-LE (`docs/oracle-contract.md`).
+const CANON_BAYER: &str = "CANON-EOS-5D-MARK-III/5G4A9394.DNG";
+const CANON_RAW_CHECKSUM: &str = "a18235d6abced4df9948b6fbe91aba7c";
+
+/// `dnglab 0.7.2 analyze --raw-checksum` of the Nikon D300S Bayer DNG
+/// (12-strip, 16-bit, 4352×2868). Pinned at build (SPEC-025). Used as the
+/// red-proof's reference file so the swap also exercises SPEC-028's multi-strip
+/// assembly.
+const NIKON_BAYER: &str = "NIKON-D300S/_DSC4615.DNG";
+const NIKON_RAW_CHECKSUM: &str = "b8e8025d370cc2e97f675e63a0e6bbdb";
+
+/// Resolve a Bayer corpus file by `CorpusRoot` + relative path, skipping loudly
+/// when the corpus is absent — the direct-path pattern from
+/// `tests/plane_unpack.rs` (the Bayer DNGs are not in the manifest until
+/// SPEC-027). `None` (after a printed SKIP) means "not available, skip".
+fn require_bayer(rel: &str) -> Option<PathBuf> {
+    let root = CorpusRoot::resolve();
+    let path = root.path.join(rel);
+    if !root.from_env || !path.exists() {
+        eprintln!("SKIP {rel}: set $IRRADIANCE_CORPUS_DIR to the corpus (SPEC-027 registers it)");
+        return None;
+    }
+    Some(path)
+}
+
+#[test]
+fn bayer_plane_md5_matches_dnglab_raw_checksum() {
+    // AC1 — the first bit-exact proof the Bayer mosaic decodes: our unpacked
+    // plane MD5 equals `dnglab analyze --raw-checksum` for BOTH corpus files.
+    for (rel, expected) in [
+        (CANON_BAYER, CANON_RAW_CHECKSUM),
+        (NIKON_BAYER, NIKON_RAW_CHECKSUM),
+    ] {
+        let Some(path) = require_bayer(rel) else {
+            continue;
+        };
+        let (_width, _height, _plane, actual) =
+            decode_and_hash(&path).unwrap_or_else(|e| panic!("{rel}: {e}"));
+        assert_eq!(
+            actual, expected,
+            "{rel}: unpacked Bayer plane MD5 must equal dnglab analyze --raw-checksum \
+             (the checksum is over the raw mosaic bytes, independent of demosaic)"
+        );
+        eprintln!("BAYER ORACLE {rel}: plane MD5 {actual} == dnglab --raw-checksum");
+    }
+}
+
+/// The Bayer red-proof's fault: swap the two byte-order arms of
+/// `unpack_byte_aligned`'s 16-bit branch (`src/plane.rs:211–212`), so a
+/// little-endian container is read big-endian and vice versa. `from_le_bytes`
+/// and `from_be_bytes` each occur exactly once in `src/plane.rs` (asserted),
+/// and the swap goes through a placeholder so the two replacements cannot
+/// collide. Every 16-bit sample is byte-swapped — values change throughout, the
+/// buffer length never does (the same discipline as `inject_chunk_extraction_fault`)
+/// — and it is the exact byte-swap DEC-029 says this oracle now guards.
+fn inject_byte_order_swap_fault(plane_rs: &Path) {
+    let src = std::fs::read_to_string(plane_rs)
+        .unwrap_or_else(|e| panic!("read {}: {e}", plane_rs.display()));
+
+    const LE: &str = "u16::from_le_bytes(*chunk)";
+    const BE: &str = "u16::from_be_bytes(*chunk)";
+    const PLACEHOLDER: &str = "u16::RED_PROOF_BYTE_ORDER_SWAP(*chunk)";
+
+    for (needle, what) in [(LE, "from_le_bytes"), (BE, "from_be_bytes")] {
+        let occurrences = src.matches(needle).count();
+        assert_eq!(
+            occurrences, 1,
+            "expected exactly one `{needle}` ({what}) in src/plane.rs \
+             (unpack_byte_aligned's 16-bit branch); found {occurrences} -- the injection \
+             point moved, update this test"
+        );
+    }
+
+    // LE -> PLACEHOLDER, BE -> LE, PLACEHOLDER -> BE: a clean swap of the two
+    // arms. PLACEHOLDER is never written to disk; it only keeps step two from
+    // re-touching the arm step one just changed.
+    let mutated = src
+        .replacen(LE, PLACEHOLDER, 1)
+        .replacen(BE, LE, 1)
+        .replacen(PLACEHOLDER, BE, 1);
+    assert!(
+        mutated != src && !mutated.contains(PLACEHOLDER),
+        "the byte-order swap did not rewrite src/plane.rs as expected"
+    );
+    std::fs::write(plane_rs, mutated)
+        .unwrap_or_else(|e| panic!("write mutated {}: {e}", plane_rs.display()));
+}
+
+#[test]
+fn a_byte_order_swap_turns_the_bayer_oracle_red() {
+    // AC2 — a byte-order swap injected into unpack_byte_aligned turns the Bayer
+    // plane's MD5 red. The Nikon (12-strip) is the reference, so this also
+    // exercises SPEC-028's multi-strip assembly inside the staged copy.
+    let Some(file_path) = require_bayer(NIKON_BAYER) else {
+        return; // SKIP already announced by require_bayer
+    };
+
+    // The honest digest, computed IN-PROCESS via the real, UNMUTATED
+    // unpack_into already linked into this binary -- recomputed here (not merely
+    // read from the pinned constant) so this test does not depend on
+    // `bayer_plane_md5_matches_dnglab_raw_checksum` having run first.
+    let (_, _, _, honest_digest) =
+        decode_and_hash(&file_path).unwrap_or_else(|e| panic!("{NIKON_BAYER}: {e}"));
+    assert_eq!(
+        honest_digest, NIKON_RAW_CHECKSUM,
+        "the honest tree must match the pinned Nikon raw-checksum before this red-proof \
+         means anything"
+    );
+
+    let dir = TempDir::new("bayer-mutant");
+    stage_probe_crate(&dir.0, Some(inject_byte_order_swap_fault));
+    let mutant_digest = build_and_run_probe(&dir.0, &file_path);
+
+    // The one sentence this spec exists for: assert the OUTPUT changed before
+    // concluding anything about what the test caught.
+    assert_ne!(
+        mutant_digest, honest_digest,
+        "the injected byte-order swap did NOT change the Bayer plane MD5 -- it is a semantic \
+         no-op, not a real fault, and this red-proof has caught NOTHING. (This is the guard \
+         DEC-029 moved onto the oracle; it must be able to go red.)"
+    );
+
+    eprintln!(
+        "BAYER RED-PROOF ({NIKON_BAYER}, byte-aligned path): honest={honest_digest} \
+         mutant={mutant_digest} -- the byte-order swap turned the oracle red"
+    );
+}
+
+#[test]
+fn the_bayer_red_proof_control_is_green() {
+    // AC2's negative control: without it, a red above could be the
+    // copy-and-rebuild apparatus rather than the injection -- the distinction
+    // `lint-red-proof.sh` exists for (DEC-009).
+    let Some(file_path) = require_bayer(NIKON_BAYER) else {
+        return; // SKIP already announced by require_bayer
+    };
+
+    let dir = TempDir::new("bayer-control");
+    stage_probe_crate(&dir.0, None);
+    let apparatus_digest = build_and_run_probe(&dir.0, &file_path);
+
+    assert_eq!(
+        apparatus_digest, NIKON_RAW_CHECKSUM,
+        "the UNMUTATED copy-and-rebuild apparatus must reproduce the pinned Nikon checksum"
     );
 }
