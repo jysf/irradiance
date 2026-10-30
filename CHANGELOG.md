@@ -10,6 +10,14 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **CFA (Bayer) sensor recognition** (`irradiance::ifd`, SPEC-024, PROJ-002) — the
+  sensor gate now accepts a colour-mosaic DNG (`PhotometricInterpretation == 32803
+  (CFA)`, `SamplesPerPixel == 1`) alongside the monochrome `LinearRaw` plane, and
+  `Sensor` exposes a structured `Cfa` model (`CFAPattern` / `CFARepeatPatternDim` /
+  `CFAPlaneColor` / `CFALayout`), `None` for a monochrome sensor. Parsed as an
+  interpretation-class field — a malformed CFA tag costs that field, never the file
+  (DEC-012) — and the mosaic plane still reads bit-exact. No demosaic or colour
+  yet; the monochrome path is byte-for-byte unchanged.
 - The crate exists: `irradiance` library + `irr` dev binary, edition 2021,
   measured MSRV 1.90, **zero dependencies**, `MIT OR Apache-2.0` (SPEC-001).
 - Panic-free lint policy (`unwrap_used`, `expect_used`, `indexing_slicing`,

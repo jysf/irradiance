@@ -6,14 +6,14 @@
 task:
   id: SPEC-024
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -72,10 +72,19 @@ cost:
       duration_minutes: 40
       recorded_at: 2026-10-29
       notes: "all 8 ACs met; +1 file beyond the spec list (src/bin/irr.rs gains one println surfacing color_filter, AGENTS.md §11 reader); tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at per-category Opus list rates (in 15 / out 75 / cache-write 18.75 / cache-read 1.50 per Mtok), cache-read-dominated"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 7307919
+      estimated_usd: 17.25
+      duration_minutes: 35
+      recorded_at: 2026-10-29
+      notes: "✅ APPROVED. Reviewed cold against the spec; every AC reproduced independently (full suite + pinned CI clippy + fmt + validate re-run locally, both corpus Bayer DNGs + a Q2M mono file driven through `irr ifd`). One environment gotcha, not a code defect: a stale cross-branch `target/` (dated before the PR) made the first `just test` link an old rlib and fail with phantom `no field color_filter` errors; `cargo clean -p irradiance` + rebuild -> fully green, corroborated by green CI on the head. PR #37 was already MERGED to main before this verify ran (ship happened in the main session) — this verify stands as the retrospective independent review. tokens_total summed from this session's own transcript JSONL (scratchpad-UUID anchored, deduped by message.id, all 46 usage-bearing msgs claude-opus-4-8; input+output+cache_creation+cache_read), cache-read-dominated; estimated_usd at per-category Opus list rates. Floor-by-id snapshot, not a budget delta."
   totals:
-    tokens_total: 48543952
-    estimated_usd: 105.56
-    session_count: 1
+    tokens_total: 55851871
+    estimated_usd: 122.81
+    session_count: 2
+shipped_at: 2026-10-29
 ---
 
 # SPEC-024: CFA sensor identity + `Cfa` mosaic model: accept `PhotometricInterpretation == 32803`; parse `CFAPattern`/`CFARepeatPatternDim`/`CFAPlaneColor`/`CFALayout` into a new `Sensor` field; mono stays `None`; mono path unchanged (regression guard)
