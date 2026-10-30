@@ -47,7 +47,7 @@ handback:
   estimated_usd: 46.15    # tokens_total × your rate, or your harness's number
   duration_minutes: 18
   branch: claude/spec-025-plane-oracle-1bdbe1
-  pr: null                          # filled in the PR-ref bookkeeping commit
+  pr: https://github.com/jysf/irradiance/pull/48
   completed_at: 2026-10-30          # YYYY-MM-DD
   notes: "test-only — no src/ change, no manifest change, no new DEC. Both corpus Bayer planes (Canon single-strip, Nikon 12-strip) MD5-match dnglab analyze --raw-checksum; the byte-aligned red-proof (byte-order swap in unpack_byte_aligned) turns the Nikon plane red with a green control — the guard DEC-029 moved onto this oracle. Added to tests/plane_oracle.rs reusing SPEC-013's apparatus; stage_probe_crate generalised from a bool to an Option<fn(&Path)> injector so the mono (sub-byte) and Bayer (byte-aligned) faults share it, mono behaviour unchanged. tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at Opus list rates, cache-read-dominated."
   synced_at: 2026-10-30
@@ -157,7 +157,7 @@ this — it transcribes it.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-025-plane-oracle-1bdbe1` → *(PR link added in the PR-ref bookkeeping commit)*
+- **Branch / PR:** `claude/spec-025-plane-oracle-1bdbe1` → https://github.com/jysf/irradiance/pull/48
 - **Completed at:** 2026-10-30
 - **All acceptance criteria met?** Yes — every AC in SPEC-025.
   - **AC1** both Bayer planes' MD5 == `dnglab analyze --raw-checksum`
