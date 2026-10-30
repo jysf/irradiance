@@ -47,7 +47,7 @@ handback:
   estimated_usd: 21.10             # tokens_total × your rate, or your harness's number
   duration_minutes: 40
   branch: verify-spec-028
-  pr: null                         # verify-bookkeeping PR — filled in the PR-ref commit
+  pr: https://github.com/jysf/irradiance/pull/42   # verify-bookkeeping PR
   completed_at: 2026-10-29         # YYYY-MM-DD
   notes: "✅ APPROVED at commit 233ae5c (PR #41, already MERGED to main before this verify ran — a retrospective independent review; no build branch remained to push to, hence this small verify-bookkeeping PR). Every AC reproduced cold: full suite (14 binaries, 0 failed, corpus 7/7 so the Nikon tier-B test actually ran, not skipped), pinned CI clippy 0.1.98 -D warnings, cargo fmt --check, just validate, just lint-no-allow (the five panic lints), and `plane` fuzz 20,465,198 runs/91s 0 crashes. Adversarial mutation (ceil->floor on per-strip layer-0) flips a_two_strip_14bit red while 16-bit stays green, control green restored. Nikon 12-strip plane assembles to 4352x2868 then trips SampleExceedsWhiteLevel (sample 741623=3835>3808) — expected, SPEC-029's to relax. Both build deviations adjudicated ACCEPTABLE; one non-blocking follow-up SPEC-028/FU-1 (amend the spec Outputs formula to the byte-ceil form at ship). tokens_total summed from this verify session's own transcript JSONL (scratchpad-UUID anchored, deduped by message.id; all 52 usage records claude-opus-4-8; input+output+cache_creation+cache_read), cache-read-dominated (8.64M of 8.88M); estimated_usd at per-category Opus list rates. Floor-by-id snapshot, not a budget delta."
   synced_at: 2026-10-29
