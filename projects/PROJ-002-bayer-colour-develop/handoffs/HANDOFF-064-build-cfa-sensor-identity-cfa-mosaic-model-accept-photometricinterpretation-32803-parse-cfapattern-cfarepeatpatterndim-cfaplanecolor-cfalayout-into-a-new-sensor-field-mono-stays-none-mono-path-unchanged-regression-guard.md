@@ -47,7 +47,7 @@ handback:
   estimated_usd: 105.56            # tokens_total × your rate, or your harness's number
   duration_minutes: 40
   branch: claude/spec-024-cfa-identity-24f81f
-  pr: null
+  pr: https://github.com/jysf/irradiance/pull/37
   completed_at: 2026-10-29         # YYYY-MM-DD
   notes: "all 8 ACs met; +1 file beyond the spec list (src/bin/irr.rs gains one println surfacing color_filter, AGENTS.md §11 reader); tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at per-category Opus list rates (in 15 / out 75 / cache-write 18.75 / cache-read 1.50 per Mtok), cache-read-dominated"
   synced_at: 2026-10-29
@@ -173,7 +173,7 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-024-cfa-identity-24f81f` → (PR opened from this branch; backfilled below)
+- **Branch / PR:** `claude/spec-024-cfa-identity-24f81f` → https://github.com/jysf/irradiance/pull/37
 - **Completed at:** 2026-10-29
 - **All acceptance criteria met?** Yes — every AC in SPEC-024.
   - **AC1** A CFA IFD (photometric 32803, 1 sample, NewSubfileType 0) is
