@@ -6,14 +6,14 @@
 task:
   id: SPEC-028
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -84,6 +84,7 @@ cost:
     tokens_total: 52438502
     estimated_usd: 123.35
     session_count: 2
+shipped_at: 2026-10-29
 ---
 
 # SPEC-028: Multi-strip mosaic plane assembly: unpack a Bayer plane stored as N strips (`plane::unpack_into` is single-strip-only, SPEC-012 `src/plane.rs:225`; the Nikon D300S is 12 strips)
@@ -132,9 +133,11 @@ it errored before. The single-strip path stays byte-for-byte unchanged.
   strip_byte_counts.len()`, N ≥ 1). For strip `i`:
   - `rows_i = min(rows_per_strip, height - i*rows_per_strip)` (last strip is the
     remainder). `rows_per_strip` is **required** when N > 1 — typed error if absent.
-  - Per-strip layer-0: `strip_byte_counts[i] * 8 == rows_i * width * bits` (each
-    strip is byte-aligned; sub-byte strips pad to a byte boundary **independently** —
-    which is why strips unpack per-strip, not by concatenating bytes).
+  - Per-strip layer-0 (byte-ceil form, SPEC-028/FU-1): `strip_byte_counts[i] ==
+    ((rows_i * width * bits) + 7) / 8` — each strip pads to a byte boundary
+    **independently**, so its byte count is the *ceiling* of its bit count over 8
+    (the exact `* 8 ==` holds only when `rows_i * width * bits` is a multiple of 8).
+    This is why strips unpack per-strip, not by concatenating bytes.
   - Read that strip's bytes (bounds-checked → `Truncated`) and unpack via the
     existing byte-aligned / bitstream path into
     `dst[i*rows_per_strip*width .. + rows_i*width]`.
