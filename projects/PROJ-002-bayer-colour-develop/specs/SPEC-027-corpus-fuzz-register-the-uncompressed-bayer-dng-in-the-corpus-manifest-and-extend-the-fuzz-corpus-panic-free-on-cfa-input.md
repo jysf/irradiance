@@ -6,7 +6,7 @@
 task:
   id: SPEC-027
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -63,11 +63,27 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 65438120
+      estimated_usd: 146.41
+      duration_minutes: 40
+      recorded_at: 2026-10-30
+      notes: "test-only — no src/ change, no new DEC. Registered both Bayer DNGs in tests/corpus/manifest.toml with MEASURED bytes/sha256 (Canon 5G4A9394.DNG: 48382640 bytes, sha256 95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1; Nikon _DSC4615.DNG: 37562890 bytes, sha256 c2fefd96e0125f5d5b891dff66b9ac673d6f0059db21c3a9dd469fe460f88bb7), raw_checksum re-confirmed against dnglab 0.7.2 (Canon a18235d6abced4df9948b6fbe91aba7c, Nikon b8e8025d370cc2e97f675e63a0e6bbdb), licence CC0-1.0 (raw.pixls.us; Canon Adobe-written DNG, Nikon dnglab-converted NEF — provenance corroborated by each file's own Software tag). Folded the Bayer oracle onto the manifest (DECODABLE 4->6, partition 6+3==9, deleted the bespoke Bayer oracle test + CANON/NIKON_RAW_CHECKSUM consts + require_bayer; red-proof now manifest-sourced). Migrated the SPEC-028/029 plane_unpack tests to manifest.get()+require(). Added a synthetic CFA fixture family to tests/support/tiff.rs (valid_cfa_sensor + cfa_pattern_past_eof) emitted into fuzz/seeds/ifd via tiff::all(), asserted in tests/ifd_reader.rs. THREE interlocks the design did not spell out, each handled minimally and documented inline: (1) bumped MANIFEST_ENTRIES 7->9; (2) ifd_reader's manifest==EXPECTED partition — the CFA files are mono-oracle-incompatible (12-strip Nikon, photometric 32803), so added CFA_CHECKED_ELSEWHERE; (3) metadata_oracle iterates all manifest files and would panic on an unmapped Bayer file — skipped them as SPEC-026's domain (an explicit Non-Goal). One design-wording deviation: the hostile CFA-tag variant is COSTED (DEC-012), not a typed Err, so it is asserted no-panic + costed rather than as an error. tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at Opus list rates, cache-read-dominated."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 9885669
+      estimated_usd: 22.79
+      duration_minutes: 30
+      recorded_at: 2026-10-30
+      notes: "✅ APPROVED at commit e95ec04 (PR #52, already MERGED to main before this verify ran — a retrospective cold independent review; no build branch remained to push to, hence a small verify-bookkeeping PR). PR #52 is TEST/CORPUS/FUZZ ONLY (13 files, +696/-110, NO src/ change): git diff c178d0b..e95ec04 touches tests/corpus/manifest.toml, tests/{corpus_manifest,ifd_reader,metadata_oracle,plane_oracle,plane_unpack,support/tiff}.rs, fuzz/seeds/ifd/cfa-*.tiff (3) + the spec/timeline/HANDOFF-072. Independent ground truth recomputed this session: on-disk sha256 Canon 95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1 (48,382,640 bytes) + Nikon c2fefd96e0125f5d5b891dff66b9ac673d6f0059db21c3a9dd469fe460f88bb7 (37,562,890 bytes) == manifest; dnglab 0.7.2 analyze --raw-checksum Canon a18235d6abced4df9948b6fbe91aba7c + Nikon b8e8025d370cc2e97f675e63a0e6bbdb == manifest [file.oracle] raw_checksum (not a self-comparison). corpus_files_match_their_pinned_sha256 verified 9/9 live. Oracle fold confirmed manifest-driven: DECODABLE 4->6, plane_md5_matches_the_pinned_raw_checksum hashes both Bayer and reads each expected checksum from entry.oracle.raw_checksum, partition 6+3==9; the bespoke bayer_plane_md5 test + CANON/NIKON_RAW_CHECKSUM consts + require_bayer are GONE (grep: no Bayer checksum literal in plane_oracle.rs, only the manifest + the corpus_manifest.rs manifest-integrity spot-check). Byte-aligned red-proof reddens from the MANIFEST reference: honest b8e8025d (== manifest Nikon) vs mutant fdcb897fbae2bd9d180e05f9217f5011, control green (live --nocapture). plane_unpack SPEC-028/029 migrated to manifest.get()+entry.require(); forward-ref 'SPEC-027 registers it' skip messages gone (grep clean). CFA fuzz: 3 synthetic seeds (cfa-sensor-ii/mm, cfa-pattern-past-eof) in fuzz/seeds/ifd, cargo run --example fuzz-seeds idempotent (empty git diff). Panic-free: a_well_formed_cfa_container_parses_to_a_cfa_sensor (color_filter Some(Cfa{repeat_dim [2,2], pattern [0,1,1,2]})), a_truncated_cfa_container_returns_without_panicking (typed Truncated on header-only prefix), a_hostile_cfa_tag_costs_the_field_not_the_file (DEC-012/DEC-015 costed: color_filter None + CFAPattern in malformed_tags, no panic). THREE deviations ADJUDICATED (all honest): (1) CFA_CHECKED_ELSEWHERE in ifd_reader is an honest exclusion, not a coverage drop — partition EXPECTED(7)+CFA_CHECKED_ELSEWHERE(2)==9 is enforced and the CFA files are genuinely checked by plane_oracle (DECODABLE) + plane_unpack; (2) metadata_oracle CFA_DEFERRED_TO_SPEC_026 is honest — SPEC-026's domain (stated Non-Goal), the default on an unmapped file is a PANIC (loud), and mono coverage is unchanged (exiftool 7/9, dnglab 6/6 live); (3) the hostile cfa_pattern_past_eof is COSTED not a typed Err, which is the CORRECT DEC-012 (strict-on-structure/tolerant-on-shape) + DEC-015 (malformed_tags records a lost value) behaviour — no src/ changed, so this is SPEC-024's established behaviour, and the spec's 'typed Err' wording was the slip (the truncated container IS a typed Truncated). Reader interlock exhaustive: all manifest readers updated (corpus_manifest MANIFEST_ENTRIES=9, plane_oracle dynamic files.len() partition, ifd_reader partition, metadata_oracle 3 loops); no stale count-7 manifest reader survives. Gates: just test full suite (0 failed across all 13 binaries, 1 pre-existing documented ignore in develop.rs; corpus_manifest 9/9, plane_oracle 14/14, plane_unpack 18/18, ifd_reader 15/15, metadata_oracle 30/30, lib 95/0), just lint-ci clippy -D warnings pinned +stable 0.1.98 exit 0, cargo fmt --check exit 0, just validate exit 0 (33 valid / 150 parseable), just ready clean, just decisions-audit 0 structural errors (11 pre-existing advisory). Bounded fuzz over the new CFA seed: ifd 9,199,147 runs/46s 0 crashes, plane 10,718,767 runs/46s 0 crashes (plane fed both seed sets incl. the CFA ifd seeds — both targets take the same TIFF format), 0 artifacts, tree clean. No new DEC; verify emitted none. tokens_total summed from THIS verify session's own Claude Code transcript JSONL (scratchpad-UUID anchored 15b4889e, deduped by message.id across 50 usage records, all claude-opus-4-8; input+output+cache_creation+cache_read), cache-read-dominated (9.62M of 9.89M, 97.3%); estimated_usd at per-category Opus list rates. Floor-by-id snapshot taken at hand-back, not a budget delta."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 75323789
+    estimated_usd: 169.20
+    session_count: 2
 ---
 
 # SPEC-027: Corpus + fuzz: register the uncompressed Bayer DNG in the corpus manifest and extend the fuzz corpus; panic-free on CFA input
