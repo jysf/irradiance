@@ -6,7 +6,7 @@
 task:
   id: SPEC-025
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -72,10 +72,9 @@ cost:
 
 # SPEC-025: Bit-exact mosaic plane oracle: the Bayer file's unpacked plane MD5 equals `dnglab analyze --raw-checksum`, with its red-proof
 
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-025]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
+> **DESIGN — `cycle: design`.** Approach + failing tests below; a build session
+> makes the Failing Tests pass. STAGE-006's capstone — the first bit-exact proof
+> the Bayer mosaic decodes.
 
 ## Context
 
@@ -98,40 +97,66 @@ demosaic.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:**
+  - `tests/plane_oracle.rs` — the SPEC-013 oracle: `decode_and_hash` + `plane_md5`
+    (reuse for the Bayer plane), the manifest-driven `DECODABLE` mono oracle, and the
+    **red-proof apparatus** (`TempDir`, `stage_probe_crate`, `build_and_run_probe`,
+    `PROBE_MAIN`, `inject_chunk_extraction_fault`) — reuse the stage/build/run machinery.
+  - `tests/plane_unpack.rs:895` (`the_nikon_d300s_twelve_strip_plane_...`) — the
+    direct-path, skip-when-absent pattern for a Bayer corpus file (the Bayer DNGs are
+    **not in `tests/corpus/manifest.toml` yet** — SPEC-027's job — so reference them by
+    `CorpusRoot` + relative path, like this test).
+  - `src/plane.rs:187` `unpack_byte_aligned` (byte-order branch `:210–212`,
+    `from_le_bytes` / `from_be_bytes`) — the Bayer red-proof's injection target.
+  - `docs/oracle-contract.md` (`--raw-checksum` = MD5 of the uncropped u16 plane,
+    native-LE); `dnglab` (to compute each Bayer file's pinned checksum).
+- **Corpus:** `CANON-EOS-5D-MARK-III/5G4A9394.DNG` (single-strip, 16-bit, 5920×3950)
+  and `NIKON-D300S/_DSC4615.DNG` (12-strip, 16-bit, 4352×2868).
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:** `tests/plane_oracle.rs` (or a sibling `tests/plane_oracle_bayer.rs`).
+  **No `src/` change; no manifest change** (Bayer stays direct-path until SPEC-027).
+- **Bayer plane oracle (Tier B, corpus-gated):** `decode_and_hash` each Bayer DNG and
+  assert the plane MD5 equals its pinned `--raw-checksum`, held as named constants
+  computed at build via `dnglab analyze --raw-checksum` (one per file). Skip-when-absent,
+  loudly, like `plane_unpack.rs`.
+- **Bayer red-proof (byte-aligned path):** a new inject fn swapping `unpack_byte_aligned`'s
+  byte order (`from_le_bytes` ↔ `from_be_bytes`, `src/plane.rs:210–212`) in a staged copy
+  via the existing `stage_probe_crate` / `build_and_run_probe`; assert the mutant's Bayer
+  MD5 ≠ honest, with an unmutated control that reproduces the pinned checksum. **This is
+  the guard DEC-029 moved here** — the removed `SampleExceedsWhiteLevel` assertion used to
+  catch exactly this byte-swap; now the oracle must. (The mono red-proof covers only the
+  sub-byte `BitReader`, which a 16-bit Bayer plane never hits.)
+- **Reference file:** prefer the Nikon (12-strip) so the red-proof also exercises the
+  multi-strip assembly; a byte-order swap corrupts every sample, so either file proves it.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] Our unpacked plane MD5 equals `dnglab analyze --raw-checksum` for BOTH Bayer
+  DNGs — Canon single-strip 5920×3950 and Nikon 12-strip 4352×2868. The first
+  bit-exact proof the Bayer mosaic decodes.
+- [ ] A byte-order swap injected into `unpack_byte_aligned` turns the Bayer plane's
+  MD5 **red** (mutant ≠ honest); the unmutated control reproduces the pinned checksum.
+- [ ] The mono oracle (4 `DECODABLE` files) and its sub-byte red-proof stay green
+  (regression — SPEC-013's behaviour untouched).
+- [ ] No corpus → the Bayer oracle + red-proof skip loudly; the tier-A tests
+  (no corpus, no tools) still run.
+- [ ] No `src/` change and no manifest change — the oracle is test-only.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
-
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`tests/plane_oracle.rs` (or `tests/plane_oracle_bayer.rs`)**
+  - `bayer_plane_md5_matches_dnglab_raw_checksum` — Canon + Nikon; each decoded
+    plane's MD5 == its pinned `--raw-checksum` constant. Corpus-gated (skip loud).
+  - `a_byte_order_swap_turns_the_bayer_oracle_red` — the byte-aligned red-proof:
+    mutant Bayer MD5 ≠ honest. Corpus-gated.
+  - `the_bayer_red_proof_control_is_green` — the unmutated staged copy reproduces the
+    pinned Bayer checksum (apparatus negative control).
+- **Pinned constants (filled at build):** `CANON_RAW_CHECKSUM`, `NIKON_RAW_CHECKSUM`
+  = `dnglab analyze --raw-checksum <file>`.
+- **Regression (stay green):** `plane_md5_matches_the_pinned_raw_checksum` (mono) and
+  `an_injected_unpacker_fault_turns_the_oracle_red` (sub-byte).
 
 ## Non-Goals
 
@@ -142,8 +167,22 @@ job in **build** is to make these pass.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **Direct-path, not the manifest.** The Bayer DNGs are not in `tests/corpus/manifest.toml`
+  yet (SPEC-027 registers them), so reference them by `CorpusRoot` + relative path with a
+  loud skip, like `tests/plane_unpack.rs`'s Nikon test. Do NOT add them to `DECODABLE` or
+  the manifest — that would trip `compressed_files_are_skipped_by_name`'s count. SPEC-027
+  later migrates the Bayer corpus into the manifest and may fold these tests into the
+  manifest-driven oracle; keep that migration easy.
+- **The red-proof must target the BYTE-ALIGNED path.** The mono red-proof injects a
+  sub-byte `BitReader` fault a 16-bit Bayer plane never hits. Swap the byte order in
+  `unpack_byte_aligned` instead — it corrupts values without changing length (same
+  discipline as SPEC-013's chosen fault) and is the exact byte-swap DEC-029 says the
+  oracle now guards. Assert `mutant ≠ honest` directly, and keep the control.
+- Reuse `decode_and_hash`, `plane_md5`, `stage_probe_crate`, `build_and_run_probe` — only
+  the inject fn and the reference file are new.
+- **Capstone:** with this green, the Bayer mosaic decode is bit-exact-verified end to end
+  (CFA identity + multi-strip + WhiteLevel). STAGE-007 (demosaic) then builds the first
+  colour image on a plane proven correct.
 
 ---
 
