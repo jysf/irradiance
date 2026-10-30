@@ -6,14 +6,14 @@
 task:
   id: SPEC-029
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -84,6 +84,7 @@ cost:
     tokens_total: 40964323
     estimated_usd: 44.28
     session_count: 2
+shipped_at: 2026-10-30
 ---
 
 # SPEC-029: WhiteLevel-exceedance policy: samples above `WhiteLevel` are legal (the Canon 5D-III clips one); relax `SampleExceedsWhiteLevel` and amend DEC-008
@@ -108,8 +109,8 @@ job, not unpack's) or the `dnglab --raw-checksum` can't match.
 Amend DEC-008 and relax `plane::unpack_into` so a sample above `WhiteLevel` no
 longer errors — the Canon 5D-III plane unpacks, with raw sample values **preserved,
 not clamped**. Keep a meaningful bound (samples still fit the declared bit depth).
-A new DEC records the amendment (reconcile its number — DEC-029 is informally
-reserved for the crustyimg LUT boundary).
+Recorded as **DEC-029** (the next free number; the earlier informal LUT-boundary
+reservation was released at ship — SPEC-029/FU-1).
 
 ## Inputs
 
@@ -139,9 +140,9 @@ reserved for the crustyimg LUT boundary).
   `WhiteLevel` is a develop-time saturation parameter. The byte-swap detection
   DEC-008 pinned on this assertion now rests on the **bit-exact oracle (SPEC-025)**
   plus the layer-0 packed-bits check — record that trade-off honestly (the free
-  in-library guard for the byte-aligned path is reduced). Reconcile the DEC number —
-  **DEC-029 is informally reserved for the crustyimg LUT boundary**, so take the next
-  genuinely free one.
+  in-library guard for the byte-aligned path is reduced). Recorded as **DEC-029** —
+  the next free number on disk; the earlier informal LUT-boundary reservation was
+  released at ship (SPEC-029/FU-1).
 
 ## Acceptance Criteria
 
