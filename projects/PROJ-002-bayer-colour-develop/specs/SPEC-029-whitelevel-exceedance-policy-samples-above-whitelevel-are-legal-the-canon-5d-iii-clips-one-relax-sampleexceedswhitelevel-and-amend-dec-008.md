@@ -6,7 +6,7 @@
 task:
   id: SPEC-029
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -72,10 +72,18 @@ cost:
       duration_minutes: 20
       recorded_at: 2026-10-30
       notes: "both Failing Tests + both corpus Bayer DNGs (Canon single-strip, Nikon 12-strip) now unpack; Error::SampleExceedsWhiteLevel REMOVED (not strict-mode); DEC-029 written amending DEC-008's permanent-invariant clause; tests in tests/plane_unpack.rs (the unpack_into home, AGENTS.md §12), not the spec's literal `src/plane.rs` wording — same divergence HANDOFF-066 recorded; tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at Opus list rates, cache-read-dominated"
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 9134583
+      estimated_usd: 20.83
+      duration_minutes: 35
+      recorded_at: 2026-10-30
+      notes: "✅ APPROVED at commit 1112c18 (PR #44, already MERGED to main before this verify ran — a retrospective independent review; no build branch remained to push to, hence a small verify-bookkeeping PR). All 5 ACs reproduced cold: full suite (14 binaries, 0 failed, corpus 7/7 so both Bayer tier-B tests + the mono md5 oracle actually RAN, not skipped), pinned CI clippy -D warnings, cargo fmt --check, just validate, just decisions-audit (0 structural errors). Both corpus Bayer DNGs unpack FULLY — Canon single-strip 5920x3950 (max 15464 > WhiteLevel 15000) and Nikon 12-strip 4352x2868 (max 4095 > WhiteLevel 3808) — confirmed via the two --nocapture corpus tests AND irr unpack. Mono regression BYTE-FOR-BYTE: plane_md5_matches_the_pinned_raw_checksum matched dnglab --raw-checksum on all 4 decodable frames (Q2M 14-bit x3 + M Monochrom 16-bit). plane fuzz 25,936,891 runs/91s, 0 crashes. DEC-029 content correct (amends DEC-008's permanent-invariant clause, two-path rule untouched, byte-swap guard moved to SPEC-025 + layer-0). The DEC-029 NUMBER choice is an ACCEPTED intentional deviation (maintainer released the LUT-boundary reservation in the build brief); one non-blocking follow-up SPEC-029/FU-1 (drop the stale reservation hedge in the spec text + 4 sibling docs — at ship). tokens_total summed from this verify session's own transcript JSONL (scratchpad-UUID anchored e997ac41, deduped by message.id; all 59 usage records claude-opus-4-8; input+output+cache_creation+cache_read), cache-read-dominated (8.91M of 9.13M); estimated_usd at per-category Opus list rates. Floor-by-id snapshot, not a budget delta."
   totals:
-    tokens_total: 31829740
-    estimated_usd: 23.45
-    session_count: 1
+    tokens_total: 40964323
+    estimated_usd: 44.28
+    session_count: 2
 ---
 
 # SPEC-029: WhiteLevel-exceedance policy: samples above `WhiteLevel` are legal (the Canon 5D-III clips one); relax `SampleExceedsWhiteLevel` and amend DEC-008
