@@ -11,4 +11,4 @@ Cycle prompts live in `prompts/SPEC-028-<cycle>.md`.
 - [x] **build** — HANDOFF-066. N-strip loop in `src/plane.rs` + `Error::MissingRowsPerStrip`;
       10 new `tests/plane_unpack.rs` tests (7 ACs + inverse-check + Nikon 12-strip corpus);
       Nikon assembles (was `UnsupportedStripLayout`), then trips WhiteLevel (SPEC-029).
-      Gates green; `plane` fuzz 15,026,955 runs / 61s, 0 crashes. $102.25, 2026-10-29. PR #PENDING.
+      Gates green; `plane` fuzz 15,026,955 runs / 61s, 0 crashes. $102.25, 2026-10-29. PR #41.

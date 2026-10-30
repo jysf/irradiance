@@ -47,7 +47,7 @@ handback:
   estimated_usd: 102.25   # tokens_total × your rate, or your harness's number
   duration_minutes: 35
   branch: claude/spec-028-multi-strip-b1667e
-  pr: PR_PLACEHOLDER
+  pr: https://github.com/jysf/irradiance/pull/41
   completed_at: 2026-10-29         # YYYY-MM-DD
   notes: "all 7 Failing Tests + the corpus check pass; one resolved spec-text tension (per-strip layer-0 is byte-ceil, not literal `== rows*width*bits`, so sub-byte strips can carry their independent tail padding — see Deviations); tests placed in tests/plane_unpack.rs (the unpack_into home, AGENTS.md §12) not src/ifd.rs mod tests; tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at Opus list rates, cache-read-dominated"
   synced_at: 2026-10-29
@@ -159,7 +159,7 @@ this — it transcribes it.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-028-multi-strip-b1667e` → PR_PLACEHOLDER
+- **Branch / PR:** `claude/spec-028-multi-strip-b1667e` → https://github.com/jysf/irradiance/pull/41
 - **Completed at:** 2026-10-29
 - **All acceptance criteria met?** Yes — every AC in SPEC-028.
   - **AC1** 2-strip 16-bit plane unpacks to the same samples as the single-strip
