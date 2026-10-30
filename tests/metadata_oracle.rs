@@ -64,20 +64,53 @@ fn exiftool_group(manifest_path: &str) -> &'static str {
         .1
 }
 
-/// The CFA (colour) Bayer planes are registered in the manifest (SPEC-027), but
-/// their METADATA claim is **SPEC-026's** — the colour-metadata oracle — and an
-/// explicit Non-Goal of SPEC-027. This is the monochrome scalar oracle
-/// (SPEC-005): it has no exiftool-group mapping and no colour-aware diff for a
-/// mosaic, so it skips the Bayer files by name until SPEC-026 extends it. Named
-/// here so "skipped" is a decision, not an accident — the same partition
-/// discipline `plane_oracle.rs`'s `DECODABLE`/`SKIPPED_COMPRESSED` keeps.
-const CFA_DEFERRED_TO_SPEC_026: &[&str] = &[
+/// The CFA (colour) Bayer planes carry a per-channel `BlackLevel` the mono
+/// *scalar* oracle (`SPEC-005`) genuinely cannot compare — the Canon's is
+/// `[2047, 2047, 2047, 2048]`, four values where this oracle's `ToolReading`
+/// requires one. Their metadata is now the **colour oracle's** claim,
+/// `tests/colour_metadata_oracle.rs` (`SPEC-026`), which reads the matrices,
+/// illuminants, `AsShotNeutral` and the full per-channel levels. So this list
+/// is no longer "deferred until SPEC-026 is built" — it is "covered elsewhere":
+/// the scalar oracle skips these two files by name because another oracle owns
+/// them, the same partition discipline `plane_oracle.rs`'s
+/// `DECODABLE`/`SKIPPED_COMPRESSED` keeps.
+const CFA_COVERED_BY_COLOUR_ORACLE: &[&str] = &[
     "CANON-EOS-5D-MARK-III/5G4A9394.DNG",
     "NIKON-D300S/_DSC4615.DNG",
 ];
 
-fn is_cfa_deferred(manifest_path: &str) -> bool {
-    CFA_DEFERRED_TO_SPEC_026.contains(&manifest_path)
+fn is_cfa_covered_by_colour_oracle(manifest_path: &str) -> bool {
+    CFA_COVERED_BY_COLOUR_ORACLE.contains(&manifest_path)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AC7, tier A — the two Bayer files are no longer "deferred until SPEC-026",
+// they are "covered by the colour oracle". This oracle names them as such
+// (the rename above); `tests/colour_metadata_oracle.rs` is what actually
+// covers them. Runs everywhere — no tool, no corpus.
+//
+// (The spec's `## Failing Tests` line "a test asserts the two Bayer files are
+// absent from the (renamed) list" is self-contradictory: the scalar mono
+// oracle must KEEP skipping them — the Canon's four-value BlackLevel cannot
+// pass this oracle's single-valued `ToolReading` — so they stay IN the list,
+// which is precisely what names them covered-elsewhere. AC7's own text
+// ("no longer in `CFA_DEFERRED_TO_SPEC_026` — the scalar mono oracle names
+// them 'covered by the colour oracle'") is implemented here; deviation noted
+// in the PR, DEC-012-style.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn the_two_bayer_files_are_covered_by_the_colour_oracle_not_deferred() {
+    for path in [
+        "CANON-EOS-5D-MARK-III/5G4A9394.DNG",
+        "NIKON-D300S/_DSC4615.DNG",
+    ] {
+        assert!(
+            is_cfa_covered_by_colour_oracle(path),
+            "{path} must be named covered-by-the-colour-oracle so this scalar oracle skips it \
+             for a stated reason (AC7), not silently"
+        );
+    }
 }
 
 /// Read and parse one corpus file's sensor plane, or `None` (already having
@@ -110,8 +143,8 @@ fn metadata_matches_exiftool_on_every_corpus_file() {
     let mut checked = 0;
 
     for file in &manifest.files {
-        if is_cfa_deferred(&file.path) {
-            continue; // Bayer metadata is SPEC-026's oracle, not this one.
+        if is_cfa_covered_by_colour_oracle(&file.path) {
+            continue; // Bayer metadata is the colour oracle's claim, not this one.
         }
         let Some((path, sensor)) = sensor_at(&root, file) else {
             continue;
@@ -159,8 +192,8 @@ fn dnglab_scalars_agree_on_the_six_dng_files() {
         if file.path.ends_with(".PEF") {
             continue; // AC4.2 — excluded, its own dedicated test
         }
-        if is_cfa_deferred(&file.path) {
-            continue; // Bayer metadata is SPEC-026's oracle, not this one.
+        if is_cfa_covered_by_colour_oracle(&file.path) {
+            continue; // Bayer metadata is the colour oracle's claim, not this one.
         }
         let Some((path, sensor)) = sensor_at(&root, file) else {
             continue;
@@ -219,8 +252,8 @@ fn dnglab_crop_origin_is_active_area_plus_default_crop_origin() {
         if file.path.ends_with(".PEF") {
             continue; // AC4.2
         }
-        if is_cfa_deferred(&file.path) {
-            continue; // Bayer metadata is SPEC-026's oracle, not this one.
+        if is_cfa_covered_by_colour_oracle(&file.path) {
+            continue; // Bayer metadata is the colour oracle's claim, not this one.
         }
         let Some((path, sensor)) = sensor_at(&root, file) else {
             continue;
@@ -462,6 +495,19 @@ fn fixture_sensor() -> Sensor {
         opcode_list_1: None,
         opcode_list_3: None,
         color_filter: None,
+        // SPEC-026 colour metadata, additive and not read by the mono `diff`:
+        // the monochrome Q2M plane carries no CFA and no colour matrices, and
+        // its BlackLevel/WhiteLevel are single-valued (measured — int16u[1] /
+        // int32u[1]), so the per-channel arrays are the scalars' one element.
+        color_matrix_1: None,
+        color_matrix_2: None,
+        forward_matrix_1: None,
+        forward_matrix_2: None,
+        as_shot_neutral: None,
+        calibration_illuminant_1: None,
+        calibration_illuminant_2: None,
+        black_levels: vec![512],
+        white_levels: vec![16383],
         malformed_tags: vec![],
     }
 }

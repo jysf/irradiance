@@ -169,6 +169,16 @@ fn cmd_ifd(args: &[&str]) -> ExitCode {
     println!("crop_origin     {:?}", sensor.default_crop_origin);
     println!("crop_size       {:?}", sensor.default_crop_size);
     println!("color_filter    {:?}", sensor.color_filter);
+    // SPEC-026 colour metadata — the reader ships with the field (AGENTS.md §11).
+    println!("color_matrix1   {:?}", sensor.color_matrix_1);
+    println!("color_matrix2   {:?}", sensor.color_matrix_2);
+    println!("forward_matrix1 {:?}", sensor.forward_matrix_1);
+    println!("forward_matrix2 {:?}", sensor.forward_matrix_2);
+    println!("as_shot_neutral {:?}", sensor.as_shot_neutral);
+    println!("calib_illum1    {:?}", sensor.calibration_illuminant_1);
+    println!("calib_illum2    {:?}", sensor.calibration_illuminant_2);
+    println!("black_levels    {:?}", sensor.black_levels);
+    println!("white_levels    {:?}", sensor.white_levels);
     println!("orientation     {:?}", sensor.orientation);
     println!(
         "opcode_lists    1:{} 2:{} 3:{}",

@@ -80,6 +80,16 @@ fn minimal_sensor(width: u32, height: u32) -> Sensor {
         opcode_list_1: None,
         opcode_list_3: None,
         color_filter: None,
+        // SPEC-026 colour metadata — additive, not read by this fixture.
+        color_matrix_1: None,
+        color_matrix_2: None,
+        forward_matrix_1: None,
+        forward_matrix_2: None,
+        as_shot_neutral: None,
+        calibration_illuminant_1: None,
+        calibration_illuminant_2: None,
+        black_levels: vec![],
+        white_levels: vec![],
         malformed_tags: vec![],
     }
 }

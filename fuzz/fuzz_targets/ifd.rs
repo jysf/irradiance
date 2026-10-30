@@ -44,6 +44,10 @@ fuzz_target!(|data: &[u8]| {
             let _ = entry.byte_len();
             let _ = container.payload(entry);
             let _ = container.uints(entry);
+            // SPEC-026: the signed/fractional rational reader is a new parse
+            // path on the same attacker bytes — the SRATIONAL read and the
+            // RATIONAL->i32 narrowing must return, never panic.
+            let _ = container.rationals(entry);
         }
     }
 
