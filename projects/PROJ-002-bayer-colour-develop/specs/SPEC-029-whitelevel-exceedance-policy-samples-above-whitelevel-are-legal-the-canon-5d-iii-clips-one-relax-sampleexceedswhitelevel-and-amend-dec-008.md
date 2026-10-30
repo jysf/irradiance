@@ -6,7 +6,7 @@
 task:
   id: SPEC-029
   type: story                      # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -42,7 +42,7 @@ depends_on: [SPEC-024]             # exercised on the Canon Bayer plane the CFA 
 
 # Fan-out lease — who/what holds this spec now (`just claim` / `just unclaim`).
 # Advisory; null = free. The hard lock for parallel agents is the worktree/branch.
-claimed_by: null
+claimed_by: claude-opus-4-8
 
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
