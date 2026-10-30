@@ -154,13 +154,13 @@ polluted by a test fixture — fixed in `f0ecc24`, so it mints clean ids and thi
 stage framed as SPEC-024..027.)
 
 - [x] SPEC-024 (shipped on 2026-10-29) — [M] CFA sensor identity + `Cfa` mosaic model: accept `PhotometricInterpretation == 32803`; parse `CFAPattern`/`CFARepeatPatternDim`/`CFAPlaneColor`/`CFALayout` into a new `Sensor` field; mono stays `None`; mono path unchanged (regression guard)
-- [ ] SPEC-028 (design) — [M] Multi-strip mosaic plane assembly: unpack a Bayer plane stored as N strips (`plane::unpack_into` is single-strip-only, SPEC-012 `src/plane.rs:225`; the Nikon D300S is 12 strips)
+- [x] SPEC-028 (shipped on 2026-10-29) — [M] Multi-strip mosaic plane assembly: unpack a Bayer plane stored as N strips (`plane::unpack_into` is single-strip-only, SPEC-012 `src/plane.rs:225`; the Nikon D300S is 12 strips)
 - [ ] SPEC-029 (design) — [S] WhiteLevel-exceedance policy: samples above `WhiteLevel` are legal (the Canon 5D-III clips one); relax `SampleExceedsWhiteLevel` and amend DEC-008
 - [ ] SPEC-025 (frame) — [M] Bit-exact mosaic plane oracle: the Bayer file's unpacked plane MD5 equals `dnglab analyze --raw-checksum`, with its red-proof
 - [ ] SPEC-026 (frame) — [M] Colour metadata parse + metadata-oracle extension: `AsShotNeutral`, `ColorMatrix1/2`, `CalibrationIlluminant1/2`, `ForwardMatrix1/2`, per-channel `BlackLevel`/`WhiteLevel` — diffed against `dnglab analyze --meta` + `exiftool`
 - [ ] SPEC-027 (frame) — [S] Corpus + fuzz: register the uncompressed Bayer DNG in the corpus manifest and extend the fuzz corpus; panic-free on CFA input
 
-**Count:** 1 shipped / 5 active / 0 pending
+**Count:** 2 shipped / 4 active / 0 pending
 
 ## Design Notes
 

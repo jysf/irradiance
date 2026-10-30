@@ -10,6 +10,12 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **Multi-strip sensor planes** (`irradiance::plane`, SPEC-028, PROJ-002) —
+  `plane::unpack_into` now assembles a plane stored as **N strips** (each strip
+  unpacked into its own rows; sub-byte depths padded per-strip), not just a single
+  strip — opening the common multi-strip layout (e.g. a Nikon D300S Bayer DNG, 12
+  strips). Single-strip planes stay byte-for-byte unchanged; panic-free and fuzzed
+  (20M+ runs, 0 crashes).
 - **CFA (Bayer) sensor recognition** (`irradiance::ifd`, SPEC-024, PROJ-002) — the
   sensor gate now accepts a colour-mosaic DNG (`PhotometricInterpretation == 32803
   (CFA)`, `SamplesPerPixel == 1`) alongside the monochrome `LinearRaw` plane, and
