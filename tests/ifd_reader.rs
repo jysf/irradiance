@@ -26,7 +26,7 @@ mod corpus;
 mod tiff;
 
 use corpus::{CorpusFile, CorpusRoot, Manifest};
-use irradiance::ifd::{ActiveArea, Container, Sensor, TAG_PHOTOMETRIC};
+use irradiance::ifd::{ActiveArea, Cfa, Container, Sensor, TAG_PHOTOMETRIC};
 use irradiance::Error;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,6 +122,20 @@ const EXPECTED: &[Expected] = &[
 /// deciding what the reader should say about it is a failure, not a no-op.
 const EXPECTED_FILES: usize = 7;
 
+/// The CFA (colour) Bayer planes are registered in the manifest (SPEC-027) but
+/// are deliberately NOT in `EXPECTED`: this is the monochrome `LinearRaw`
+/// container oracle, and neither its `photometric == 34892` claim nor its
+/// single-strip layer-0 arithmetic describes a Bayer mosaic (the Nikon D300S is
+/// stored in 12 strips). Their container reading and bit-exact plane coverage
+/// live in `tests/plane_oracle.rs` (both are in `DECODABLE`) and the SPEC-028/029
+/// tests in `tests/plane_unpack.rs`. Named here so the partition in
+/// [`manifest_pairs`] still accounts for EVERY manifest entry — the same
+/// discipline `plane_oracle.rs`'s `DECODABLE`/`SKIPPED_COMPRESSED` split keeps.
+const CFA_CHECKED_ELSEWHERE: &[&str] = &[
+    "CANON-EOS-5D-MARK-III/5G4A9394.DNG",
+    "NIKON-D300S/_DSC4615.DNG",
+];
+
 /// Read one corpus file's bytes, or `None` when it is absent (skip).
 fn bytes_of(entry: &CorpusFile, root: &CorpusRoot) -> Option<Vec<u8>> {
     let path = entry.require(root)?;
@@ -144,11 +158,24 @@ fn manifest_pairs() -> (Manifest, CorpusRoot) {
             e.path
         );
     }
+    // Every manifest entry not in EXPECTED must be one checked elsewhere (the
+    // CFA Bayer planes), never a silently-unchecked file.
+    for p in CFA_CHECKED_ELSEWHERE {
+        assert!(
+            manifest.get(p).is_some(),
+            "{p} is listed as checked-elsewhere but is not in the manifest"
+        );
+        assert!(
+            !EXPECTED.iter().any(|e| e.path == *p),
+            "{p} is in both EXPECTED and CFA_CHECKED_ELSEWHERE"
+        );
+    }
     assert_eq!(
+        EXPECTED.len() + CFA_CHECKED_ELSEWHERE.len(),
         manifest.files.len(),
-        EXPECTED.len(),
-        "the manifest has entries this test says nothing about — a corpus file \
-         with no expected container reading is a file nothing checks"
+        "the manifest has entries this test says nothing about — a corpus file with no \
+         expected container reading here must be one checked elsewhere (the CFA Bayer \
+         planes, covered by tests/plane_oracle.rs + tests/plane_unpack.rs)"
     );
     (manifest, CorpusRoot::resolve())
 }
@@ -471,6 +498,14 @@ fn ifd_rejects_hostile_input() {
         "valid-sensor-mm",
         "valid-subifd-ii",
         "valid-subifd-mm",
+        // SPEC-027: a valid Bayer (CFA) plane in each byte order parses.
+        "cfa-sensor-ii",
+        "cfa-sensor-mm",
+        // The hostile CFAPattern-past-EOF still PARSES: like `payload-offset-past-eof`
+        // the walk never dereferences that tag, and the malformed read is costed
+        // only when `sensor()` interprets it (DEC-012). Asserted in
+        // `a_hostile_cfa_tag_costs_the_field_not_the_file` below.
+        "cfa-pattern-past-eof",
         // These are malformed in ways TIFF tolerates: the file parses, and
         // only the offending tag or lookup fails.
         //
@@ -654,4 +689,104 @@ fn ifd_survives_single_byte_corruption() {
             }
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. SPEC-027 — the Bayer (CFA) parse path, panic-free. Tier A, no corpus.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `SPEC-024` taught the sensor gate to admit a CFA mosaic (Photometric 32803)
+// and parse the four CFA tags into `Sensor::color_filter`; the real corpus
+// files are the subject of `tests/plane_oracle.rs`. These exercise that parse
+// path on HAND-BUILT bytes (`tests/support/tiff.rs`), so they run everywhere a
+// fuzzer would and need no corpus — the same hostile-input discipline the
+// `tiff::all()` sweep above keeps. The CFA seeds are also written into
+// `fuzz/seeds/ifd` by `examples/fuzz-seeds.rs` (both come from `tiff::all()`).
+
+/// A well-formed synthetic CFA container parses to a sensor carrying a `Cfa`.
+#[test]
+fn a_well_formed_cfa_container_parses_to_a_cfa_sensor() {
+    for order in [tiff::Order::Little, tiff::Order::Big] {
+        let data = tiff::valid_cfa_sensor(order);
+        let container = Container::parse(&data).expect("a valid CFA container parses");
+        let sensor = container
+            .sensor()
+            .expect("the CFA IFD is selected as the sensor plane");
+
+        assert_eq!(
+            sensor.photometric, 32803,
+            "PhotometricInterpretation must be CFA (32803)"
+        );
+        assert_eq!(
+            sensor.samples_per_pixel, 1,
+            "a Bayer mosaic is one sample per pixel — colour is by position"
+        );
+        match &sensor.color_filter {
+            Some(Cfa {
+                repeat_dim,
+                pattern,
+                ..
+            }) => {
+                assert_eq!(*repeat_dim, [2, 2], "a 2×2 Bayer repeat");
+                assert_eq!(pattern.as_slice(), &[0, 1, 1, 2], "RGGB mosaic");
+            }
+            None => panic!(
+                "a well-formed CFA plane must carry a Cfa mosaic model, got None (byte order {order:?})"
+            ),
+        }
+        assert!(
+            sensor.malformed_tags.is_empty(),
+            "a well-formed CFA costs nothing, got {:?}",
+            sensor.malformed_tags
+        );
+    }
+}
+
+/// A truncated CFA container returns — a typed `Err`, never a panic — for every
+/// prefix of the valid mosaic (the truncation sweep a fuzzer would find, run
+/// deterministically). `no-panics-on-untrusted-input`, tier A.
+#[test]
+fn a_truncated_cfa_container_returns_without_panicking() {
+    let full = tiff::valid_cfa_sensor(tiff::Order::Little);
+    for cut in 0..=full.len() {
+        let prefix = full.get(..cut).unwrap_or(&[]);
+        // Any answer is acceptable except a panic; the harness catches a panic
+        // as a test failure naming `cut`.
+        if let Ok(container) = Container::parse(prefix) {
+            let _ = container.sensor();
+        }
+    }
+
+    // The CFA IFD lives past the 8-byte header, so a header-only prefix cannot
+    // carry it: a typed `Truncated`, not a panic and not a silent `Ok`.
+    assert!(
+        matches!(
+            Container::parse(full.get(..10).unwrap_or(&[])),
+            Err(Error::Truncated { .. })
+        ),
+        "a CFA container truncated to its header must be a typed Truncated error"
+    );
+}
+
+/// A hostile CFA tag costs the FIELD, not the file (`DEC-012`): a `CFAPattern`
+/// pointing past EOF is recorded in `malformed_tags` and yields no mosaic, while
+/// the plane itself still reads — never a panic. This is the interpretation-class
+/// contract the hostile `cfa-pattern-past-eof` fuzz seed exercises.
+#[test]
+fn a_hostile_cfa_tag_costs_the_field_not_the_file() {
+    let data = tiff::cfa_pattern_past_eof(tiff::Order::Little);
+    let container = Container::parse(&data).expect("the walk itself is fine (DEC-012)");
+    let sensor = container
+        .sensor()
+        .expect("a malformed CFA tag costs the field, not the file");
+    assert_eq!(
+        sensor.color_filter, None,
+        "a CFAPattern that cannot be read yields no mosaic model"
+    );
+    assert!(
+        sensor.malformed_tags.contains(&tiff::CFA_PATTERN),
+        "the costed CFAPattern (tag {}) must be recorded in malformed_tags, got {:?}",
+        tiff::CFA_PATTERN,
+        sensor.malformed_tags
+    );
 }

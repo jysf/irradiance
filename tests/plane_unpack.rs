@@ -882,24 +882,27 @@ fn a_strip_byte_count_mismatch_is_packed_size_mismatch() {
 // SPEC-028 (corpus) — the Nikon D300S Bayer plane is 12 strips
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Tier B. The file is NOT yet in `tests/corpus/manifest.toml` — registering it
-// (with its sha256 and the `dnglab` raw-checksum oracle) is SPEC-027 — so this
-// resolves it through `CorpusRoot` (never a hardcoded path) and skips loudly
-// when the corpus is absent. SPEC-028's deliverable is narrow: assembly runs,
-// so `UnsupportedStripLayout` is GONE. SPEC-029 then retired the
-// `max <= WhiteLevel` assertion, so the assembled plane now unpacks FULLY — the
-// Nikon carries a sample above WhiteLevel (3835 > 3808) that used to trip the
-// (now-removed) assertion after assembly, and is legal.
+// Tier B. The file is registered in `tests/corpus/manifest.toml` (with its
+// sha256 and the `dnglab` raw-checksum oracle) by SPEC-027, so this resolves it
+// through the manifest (`manifest.get(path)` + `entry.require(&root)`, never a
+// hardcoded path) and skips loudly when the corpus is absent. SPEC-028's
+// deliverable is narrow: assembly runs, so `UnsupportedStripLayout` is GONE.
+// SPEC-029 then retired the `max <= WhiteLevel` assertion, so the assembled
+// plane now unpacks FULLY — the Nikon carries a sample above WhiteLevel
+// (3835 > 3808) that used to trip the (now-removed) assertion after assembly,
+// and is legal.
 
 #[test]
 fn the_nikon_d300s_twelve_strip_plane_no_longer_rejects_the_strip_layout() {
     const NIKON: &str = "NIKON-D300S/_DSC4615.DNG";
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
     let root = CorpusRoot::resolve();
-    let path = root.path.join(NIKON);
-    if !root.from_env || !path.exists() {
-        eprintln!("SKIP {NIKON}: set $IRRADIANCE_CORPUS_DIR to the corpus (SPEC-027 registers it)");
-        return;
-    }
+    let Some(entry) = manifest.get(NIKON) else {
+        panic!("{NIKON} must be in the manifest");
+    };
+    let Some(path) = entry.require(&root) else {
+        return; // SKIP already announced by CorpusFile::require
+    };
 
     let bytes = std::fs::read(&path).expect("read the Nikon corpus file");
     let container = Container::parse(&bytes).expect("Nikon DNG parses");
@@ -943,19 +946,21 @@ fn the_nikon_d300s_twelve_strip_plane_no_longer_rejects_the_strip_layout() {
 // 15000 and a sample 15464 above it — the real falsifier for DEC-008's
 // "permanent invariant". Before SPEC-029 this tripped `SampleExceedsWhiteLevel`
 // (sample 2016443 = 15464); now it unpacks fully with the raw value preserved.
-// NOT yet in the manifest (SPEC-027 registers it), so resolved via `CorpusRoot`
-// and skipped loudly when the corpus is absent.
+// Registered in the manifest by SPEC-027, so resolved via `manifest.get(path)`
+// + `entry.require(&root)` and skipped loudly when the corpus is absent.
 
 #[test]
 fn the_canon_5d_iii_plane_unpacks_with_its_above_white_sample_preserved() {
     const CANON: &str = "CANON-EOS-5D-MARK-III/5G4A9394.DNG";
     const WHITE_LEVEL: u32 = 15000;
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
     let root = CorpusRoot::resolve();
-    let path = root.path.join(CANON);
-    if !root.from_env || !path.exists() {
-        eprintln!("SKIP {CANON}: set $IRRADIANCE_CORPUS_DIR to the corpus (SPEC-027 registers it)");
-        return;
-    }
+    let Some(entry) = manifest.get(CANON) else {
+        panic!("{CANON} must be in the manifest");
+    };
+    let Some(path) = entry.require(&root) else {
+        return; // SKIP already announced by CorpusFile::require
+    };
 
     let bytes = std::fs::read(&path).expect("read the Canon corpus file");
     let container = Container::parse(&bytes).expect("Canon DNG parses");

@@ -15,10 +15,13 @@ use std::path::{Path, PathBuf};
 
 /// Entry count is asserted against a literal so that adding a manifest entry
 /// without looking at this file is a *failure*, not a silent no-op.
-const MANIFEST_ENTRIES: usize = 7;
+///
+/// `7 → 9` (SPEC-027): the two uncompressed Bayer DNGs — Canon 5D-III
+/// (single-strip) and Nikon D300S (12-strip) — are now registered here.
+const MANIFEST_ENTRIES: usize = 9;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. the reader exists and reads all 7 manifest entries
+// 1. the reader exists and reads all 9 manifest entries
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -103,6 +106,34 @@ fn corpus_manifest_parses() {
         .expect("the Pentax PEF must be in the manifest");
     assert_eq!(pef.oracle.strip_bytes, None);
     assert!(!pef.oracle.raw_checksum.is_empty());
+
+    // SPEC-027: the two Bayer (CFA) files. CC0-1.0 from raw.pixls.us, their
+    // `raw_checksum` pinned against dnglab 0.7.2. `pgm_bytes`/`strip_bytes` are
+    // omitted by design (the oracle keys on raw_checksum; the 12-strip Nikon has
+    // no single layer-0 strip figure) — asserted here so "omitted" stays a
+    // decision, not an accident.
+    let canon = m
+        .get("CANON-EOS-5D-MARK-III/5G4A9394.DNG")
+        .expect("the Canon 5D-III Bayer DNG must be in the manifest");
+    assert_eq!(canon.licence, "CC0-1.0");
+    assert_eq!(canon.bytes, 48_382_640);
+    assert_eq!(
+        canon.oracle.raw_checksum,
+        "a18235d6abced4df9948b6fbe91aba7c"
+    );
+    assert_eq!(canon.oracle.strip_bytes, None);
+    assert_eq!(canon.oracle.pgm_bytes, None);
+
+    let nikon = m
+        .get("NIKON-D300S/_DSC4615.DNG")
+        .expect("the Nikon D300S Bayer DNG must be in the manifest");
+    assert_eq!(nikon.licence, "CC0-1.0");
+    assert_eq!(nikon.bytes, 37_562_890);
+    assert_eq!(
+        nikon.oracle.raw_checksum,
+        "b8e8025d370cc2e97f675e63a0e6bbdb"
+    );
+    assert_eq!(nikon.oracle.strip_bytes, None);
 }
 
 #[test]
