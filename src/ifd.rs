@@ -133,9 +133,26 @@ pub const TAG_OPCODE_LIST_2: u16 = 51009;
 /// DNG 1.7 §Chapter 6: `OpcodeList3` — applied after demosaic.
 pub const TAG_OPCODE_LIST_3: u16 = 51022;
 
+// The CFA (colour-filter-array) tags a Bayer mosaic carries (TIFF/EP + DNG 1.x
+// §Chapter 6). `SPEC-024`: parsed into [`Cfa`], never on the monochrome path.
+/// TIFF/EP + DNG: `CFARepeatPatternDim` — two SHORTs, the mosaic's (rows, cols).
+pub const TAG_CFA_REPEAT_PATTERN_DIM: u16 = 33421;
+/// TIFF/EP + DNG: `CFAPattern` — `rows*cols` BYTE/UNDEFINED colour indices.
+pub const TAG_CFA_PATTERN: u16 = 33422;
+/// DNG 1.x §Chapter 6: `CFAPlaneColor` — N BYTE, plane-index → colour (default
+/// `[0, 1, 2]` = RGB).
+pub const TAG_CFA_PLANE_COLOR: u16 = 50710;
+/// DNG 1.x §Chapter 6: `CFALayout` — SHORT; default 1 (rectangular).
+pub const TAG_CFA_LAYOUT: u16 = 50711;
+
 /// DNG 1.7: `PhotometricInterpretation = LinearRaw`. The sensor plane *is* the
 /// image; there is no CFA to demosaic (`docs/measured-q2m-dng.md`).
 pub const PHOTOMETRIC_LINEAR_RAW: u32 = 34892;
+
+/// TIFF/EP + DNG: `PhotometricInterpretation = CFA`. A single-sample Bayer
+/// mosaic — colour is encoded by pixel position, read out of [`Cfa`]
+/// (`SPEC-024`).
+pub const PHOTOMETRIC_CFA: u32 = 32803;
 
 // TIFF 6.0 §2, "Types". Only the ones this module reads as integers are named.
 const TYPE_BYTE: u16 = 1;
@@ -493,6 +510,37 @@ pub struct DefaultCropSize {
     pub height: u32,
 }
 
+/// The colour-filter-array mosaic model of a Bayer plane (TIFF/EP + DNG 1.x
+/// §Chapter 6): the `CFARepeatPatternDim` / `CFAPattern` / `CFAPlaneColor` /
+/// `CFALayout` tags that describe how a single-sample plane encodes colour by
+/// pixel position. `SPEC-024`.
+///
+/// This is the parsed mosaic *description*, not a decode — nothing here reads a
+/// pixel, and no demosaic has run (that is `SPEC-025` onward). `pattern` and
+/// `plane_color` hold the DNG colour-index bytes verbatim (0 = Red, 1 = Green,
+/// 2 = Blue, …); there is deliberately no typed colour enum, so an unfamiliar
+/// index round-trips rather than being dropped (a Non-Goal of this spec).
+///
+/// Present (`Some`) only on a CFA plane (`PhotometricInterpretation == 32803`)
+/// that carries a readable `CFAPattern`; `None` for a monochrome `LinearRaw`
+/// plane. See [`Container::sensor`] for the interpretation-class parse
+/// (`DEC-012`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cfa {
+    /// `CFARepeatPatternDim` (tag 33421): the repeating pattern's
+    /// `[rows, columns]` — `[2, 2]` for a Bayer mosaic.
+    pub repeat_dim: [u32; 2],
+    /// `CFAPattern` (tag 33422): `repeat_dim[0] * repeat_dim[1]` colour
+    /// indices in row-major order — e.g. `[0, 1, 1, 2]` for 2×2 RGGB.
+    pub pattern: Vec<u8>,
+    /// `CFAPlaneColor` (tag 50710): the colour each plane index maps to; the
+    /// DNG default `[0, 1, 2]` (RGB) when the tag is absent.
+    pub plane_color: Vec<u8>,
+    /// `CFALayout` (tag 50711): the physical mosaic layout; the DNG default 1
+    /// (rectangular) when the tag is absent.
+    pub layout: u32,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The sensor summary
 // ─────────────────────────────────────────────────────────────────────────────
@@ -567,6 +615,17 @@ pub struct Sensor {
     /// absent — and is recorded in `malformed_tags`, same as any other
     /// optional interpretation tag (`DEC-012`).
     pub opcode_list_3: Option<Vec<u8>>,
+    /// The CFA mosaic model ([`Cfa`]), when this is a Bayer-CFA plane
+    /// (`PhotometricInterpretation == 32803`). `None` for a monochrome
+    /// `LinearRaw` plane — colour-by-position is what a mosaic adds, and the
+    /// Leica M Monochrom carries none. `SPEC-024`.
+    ///
+    /// Interpretation-class (`DEC-012`): a malformed CFA tag costs this field
+    /// alone (→ `None`, its tag recorded in `malformed_tags`) and never fails
+    /// the file, so the bit-exact mosaic plane (`SPEC-025`) reads regardless of
+    /// CFA-metadata health. An absent `CFAPattern` is simply `None`, not
+    /// malformed.
+    pub color_filter: Option<Cfa>,
     /// Tags that are **present, shaped wrong, and therefore dropped** — not
     /// every tag any read of which ever errored.
     ///
@@ -1006,12 +1065,43 @@ impl<'a> Container<'a> {
         Ok(Some(out))
     }
 
+    /// A CFA byte-index tag (`CFAPattern`, `CFAPlaneColor`) as its raw DNG
+    /// colour-index bytes, or `None` when absent (`SPEC-024`).
+    ///
+    /// These tags are `BYTE`/`UNDEFINED` (TIFF/EP + DNG 1.x); any other field
+    /// type is a malformed tag, reported honestly as `Err` so the interpretation
+    /// caller can cost the field (`DEC-012`), the same contract `array()` keeps.
+    /// Delegates to [`Container::uints`] for the `MAX_TAG_VALUES` bound and the
+    /// bounds-checked payload read; the narrowing to `u8` is lossless because
+    /// `BYTE`/`UNDEFINED` values are `0..=255` by construction there.
+    fn cfa_bytes(&self, ifd: &Ifd, tag: u16) -> Result<Option<Vec<u8>>, Error> {
+        let Some(entry) = ifd.entry(tag) else {
+            return Ok(None);
+        };
+        match entry.field_type {
+            TYPE_BYTE | TYPE_UNDEFINED => {}
+            other => {
+                return Err(Error::UnexpectedFieldType {
+                    tag: entry.tag,
+                    field_type: other,
+                })
+            }
+        }
+        let bytes = self
+            .uints(entry)?
+            .into_iter()
+            .map(|v| u8::try_from(v).unwrap_or_default())
+            .collect();
+        Ok(Some(bytes))
+    }
+
     // ── sensor selection ────────────────────────────────────────────────────
 
     /// Whether this IFD is the full-resolution sensor plane.
     ///
-    /// `NewSubfileType == 0 && PhotometricInterpretation == 34892 (LinearRaw)
-    /// && SamplesPerPixel == 1` — **never by largest dimensions**. A Leica Q2
+    /// `NewSubfileType == 0 && PhotometricInterpretation ∈ { 34892 (LinearRaw),
+    /// 32803 (CFA) } && SamplesPerPixel == 1` — **never by largest dimensions**.
+    /// A Leica Q2
     /// Monochrom DNG carries `SubIFD2`, a full-resolution *JPEG preview* only
     /// 56 px narrower than the plane (8368 against 8424), so a size heuristic
     /// is one firmware revision away from silently returning the preview
@@ -1045,8 +1135,13 @@ impl<'a> Container<'a> {
             Ok(v) => v,
             Err(_) => return SensorMatch::Unreadable(TAG_PHOTOMETRIC),
         };
-        if photometric != Some(PHOTOMETRIC_LINEAR_RAW) {
-            return SensorMatch::No;
+        // `SPEC-024`: the gate now admits a Bayer mosaic (`CFA`, 32803) beside
+        // the monochrome `LinearRaw` (34892). A mosaic is still ONE sample per
+        // pixel — colour is encoded by position — so the `SamplesPerPixel == 1`
+        // and `NewSubfileType == 0` checks below are unchanged.
+        match photometric {
+            Some(PHOTOMETRIC_LINEAR_RAW) | Some(PHOTOMETRIC_CFA) => {}
+            _ => return SensorMatch::No,
         }
 
         let samples = match self.scalar(ifd, TAG_SAMPLES_PER_PIXEL) {
@@ -1141,6 +1236,50 @@ impl<'a> Container<'a> {
                 None
             }
         }
+    }
+
+    /// The CFA mosaic model ([`Cfa`]) of a Bayer plane, or `None` (`SPEC-024`).
+    ///
+    /// Interpretation-class throughout (`DEC-012`): every tag is read via
+    /// [`Container::cost_the_field`], so a malformed CFA tag costs that field
+    /// and is recorded in `malformed`, never failing the file. The mosaic is
+    /// exposed only when `CFAPattern` itself reads — an **absent** pattern is
+    /// simply "no CFA described here" (and, being absent, is not malformed),
+    /// while a **malformed** one costs `TAG_CFA_PATTERN` and yields `None`. The
+    /// two colour-less tags fall back to their DNG defaults: `CFAPlaneColor` to
+    /// `[0, 1, 2]` (RGB), `CFALayout` to 1 (rectangular).
+    ///
+    /// Gated by the caller on `photometric == PHOTOMETRIC_CFA`, so a `LinearRaw`
+    /// plane never reads a CFA tag and the monochrome path is byte-for-byte
+    /// unchanged.
+    fn parse_cfa(&self, ifd: &Ifd, malformed: &mut Vec<u16>) -> Option<Cfa> {
+        // `CFAPattern` is the mosaic; without it there is nothing to expose.
+        let pattern = Self::cost_the_field(
+            self.cfa_bytes(ifd, TAG_CFA_PATTERN),
+            TAG_CFA_PATTERN,
+            malformed,
+        )?;
+        let repeat_dim = Self::cost_the_field(
+            self.array::<2>(ifd, TAG_CFA_REPEAT_PATTERN_DIM, malformed),
+            TAG_CFA_REPEAT_PATTERN_DIM,
+            malformed,
+        )
+        .unwrap_or([0, 0]);
+        let plane_color = Self::cost_the_field(
+            self.cfa_bytes(ifd, TAG_CFA_PLANE_COLOR),
+            TAG_CFA_PLANE_COLOR,
+            malformed,
+        )
+        .unwrap_or_else(|| vec![0, 1, 2]);
+        let layout =
+            Self::cost_the_field(self.scalar(ifd, TAG_CFA_LAYOUT), TAG_CFA_LAYOUT, malformed)
+                .unwrap_or(1);
+        Some(Cfa {
+            repeat_dim,
+            pattern,
+            plane_color,
+            layout,
+        })
     }
 
     /// The sensor plane's tags, as [`Sensor`].
@@ -1268,6 +1407,24 @@ impl<'a> Container<'a> {
             &mut malformed,
         );
 
+        // Structural: Photometric — part of the identifying trio, so a malformed
+        // read fails the file. Read once here and reused for the struct field
+        // and the CFA gate below; the same equivalent-mutant reasoning as
+        // `samples_per_pixel` applies (it was already read cleanly by the scan
+        // that selected this IFD).
+        let photometric = self.required_scalar(ifd, TAG_PHOTOMETRIC)?;
+
+        // Interpretation: the CFA mosaic model (`SPEC-024`). Gated on a CFA
+        // plane so a `LinearRaw` plane never reads a CFA tag and the monochrome
+        // path stays byte-for-byte unchanged. A malformed CFA tag costs its
+        // field and is recorded, never failing the file (`DEC-012`); the
+        // bit-exact plane (`SPEC-025`) reads regardless.
+        let color_filter = if photometric == PHOTOMETRIC_CFA {
+            self.parse_cfa(ifd, &mut malformed)
+        } else {
+            None
+        };
+
         Ok(Sensor {
             ifd_index,
             // Structural: ImageWidth, ImageLength, BitsPerSample — "what
@@ -1285,9 +1442,10 @@ impl<'a> Container<'a> {
             // error, by the scan that chose this IFD. Equivalent mutant,
             // unkillable by construction; do not manufacture coverage for it.
             samples_per_pixel: self.scalar(ifd, TAG_SAMPLES_PER_PIXEL)?.unwrap_or(1),
-            // Structural: Photometric — part of the identifying trio. Same
-            // equivalent-mutant reasoning as `samples_per_pixel` above.
-            photometric: self.required_scalar(ifd, TAG_PHOTOMETRIC)?,
+            // Structural: Photometric — part of the identifying trio. Read
+            // once above (reused for the CFA gate); same equivalent-mutant
+            // reasoning as `samples_per_pixel`.
+            photometric,
             // Structural: Compression. TIFF 6.0 defaults to 1 (uncompressed)
             // when absent.
             compression: Compression::from_code(self.scalar(ifd, TAG_COMPRESSION)?.unwrap_or(1)),
@@ -1314,6 +1472,7 @@ impl<'a> Container<'a> {
             ],
             opcode_list_1,
             opcode_list_3,
+            color_filter,
             malformed_tags: malformed,
         })
     }
@@ -1403,6 +1562,24 @@ mod tests {
                 u32::from(v)
             }
         }
+        /// Pack up to four BYTE values into the 4-byte value word so the parser
+        /// reads them back as `bytes` in order, whatever the byte order — the
+        /// inline-BYTE shape `CFAPattern` / `CFAPlaneColor` use. (For a count
+        /// below 4, `payload` ignores the trailing bytes.)
+        fn bytes_word(&self, bytes: [u8; 4]) -> u32 {
+            if self.big {
+                u32::from_be_bytes(bytes)
+            } else {
+                u32::from_le_bytes(bytes)
+            }
+        }
+        /// Pack two SHORTs into the value word (the `CFARepeatPatternDim`
+        /// shape), byte-order-correct the way [`Build::short_word`] is for one.
+        fn two_shorts_word(&self, a: u16, b: u16) -> u32 {
+            let [a0, a1] = self.u16_bytes(a);
+            let [b0, b1] = self.u16_bytes(b);
+            self.bytes_word([a0, a1, b0, b1])
+        }
     }
 
     /// The entries of a valid 4x2, 14-bit, single-sample LinearRaw plane.
@@ -1423,6 +1600,164 @@ mod tests {
             (TAG_STRIP_OFFSETS, TYPE_LONG, 1, 512),
             (TAG_STRIP_BYTE_COUNTS, TYPE_LONG, 1, 14),
         ]
+    }
+
+    /// The entries of a valid 2×2-RGGB CFA plane: the `sensor(&b)` LinearRaw
+    /// plane with the photometric switched to CFA (32803) and the four CFA
+    /// tags added. Every CFA tag's payload is ≤ 4 bytes, so each packs inline
+    /// in the value word — no external data block is needed.
+    fn cfa_sensor(b: &Build) -> Vec<(u16, u16, u32, u32)> {
+        let mut entries = sensor(b);
+        for e in &mut entries {
+            if e.0 == TAG_PHOTOMETRIC {
+                e.3 = b.short_word(PHOTOMETRIC_CFA as u16);
+            }
+        }
+        entries.extend_from_slice(&[
+            (
+                TAG_CFA_REPEAT_PATTERN_DIM,
+                TYPE_SHORT,
+                2,
+                b.two_shorts_word(2, 2),
+            ),
+            (TAG_CFA_PATTERN, TYPE_BYTE, 4, b.bytes_word([0, 1, 1, 2])),
+            (
+                TAG_CFA_PLANE_COLOR,
+                TYPE_BYTE,
+                3,
+                b.bytes_word([0, 1, 2, 0]),
+            ),
+            (TAG_CFA_LAYOUT, TYPE_SHORT, 1, b.short_word(1)),
+        ]);
+        entries
+    }
+
+    // ── CFA mosaic (SPEC-024) ─────────────────────────────────────────────────
+
+    #[test]
+    fn a_cfa_ifd_is_selected_as_the_sensor_plane() {
+        let b = Build::new(false, 8);
+        let entries = cfa_sensor(&b);
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        assert_eq!(c.sensor_candidates().len(), 1);
+        assert!(c.sensor().is_ok());
+    }
+
+    #[test]
+    fn a_cfa_plane_exposes_its_mosaic_model() {
+        let b = Build::new(false, 8);
+        let entries = cfa_sensor(&b);
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        let s = c.sensor().unwrap();
+        assert_eq!(
+            s.color_filter,
+            Some(Cfa {
+                repeat_dim: [2, 2],
+                pattern: vec![0, 1, 1, 2],
+                plane_color: vec![0, 1, 2],
+                layout: 1,
+            })
+        );
+        // A well-formed CFA costs nothing.
+        assert!(s.malformed_tags.is_empty());
+    }
+
+    #[test]
+    fn a_cfa_mosaic_model_is_byte_order_agnostic() {
+        // Build the same plane in II and MM; a byte-order bug in the CFA reads
+        // would show up as a different pattern/repeat_dim out of one of them.
+        let mut seen = Vec::new();
+        for big in [false, true] {
+            let b = Build::new(big, 8);
+            let entries = cfa_sensor(&b);
+            let data = b.ifd(8, &entries, 0).done();
+            let c = Container::parse(&data).unwrap();
+            seen.push(c.sensor().unwrap().color_filter);
+        }
+        assert_eq!(seen[0], seen[1]);
+        assert_eq!(
+            seen[0],
+            Some(Cfa {
+                repeat_dim: [2, 2],
+                pattern: vec![0, 1, 1, 2],
+                plane_color: vec![0, 1, 2],
+                layout: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn a_monochrome_plane_has_no_color_filter() {
+        // The existing LinearRaw `sensor(&b)` plane — no CFA tags are even read.
+        let b = Build::new(false, 8);
+        let entries = sensor(&b);
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        let s = c.sensor().unwrap();
+        assert_eq!(s.color_filter, None);
+        assert!(!s.malformed_tags.contains(&TAG_CFA_PATTERN));
+        assert!(!s.malformed_tags.contains(&TAG_CFA_REPEAT_PATTERN_DIM));
+    }
+
+    #[test]
+    fn a_cfa_plane_with_more_than_one_sample_is_not_selected() {
+        // A mosaic is one sample per pixel; two samples is not a CFA plane this
+        // gate accepts, CFA photometric or not.
+        let b = Build::new(false, 8);
+        let mut entries = cfa_sensor(&b);
+        for e in &mut entries {
+            if e.0 == TAG_SAMPLES_PER_PIXEL {
+                e.3 = b.short_word(2);
+            }
+        }
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        assert!(matches!(c.sensor(), Err(Error::NoSensorIfd)));
+    }
+
+    #[test]
+    fn a_malformed_cfa_pattern_costs_the_field_not_the_file() {
+        // `CFAPattern` typed as ASCII (2) — not BYTE/UNDEFINED, so the CFA parse
+        // reads it as malformed rather than a mosaic. The file still reads.
+        let b = Build::new(false, 8);
+        let mut entries = cfa_sensor(&b);
+        for e in &mut entries {
+            if e.0 == TAG_CFA_PATTERN {
+                e.1 = 2; // TYPE_ASCII — unsupported for a CFA byte index
+            }
+        }
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        let s = c.sensor().unwrap();
+        assert_eq!(s.color_filter, None);
+        assert!(s.malformed_tags.contains(&TAG_CFA_PATTERN));
+    }
+
+    #[test]
+    fn absent_cfa_tags_on_a_cfa_plane_are_not_malformed() {
+        // A CFA photometric plane carrying NONE of the four CFA tags: absent is
+        // not malformed, so nothing is recorded and there is no CFA to expose.
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        for e in &mut entries {
+            if e.0 == TAG_PHOTOMETRIC {
+                e.3 = b.short_word(PHOTOMETRIC_CFA as u16);
+            }
+        }
+        let data = b.ifd(8, &entries, 0).done();
+        let c = Container::parse(&data).unwrap();
+        let s = c.sensor().unwrap();
+        assert_eq!(s.color_filter, None);
+        for tag in [
+            TAG_CFA_REPEAT_PATTERN_DIM,
+            TAG_CFA_PATTERN,
+            TAG_CFA_PLANE_COLOR,
+            TAG_CFA_LAYOUT,
+        ] {
+            assert!(!s.malformed_tags.contains(&tag));
+        }
     }
 
     // ── header ──────────────────────────────────────────────────────────────

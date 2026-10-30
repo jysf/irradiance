@@ -513,7 +513,7 @@ impl fmt::Display for Error {
                 write!(f, "offset {offset} is not addressable on this platform")
             }
             Error::NoSensorIfd => f.write_str(
-                "no IFD matched the sensor-plane rule (NewSubfileType 0, LinearRaw, 1 sample)",
+                "no IFD matched the sensor-plane rule (NewSubfileType 0, LinearRaw or CFA, 1 sample)",
             ),
             Error::NoSensorIfdCandidatesMalformed { candidates } => {
                 write!(
