@@ -38,7 +38,7 @@ references:
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
 # (`just ready`) and safe fan-out. Optional; [] = no blockers.
-depends_on: [SPEC-024]             # the gate must accept CFA before the plane reads
+depends_on: [SPEC-024, SPEC-028, SPEC-029]  # gate (024) + the plane must unpack first (028 multi-strip, 029 WhiteLevel)
 
 # Fan-out lease — who/what holds this spec now (`just claim` / `just unclaim`).
 # Advisory; null = free. The hard lock for parallel agents is the worktree/branch.
@@ -82,11 +82,12 @@ cost:
 The mosaic is still a single sensor plane, so PROJ-001's layer-0 contract — the
 unpacked plane's MD5 equals `dnglab analyze --raw-checksum` — transfers to a Bayer
 file unchanged (the checksum is over the raw mosaic bytes, independent of
-demosaic). Once SPEC-024 lets `sensor()` accept CFA, reuse `plane::unpack_into`
-(`src/plane.rs`) and assert the checksum on the corpus Bayer DNGs, with the
-mandatory red-proof. It is the proof the input is correct before STAGE-007
-interprets a single colour. The oracle method (SPEC-013) needs no change — only a
-second corpus entry.
+demosaic). Once the Bayer plane actually unpacks — SPEC-024 accepts CFA, SPEC-028
+adds multi-strip assembly (the Nikon is 12 strips), SPEC-029 relaxes the WhiteLevel
+assertion (the Canon clips one) — assert the checksum on the corpus Bayer DNGs via
+`plane::unpack_into` (`src/plane.rs`), with the mandatory red-proof. It is the proof
+the input is correct before STAGE-007 interprets a single colour. The oracle method
+(SPEC-013) needs no change — only the plane, and a second corpus entry.
 
 ## Goal
 
