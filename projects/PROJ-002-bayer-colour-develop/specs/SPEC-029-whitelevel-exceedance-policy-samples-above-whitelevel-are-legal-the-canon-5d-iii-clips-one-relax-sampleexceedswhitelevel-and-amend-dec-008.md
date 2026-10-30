@@ -63,11 +63,19 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 31829740
+      estimated_usd: 23.45
+      duration_minutes: 20
+      recorded_at: 2026-10-30
+      notes: "both Failing Tests + both corpus Bayer DNGs (Canon single-strip, Nikon 12-strip) now unpack; Error::SampleExceedsWhiteLevel REMOVED (not strict-mode); DEC-029 written amending DEC-008's permanent-invariant clause; tests in tests/plane_unpack.rs (the unpack_into home, AGENTS.md §12), not the spec's literal `src/plane.rs` wording — same divergence HANDOFF-066 recorded; tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at Opus list rates, cache-read-dominated"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 31829740
+    estimated_usd: 23.45
+    session_count: 1
 ---
 
 # SPEC-029: WhiteLevel-exceedance policy: samples above `WhiteLevel` are legal (the Canon 5D-III clips one); relax `SampleExceedsWhiteLevel` and amend DEC-008

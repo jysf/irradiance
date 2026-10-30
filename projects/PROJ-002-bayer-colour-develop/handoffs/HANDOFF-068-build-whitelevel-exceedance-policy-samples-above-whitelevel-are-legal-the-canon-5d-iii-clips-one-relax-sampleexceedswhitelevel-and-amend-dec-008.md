@@ -47,10 +47,10 @@ handback:
   estimated_usd: 23.45    # tokens_total × your rate, or your harness's number
   duration_minutes: 20
   branch: claude/spec-029-whitelevel-aab6a4
-  pr: PR_PLACEHOLDER
+  pr: https://github.com/jysf/irradiance/pull/44
   completed_at: 2026-10-29          # YYYY-MM-DD
   notes: "both Failing Tests + both corpus Bayer DNGs (Canon single-strip, Nikon 12-strip) now unpack; Error::SampleExceedsWhiteLevel REMOVED (not strict-mode); DEC-029 written amending DEC-008's permanent-invariant clause; tests in tests/plane_unpack.rs (the unpack_into home, AGENTS.md §12), not the spec's literal `src/plane.rs` wording — same divergence HANDOFF-066 recorded; tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at Opus list rates, cache-read-dominated"
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-10-30
 ---
 
 # HANDOFF-068: WhiteLevel-exceedance policy — samples above `WhiteLevel` are legal (the Canon 5D-III clips one); relax `SampleExceedsWhiteLevel` and amend DEC-008
@@ -156,7 +156,7 @@ this — it transcribes it.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-029-whitelevel-aab6a4` → PR_PLACEHOLDER
+- **Branch / PR:** `claude/spec-029-whitelevel-aab6a4` → https://github.com/jysf/irradiance/pull/44
 - **Completed at:** 2026-10-29
 - **All acceptance criteria met?** Yes — every AC in SPEC-029.
   - **AC1** a synthetic plane with a sample above `WhiteLevel` unpacks `Ok` and
