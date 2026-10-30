@@ -39,8 +39,11 @@
 //!
 //! Treating one as the other produces a plane that is wrong in a way that
 //! still decodes, still has the right length, and still passes the layer-0
-//! arithmetic — [`Error::SampleExceedsWhiteLevel`] is the free assertion that
-//! caught it (`DEC-008`'s `Context`).
+//! arithmetic. `DEC-008`'s `Context` records that a `max <= WhiteLevel`
+//! assertion caught that byte-swap in `SPIKE-002`; `DEC-029` retired it (a
+//! sample above `WhiteLevel` is legal — the Canon 5D-III clips one), so that
+//! byte-swap now rests on the bit-exact oracle (`SPEC-025`) plus the per-strip
+//! layer-0 packed-bits check.
 //!
 //! # Allocation — `DEC-016`
 //!
@@ -250,9 +253,11 @@ fn unpack_byte_aligned(
 /// - [`Error::Truncated`] if a strip's declared offset/length runs past
 ///   `file`'s end.
 /// - [`Error::PlaneBufferWrongLength`] if `dst.len() != width * height`.
-/// - [`Error::SampleExceedsWhiteLevel`] if any decoded sample exceeds
-///   `WhiteLevel` (only asserted when the sensor carries one) — the check
-///   `DEC-008` names as the one that catches a mis-selected path.
+///
+/// A decoded sample above `WhiteLevel` is **not** an error (`DEC-029`, amending
+/// `DEC-008`): specular highlights legitimately exceed the nominal white point,
+/// and the plane preserves raw values unchanged — clamping to `WhiteLevel` is
+/// develop's saturation step, not unpack's.
 pub fn unpack_into(
     sensor: &Sensor,
     byte_order: ByteOrder,
@@ -401,22 +406,16 @@ pub fn unpack_into(
         });
     }
 
-    // The free assertion DEC-008 names: max > WhiteLevel is impossible for a
-    // correctly-unpacked linear RAW plane, and it is unconditional, not a
-    // debug assertion — it is what caught SPIKE-002's byte-swap, which had
-    // already passed the layer-0 check above.
-    if let Some(white_level) = sensor.white_level {
-        for (index, sample) in dst.iter().enumerate() {
-            if u32::from(*sample) > white_level {
-                return Err(Error::SampleExceedsWhiteLevel {
-                    index,
-                    sample: *sample,
-                    white_level,
-                });
-            }
-        }
-    }
-
+    // No `max <= WhiteLevel` assertion here (DEC-029, amending DEC-008). A
+    // sample above WhiteLevel is LEGAL: a real sensor records specular
+    // highlights above the nominal white point — the Canon 5D-III Bayer plane
+    // carries one at 15464 > WhiteLevel 15000 — and the bit-exact plane must
+    // PRESERVE the raw value, never clamp it. Clamping is develop's saturation
+    // step (STAGE-007+), not unpack's; doing it here would change bytes and
+    // break SPEC-025's `dnglab --raw-checksum`. WhiteLevel is a develop-time
+    // parameter, not an unpack invariant. The per-sample byte-swap this
+    // assertion caught in SPIKE-002 is now guarded by the bit-exact oracle
+    // (SPEC-025) plus the per-strip layer-0 packed-bits check above.
     Ok(())
 }
 

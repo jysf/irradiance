@@ -286,10 +286,12 @@ pub enum Error {
 
     /// The layer-0 invariant does not hold: `width × height × bits_per_sample`
     /// (in bits) does not equal `StripByteCounts × 8`. `AGENTS.md` §12 bar 3 —
-    /// this check is free, needs no oracle tooling, and is what `SPIKE-002`'s
-    /// byte-swapped plane would ALSO have passed had it been checked (the
-    /// byte-swap preserves total length; only [`Error::SampleExceedsWhiteLevel`]
-    /// catches that one). Both sides are carried in **bits**, matching
+    /// this check is free and needs no oracle tooling, but it does **not** catch
+    /// a per-sample byte-swap: `SPIKE-002`'s byte-swapped plane had the right
+    /// total length and passed it. `DEC-008`'s `max <= WhiteLevel` assertion
+    /// caught that one; `DEC-029` retired the assertion (a sample above
+    /// `WhiteLevel` is legal), so the byte-swap guard now rests on the bit-exact
+    /// oracle (`SPEC-025`). Both sides are carried in **bits**, matching
     /// [`ifd::Sensor::packed_bits`].
     PackedSizeMismatch {
         /// `width × height × bits_per_sample`, in bits.
@@ -308,20 +310,6 @@ pub enum Error {
         expected: u64,
         /// `dst.len()` as given.
         actual: usize,
-    },
-
-    /// A decoded sample exceeds `WhiteLevel`, which is impossible for a
-    /// correctly-unpacked linear RAW plane. `DEC-008`'s free assertion — the
-    /// one that caught `SPIKE-002`'s byte-swapped plane, which had the right
-    /// length, decoded without error, and passed the layer-0 check. Asserted
-    /// on every decode, unconditionally, not behind a debug assertion.
-    SampleExceedsWhiteLevel {
-        /// Index of the offending sample in the plane (row-major).
-        index: usize,
-        /// The decoded value.
-        sample: u16,
-        /// `WhiteLevel`, from the sensor IFD.
-        white_level: u32,
     },
 
     /// `SPEC-014`. `ActiveArea` is empty, inverted (`right <= left` or
@@ -582,16 +570,6 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "destination buffer holds {actual} sample(s), expected {expected}"
-                )
-            }
-            Error::SampleExceedsWhiteLevel {
-                index,
-                sample,
-                white_level,
-            } => {
-                write!(
-                    f,
-                    "sample {index} is {sample}, which exceeds WhiteLevel {white_level}"
                 )
             }
             Error::InvalidActiveArea {

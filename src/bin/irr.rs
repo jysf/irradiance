@@ -256,9 +256,15 @@ fn cmd_unpack(args: &[&str]) -> ExitCode {
     println!("samples[0..8]   {head:?}");
     println!("min             {min}");
     println!("max             {max}");
+    // A sample above WhiteLevel is legal (DEC-029) — print the real relation
+    // rather than asserting `<=`, so the Canon 5D-III's above-white clip shows
+    // as `15464 > 15000`, not a false `<=`.
     println!(
         "white_level     {:?}",
-        sensor.white_level.map(|w| format!("{max} <= {w}"))
+        sensor.white_level.map(|w| {
+            let rel = if u32::from(max) <= w { "<=" } else { ">" };
+            format!("{max} {rel} {w}")
+        })
     );
     println!("plane_bytes     {}", plane.len() * 2);
 

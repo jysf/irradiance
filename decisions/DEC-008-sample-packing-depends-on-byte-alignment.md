@@ -47,6 +47,19 @@ Treating the second case as a bit stream produces a plane that is byte-swapped
 per sample. It is wrong in a way that still *decodes*, still has the right length,
 and still passes the layer-0 arithmetic check.
 
+## WhiteLevel-assertion clause amended by DEC-029
+
+⚠ `DEC-029` reverses **one** `Consequences` clause below — the one that promotes
+the `max <= WhiteLevel` assertion to a "permanent invariant." A sample above
+`WhiteLevel` is **legal** (specular highlights; the Canon 5D-III Bayer plane
+clips one at `15464 > 15000`), so that assertion rejected valid colour files and
+is **removed**, and `Error::SampleExceedsWhiteLevel` with it. The per-sample
+byte-swap this decision's `Context` describes is now guarded by the bit-exact
+oracle (`SPEC-025`) plus the per-strip layer-0 packed-bits check, not by a free
+in-library value assertion. Everything else here — the two-path rule
+(`bits % 8 == 0`), the MSB-first bitstream, the byte-order path, and the
+`Validation` below — is **unchanged**; read `DEC-029` for the trade-off.
+
 ## Context
 
 SPIKE-001 achieved a bit-exact decode of a Leica Q2 Monochrom on the first

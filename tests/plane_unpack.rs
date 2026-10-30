@@ -3,7 +3,8 @@
 //! Two lanes, as `tests/ifd_reader.rs` establishes the pattern:
 //!
 //! - **Tier A** (`each_path_produces_impossible_values_on_the_others_data`,
-//!   `a_plane_whose_max_exceeds_white_level_is_an_error`,
+//!   `a_sample_above_white_level_unpacks_and_is_preserved` /
+//!   `a_plane_within_white_level_is_unchanged` (SPEC-029),
 //!   `layer0_arithmetic_is_enforced`'s hand-built half,
 //!   `hostile_strip_bounds_do_not_panic`) run everywhere. `Fixture` below
 //!   builds minimal sensor-only TIFFs with a real strip payload planted at a
@@ -157,44 +158,92 @@ fn each_path_produces_impossible_values_on_the_others_data() {
         "16-bit LE strip misread as big-endian must reproduce the measured wrong values"
     );
 
-    // Both wrong-path values (43019, 39186) exceed WhiteLevel 16383 — the
-    // assertion that actually catches this in practice is AC4, tested below.
+    // Both wrong-path values (43019, 39186) exceed WhiteLevel 16383. DEC-008's
+    // `max <= WhiteLevel` assertion caught exactly this byte-swap; DEC-029
+    // retired it (a sample above WhiteLevel is legal — see SPEC-029's tests
+    // above), so the guard against this mis-selected path is now the bit-exact
+    // oracle (SPEC-025), not an in-unpack assertion.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AC4 — max > WhiteLevel is a loud, unconditional error
+// SPEC-029 — a sample above WhiteLevel is legal (DEC-029 amends DEC-008)
 // ─────────────────────────────────────────────────────────────────────────────
+//
+// DEC-008 pinned `max <= WhiteLevel` as a "permanent invariant" (the free
+// assertion that caught SPIKE-002's byte-swap). SPEC-029 reverses that one
+// clause: a real sensor records specular highlights above the nominal white
+// point, so a sample above WhiteLevel is NOT an error, and the bit-exact plane
+// must preserve the raw value — clamping is develop's saturation step, not
+// unpack's, and would break SPEC-025's `dnglab --raw-checksum`. The byte-swap
+// guard moves to the bit-exact oracle (SPEC-025) + the per-strip layer-0 check.
 
+/// A plane whose max sample is ABOVE WhiteLevel unpacks `Ok`, and the raw
+/// above-white value is preserved in `dst` — not clamped to WhiteLevel. The
+/// value `15464 > WhiteLevel 15000` is the Canon 5D-III's measured clip.
 #[test]
-fn a_plane_whose_max_exceeds_white_level_is_an_error() {
+fn a_sample_above_white_level_unpacks_and_is_preserved() {
+    const WHITE_LEVEL: u32 = 15000;
+    const ABOVE_WHITE: u16 = 15464; // the Canon 5D-III's measured above-white clip
+    let samples = [100u16, 4096, ABOVE_WHITE, 200]; // 2 x 2, one sample above white
+    let strip = pack_u16(&samples, Order::Little);
     let data = Fixture {
         order: Order::Little,
-        width: 7,
-        height: 1,
-        bits: 16, // wrong on purpose — see AC3's first case
+        width: 2,
+        height: 2,
+        bits: 16,
         strip_offset: 512,
-        strip_byte_count: 14,
-        strip_bytes: &Q2M_STRIP_HEAD,
-        white_level: Some(16383), // now there IS an assertion to trip
+        strip_byte_count: u32::try_from(strip.len()).expect("fixture strip fits u32"),
+        strip_bytes: &strip,
+        white_level: Some(WHITE_LEVEL),
     }
     .build();
     let container = Container::parse(&data).expect("parses");
     let sensor = container.sensor().expect("has a sensor plane");
-    let mut dst = [0u16; 7];
-    let err = unpack_into(&sensor, container.byte_order(), &data, &mut dst)
-        .expect_err("sample 0 (43019) exceeds WhiteLevel 16383");
-    match err {
-        Error::SampleExceedsWhiteLevel {
-            index,
-            sample,
-            white_level,
-        } => {
-            assert_eq!(index, 0);
-            assert_eq!(sample, 43019);
-            assert_eq!(white_level, 16383);
-        }
-        other => panic!("expected SampleExceedsWhiteLevel, got {other:?}"),
+    let mut dst = [0u16; 4];
+    unpack_into(&sensor, container.byte_order(), &data, &mut dst)
+        .expect("a sample above WhiteLevel is legal (DEC-029), not an error");
+    assert_eq!(
+        dst, samples,
+        "the above-white sample must be preserved raw, not clamped to WhiteLevel"
+    );
+    assert!(
+        u32::from(dst[2]) > WHITE_LEVEL,
+        "dst[2] = {} must still exceed WhiteLevel {WHITE_LEVEL} — unchanged, not clamped",
+        dst[2]
+    );
+}
+
+/// Regression: removing the assertion must not touch the within-white path. A
+/// plane whose every sample is `<= WhiteLevel` (including one `== WhiteLevel`)
+/// unpacks to exactly its samples, byte-identical to before. The corpus half of
+/// this regression is the tier-B `unpacks_fourteen_bit_msb_first_samples` (Q2M,
+/// 14-bit) and `unpacks_sixteen_bit_in_file_byte_order` (M Monochrom, 16-bit),
+/// which must also stay green byte-for-byte.
+#[test]
+fn a_plane_within_white_level_is_unchanged() {
+    const WHITE_LEVEL: u32 = 15000;
+    let samples = [100u16, 4096, 14999, 15000]; // all <= WhiteLevel (incl. the boundary)
+    let strip = pack_u16(&samples, Order::Little);
+    let data = Fixture {
+        order: Order::Little,
+        width: 2,
+        height: 2,
+        bits: 16,
+        strip_offset: 512,
+        strip_byte_count: u32::try_from(strip.len()).expect("fixture strip fits u32"),
+        strip_bytes: &strip,
+        white_level: Some(WHITE_LEVEL),
     }
+    .build();
+    let container = Container::parse(&data).expect("parses");
+    let sensor = container.sensor().expect("has a sensor plane");
+    let mut dst = [0u16; 4];
+    unpack_into(&sensor, container.byte_order(), &data, &mut dst)
+        .expect("a within-WhiteLevel plane unpacks unchanged");
+    assert_eq!(
+        dst, samples,
+        "within-WhiteLevel samples (including == WhiteLevel) are preserved unchanged"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -836,11 +885,11 @@ fn a_strip_byte_count_mismatch_is_packed_size_mismatch() {
 // Tier B. The file is NOT yet in `tests/corpus/manifest.toml` — registering it
 // (with its sha256 and the `dnglab` raw-checksum oracle) is SPEC-027 — so this
 // resolves it through `CorpusRoot` (never a hardcoded path) and skips loudly
-// when the corpus is absent. The assertion is narrow and exactly this spec's
-// deliverable: assembly runs, so `UnsupportedStripLayout` is GONE. A Bayer file
-// may still trip `SampleExceedsWhiteLevel` after assembly — that assertion is
-// SPEC-029's to relax, and the Nikon does trip it (sample 3835 > WhiteLevel
-// 3808), which is expected here, not a failure.
+// when the corpus is absent. SPEC-028's deliverable is narrow: assembly runs,
+// so `UnsupportedStripLayout` is GONE. SPEC-029 then retired the
+// `max <= WhiteLevel` assertion, so the assembled plane now unpacks FULLY — the
+// Nikon carries a sample above WhiteLevel (3835 > 3808) that used to trip the
+// (now-removed) assertion after assembly, and is legal.
 
 #[test]
 fn the_nikon_d300s_twelve_strip_plane_no_longer_rejects_the_strip_layout() {
@@ -864,24 +913,71 @@ fn the_nikon_d300s_twelve_strip_plane_no_longer_rejects_the_strip_layout() {
     let mut plane = vec![0u16; pixel_count];
     let result = unpack_into(&sensor, container.byte_order(), &bytes, &mut plane);
 
-    // The deliverable: assembly runs, so the multi-strip layout is no longer
-    // rejected. (Full width*height coverage is proven by the fact that the
-    // WhiteLevel assertion below runs over the whole plane without a length or
-    // layout error.)
+    // SPEC-028's deliverable: assembly runs, so the multi-strip layout is no
+    // longer rejected. SPEC-029's: the assembled plane now unpacks FULLY — the
+    // above-white sample (3835 > WhiteLevel 3808) that used to trip the retired
+    // assertion is legal and preserved. Both are proven by `Ok(())` over the
+    // whole width*height plane with no length, layout, or WhiteLevel error.
     assert!(
         !matches!(result, Err(Error::UnsupportedStripLayout { .. })),
         "SPEC-028: the 12-strip plane must assemble, not return UnsupportedStripLayout"
     );
-    match result {
-        Ok(()) => eprintln!("NIKON {NIKON}: assembled and within WhiteLevel"),
-        Err(Error::SampleExceedsWhiteLevel {
-            index,
-            sample,
-            white_level,
-        }) => eprintln!(
-            "NIKON {NIKON}: assembled; sample {index} = {sample} > WhiteLevel {white_level} \
-             (expected — SPEC-029 relaxes this assertion)"
-        ),
-        Err(other) => panic!("SPEC-028: unexpected post-assembly error: {other:?}"),
+    result.expect(
+        "SPEC-029: the assembled 12-strip plane unpacks fully; its above-white \
+         sample (3835 > WhiteLevel 3808) is legal, not an error",
+    );
+    let max = plane.iter().copied().max().unwrap_or(0);
+    assert!(
+        max > 3808,
+        "the Nikon plane carries a sample above WhiteLevel 3808 (measured max 3835), preserved"
+    );
+    eprintln!("NIKON {NIKON}: assembled and fully unpacked (above-white max {max} preserved)");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-029 (corpus) — the Canon 5D-III single-strip Bayer plane clips above white
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Tier B, the companion of the Nikon check above and SPEC-029's own corpus AC.
+// The Canon is a SINGLE strip (unlike the Nikon's 12), 16-bit, with WhiteLevel
+// 15000 and a sample 15464 above it — the real falsifier for DEC-008's
+// "permanent invariant". Before SPEC-029 this tripped `SampleExceedsWhiteLevel`
+// (sample 2016443 = 15464); now it unpacks fully with the raw value preserved.
+// NOT yet in the manifest (SPEC-027 registers it), so resolved via `CorpusRoot`
+// and skipped loudly when the corpus is absent.
+
+#[test]
+fn the_canon_5d_iii_plane_unpacks_with_its_above_white_sample_preserved() {
+    const CANON: &str = "CANON-EOS-5D-MARK-III/5G4A9394.DNG";
+    const WHITE_LEVEL: u32 = 15000;
+    let root = CorpusRoot::resolve();
+    let path = root.path.join(CANON);
+    if !root.from_env || !path.exists() {
+        eprintln!("SKIP {CANON}: set $IRRADIANCE_CORPUS_DIR to the corpus (SPEC-027 registers it)");
+        return;
     }
+
+    let bytes = std::fs::read(&path).expect("read the Canon corpus file");
+    let container = Container::parse(&bytes).expect("Canon DNG parses");
+    let sensor = container.sensor().expect("Canon has a sensor plane");
+    assert_eq!(
+        sensor.white_level,
+        Some(WHITE_LEVEL),
+        "the Canon 5D-III declares WhiteLevel 15000"
+    );
+    let pixel_count = usize::try_from(u64::from(sensor.width) * u64::from(sensor.height))
+        .expect("Canon plane fits this host");
+    let mut plane = vec![0u16; pixel_count];
+
+    // SPEC-029: a sample above WhiteLevel is legal. Before this spec the unpack
+    // returned `SampleExceedsWhiteLevel`; now it is `Ok` with the raw value kept.
+    unpack_into(&sensor, container.byte_order(), &bytes, &mut plane)
+        .expect("SPEC-029: the Canon's above-white sample (15464 > WhiteLevel 15000) is legal");
+    let max = plane.iter().copied().max().unwrap_or(0);
+    assert!(
+        u32::from(max) > WHITE_LEVEL,
+        "the Canon plane's max sample must exceed WhiteLevel {WHITE_LEVEL} (measured 15464), \
+         preserved raw — found {max}"
+    );
+    eprintln!("CANON {CANON}: unpacked with above-white max {max} > WhiteLevel {WHITE_LEVEL}");
 }
