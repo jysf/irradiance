@@ -436,6 +436,7 @@ fn fixture_sensor() -> Sensor {
         opcode_lists: [true, false, true],
         opcode_list_1: None,
         opcode_list_3: None,
+        color_filter: None,
         malformed_tags: vec![],
     }
 }

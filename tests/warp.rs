@@ -226,6 +226,7 @@ fn output_dimensions_are_unchanged_by_warp() {
         opcode_lists: [false, false, true],
         opcode_list_1: None,
         opcode_list_3: Some(bytes),
+        color_filter: None,
         malformed_tags: vec![],
     };
     assert_eq!(
@@ -354,6 +355,7 @@ fn seam_sensor(opcode_list_3: Option<Vec<u8>>) -> Sensor {
         opcode_lists: [false, false, opcode_list_3.is_some()],
         opcode_list_1: None,
         opcode_list_3,
+        color_filter: None,
         malformed_tags: vec![],
     }
 }

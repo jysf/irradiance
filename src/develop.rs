@@ -902,6 +902,7 @@ mod tests {
             opcode_lists: [false, false, false],
             opcode_list_1: None,
             opcode_list_3: None,
+            color_filter: None,
             malformed_tags: vec![],
         }
     }

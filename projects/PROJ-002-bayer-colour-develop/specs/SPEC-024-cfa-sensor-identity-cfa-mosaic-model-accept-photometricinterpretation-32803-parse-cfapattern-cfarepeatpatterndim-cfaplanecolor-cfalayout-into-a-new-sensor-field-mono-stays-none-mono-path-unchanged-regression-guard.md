@@ -6,7 +6,7 @@
 task:
   id: SPEC-024
   type: story                      # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -63,11 +63,19 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: other
+      tokens_total: 48543952
+      estimated_usd: 105.56
+      duration_minutes: 40
+      recorded_at: 2026-10-29
+      notes: "all 8 ACs met; +1 file beyond the spec list (src/bin/irr.rs gains one println surfacing color_filter, AGENTS.md §11 reader); tokens summed from this session's own Claude Code transcript JSONL (in+out+cache); estimated_usd at per-category Opus list rates (in 15 / out 75 / cache-write 18.75 / cache-read 1.50 per Mtok), cache-read-dominated"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 48543952
+    estimated_usd: 105.56
+    session_count: 1
 ---
 
 # SPEC-024: CFA sensor identity + `Cfa` mosaic model: accept `PhotometricInterpretation == 32803`; parse `CFAPattern`/`CFARepeatPatternDim`/`CFAPlaneColor`/`CFALayout` into a new `Sensor` field; mono stays `None`; mono path unchanged (regression guard)

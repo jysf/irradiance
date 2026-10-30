@@ -222,6 +222,7 @@ fn minimal_sensor(width: u32) -> Sensor {
         opcode_lists: [false, false, false],
         opcode_list_1: None,
         opcode_list_3: None,
+        color_filter: None,
         malformed_tags: vec![],
     }
 }
@@ -656,6 +657,7 @@ fn main() {
         opcode_lists: [false, false, false],
         opcode_list_1: None,
         opcode_list_3: None,
+        color_filter: None,
         malformed_tags: vec![],
     };
     let src: [u16; 6] = [0, 1, 2, 10, 11, 12];

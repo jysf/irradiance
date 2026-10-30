@@ -168,6 +168,7 @@ fn cmd_ifd(args: &[&str]) -> ExitCode {
     println!("active_area     {:?}", sensor.active_area);
     println!("crop_origin     {:?}", sensor.default_crop_origin);
     println!("crop_size       {:?}", sensor.default_crop_size);
+    println!("color_filter    {:?}", sensor.color_filter);
     println!("orientation     {:?}", sensor.orientation);
     println!(
         "opcode_lists    1:{} 2:{} 3:{}",
