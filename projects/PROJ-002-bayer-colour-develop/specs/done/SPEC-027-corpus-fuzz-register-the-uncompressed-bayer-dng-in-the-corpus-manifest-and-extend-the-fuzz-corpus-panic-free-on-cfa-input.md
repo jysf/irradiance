@@ -6,14 +6,14 @@
 task:
   id: SPEC-027
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -80,10 +80,19 @@ cost:
       duration_minutes: 30
       recorded_at: 2026-10-30
       notes: "✅ APPROVED at commit e95ec04 (PR #52, already MERGED to main before this verify ran — a retrospective cold independent review; no build branch remained to push to, hence a small verify-bookkeeping PR). PR #52 is TEST/CORPUS/FUZZ ONLY (13 files, +696/-110, NO src/ change): git diff c178d0b..e95ec04 touches tests/corpus/manifest.toml, tests/{corpus_manifest,ifd_reader,metadata_oracle,plane_oracle,plane_unpack,support/tiff}.rs, fuzz/seeds/ifd/cfa-*.tiff (3) + the spec/timeline/HANDOFF-072. Independent ground truth recomputed this session: on-disk sha256 Canon 95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1 (48,382,640 bytes) + Nikon c2fefd96e0125f5d5b891dff66b9ac673d6f0059db21c3a9dd469fe460f88bb7 (37,562,890 bytes) == manifest; dnglab 0.7.2 analyze --raw-checksum Canon a18235d6abced4df9948b6fbe91aba7c + Nikon b8e8025d370cc2e97f675e63a0e6bbdb == manifest [file.oracle] raw_checksum (not a self-comparison). corpus_files_match_their_pinned_sha256 verified 9/9 live. Oracle fold confirmed manifest-driven: DECODABLE 4->6, plane_md5_matches_the_pinned_raw_checksum hashes both Bayer and reads each expected checksum from entry.oracle.raw_checksum, partition 6+3==9; the bespoke bayer_plane_md5 test + CANON/NIKON_RAW_CHECKSUM consts + require_bayer are GONE (grep: no Bayer checksum literal in plane_oracle.rs, only the manifest + the corpus_manifest.rs manifest-integrity spot-check). Byte-aligned red-proof reddens from the MANIFEST reference: honest b8e8025d (== manifest Nikon) vs mutant fdcb897fbae2bd9d180e05f9217f5011, control green (live --nocapture). plane_unpack SPEC-028/029 migrated to manifest.get()+entry.require(); forward-ref 'SPEC-027 registers it' skip messages gone (grep clean). CFA fuzz: 3 synthetic seeds (cfa-sensor-ii/mm, cfa-pattern-past-eof) in fuzz/seeds/ifd, cargo run --example fuzz-seeds idempotent (empty git diff). Panic-free: a_well_formed_cfa_container_parses_to_a_cfa_sensor (color_filter Some(Cfa{repeat_dim [2,2], pattern [0,1,1,2]})), a_truncated_cfa_container_returns_without_panicking (typed Truncated on header-only prefix), a_hostile_cfa_tag_costs_the_field_not_the_file (DEC-012/DEC-015 costed: color_filter None + CFAPattern in malformed_tags, no panic). THREE deviations ADJUDICATED (all honest): (1) CFA_CHECKED_ELSEWHERE in ifd_reader is an honest exclusion, not a coverage drop — partition EXPECTED(7)+CFA_CHECKED_ELSEWHERE(2)==9 is enforced and the CFA files are genuinely checked by plane_oracle (DECODABLE) + plane_unpack; (2) metadata_oracle CFA_DEFERRED_TO_SPEC_026 is honest — SPEC-026's domain (stated Non-Goal), the default on an unmapped file is a PANIC (loud), and mono coverage is unchanged (exiftool 7/9, dnglab 6/6 live); (3) the hostile cfa_pattern_past_eof is COSTED not a typed Err, which is the CORRECT DEC-012 (strict-on-structure/tolerant-on-shape) + DEC-015 (malformed_tags records a lost value) behaviour — no src/ changed, so this is SPEC-024's established behaviour, and the spec's 'typed Err' wording was the slip (the truncated container IS a typed Truncated). Reader interlock exhaustive: all manifest readers updated (corpus_manifest MANIFEST_ENTRIES=9, plane_oracle dynamic files.len() partition, ifd_reader partition, metadata_oracle 3 loops); no stale count-7 manifest reader survives. Gates: just test full suite (0 failed across all 13 binaries, 1 pre-existing documented ignore in develop.rs; corpus_manifest 9/9, plane_oracle 14/14, plane_unpack 18/18, ifd_reader 15/15, metadata_oracle 30/30, lib 95/0), just lint-ci clippy -D warnings pinned +stable 0.1.98 exit 0, cargo fmt --check exit 0, just validate exit 0 (33 valid / 150 parseable), just ready clean, just decisions-audit 0 structural errors (11 pre-existing advisory). Bounded fuzz over the new CFA seed: ifd 9,199,147 runs/46s 0 crashes, plane 10,718,767 runs/46s 0 crashes (plane fed both seed sets incl. the CFA ifd seeds — both targets take the same TIFF format), 0 artifacts, tree clean. No new DEC; verify emitted none. tokens_total summed from THIS verify session's own Claude Code transcript JSONL (scratchpad-UUID anchored 15b4889e, deduped by message.id across 50 usage records, all claude-opus-4-8; input+output+cache_creation+cache_read), cache-read-dominated (9.62M of 9.89M, 97.3%); estimated_usd at per-category Opus list rates. Floor-by-id snapshot taken at hand-back, not a budget delta."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-10-30
+      notes: "un-metered main-loop cycle (design/ship run in the orchestrator session, DEC-005) — null-with-note per cost-audit. Ship ritual: Reflection, cost totals, timeline, archive, brag. No CHANGELOG entry — test/corpus/fuzz only, no library-behaviour or public-API change. Build PR #52, verify-bookkeeping PR #53; this ship PR closes the cycle. verify_verdict approved; the three build deviations were adjudicated honest at verify; worst-defect: a design under-specification (the manifest readers it did not enumerate) caught at build."
   totals:
     tokens_total: 75323789
     estimated_usd: 169.20
-    session_count: 2
+    session_count: 3
+shipped_at: 2026-10-30
 ---
 
 # SPEC-027: Corpus + fuzz: register the uncompressed Bayer DNG in the corpus manifest and extend the fuzz corpus; panic-free on CFA input
@@ -262,25 +271,35 @@ truncated/hostile Bayer input.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Enumerate every reader of the manifest at design, not just `MANIFEST_ENTRIES`.
+   The design named the one obvious count but not the two other places that hard-code
+   the manifest's shape — `ifd_reader`'s `EXPECTED` partition and `metadata_oracle`'s
+   all-files loop — which the build discovered as its "three interlocks." A one-line
+   "grep every `Manifest::load()` consumer before adding an entry" at design would have
+   listed them up front. The interlock itself is good (a new entry can't land with
+   nothing consuming it); the gap was in scoping it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No. Verify emitted no new DEC. The one slip was design wording, not policy: the
+   spec said a hostile CFA tag should return a "typed `Err`," but a malformed
+   interpretation-class field is **costed** (DEC-012 cost-the-field + DEC-015
+   `malformed_tags`), so the file still parses — the implementation was correct and
+   verify adjudicated it honest. Worth remembering as a lesson (reconcile "hostile →
+   Err" against DEC-012 for interpretation fields; only a structural truncation is a
+   typed `Err`), but once is not a signal.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. **SPEC-026** (the colour-metadata oracle) is the last STAGE-006 spec and is
+   already framed; the `CFA_DEFERRED_TO_SPEC_026` skip this spec added to
+   `metadata_oracle` is precisely its hook — SPEC-026 maps the Bayer files there.
 
 4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
    the defect-escape distribution is greppable across specs:
    `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
    `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+   — `build` — no code defect; the design under-specified which manifest readers must
+   move together, and the build caught and handled all three readers correctly (verify
+   confirmed each exclusion honest). The gap was a design omission, surfaced at build.
 
 5. **What can a user do now that they couldn't before?** — one sentence,
    before → after; quote the confirming number if one exists, name the outcome
@@ -289,4 +308,9 @@ truncated/hostile Bayer input.
    `impact` field is transcribed from, and both halves are already written above
    (## Context is the before, ## Goal is the after): confirm the prediction,
    don't reconstruct it from memory.
-   — <answer | none>
+   — Every consumer of irradiance now has the CFA/Bayer parse path exercised by the
+   fuzz corpus and proven panic-free on truncated/hostile Bayer input (ifd 9.2M + plane
+   10.7M fuzz runs, 0 crashes) — the `no-panics-on-untrusted-input` guarantee that
+   covered the monochrome path now covers colour-mosaic input — and both Bayer corpus
+   DNGs are first-class manifest fixtures (located + checksummed like the mono corpus),
+   so the oracle reads them from one entry instead of a hard-coded constant.
