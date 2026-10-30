@@ -17,6 +17,6 @@ Cycle prompts live in `prompts/SPEC-027-<cycle>.md`.
   lint-ci, validate, decisions-audit) + bounded ifd/plane fuzz 0 crashes. Both Bayer
   DNGs registered (measured bytes/sha256), oracle folded onto the manifest (6/3/9),
   plane_unpack migrated, CFA fuzz seed + tier-A panic-free CFA tests added. HANDOFF-072;
-  65.4M tokens. PR #PR_PLACEHOLDER.
+  65.4M tokens. PR #52.
 - [ ] **verify** — independent cold review.
 - [ ] **ship** — archive, Reflection, cost totals, brag.
