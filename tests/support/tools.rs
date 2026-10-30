@@ -655,7 +655,10 @@ fn unique_scalar_u32(json: &str, key: &str) -> Result<u32, ToolError> {
     })
 }
 
-fn unique_array_str<'a>(json: &'a str, key: &str) -> Result<&'a str, ToolError> {
+/// `pub` for `SPEC-026`'s colour oracle, which reads the SAME `blacklevels`/
+/// `whitelevels` arrays element-by-element (the mono oracle only ever takes
+/// the first). Additive visibility — the mono reader's behaviour is unchanged.
+pub fn unique_array_str<'a>(json: &'a str, key: &str) -> Result<&'a str, ToolError> {
     let start = unique_value_start(json, key)?;
     let rest = json[start..].trim_start();
     if !rest.starts_with('[') {
@@ -713,7 +716,10 @@ fn black_level_scalar(json: &str) -> Result<u32, ToolError> {
     parse_rational_u32("blacklevels.levels[0]", items[0])
 }
 
-fn parse_rational_u32(key: &str, raw: &str) -> Result<u32, ToolError> {
+/// `pub` for `SPEC-026`'s colour oracle: `blacklevels.levels` is an array of
+/// `N/D` rational strings there too, parsed per element. The strict `N % D ==
+/// 0` contract (never assume `D == 1`) is reused as-is. Additive visibility.
+pub fn parse_rational_u32(key: &str, raw: &str) -> Result<u32, ToolError> {
     let raw = raw.trim_matches('"');
     let (n, d) = raw.split_once('/').ok_or_else(|| ToolError::Parse {
         tool: "dnglab",

@@ -198,6 +198,19 @@ pub enum Error {
         denominator: u32,
     },
 
+    /// A `RATIONAL` (unsigned, type 5) numerator or denominator exceeded
+    /// `i32::MAX` while being read as a signed [`ifd::Rational`]
+    /// (`SPEC-026`, [`ifd::Container::rationals`]). The narrowing is
+    /// `i32::try_from`, so a value past the signed range is this typed error
+    /// rather than a silent wrap — the `no-panics-on-untrusted-input` discipline
+    /// applied to the one lossy conversion the reader makes.
+    RationalValueOutOfRange {
+        /// The tag carrying the out-of-range value.
+        tag: u16,
+        /// The unsigned value that did not fit `i32`.
+        value: u32,
+    },
+
     /// A tag declared more values than [`ifd::MAX_TAG_VALUES`]. Bounds
     /// allocation from a hostile `count` independently of the file's length.
     TagTooLarge {
@@ -503,6 +516,12 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "tag {tag}: RATIONAL {numerator}/{denominator} is not a non-negative integer"
+                )
+            }
+            Error::RationalValueOutOfRange { tag, value } => {
+                write!(
+                    f,
+                    "tag {tag}: RATIONAL value {value} exceeds i32::MAX and cannot be read as a signed rational"
                 )
             }
             Error::TagTooLarge { tag, count, limit } => {

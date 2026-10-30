@@ -6,7 +6,7 @@
 task:
   id: SPEC-026
   type: story                      # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -63,7 +63,15 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 29850028
+      estimated_usd: 59.66
+      duration_minutes: 45
+      recorded_at: 2026-10-30
+      notes: "Cold Claude Code build session. src/ifd.rs: new Rational{num:i32,den:i32} + Container::rationals() reader (SRATIONAL type 10 two SLONGs; fractional RATIONAL type 5 narrowed i32::try_from, overflow -> new Error::RationalValueOutOfRange, zero denominator kept verbatim; MAX_TAG_VALUES + as_chunks::<8> bounds like uints/payload); added ByteOrder::i32; 7 new TAG_* consts (ColorMatrix1/2 50721/50722, AsShotNeutral 50728, CalibrationIlluminant1/2 50778/50779, ForwardMatrix1/2 50964/50965); 9 additive Sensor fields (color_matrix_1/2, forward_matrix_1/2, as_shot_neutral, calibration_illuminant_1/2, black_levels, white_levels) parsed interpretation-class (DEC-012) from ifd0() for the matrices/illuminants/AsShotNeutral and from the sensor IFD for the full per-channel levels; scalar black_level/white_level + uints()/mono ToolReading/diff UNCHANGED (SPEC-005/010 red-proofs byte-for-byte). tests/colour_metadata_oracle.rs (new): ColourReading + pure colour_from_fields split, decimal_to_rational + exact i128 cross-multiply rationals_equal (no float tolerance), diff_colour, dnglab_black_levels (parse_rational_u32 per blacklevels.levels element) / dnglab_white_levels (plain-int whitelevels), tier-A fixture control + one-element-perturbed red + comparator red/green, 5 src/ifd.rs unit tests. src/bin/irr.rs prints all 9 fields (AC8, confirmed on the Canon). fuzz/fuzz_targets/ifd.rs now calls rationals() per entry. metadata_oracle.rs CFA_DEFERRED_TO_SPEC_026 -> CFA_COVERED_BY_COLOUR_ORACLE (rename + repointed comment + AC7 test). Made tools.rs unique_array_str + parse_rational_u32 pub (additive). ALL measured against the real corpus (exiftool -v3 -n + dnglab 0.7.2) 2026-10-30. Gates observed green locally: just test exit 0 (full corpus suite), colour oracle 23/23 (2/2 Bayer files present), lib 100/100, lint-ci clippy 0.1.98 -D warnings exit 0, lint-fuzz exit 0, fmt --check clean, validate exit 0, ifd fuzz 11,222,600 runs/61s zero crashes. Deviations (PR, DEC-012-style): (a) dnglab whitelevels are plain integers not N/D so dnglab_white_levels parses u32 (only blacklevels.levels use parse_rational_u32); (b) the Failing-Tests line 'two Bayer files absent from the renamed list' is self-contradictory (the mono oracle must KEEP skipping them) so AC7 implemented per its own text: renamed list names them covered-elsewhere, colour oracle covers them. tokens_total summed from this session's own Claude Code transcript JSONL (scratchpad-UUID ff60457c anchored, deduped by message.id across 105 usage records, all claude-opus-4-8; input+output+cache_creation+cache_read), cache-read-dominated (98.5%); estimated_usd at per-category Opus list rates, no cache discount, order-of-magnitude. Hand-back snapshot."
   totals:
     tokens_total: 0
     estimated_usd: 0

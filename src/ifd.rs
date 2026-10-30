@@ -145,6 +145,35 @@ pub const TAG_CFA_PLANE_COLOR: u16 = 50710;
 /// DNG 1.x §Chapter 6: `CFALayout` — SHORT; default 1 (rectangular).
 pub const TAG_CFA_LAYOUT: u16 = 50711;
 
+// The DNG colour-metadata tags STAGE-007/008 consume (DNG 1.7 §Chapter 4).
+// `SPEC-026`: parsed into [`Sensor`] and diffed against exiftool, never
+// applied to pixels here. The matrices and `AsShotNeutral` live in `IFD0`
+// (measured 2026-10-30, not the sensor sub-IFD) and are SRATIONAL/RATIONAL,
+// read via [`Container::rationals`]; the illuminants are SHORT scalars.
+/// DNG 1.7 §Chapter 4: `ColorMatrix1` — 9 SRATIONAL, the XYZ→camera matrix for
+/// `CalibrationIlluminant1`. Tag `0xC621`, confirmed `exiftool -v3`.
+pub const TAG_COLOR_MATRIX_1: u16 = 50721;
+/// DNG 1.7 §Chapter 4: `ColorMatrix2` — 9 SRATIONAL, for `CalibrationIlluminant2`.
+/// Tag `0xC622`.
+pub const TAG_COLOR_MATRIX_2: u16 = 50722;
+/// DNG 1.7 §Chapter 4: `AsShotNeutral` — the as-shot white balance as N
+/// RATIONAL (one per plane colour; 3 on the corpus RGB Bayer files). Tag
+/// `0xC628` — note `0xC627` is the adjacent `AnalogBalance`.
+pub const TAG_AS_SHOT_NEUTRAL: u16 = 50728;
+/// DNG 1.7 §Chapter 4: `CalibrationIlluminant1` — a SHORT LightSource code (17
+/// = Standard Illuminant A on both corpus files). Tag `0xC65A`.
+pub const TAG_CALIBRATION_ILLUMINANT_1: u16 = 50778;
+/// DNG 1.7 §Chapter 4: `CalibrationIlluminant2` — SHORT (21 = D65 on both
+/// corpus files). Tag `0xC65B`.
+pub const TAG_CALIBRATION_ILLUMINANT_2: u16 = 50779;
+/// DNG 1.7 §Chapter 4: `ForwardMatrix1` — 9 SRATIONAL, camera→XYZ(D50) for
+/// illuminant 1. Tag `0xC714`. Absent on the Nikon D300S (the free
+/// present/absent contrast — `SPEC-026` AC4).
+pub const TAG_FORWARD_MATRIX_1: u16 = 50964;
+/// DNG 1.7 §Chapter 4: `ForwardMatrix2` — 9 SRATIONAL, for illuminant 2. Tag
+/// `0xC715`. Likewise absent on the Nikon.
+pub const TAG_FORWARD_MATRIX_2: u16 = 50965;
+
 /// DNG 1.7: `PhotometricInterpretation = LinearRaw`. The sensor plane *is* the
 /// image; there is no CFA to demosaic (`docs/measured-q2m-dng.md`).
 pub const PHOTOMETRIC_LINEAR_RAW: u32 = 34892;
@@ -164,6 +193,11 @@ const TYPE_LONG: u16 = 4;
 /// ratio is `Error::MalformedRationalValue`, read in [`Container::uints`].
 const TYPE_RATIONAL: u16 = 5;
 const TYPE_UNDEFINED: u16 = 7;
+/// TIFF 6.0 §2: two `SLONG`s, numerator then denominator — a **signed**
+/// rational. The DNG colour matrices (`ColorMatrix1/2`, `ForwardMatrix1/2`)
+/// carry negative fractional values this type, which [`Container::uints`]
+/// refuses; [`Container::rationals`] reads it (`SPEC-026`).
+const TYPE_SRATIONAL: u16 = 10;
 const TYPE_IFD: u16 = 13;
 
 /// Size in bytes of one value of a TIFF field type (TIFF 6.0 §2, "Types";
@@ -244,6 +278,17 @@ impl ByteOrder {
         match self {
             ByteOrder::Little => u32::from_le_bytes(bytes),
             ByteOrder::Big => u32::from_be_bytes(bytes),
+        }
+    }
+
+    /// A **signed** 32-bit read — `SRATIONAL`'s numerator and denominator are
+    /// `SLONG`s (`SPEC-026`). The byte order is the file's, same as [`u32`].
+    ///
+    /// [`u32`]: ByteOrder::u32
+    fn i32(self, bytes: [u8; 4]) -> i32 {
+        match self {
+            ByteOrder::Little => i32::from_le_bytes(bytes),
+            ByteOrder::Big => i32::from_be_bytes(bytes),
         }
     }
 }
@@ -510,6 +555,30 @@ pub struct DefaultCropSize {
     pub height: u32,
 }
 
+/// A signed TIFF rational (`SRATIONAL`, type 10) or fractional `RATIONAL`
+/// (type 5) value, stored **verbatim** — numerator and denominator exactly as
+/// the file wrote them, with no reduction and no float. `SPEC-026`.
+///
+/// This is the [`Cfa`] "store the DNG values verbatim" precedent applied to the
+/// colour matrices: the DNG colour-metadata tags (`ColorMatrix1/2`,
+/// `ForwardMatrix1/2`, `AsShotNeutral`) are exact terminating decimals stored
+/// as `n/10000` or `n/1000000` (measured 2026-10-30), and the metadata oracle
+/// compares them to `exiftool`'s full-precision decimal **exactly**, by
+/// cross-multiplication — so reducing or converting to float here would be the
+/// one lossy step the whole design exists to avoid. `den` may be any value the
+/// file carries, **including zero**: these are not divided here (unlike
+/// [`Container::uints`]'s integral `RATIONAL`), so `0/0`-type garbage is a
+/// value this type holds and the oracle's cross-multiply then judges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rational {
+    /// The numerator, as written (`SLONG` for `SRATIONAL`; a `RATIONAL`'s
+    /// `LONG` numerator narrowed to `i32`, which [`Container::rationals`]
+    /// rejects as a typed error rather than wrapping if it exceeds `i32::MAX`).
+    pub num: i32,
+    /// The denominator, as written. Kept verbatim, zero included.
+    pub den: i32,
+}
+
 /// The colour-filter-array mosaic model of a Bayer plane (TIFF/EP + DNG 1.x
 /// §Chapter 6): the `CFARepeatPatternDim` / `CFAPattern` / `CFAPlaneColor` /
 /// `CFALayout` tags that describe how a single-sample plane encodes colour by
@@ -626,6 +695,41 @@ pub struct Sensor {
     /// CFA-metadata health. An absent `CFAPattern` is simply `None`, not
     /// malformed.
     pub color_filter: Option<Cfa>,
+    /// DNG `ColorMatrix1` (tag 50721): the 9 SRATIONAL XYZ→camera entries for
+    /// `CalibrationIlluminant1`, stored verbatim ([`Rational`]). Read from
+    /// `IFD0` (measured), never applied here — `SPEC-026`, STAGE-008 applies
+    /// it. Interpretation-class (`DEC-012`): a malformed tag costs this field
+    /// alone and is recorded in `malformed_tags`.
+    pub color_matrix_1: Option<Vec<Rational>>,
+    /// DNG `ColorMatrix2` (tag 50722): the entries for `CalibrationIlluminant2`.
+    pub color_matrix_2: Option<Vec<Rational>>,
+    /// DNG `ForwardMatrix1` (tag 50964): the 9 SRATIONAL camera→XYZ(D50)
+    /// entries for illuminant 1. **`None` on the Nikon D300S**, which writes no
+    /// `ForwardMatrix` — the present/absent contrast `SPEC-026` AC4 exercises.
+    pub forward_matrix_1: Option<Vec<Rational>>,
+    /// DNG `ForwardMatrix2` (tag 50965): the entries for illuminant 2. Likewise
+    /// `None` on the Nikon.
+    pub forward_matrix_2: Option<Vec<Rational>>,
+    /// DNG `AsShotNeutral` (tag 50728): the as-shot white balance, one
+    /// positive RATIONAL per plane colour (3 on the corpus RGB Bayer files).
+    /// Stored verbatim ([`Rational`]) — `uints()` would reject it, being
+    /// non-integral.
+    pub as_shot_neutral: Option<Vec<Rational>>,
+    /// DNG `CalibrationIlluminant1` (tag 50778): the SHORT LightSource code the
+    /// first colour matrix was characterised under. Read from `IFD0`.
+    pub calibration_illuminant_1: Option<u32>,
+    /// DNG `CalibrationIlluminant2` (tag 50779): the second illuminant's code.
+    pub calibration_illuminant_2: Option<u32>,
+    /// DNG `BlackLevel` (tag 50714) as the **full per-channel array** — e.g.
+    /// `[2047, 2047, 2047, 2048]` on the Canon, `[0]` on the Nikon. Empty when
+    /// absent. `black_level` above keeps the first-value scalar the monochrome
+    /// oracle and `develop` use; this is additive (`SPEC-026`), for the
+    /// per-channel colour path STAGE-008 will consume.
+    pub black_levels: Vec<u32>,
+    /// DNG `WhiteLevel` (tag 50717) as the full per-channel array (`[15000]`
+    /// Canon, `[3808]` Nikon). Empty when absent; `white_level` above stays the
+    /// first-value scalar.
+    pub white_levels: Vec<u32>,
     /// Tags that are **present, shaped wrong, and therefore dropped** — not
     /// every tag any read of which ever errored.
     ///
@@ -1015,6 +1119,79 @@ impl<'a> Container<'a> {
         Ok(out)
     }
 
+    /// An entry's values as signed/fractional [`Rational`]s — the reader the
+    /// colour matrices need, parallel to [`Container::uints`] and leaving it
+    /// untouched (`SPEC-026`).
+    ///
+    /// Accepts `SRATIONAL` (type 10, two `SLONG`s) and fractional `RATIONAL`
+    /// (type 5, two `LONG`s). A `RATIONAL`'s unsigned `LONG` numerator or
+    /// denominator is narrowed with `i32::try_from`; a value past `i32::MAX` is
+    /// [`Error::RationalValueOutOfRange`], never a silent wrap. Any other field
+    /// type is [`Error::UnexpectedFieldType`].
+    ///
+    /// Same bounds discipline as [`Container::uints`]/[`Container::payload`]:
+    /// `count` is capped by [`MAX_TAG_VALUES`], the payload is read
+    /// bounds-checked, and the 8-byte values are taken with `as_chunks::<8>` so
+    /// the width is a type-level fact. Unlike `uints`, a **zero denominator is
+    /// kept verbatim** — these values are never divided here, so `0/0` is a
+    /// [`Rational`] this returns and the oracle's cross-multiply then judges; a
+    /// malformed *shape* (wrong byte length / wrong type) is the `Err`.
+    pub fn rationals(&self, entry: &Entry) -> Result<Vec<Rational>, Error> {
+        // Type is a property of the entry, checked before the buffer is
+        // touched — same ordering reason as `uints`.
+        match entry.field_type {
+            TYPE_SRATIONAL | TYPE_RATIONAL => {}
+            other => {
+                return Err(Error::UnexpectedFieldType {
+                    tag: entry.tag,
+                    field_type: other,
+                })
+            }
+        }
+
+        let count =
+            usize::try_from(entry.count).map_err(|_| Error::ValueOverflow { tag: entry.tag })?;
+        if count > MAX_TAG_VALUES {
+            return Err(Error::TagTooLarge {
+                tag: entry.tag,
+                count: entry.count,
+                limit: MAX_TAG_VALUES,
+            });
+        }
+
+        let bytes = self.payload(entry)?;
+        let mut out = Vec::with_capacity(count);
+        for chunk in bytes.as_chunks::<8>().0 {
+            // Destructured, not indexed: `as_chunks` makes the eight bytes a
+            // type-level fact, so no fallible `get`/`try_into` is needed.
+            let [n0, n1, n2, n3, d0, d1, d2, d3] = *chunk;
+            let num_bytes: [u8; 4] = [n0, n1, n2, n3];
+            let den_bytes: [u8; 4] = [d0, d1, d2, d3];
+            let (num, den) = match entry.field_type {
+                TYPE_SRATIONAL => (
+                    self.byte_order.i32(num_bytes),
+                    self.byte_order.i32(den_bytes),
+                ),
+                // TYPE_RATIONAL: unsigned LONGs, narrowed without wrapping.
+                _ => {
+                    let num_u = self.byte_order.u32(num_bytes);
+                    let den_u = self.byte_order.u32(den_bytes);
+                    let num = i32::try_from(num_u).map_err(|_| Error::RationalValueOutOfRange {
+                        tag: entry.tag,
+                        value: num_u,
+                    })?;
+                    let den = i32::try_from(den_u).map_err(|_| Error::RationalValueOutOfRange {
+                        tag: entry.tag,
+                        value: den_u,
+                    })?;
+                    (num, den)
+                }
+            };
+            out.push(Rational { num, den });
+        }
+        Ok(out)
+    }
+
     /// First value of `tag` in `ifd`, or `None` when the tag is absent.
     pub fn scalar(&self, ifd: &Ifd, tag: u16) -> Result<Option<u32>, Error> {
         match ifd.entry(tag) {
@@ -1238,6 +1415,25 @@ impl<'a> Container<'a> {
         }
     }
 
+    /// A colour tag's [`Rational`] values read from `IFD0`, or `None` when
+    /// `IFD0` or the tag is absent (`SPEC-026`). Interpretation-class
+    /// (`DEC-012`): a present-but-malformed tag costs that field alone and is
+    /// recorded in `malformed`, never failing the file. An **absent** tag is
+    /// `None` and is *not* recorded (`DEC-015`) — the Nikon `ForwardMatrix` case.
+    fn ifd0_rationals(&self, tag: u16, malformed: &mut Vec<u16>) -> Option<Vec<Rational>> {
+        let entry = self.ifd0()?.entry(tag)?;
+        Self::cost_the_field(self.rationals(entry).map(Some), tag, malformed)
+    }
+
+    /// A colour SHORT scalar (a DNG LightSource code) read from `IFD0`, or
+    /// `None` (`SPEC-026`). Same interpretation-class contract as
+    /// [`Container::ifd0_rationals`]: an absent tag is `None` (via `scalar`'s
+    /// `Ok(None)`), a malformed one costs the field.
+    fn ifd0_scalar(&self, tag: u16, malformed: &mut Vec<u16>) -> Option<u32> {
+        let ifd0 = self.ifd0()?;
+        Self::cost_the_field(self.scalar(ifd0, tag), tag, malformed)
+    }
+
     /// The CFA mosaic model ([`Cfa`]) of a Bayer plane, or `None` (`SPEC-024`).
     ///
     /// Interpretation-class throughout (`DEC-012`): every tag is read via
@@ -1425,6 +1621,32 @@ impl<'a> Container<'a> {
             None
         };
 
+        // Interpretation: the DNG colour metadata (`SPEC-026`). The matrices,
+        // illuminants and AsShotNeutral live in `IFD0` (measured 2026-10-30),
+        // NOT this sensor sub-IFD — reading them from `ifd` would return `None`
+        // everywhere and fail AC1. Each is interpretation-class (`DEC-012`): a
+        // malformed tag costs that field alone, an absent one is simply `None`.
+        let color_matrix_1 = self.ifd0_rationals(TAG_COLOR_MATRIX_1, &mut malformed);
+        let color_matrix_2 = self.ifd0_rationals(TAG_COLOR_MATRIX_2, &mut malformed);
+        let forward_matrix_1 = self.ifd0_rationals(TAG_FORWARD_MATRIX_1, &mut malformed);
+        let forward_matrix_2 = self.ifd0_rationals(TAG_FORWARD_MATRIX_2, &mut malformed);
+        let as_shot_neutral = self.ifd0_rationals(TAG_AS_SHOT_NEUTRAL, &mut malformed);
+        let calibration_illuminant_1 =
+            self.ifd0_scalar(TAG_CALIBRATION_ILLUMINANT_1, &mut malformed);
+        let calibration_illuminant_2 =
+            self.ifd0_scalar(TAG_CALIBRATION_ILLUMINANT_2, &mut malformed);
+
+        // Interpretation: the FULL per-channel BlackLevel/WhiteLevel arrays,
+        // from THIS sensor IFD (the levels are `[SubIFD]`, measured). Read via
+        // the existing integral `values()` path — a RATIONAL `BlackLevel`
+        // (Canon, `524032/256 = 2047`) reads exactly through `uints`. The
+        // scalar `black_level`/`white_level` above already cost the field if
+        // the tag is malformed; `unwrap_or_default` here keeps this additive
+        // read from costing it a SECOND time (and from failing the file),
+        // yielding an empty array for a malformed or absent tag.
+        let black_levels = self.values(ifd, TAG_BLACK_LEVEL).unwrap_or_default();
+        let white_levels = self.values(ifd, TAG_WHITE_LEVEL).unwrap_or_default();
+
         Ok(Sensor {
             ifd_index,
             // Structural: ImageWidth, ImageLength, BitsPerSample — "what
@@ -1473,6 +1695,15 @@ impl<'a> Container<'a> {
             opcode_list_1,
             opcode_list_3,
             color_filter,
+            color_matrix_1,
+            color_matrix_2,
+            forward_matrix_1,
+            forward_matrix_2,
+            as_shot_neutral,
+            calibration_illuminant_1,
+            calibration_illuminant_2,
+            black_levels,
+            white_levels,
             malformed_tags: malformed,
         })
     }
@@ -1579,6 +1810,51 @@ mod tests {
             let [a0, a1] = self.u16_bytes(a);
             let [b0, b1] = self.u16_bytes(b);
             self.bytes_word([a0, a1, b0, b1])
+        }
+        /// Write raw bytes at `at`, growing the buffer — the external payload
+        /// block an `SRATIONAL`/`RATIONAL` array (8+ bytes, never inline) or a
+        /// multi-value `LONG` array needs (`SPEC-026`).
+        fn data_at(mut self, at: u32, bytes: &[u8]) -> Build {
+            let at = at as usize;
+            if self.out.len() < at + bytes.len() {
+                self.out.resize(at + bytes.len(), 0);
+            }
+            self.out[at..at + bytes.len()].copy_from_slice(bytes);
+            self
+        }
+        /// `SRATIONAL` payload bytes for `(num, den)` pairs, byte-order-correct.
+        fn srational_bytes(&self, pairs: &[(i32, i32)]) -> Vec<u8> {
+            let mut v = Vec::new();
+            for (n, d) in pairs {
+                v.extend_from_slice(&if self.big {
+                    n.to_be_bytes()
+                } else {
+                    n.to_le_bytes()
+                });
+                v.extend_from_slice(&if self.big {
+                    d.to_be_bytes()
+                } else {
+                    d.to_le_bytes()
+                });
+            }
+            v
+        }
+        /// `RATIONAL` (unsigned) payload bytes for `(num, den)` pairs.
+        fn rational_bytes(&self, pairs: &[(u32, u32)]) -> Vec<u8> {
+            let mut v = Vec::new();
+            for (n, d) in pairs {
+                v.extend_from_slice(&self.u32_bytes(*n));
+                v.extend_from_slice(&self.u32_bytes(*d));
+            }
+            v
+        }
+        /// `LONG` payload bytes for a value array (external when > 1 value).
+        fn longs_bytes(&self, values: &[u32]) -> Vec<u8> {
+            let mut v = Vec::new();
+            for value in values {
+                v.extend_from_slice(&self.u32_bytes(*value));
+            }
+            v
         }
     }
 
@@ -1758,6 +2034,154 @@ mod tests {
         ] {
             assert!(!s.malformed_tags.contains(&tag));
         }
+    }
+
+    // ── colour metadata (SPEC-026) ────────────────────────────────────────────
+    //
+    // These unit tests put the colour tags in IFD0 where IFD0 *is* the sensor
+    // plane (the Pentax `.PEF` shape: one IFD, no SubIFDs) — `ifd0()` and the
+    // sensor IFD are then the same directory, which is all the reader needs to
+    // exercise. The real corpus files carry the matrices in IFD0 and the plane
+    // in a SubIFD; that split is the live oracle's job (`colour_metadata_oracle`).
+
+    /// ColorMatrix1 = the Canon's own first row, as the SRATIONAL n/10000 the
+    /// DNG stores. The expectation is the value **verbatim** — signed
+    /// numerators, the denominator unreduced — not a float.
+    const CM1: &[(i32, i32)] = &[
+        (7234, 10000),
+        (-1413, 10000),
+        (-600, 10000),
+        (-3631, 10000),
+        (11150, 10000),
+        (2850, 10000),
+        (-382, 10000),
+        (1335, 10000),
+        (6437, 10000),
+    ];
+
+    #[test]
+    fn srational_matrix_reads_signed_and_fractional_verbatim() {
+        // Both byte orders: a signed-read byte-order bug would surface as a
+        // different (or wildly wrong) numerator out of one of them.
+        for big in [false, true] {
+            let b = Build::new(big, 8);
+            let block = b.srational_bytes(CM1);
+            let mut entries = sensor(&b);
+            entries.push((TAG_COLOR_MATRIX_1, TYPE_SRATIONAL, 9, 300));
+            let data = b.ifd(8, &entries, 0).data_at(300, &block).done();
+
+            let s = Container::parse(&data).unwrap().sensor().unwrap();
+            let expected: Vec<Rational> = CM1
+                .iter()
+                .map(|&(num, den)| Rational { num, den })
+                .collect();
+            assert_eq!(s.color_matrix_1, Some(expected));
+            // `uints()` (integer-only) must refuse this very entry — the reason
+            // a separate reader exists at all.
+            let entry = Container::parse(&data)
+                .unwrap()
+                .ifd0()
+                .unwrap()
+                .entry(TAG_COLOR_MATRIX_1)
+                .copied()
+                .unwrap();
+            assert!(matches!(
+                Container::parse(&data).unwrap().uints(&entry),
+                Err(Error::UnexpectedFieldType { field_type: 10, .. })
+            ));
+            assert!(s.malformed_tags.is_empty());
+        }
+    }
+
+    #[test]
+    fn rational_as_shot_neutral_reads_without_integer_division() {
+        // AsShotNeutral is unsigned RATIONAL, and NON-integral — 606276/1000000
+        // is exactly the kind of value `uints()` rejects as
+        // `MalformedRationalValue`. `rationals()` keeps it verbatim.
+        let asn: &[(u32, u32)] = &[(606276, 1000000), (1000000, 1000000), (461885, 1000000)];
+        let b = Build::new(false, 8);
+        let block = b.rational_bytes(asn);
+        let mut entries = sensor(&b);
+        entries.push((TAG_AS_SHOT_NEUTRAL, TYPE_RATIONAL, 3, 300));
+        let data = b.ifd(8, &entries, 0).data_at(300, &block).done();
+
+        let c = Container::parse(&data).unwrap();
+        let s = c.sensor().unwrap();
+        assert_eq!(
+            s.as_shot_neutral,
+            Some(vec![
+                Rational {
+                    num: 606276,
+                    den: 1000000
+                },
+                Rational {
+                    num: 1000000,
+                    den: 1000000
+                },
+                Rational {
+                    num: 461885,
+                    den: 1000000
+                },
+            ])
+        );
+        // The contrast, on the SAME entry: integer division would have rejected
+        // it outright.
+        let entry = c.ifd0().unwrap().entry(TAG_AS_SHOT_NEUTRAL).unwrap();
+        assert!(matches!(
+            c.uints(entry),
+            Err(Error::MalformedRationalValue { .. })
+        ));
+        assert!(c.rationals(entry).is_ok());
+        assert!(s.malformed_tags.is_empty());
+    }
+
+    #[test]
+    fn a_malformed_color_matrix_costs_the_field_not_the_file() {
+        // ColorMatrix1 present but typed LONG (4), not SRATIONAL/RATIONAL —
+        // `rationals()` rejects the type, so the field is dropped and recorded,
+        // and the file still reads with every other field intact (`DEC-012`).
+        let b = Build::new(false, 8);
+        let block = b.longs_bytes(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let mut entries = sensor(&b);
+        entries.push((TAG_COLOR_MATRIX_1, TYPE_LONG, 9, 300));
+        let data = b.ifd(8, &entries, 0).data_at(300, &block).done();
+
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(s.color_matrix_1, None);
+        assert!(s.malformed_tags.contains(&TAG_COLOR_MATRIX_1));
+        // The file did not error, and an unrelated field is intact.
+        assert_eq!(s.width, 4);
+    }
+
+    #[test]
+    fn an_absent_forward_matrix_is_none_not_malformed() {
+        // The plain LinearRaw plane carries no ForwardMatrix: absent reads
+        // `None`, and an absent tag is NEVER recorded malformed (`DEC-015`).
+        let b = Build::new(false, 8);
+        let entries = sensor(&b);
+        let data = b.ifd(8, &entries, 0).done();
+
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(s.forward_matrix_1, None);
+        assert_eq!(s.forward_matrix_2, None);
+        assert!(!s.malformed_tags.contains(&TAG_FORWARD_MATRIX_1));
+        assert!(!s.malformed_tags.contains(&TAG_FORWARD_MATRIX_2));
+    }
+
+    #[test]
+    fn per_channel_black_level_keeps_every_value() {
+        // BlackLevel = four values (the Canon's shape). `black_levels` keeps
+        // all four; the scalar `black_level` stays the first, unchanged.
+        let b = Build::new(false, 8);
+        let block = b.longs_bytes(&[2047, 2047, 2047, 2048]);
+        let mut entries = sensor(&b);
+        entries.push((TAG_BLACK_LEVEL, TYPE_LONG, 4, 300));
+        let data = b.ifd(8, &entries, 0).data_at(300, &block).done();
+
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(s.black_levels, vec![2047, 2047, 2047, 2048]);
+        assert_eq!(s.black_level, Some(2047));
+        assert!(s.malformed_tags.is_empty());
     }
 
     // ── header ──────────────────────────────────────────────────────────────
