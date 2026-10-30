@@ -10,6 +10,12 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **Above-WhiteLevel samples accepted** (`irradiance::plane`, SPEC-029, PROJ-002) —
+  `plane::unpack_into` no longer rejects a sample above `WhiteLevel` (specular
+  highlights are legal); raw values are preserved, not clamped. Amends **DEC-008**
+  (via DEC-029) and removes `Error::SampleExceedsWhiteLevel`. With SPEC-028, both
+  corpus Bayer DNGs (Canon single-strip, Nikon 12-strip) now decode fully —
+  unblocking the bit-exact colour-plane oracle.
 - **Multi-strip sensor planes** (`irradiance::plane`, SPEC-028, PROJ-002) —
   `plane::unpack_into` now assembles a plane stored as **N strips** (each strip
   unpacked into its own rows; sub-byte depths padded per-strip), not just a single
