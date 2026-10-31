@@ -797,9 +797,20 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-09-06
-    last_touched: 2026-09-06
+    last_touched: 2026-10-30
     raised_by: claude
     notes: |
+      ══ STAGE-006 CLOSE, 2026-10-30: DEFERRED, trigger unchanged, still N=2. ══
+      STAGE-006 added no instance. Its six specs were new-capability parse code
+      (SPEC-024 CFA identity, SPEC-026 colour metadata), plane assembly
+      (SPEC-028/029) and a capstone oracle (SPEC-025) — none was a FIX that
+      hardened failing logic while silently keeping the assumption that let it
+      fail, so the "third instance ON DIFFERENT CODE" trigger was not exercised.
+      The one scope change this stage (the SPEC-028/029 precursor split) was a
+      measured surprise about the corpus, not a fix inheriting a precondition.
+      Carries into STAGE-007 at N=2; demosaic will be the first STAGE-006+ work
+      that HARDENS existing logic, so watch it there.
+
       At N=2 and filed as `watch`, deliberately: all three instances are the same
       gate across three patches, so this may be one author's blind spot rather
       than a class. A third instance ON DIFFERENT CODE is what would settle it.
@@ -993,3 +1004,49 @@ signals:
       the ACTIVE project. (a) is the real fix; it is a GATE change, so it wants its
       own patch with the red-proof updated, not an inline edit. Until then, a
       project with shipped stages must stay `active` or its cost gate goes dark.
+
+  # --- process-debt: a spec can ship with its reflection prose left blank ------
+  - id: spec-reflection-shipped-unfilled
+    type: process-debt
+    summary: "A spec can ship and archive with its prose `## Reflection` body left as template placeholders — front-matter (`complexity_actual`, `verify_verdict`) is stamped but the reflection questions are never answered, and nothing catches it."
+    evidence: "N=3, STAGE-006 close 2026-10-30. SPEC-024, SPEC-028 and SPEC-029 were all archived to specs/done/ with `complexity_actual` and `verify_verdict: approved` stamped but their `## Reflection` Q1-Q5 left as `— <answer>` / `— <one word>` placeholders. All three shipped in the rapid-fire 10-30 run (SPEC-024 'ship it, I merged early'; 028/029 back-to-back), where the front-matter step was done and the prose step skipped; SPEC-025/026/027 (same stage, less hurried) were filled. Backfilled at this stage close from each spec's timeline + verify handoff. Same shape as [[brag-step-skipped-at-ship]], [[named-tests-can-pass-vacuously]] and [[follow-up-disposition-has-no-surface]]: a documented ship step with no surface — `just validate` and `archive-spec` check front-matter KEYS but never that the reflection prose was answered, so an unfilled reflection looks identical to one whose ship turn has not come."
+    bar: null
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-10-30
+    last_touched: 2026-10-30
+    raised_by: claude
+    notes: |
+      Cheap fix, same family as the siblings above and ideally sharing their one
+      surface: `just validate` (or `archive-spec`) asserts a shipped spec's
+      `## Reflection` contains no `— <answer>` / `— <one word>` / `<answer | none>`
+      placeholder lines, with its own red-proof (delete an answer, watch it fail).
+      It is a text scan over specs/done/ already on disk. Decide at PROJ-002's
+      close alongside [[brag-step-skipped-at-ship]] and
+      [[follow-up-disposition-has-no-surface]] — three documented-step-with-no-
+      surface defects want one gate, not three. Until it exists, the reflection
+      rests on the ship cycle being run honestly, which STAGE-006 shows is not
+      enough under time pressure.
+
+  # --- lesson: a stage frame can rest on an unverified corpus assumption -------
+  - id: probe-the-hard-assumption-at-frame-time
+    type: lesson
+    summary: "Probe the stage's hardest assumption on the REAL corpus file at FRAME time, not at the capstone's design time — or a precursor surfaces mid-design and forces a scope split."
+    evidence: "N=1, STAGE-006 2026-10-30. The capstone SPEC-025 (bit-exact mosaic-plane oracle) was framed assuming the Bayer plane already unpacked. It did not: the Nikon D300S is 12 strips while `plane::unpack_into` was single-strip-only (SPEC-012), and the Canon 5D-III clips one sample above `WhiteLevel` (DEC-008's assertion). Both surfaced only mid-design, forcing the SPEC-028 (multi-strip) + SPEC-029 (WhiteLevel) precursor split — the stage grew from 4 framed specs to 6. SPEC-025's and SPEC-028's ship reflections name the same miss from both sides: a ten-minute 'does `unpack_into` return a plane for these two files?' spike at STAGE-006's framing would have surfaced both precursors before the capstone was specced."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-10-30
+    last_touched: 2026-10-30
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote — N=1. Adjacent to the codified
+      [[unrun-docs-carry-errors]] and to STAGE-003's measure-before-build lesson,
+      but distinct in WHEN: those say run the code before you write the doc; this
+      says probe the corpus before you FRAME the capstone, because a stage frame
+      can silently rest on an unverified assumption about files that only
+      build/verify will touch. The falsifier is cheap and already known (run the
+      one command the capstone assumes succeeds). Watch for a second instance at
+      STAGE-007's framing: demosaic will assume the `Cfa` pattern + the unpacked
+      plane are both in hand — probe that on both corpus files before speccing the
+      interpolation.

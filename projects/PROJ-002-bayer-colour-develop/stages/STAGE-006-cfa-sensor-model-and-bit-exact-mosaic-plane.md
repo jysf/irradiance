@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-006                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-10-29
-shipped_at: null
+shipped_at: 2026-10-30
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -52,10 +52,11 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
-                                    #   estimated_usd: N
-                                    #   recorded_at: YYYY-MM-DD
-                                    #   notes: "framing + spec breakdown"
+  sessions:
+    - tokens_total: 192053908
+      estimated_usd: 382.39
+      recorded_at: 2026-10-30
+      notes: "Stage grain (DEC-013 §5), not split across specs. ONE orchestrator session (work-status-next-steps, scratchpad uuid c0b7ec9b-2be4-41ad-9dea-77f3b6690343) ran STAGE-006 end to end in the main session: framing + spec breakdown (SPEC-024..027, then the SPEC-028/029 precursor split), the design and ship of all six specs, dispatching and reconciling their cold build/verify sessions, and this stage close. Measured FLOOR from that session's OWN transcript (scratchpad-uuid anchored, NOT text grep), deduped by message.id, all claude-opus-4-8, 98.7% cache-read: 500 usage-bearing messages dated >= 2026-10-29T07:53 (the 'Colour first' PROJ-002 pivot) -> in 1,000 / out 892,041 / cache-write 1,665,647 / cache-read 189,495,220 = 192,053,908 tokens, priced per-component at Opus list rates (15/75/18.75-write/1.50-read per MTok) = 382.39 USD. SCOPED, not the whole 494M-token file: it also holds STAGE-003's tail (SPEC-019 ship, 10-27), STAGE-005's specs + STAGE-004 design (all of 10-28, 208.5M) and the 10-29 pre-pivot crustyimg-dependency + crates.io 0.1.0 block (34.5M) — all EXCLUDED as non-STAGE-006; STAGE-003 already claimed its own 27,001,968 from this file. Floor: the turns writing this close post-date the measurement. RATIO: 192.1M orchestration against 288.7M delegated spec cost (SPEC-024..029 grand totals) = ~40% of the stage's total spend is orchestration no spec recorded."
 ---
 
 # STAGE-006: CFA sensor model and bit-exact mosaic plane
@@ -239,16 +240,69 @@ Tag numbers to confirm from the DNG 1.x spec at build (pointers, not facts):
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled 2026-10-30 at ship (SPEC-026 merged as PR #58; STAGE-006's six specs all
+in specs/done/). Drafted via Prompt 1d (Stage Ship) in FIRST_SESSION_PROMPTS.md.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes, in full. An
+  uncompressed Bayer DNG is now selected by the sensor gate
+  (`PhotometricInterpretation == 32803`), its mosaic plane unpacks **bit-exact**
+  against `dnglab analyze --raw-checksum` (Canon 5920×3950 single-strip, Nikon
+  4352×2868 12-strip), and its colour metadata — CFA pattern, per-channel
+  black/white, `AsShotNeutral`, `ColorMatrix1/2`, `ForwardMatrix1/2`,
+  `CalibrationIlluminant1/2` — parses into `Sensor` and verifies **exactly**
+  against `exiftool` + `dnglab` (colour oracle 23/23, both Bayer files). No
+  demosaic, no white balance, no matrix maths — exactly the scoped boundary. The
+  monochrome path is byte-for-byte unchanged (Q2M + M Monochrom plane and develop
+  oracles stayed green), and the CFA parse path is fuzz-proven panic-free. The
+  deliverable is a correct input and an honest oracle, as promised.
+- **How many specs did it actually take?** 6 (SPEC-024, 028, 029, 025, 026, 027)
+  against the 4 framed (SPEC-024..027). The two extra were precursors —
+  SPEC-028 (multi-strip assembly) and SPEC-029 (WhiteLevel-exceedance) — split out
+  mid-stage when the real Bayer files proved the plane did not unpack as the
+  capstone assumed.
+- **How many outlines survived unchanged?** 4 of 4 framed outlines shipped
+  (SPEC-024/025/026/027); none was dropped or rewritten. The backlog GREW by the
+  two discovered precursors rather than any framed spec changing — the plan was
+  right about WHAT, incomplete about the PREREQUISITES.
+- **What changed between starting and shipping?** One real scope change: the
+  capstone oracle (SPEC-025) was framed assuming the Bayer plane already unpacked;
+  the real files proved otherwise (Nikon is 12-strip; the Canon clips one sample
+  above WhiteLevel), forcing the SPEC-028 + SPEC-029 precursor split — discovered
+  by measurement, not by redesign.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - **Probe the hardest assumption on the real corpus file at FRAME time**, not at
+    the capstone's design time. The one scope change this stage would have been
+    visible from a ten-minute "does `unpack_into` return a plane for these two
+    files?" spike before SPEC-025 was specced. Filed as lesson
+    [[probe-the-hard-assumption-at-frame-time]] (N=1, watch) — STAGE-003's
+    measure-before-build discipline moved one phase earlier.
+  - **The oracle-scope discipline held at its first hard test.** When the first
+    signed/fractional metadata arrived (SRATIONAL matrices, fractional
+    `AsShotNeutral`), the honest move was exact i128 cross-multiplication + scoping
+    each tool to the tags it actually carries — not a float tolerance, not a
+    manufactured second oracle. Landed as **DEC-030**, extending DEC-005/DEC-026;
+    no AGENTS/constraint change needed (`oracle-must-be-shown-red` governed and
+    held — verify re-proved red with two adversarial mutations).
+  - **A ship step with no surface gets skipped under time pressure.** Three of six
+    spec reflections (SPEC-024/028/029) shipped with placeholder prose, backfilled
+    at this close. Filed as process-debt [[spec-reflection-shipped-unfilled]]
+    (owned at project close); its fix shares a surface with
+    [[brag-step-skipped-at-ship]] and [[follow-up-disposition-has-no-surface]].
 - **Signals dispositioned at this close?** (Prompt 1d step 7)
-  - <note what codified / what's still watch + its N>
+  - [[a-fix-inherits-the-precondition-of-the-thing-it-fixes]] (watch, N=2) →
+    **deferred, trigger unchanged**: STAGE-006 added no instance (new-capability +
+    oracle code, no gate-fix hardening), so the "third instance on different code"
+    trigger was not exercised; carries into STAGE-007 at N=2, `last_touched` bumped.
+  - The four codified stage-close lessons ([[unrun-docs-carry-errors]],
+    [[attribute-text-inside-doc-comments]], [[measurement-over-generalised]],
+    [[a-gate-that-fails-mutely-is-a-gate-that-never-ran]]) are terminal and none
+    recurred in STAGE-006 — untouched.
+  - Two new signals filed from this close: lesson
+    [[probe-the-hard-assumption-at-frame-time]] (N=1, watch, stage-close-owned) and
+    process-debt [[spec-reflection-shipped-unfilled]] (N=3, open, project-close-owned).
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - Yes — the frame-time-spike miss, named independently in SPEC-025's and
+    SPEC-028's "what I'd do differently", is promoted to the stage-level lesson
+    above. The other spec-level reflections were spec-local design nits (SPEC-026's
+    self-contradictory AC7, SPEC-027's under-scoped manifest readers), already
+    captured in each reflection and not stage-general.

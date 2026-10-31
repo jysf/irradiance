@@ -206,34 +206,43 @@ Extend the `Build` TIFF DSL to write a plane as **multiple strips** (N
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Backfilled at the STAGE-006 close, 2026-10-30, from this spec's timeline +
+HANDOFF-067 (verify). The prose reflection step was skipped at the original ship
+(back-to-back with SPEC-029); front-matter (`complexity_actual`,
+`verify_verdict`) was stamped then. Recorded as signal
+[[spec-reflection-shipped-unfilled]].*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Probe the real corpus files at **frame** time, not at the capstone's design
+   time. The whole reason this spec exists is that SPEC-025 was framed assuming the
+   Bayer plane already unpacked, and the Nikon D300S turned out to be 12 strips
+   while `plane::unpack_into` was single-strip-only (SPEC-012). A ten-minute
+   "does `unpack_into` return a plane for these two files?" spike at STAGE-006's
+   framing would have surfaced this precursor (and SPEC-029) before the capstone
+   was specced. SPEC-025's reflection names the same miss from the other side.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No DEC. The single slip was spec-prose: the Outputs section's byte-ceiling
+   wording (SPEC-028/FU-1), caught cold at verify and filed non-blocking — a doc
+   nit, not policy. The N-strip assembly and `Error::MissingRowsPerStrip` matched
+   the design.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. SPEC-029 (the WhiteLevel-exceedance relaxation) was the sibling precursor
+   discovered alongside this one and was already framed; once both landed, the
+   capstone SPEC-025 (bit-exact mosaic-plane oracle) could run.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `verify` — no code defect (all 7 ACs reproduced at `233ae5c`; the single-strip
+   regression held byte-for-byte on Q2M 14-bit + M Monochrom 16-bit; both build
+   deviations ruled acceptable). The worst thing caught was the spec-Outputs
+   wording imprecision (FU-1), surfaced by the cold review and non-blocking.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, a Bayer plane stored as N strips errored `UnsupportedStripLayout` —
+   the Nikon D300S (12 strips) could not be read at all. After,
+   `plane::unpack_into` assembles an N-strip mosaic (with per-strip row handling
+   and `Error::MissingRowsPerStrip` for a truncated strip table); the Nikon
+   4352×2868 12-strip plane assembles, single-strip reads (Q2M 14-bit, M Monochrom
+   16-bit) stay byte-for-byte unchanged, and the `plane` fuzz target ran 20,465,198
+   runs / 91s with 0 crashes.
