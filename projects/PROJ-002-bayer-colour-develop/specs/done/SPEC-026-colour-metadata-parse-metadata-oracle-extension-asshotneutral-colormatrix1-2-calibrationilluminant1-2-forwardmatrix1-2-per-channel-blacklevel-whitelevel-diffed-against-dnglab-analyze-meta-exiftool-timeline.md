@@ -33,3 +33,15 @@ Cycle prompts live in `prompts/SPEC-026-<cycle>.md`.
   recommended for minting as `DEC-030` at ship (cross-cutting; DEC-026 is the
   precedent). Verify cost recorded in `cost.sessions[]`. Ship is the maintainer's.
   See the verify PR.
+- [x] **ship** — main session. Minted **DEC-030** (the colour-metadata oracle
+  compares fractional DNG rationals exactly by i128 cross-multiplication against
+  exiftool's full-precision decimal, no tolerance; `dnglab` scoped off the matrices
+  its JSON omits — extending DEC-005/DEC-026) + INDEX row; filled the Reflection;
+  recorded cost totals (build 29,850,028/$59.66 + verify 10,300,008/$23.63 =
+  40,150,036 tokens / $83.29, 3 sessions) and `complexity_actual: M`; `advance-cycle
+  verify→ship` (verify_verdict → approved); CHANGELOG `[Unreleased]→Added` (public
+  API: `Rational`, `Container::rationals()`, `Error::RationalValueOutOfRange`, the 9
+  additive `Sensor` colour fields, `irr ifd` surfacing); brag logged; archived to
+  `specs/done/`. `just cost-audit` + `validate` green. **This ships SPEC-026 and
+  COMPLETES STAGE-006 (6 shipped / 0 open)** — STAGE-007 demosaic (the first actual
+  picture) is next.

@@ -36,6 +36,7 @@ Regenerate after adding or superseding one; `just decisions-index --check` fails
 | [DEC-027](DEC-027-fuzz-crate-lint-scope.md) | the fuzz crate gets clippy's default `-D warnings`, not the five panic-free lints | 0.9 | accepted | PROJ-001 | — |
 | [DEC-028](DEC-028-publish-irradiance-0-1-0-to-crates-io.md) | Publish irradiance 0.1.0 to crates.io; reverse the second-camera publish-wait | 0.85 | accepted | PROJ-001 | — |
 | [DEC-029](DEC-029-samples-above-whitelevel-are-legal-amending-dec-008.md) | Samples above `WhiteLevel` are legal — amending DEC-008's "permanent invariant" | 0.92 | accepted | PROJ-002 | — |
+| [DEC-030](DEC-030-exact-rational-colour-metadata-oracle.md) | The colour-metadata oracle compares fractional DNG rationals exactly (i128 cross-multiply, no tolerance); `dnglab` scoped off the matrices its JSON omits — extending DEC-005/DEC-026 | 0.9 | accepted | PROJ-002 | — |
 
 ## Superseded
 
