@@ -72,7 +72,16 @@
 //! [`tone::encode_srgb16_into`], [`tone::encode_srgb8_into`]) that turn
 //! `develop_into`'s scene-linear `u16` into scene-linear `f32` or
 //! display-referred 8-/16-bit sRGB — an additive layer that does not reopen
-//! `DEC-018` (`develop_into` stays scene-linear). Still absent, by design:
+//! `DEC-018` (`develop_into` stays scene-linear). `SPEC-030` added
+//! [`demosaic`], the first PROJ-002 colour step: a **bilinear** baseline
+//! demosaic ([`demosaic::demosaic_into`]) that turns STAGE-006's bit-exact
+//! Bayer mosaic plane into a 3-channel, interleaved, **camera-space linear**
+//! RGB image (`u16`, same representation as `DEC-018`), driven by the parsed
+//! `Cfa` pattern (not hard-coded RGGB) with a phase-preserving reflect border.
+//! It is pure interpolation — no white balance, no colour matrix, no levels
+//! (STAGE-008) — so its output reads greenish/flat; the quality kernel
+//! (clean-room Malvar-He-Cutler) swaps in at `SPEC-031` against the same
+//! harness. Still absent, by design:
 //! `ASCII` and the signed field types (no DNG tag PROJ-001 reads needs them
 //! yet), and any compressed-plane decode (PROJ-003).
 
@@ -85,6 +94,7 @@
     clippy::arithmetic_side_effects
 )]
 
+pub mod demosaic;
 pub mod develop;
 pub mod ifd;
 pub mod opcode;
@@ -473,6 +483,48 @@ pub enum Error {
         /// `dst.len()` as given.
         actual: usize,
     },
+
+    /// `SPEC-030`. [`demosaic::demosaic_into`] was asked to demosaic a plane
+    /// whose [`ifd::Sensor::color_filter`] is `None` — a monochrome
+    /// `LinearRaw` plane carries one colour per photosite and has nothing to
+    /// interpolate. Demosaic requires a colour filter array; a mono plane is
+    /// this typed error, never a panic or a silent all-grey output.
+    NotAColorFilterArray,
+
+    /// `SPEC-030`. [`demosaic::demosaic_into`]'s [`ifd::Cfa`] is not a 2×2
+    /// Bayer mosaic of the RGGB family (one red, two diagonal greens, one
+    /// blue). The bilinear baseline is defined for the four 2×2 Bayer phases
+    /// only (RGGB/BGGR/GRBG/GBRG); any other `repeat_dim` or colour layout —
+    /// an X-Trans 6×6, a non-Bayer arrangement — is refused rather than
+    /// guessed at. The Fuji X-Trans path is a later stage (spec Non-Goals).
+    UnsupportedCfaPattern {
+        /// `CFARepeatPatternDim` as found — `[2, 2]` for every supported case.
+        repeat_dim: [u32; 2],
+        /// `CFAPattern`'s colour indices as found (row-major).
+        pattern: Vec<u8>,
+    },
+
+    /// `SPEC-030`. [`demosaic::demosaic_into`]'s `src` does not hold exactly
+    /// `sensor.width * sensor.height` mosaic samples — the same caller-owned
+    /// precondition as [`Error::SourcePlaneWrongLength`], for the mosaic the
+    /// demosaic reads (`DEC-016`).
+    DemosaicSourceWrongLength {
+        /// `width * height`, the required mosaic length.
+        expected: u64,
+        /// `src.len()` as given.
+        actual: usize,
+    },
+
+    /// `SPEC-030`. [`demosaic::demosaic_into`]'s `dst` does not hold exactly
+    /// `sensor.width * sensor.height * 3` samples — the interleaved R, G, B
+    /// output buffer is caller-owned (`DEC-016`), and its length is the one
+    /// precondition checked before writing into it.
+    RgbBufferWrongLength {
+        /// `width * height * 3`, the required length.
+        expected: u64,
+        /// `dst.len()` as given.
+        actual: usize,
+    },
 }
 
 impl fmt::Display for Error {
@@ -683,6 +735,32 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "output buffer holds {actual} element(s), expected {expected}"
+                )
+            }
+            Error::NotAColorFilterArray => f.write_str(
+                "this plane has no colour filter array (color_filter is None) — a monochrome \
+                 plane has nothing to demosaic",
+            ),
+            Error::UnsupportedCfaPattern {
+                repeat_dim,
+                pattern,
+            } => {
+                write!(
+                    f,
+                    "CFA pattern {pattern:?} with repeat_dim {repeat_dim:?} is not a supported \
+                     2x2 Bayer (RGGB-family) mosaic"
+                )
+            }
+            Error::DemosaicSourceWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "demosaic source mosaic holds {actual} sample(s), expected {expected}"
+                )
+            }
+            Error::RgbBufferWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "demosaic RGB buffer holds {actual} sample(s), expected {expected} (width x height x 3)"
                 )
             }
         }

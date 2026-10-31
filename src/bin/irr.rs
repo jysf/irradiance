@@ -36,11 +36,20 @@
 //!   `docs/provenance-ledger.md`'s `src/develop.rs` row for the measured
 //!   number, which is TWO buffers now (the raw plane AND the developed image),
 //!   unlike `irr unpack`'s one.
+//! - `irr demosaic <file>` — unpack the Bayer mosaic, then bilinear-demosaic it
+//!   into camera-space linear RGB (`SPEC-030`, `demosaic_into`), and write a
+//!   **P6 PPM** (maxval 65535, big-endian RGB) to **stdout** — the first
+//!   multi-channel `irr` output. The stats go to **stderr** so they do not
+//!   corrupt the binary image on stdout (unlike `irr develop`, whose stdout
+//!   carries no binary payload). The image is honestly uncorrected — no white
+//!   balance, no colour matrix, no levels (STAGE-008) — so it reads
+//!   greenish/flat.
 //!
-//! `irr ifd`/`irr unpack`/`irr develop` read a file, which the library never
-//! does — the library takes bytes. The I/O is here, on purpose, and stays
-//! here.
+//! `irr ifd`/`irr unpack`/`irr develop`/`irr demosaic` read a file, which the
+//! library never does — the library takes bytes. The I/O is here, on purpose,
+//! and stays here.
 
+use std::io::Write;
 use std::process::ExitCode;
 
 use irradiance::ifd::{Compression, Container};
@@ -49,10 +58,11 @@ const USAGE: &str = "\
 irr — irradiance's internal dev/oracle binary
 
 usage:
-  irr ifd     [--entries] <file>   walk the TIFF/IFD container and report the sensor plane
-  irr unpack  <file>               unpack the sensor plane and report samples/min/max
-  irr develop [--format linear-f32|srgb16|srgb8] <file>
+  irr ifd      [--entries] <file>  walk the TIFF/IFD container and report the sensor plane
+  irr unpack   <file>              unpack the sensor plane and report samples/min/max
+  irr develop  [--format linear-f32|srgb16|srgb8] <file>
                                    unpack, develop, then encode (default srgb8)
+  irr demosaic <file>              unpack a Bayer mosaic, bilinear-demosaic it, write a P6 PPM (stdout)
 ";
 
 fn main() -> ExitCode {
@@ -63,6 +73,7 @@ fn main() -> ExitCode {
         ["ifd", rest @ ..] => cmd_ifd(rest),
         ["unpack", rest @ ..] => cmd_unpack(rest),
         ["develop", rest @ ..] => cmd_develop(rest),
+        ["demosaic", rest @ ..] => cmd_demosaic(rest),
         [] | ["-h"] | ["--help"] => {
             print!("{USAGE}");
             ExitCode::SUCCESS
@@ -411,6 +422,88 @@ fn cmd_develop(args: &[&str]) -> ExitCode {
             println!("encoded_max     {}", out.iter().max().copied().unwrap_or(0));
             println!("encoded_bytes   {}", out.len());
         }
+    }
+
+    ExitCode::SUCCESS
+}
+
+fn cmd_demosaic(args: &[&str]) -> ExitCode {
+    let Some(path) = args.first().copied() else {
+        eprintln!("irr demosaic: expected a file\n\n{USAGE}");
+        return ExitCode::FAILURE;
+    };
+
+    let data = match std::fs::read(path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("irr demosaic: cannot read {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let container = match Container::parse(&data) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("irr demosaic: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let sensor = match container.sensor() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("irr demosaic: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // `unwrap()`/`expect()` are fine here — dev/oracle binary (module doc's
+    // panic-policy note). Both buffers are the caller-owned allocations
+    // `DEC-016` puts on US; neither `unpack_into` nor `demosaic_into` allocates.
+    let pixel_count = usize::try_from(u64::from(sensor.width) * u64::from(sensor.height))
+        .expect("plane too large for this host");
+    let mut plane = vec![0u16; pixel_count];
+    if let Err(e) =
+        irradiance::plane::unpack_into(&sensor, container.byte_order(), &data, &mut plane)
+    {
+        eprintln!("irr demosaic: {path}: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    let mut rgb = vec![0u16; pixel_count * 3];
+    if let Err(e) = irradiance::demosaic::demosaic_into(&sensor, &plane, &mut rgb) {
+        eprintln!("irr demosaic: {path}: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    // Stats to STDERR — stdout carries the binary P6 image, so anything printed
+    // there would corrupt it (this is why `cmd_demosaic` does not reuse
+    // `cmd_develop`'s `println!` stats, whose stdout has no binary payload).
+    let head: Vec<u16> = rgb.iter().take(8).copied().collect();
+    eprintln!("file            {path}");
+    eprintln!("dimensions      {} x {}", sensor.width, sensor.height);
+    eprintln!(
+        "cfa_pattern     {:?}",
+        sensor.color_filter.as_ref().map(|c| &c.pattern)
+    );
+    eprintln!("rgb[0..8]       {head:?}");
+    eprintln!("min             {}", rgb.iter().min().copied().unwrap_or(0));
+    eprintln!("max             {}", rgb.iter().max().copied().unwrap_or(0));
+    eprintln!("rgb_bytes       {}", rgb.len() * 2);
+    eprintln!(
+        "note            uncorrected camera-space linear RGB (no WB/matrix/levels — STAGE-008)"
+    );
+
+    // The P6 PPM on STDOUT: `"P6\n{w} {h}\n65535\n"` then big-endian u16 RGB.
+    let mut ppm: Vec<u8> = format!("P6\n{} {}\n65535\n", sensor.width, sensor.height).into_bytes();
+    ppm.reserve(rgb.len() * 2);
+    for sample in &rgb {
+        ppm.extend_from_slice(&sample.to_be_bytes());
+    }
+    let mut stdout = std::io::stdout().lock();
+    if let Err(e) = stdout.write_all(&ppm).and_then(|()| stdout.flush()) {
+        eprintln!("irr demosaic: writing PPM to stdout: {e}");
+        return ExitCode::FAILURE;
     }
 
     ExitCode::SUCCESS
