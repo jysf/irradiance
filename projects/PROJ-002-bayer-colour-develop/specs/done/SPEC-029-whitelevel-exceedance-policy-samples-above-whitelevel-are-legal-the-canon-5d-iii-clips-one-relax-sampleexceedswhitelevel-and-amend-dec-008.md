@@ -195,34 +195,43 @@ reservation was released at ship — SPEC-029/FU-1).
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Backfilled at the STAGE-006 close, 2026-10-30, from this spec's timeline +
+HANDOFF-069 (verify). The prose reflection step was skipped at the original ship
+(back-to-back with SPEC-028); front-matter (`complexity_actual`,
+`verify_verdict`) was stamped then. Recorded as signal
+[[spec-reflection-shipped-unfilled]].*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Settle the DEC number before writing the amendment, not after. The design
+   carried a stale "DEC-029 is informally reserved for the crustyimg LUT boundary"
+   hedge from STAGE-006's framing; this spec actually minted DEC-029 for the
+   WhiteLevel amendment, so the reservation note was wrong in the spec and four
+   sibling docs (SPEC-029/FU-1, cleaned up at ship). A one-line "reconcile the next
+   free DEC at creation" check before drafting would have avoided the hedge.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — Yes — minted **DEC-029**, amending DEC-008's "permanent invariant" clause:
+   a sample above `WhiteLevel` is legal and is preserved as a raw value (no clamp),
+   and DEC-008's byte-swap guard moves to SPEC-025 + the layer-0 oracle. No
+   template/constraint change. The FU-1 doc cleanup (dropping the stale DEC-029
+   reservation hedge) landed at ship.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. This unblocked the Canon's one clipped sample so the capstone SPEC-025
+   (bit-exact mosaic-plane oracle) could unpack both corpus files; SPEC-025 was
+   already framed.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `verify` — no code defect (all 5 ACs reproduced at `1112c18`; both corpus
+   DNGs unpack fully — Canon single-strip 5920×3950 max 15464 > 15000, Nikon
+   12-strip 4352×2868 max 4095 > 3808 — and the mono regression is byte-for-byte
+   vs `dnglab --raw-checksum`). The only finding was the stale DEC-029 reservation
+   hedge in spec + 4 sibling docs (FU-1), caught cold at verify and non-blocking.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, `plane::unpack_into` asserted `max ≤ WhiteLevel` and errored
+   `SampleExceedsWhiteLevel` on a legal clipped sample — the Canon 5D-III (one
+   sample 15464 > `WhiteLevel` 15000) could not be read. After, samples above
+   `WhiteLevel` are preserved as raw values (DEC-029 amends DEC-008), both Canon
+   (max 15464 > 15000) and Nikon (max 4095 > 3808) unpack fully, and within-white
+   reads are byte-for-byte unchanged.

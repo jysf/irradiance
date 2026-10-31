@@ -238,34 +238,46 @@ value word; no external data block needed).
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Backfilled at the STAGE-006 close, 2026-10-30, from this spec's timeline +
+HANDOFF-065 (verify). The prose reflection step was skipped at the original ship
+("ship it, I merged early"); front-matter (`complexity_actual`, `verify_verdict`)
+was stamped then. Recorded as signal [[spec-reflection-shipped-unfilled]].*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Add `cargo clean -p irradiance` (or a fresh `target/`) to the cold-verify
+   checklist when the reviewer builds a PR on a sibling branch. The only friction
+   this cycle was a stale cross-branch `target/` that linked an old rlib and threw
+   phantom `no field color_filter` errors on the first `just test` — an
+   incremental-cache artifact, not a code defect, but it cost the reviewer a false
+   alarm before `cargo clean -p irradiance` + rebuild went green (corroborated by
+   green CI on the head).
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No. The Design-Notes hedge ("if the `Option<Cfa>` type choice proves weighty
+   in build, promote it to a DEC") resolved to *not weighty*: `color_filter:
+   Option<Cfa>` is purely additive, every existing `Sensor` field kept its meaning,
+   and the monochrome gate + unpack stayed byte-for-byte unchanged — so no DEC was
+   needed. The identity change is one new disjunct (`PHOTOMETRIC_CFA` beside
+   `PHOTOMETRIC_LINEAR_RAW`); `SamplesPerPixel == 1` did not move.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new one. The mosaic-plane oracle (SPEC-025) and the colour-metadata oracle
+   (SPEC-026) were already framed as this stage's readers of the `Cfa` model, and
+   the multi-strip (SPEC-028) + WhiteLevel (SPEC-029) precursors were split out as
+   the plane work began.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `none` — clean build; verify reproduced every AC cold with **no blocking
+   findings** at `2bef1d6`. One §11-reader deviation was self-disclosed by the
+   build and ruled acceptable (the `Cfa` fields' readers are `irr ifd` + the
+   oracle); the one hiccup was the stale-`target/` environment gotcha above, not a
+   code defect. No code defect reached verify.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, a Bayer-CFA DNG was rejected by the sensor gate (it accepted only
+   `PhotometricInterpretation == 34892` LinearRaw) and `Sensor` carried no CFA
+   structure. After, an uncompressed Bayer DNG is selected
+   (`PhotometricInterpretation == 32803`, `SamplesPerPixel == 1`) and
+   `Sensor.color_filter: Option<Cfa>` exposes its `CFAPattern` /
+   `CFARepeatPatternDim` / `CFAPlaneColor` / `CFALayout` (Bayer → `Some`, the
+   monochrome Leica → `None`), with the mono path byte-for-byte unchanged.
