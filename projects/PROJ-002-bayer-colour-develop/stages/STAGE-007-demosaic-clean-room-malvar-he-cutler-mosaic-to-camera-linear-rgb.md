@@ -146,22 +146,22 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 real specs at `cycle: frame` with stable IDs; the `[S]`/`[M]`/`[L]` tag is carried
 onto each as `task.complexity`.
 
-- [ ] (not yet written) — [M] Demosaic foundation: the camera-space linear RGB
+- [ ] SPEC-030 (design) — [M] Demosaic foundation: the camera-space linear RGB
       buffer type + a **bilinear** baseline demosaic (exactly computable, the
       simplest red-provable kernel) + the analytic-fixture **bit-exact oracle
       harness** (+ perturbed-kernel red-proof) + border policy + `irr` RGB
       surfacing. Stands up the whole mosaic→RGB path end-to-end before the hard
       kernel lands.
-- [ ] (not yet written) — [M] **Malvar-He-Cutler** gradient-corrected 5×5 kernels
+- [ ] SPEC-031 (frame) — [M] **Malvar-He-Cutler** gradient-corrected 5×5 kernels
       replacing the baseline; MHC-specific analytic fixtures; MHC provenance-ledger
       entry. ⚠ **L-risk** — if the full 8-case MHC + fixtures exceeds [M] at
       design, split the **green-channel** interpolation from the **red/blue-channel**
       interpolation into two specs.
-- [ ] (not yet written) — [S] CFA-demosaic **fuzz + panic-free hardening** on
+- [ ] SPEC-032 (frame) — [S] CFA-demosaic **fuzz + panic-free hardening** on
       degenerate / edge-phase planes (tiny, 1×1, odd-dim at the CFA phase); extend
       the fuzz corpus with a CFA demosaic path.
 
-**Count:** 0 shipped / 0 active / 3 pending
+**Count:** 0 shipped / 3 active / 0 pending
 
 > **Framing notes for review (Prompt 1c steps 3–4):**
 > - **Lean but not thin.** 3 specs is the brief's floor; the stage is one
