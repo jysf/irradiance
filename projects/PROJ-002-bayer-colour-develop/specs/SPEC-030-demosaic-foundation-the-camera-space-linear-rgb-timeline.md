@@ -19,6 +19,14 @@ Cycle prompts live in `prompts/SPEC-030-<cycle>.md`.
       red-proof + no-panic/typed-error + `irr demosaic` P6 smoke), `irr demosaic` → P6 PPM.
       All four gates green (`just test`, `just lint-ci`, `cargo fmt --check`, `just validate`).
       MHC is SPEC-031 against this same harness.
-- [ ] **verify** — cold independent review after build.
+- [x] **verify** — ✅ APPROVED at `9e908f7` 2026-10-31 on `claude/spec-030-verify-04f726`
+      (cold session, HANDOFF-075, model claude-opus-4-8). Reproduced all four gates
+      green (`just test`, `just lint-ci`, `cargo fmt --check`, `just validate`);
+      independently re-derived the bit-exact tables (from-scratch reference) and
+      confirmed the oracle genuinely goes RED via three real-kernel mutations
+      (round-half-up weight, hard-coded phase, dropped neighbour); `irr demosaic`
+      P6 verified on both corpus Bayer DNGs. No changes needed; one non-blocking
+      follow-up (GRBG/GBRG fixture coverage → SPEC-031/032). Build cost null
+      (recover at ship, HANDOFF-074); verify cost null (recover at ship, HANDOFF-075).
 - [ ] **ship** — main session (reflection, cost totals, `complexity_actual`,
       archive, brag).
