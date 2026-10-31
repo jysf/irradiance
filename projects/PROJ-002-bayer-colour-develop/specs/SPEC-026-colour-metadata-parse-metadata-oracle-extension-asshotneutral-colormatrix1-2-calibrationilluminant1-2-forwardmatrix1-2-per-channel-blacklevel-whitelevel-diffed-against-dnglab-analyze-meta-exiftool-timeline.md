@@ -17,3 +17,19 @@ Cycle prompts live in `prompts/SPEC-026-<cycle>.md`.
   `CFA_DEFERRED_TO_SPEC_026` → `CFA_COVERED_BY_COLOUR_ORACLE` rename. All
   SPEC-026 tests green; gates (test / lint-ci / lint-fuzz / validate / fuzz)
   observed green. See the build PR.
+- [x] **verify** — ✅ APPROVED at `cc67ad6` (cold Claude Code verify session).
+  Full suite green with the corpus present (`just test` exit 0, 0 failed;
+  colour oracle 23/23 with 2/2 Bayer files present — proven exercised via
+  `--nocapture`, not skipped); AC1–AC8 confirmed independently against
+  `exiftool`/`dnglab`/`irr ifd`. `oracle-must-be-shown-red` re-proven with two
+  adversarial mutations of my own: neutering `rationals_equal` fails exactly the
+  two red-proofs, and perturbing src `rationals()` (`num+1`) turns the live
+  tier-B oracle red — both reverted, tree clean. Mono SPEC-005/010 oracle
+  byte-for-byte behaviourally unchanged (pure rename + additive fixture fields);
+  `ifd` fuzz 11,876,467 runs/61s/0 crashes; CI observed green on the merged SHA.
+  The 3 build-flagged items adjudicated: Deviation 1 (dnglab whitelevels plain
+  ints) and Deviation 2 (AC7 Failing-Tests bullet self-contradictory) are both
+  HONEST with ACs genuinely met; the exact-rational-oracle candidate decision is
+  recommended for minting as `DEC-030` at ship (cross-cutting; DEC-026 is the
+  precedent). Verify cost recorded in `cost.sessions[]`. Ship is the maintainer's.
+  See the verify PR.
