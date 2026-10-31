@@ -142,11 +142,11 @@ so the whole wave bootstraps without native NEF parsing or SOF-3 decompression.
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [ ] STAGE-006 (active) — CFA sensor model: identify + parse Bayer DNGs, unpack the mosaic, verify the plane bit-exact vs `dnglab`
-- [ ] (not yet defined) — Demosaic: clean-room Malvar-He-Cutler, mosaic → camera RGB, analytic-fixture + tolerance oracle
+- [x] STAGE-006 (shipped 2026-10-30) — CFA sensor model: identify + parse Bayer DNGs, unpack the mosaic, verify the plane bit-exact vs `dnglab`
+- [ ] STAGE-007 (proposed) — Demosaic: clean-room Malvar-He-Cutler, mosaic → camera-space linear RGB, bit-exact analytic-fixture oracle (real-image perceptual deferred to STAGE-008's ΔE)
 - [ ] (not yet defined) — Colour transform + output: white balance, colour matrix, display encode, ColorChecker ΔE
 
-**Count:** 0 shipped / 1 active / 2 pending
+**Count:** 1 shipped / 0 active / 2 pending
 
 Each stage ends at a **stopping point** where the maintainer reviews before the
 next begins. Effort estimates live in each stage file.
