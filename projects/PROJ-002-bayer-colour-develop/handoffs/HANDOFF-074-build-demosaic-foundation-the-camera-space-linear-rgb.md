@@ -47,7 +47,7 @@ handback:
   estimated_usd: null              # derivable only once tokens_total is read from the transcript
   duration_minutes: 30
   branch: claude/spec-030-demosaic-568a93
-  pr: null                         # filled when the PR is opened
+  pr: https://github.com/jysf/irradiance/pull/63
   completed_at: 2026-10-31         # YYYY-MM-DD
   notes: >
     /cost is not available as a tool in this Claude Code desktop build session, so the REAL
@@ -177,7 +177,7 @@ On success: fill the `handback:` front-matter (incl. a real `tokens_total`), fil
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-030-demosaic-568a93` → PR TBD (filled on open)
+- **Branch / PR:** `claude/spec-030-demosaic-568a93` → https://github.com/jysf/irradiance/pull/63
 - **Completed at:** 2026-10-31
 - **All acceptance criteria met?** yes — see the PR body for the AC-by-AC map.
 
