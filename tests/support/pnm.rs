@@ -30,6 +30,16 @@ pub struct GrayscalePlane {
     pub samples: Vec<u16>,
 }
 
+/// A decoded interleaved RGB image: dimensions plus big-endian 16-bit samples,
+/// exactly `width * height * 3` long (R, G, B per pixel). The shape
+/// `irr demosaic` writes (`SPEC-030`), as read by [`read_p6_rgb`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RgbImage {
+    pub width: u32,
+    pub height: u32,
+    pub samples: Vec<u16>,
+}
+
 /// Everything that can go wrong reading `dnglab --srgb`'s output. Every
 /// variant names the figures involved — no `unwrap()`/`expect()`/panicking
 /// index on this path, matching this repo's other test-support readers
@@ -69,6 +79,10 @@ pub enum PnmError {
         actual: u64,
         malformed_grayscale_length: u64,
     },
+    /// A genuine P6 RGB payload ([`read_p6_rgb`], `SPEC-030`) is not
+    /// `w*h*3*2` bytes long — a truncated or malformed capture, both figures
+    /// named rather than forcing either interpretation.
+    RgbPayloadLengthMismatch { actual: u64, expected: u64 },
 }
 
 impl fmt::Display for PnmError {
@@ -109,6 +123,10 @@ impl fmt::Display for PnmError {
                  dnglab's --srgb output shape appears to have changed; DEC-005's revisit \
                  condition is met. Refusing to force the P5 workaround — it would silently read \
                  one third of a real RGB image as grayscale."
+            ),
+            PnmError::RgbPayloadLengthMismatch { actual, expected } => write!(
+                f,
+                "P6 RGB payload is {actual} bytes, expected {expected} (w*h*3*2)"
             ),
         }
     }
@@ -196,6 +214,91 @@ pub fn read_dnglab_srgb(bytes: &[u8]) -> Result<GrayscalePlane, PnmError> {
         height,
         samples,
     })
+}
+
+/// Read a genuine binary **P6** PPM — the shape `irr demosaic` writes
+/// (`SPEC-030`): a `P6 <w> <h> <maxval>` header whose tokens are separated by
+/// ASCII whitespace, a single whitespace byte, then `w*h*3` big-endian 16-bit
+/// samples (interleaved R, G, B). Distinct from [`read_dnglab_srgb`], which
+/// reads dnglab's malformed grayscale-over-`P6`-header shape; this one is a
+/// well-formed RGB reader, written in the same no-panic style (`.get()`,
+/// `checked_*`, named errors).
+pub fn read_p6_rgb(bytes: &[u8]) -> Result<RgbImage, PnmError> {
+    let mut pos = 0usize;
+    let magic = next_token(bytes, &mut pos).ok_or(PnmError::MissingField("magic"))?;
+    if magic != "P6" {
+        return Err(PnmError::UnexpectedMagic { got: magic });
+    }
+    let width = parse_u32_token(bytes, &mut pos, "width")?;
+    let height = parse_u32_token(bytes, &mut pos, "height")?;
+    let maxval = parse_u32_token(bytes, &mut pos, "maxval")?;
+    if maxval != 65535 {
+        return Err(PnmError::UnsupportedMaxval { got: maxval });
+    }
+
+    // Netpbm P6: exactly one whitespace byte separates the maxval from the
+    // raster. `next_token` left `pos` at that whitespace.
+    match bytes.get(pos) {
+        Some(b) if b.is_ascii_whitespace() => {}
+        _ => return Err(PnmError::MissingField("raster")),
+    }
+    let raster_start = pos.checked_add(1).ok_or(PnmError::DimensionsOverflow)?;
+    let payload = bytes.get(raster_start..).unwrap_or(&[]);
+
+    let pixel_count = u64::from(width)
+        .checked_mul(u64::from(height))
+        .ok_or(PnmError::DimensionsOverflow)?;
+    let sample_count = pixel_count
+        .checked_mul(3)
+        .ok_or(PnmError::DimensionsOverflow)?;
+    let rgb_bytes = sample_count
+        .checked_mul(2)
+        .ok_or(PnmError::DimensionsOverflow)?;
+    if payload.len() as u64 != rgb_bytes {
+        return Err(PnmError::RgbPayloadLengthMismatch {
+            actual: payload.len() as u64,
+            expected: rgb_bytes,
+        });
+    }
+
+    let count = usize::try_from(sample_count).map_err(|_| PnmError::DimensionsOverflow)?;
+    let (chunks, _remainder) = payload.as_chunks::<2>();
+    let mut samples = Vec::with_capacity(count);
+    for c in chunks {
+        samples.push(u16::from_be_bytes(*c));
+    }
+
+    Ok(RgbImage {
+        width,
+        height,
+        samples,
+    })
+}
+
+/// Read one whitespace-separated ASCII token, leaving `pos` at the whitespace
+/// byte (or end) that follows it. `None` at end of input with no token.
+fn next_token(bytes: &[u8], pos: &mut usize) -> Option<String> {
+    while bytes.get(*pos).is_some_and(u8::is_ascii_whitespace) {
+        *pos = pos.checked_add(1)?;
+    }
+    let start = *pos;
+    while bytes.get(*pos).is_some_and(|b| !b.is_ascii_whitespace()) {
+        *pos = pos.checked_add(1)?;
+    }
+    if *pos == start {
+        return None;
+    }
+    bytes
+        .get(start..*pos)
+        .and_then(|s| std::str::from_utf8(s).ok())
+        .map(str::to_string)
+}
+
+fn parse_u32_token(bytes: &[u8], pos: &mut usize, field: &'static str) -> Result<u32, PnmError> {
+    let token = next_token(bytes, pos).ok_or(PnmError::MissingField(field))?;
+    token
+        .parse()
+        .map_err(|_| PnmError::FieldNotInteger { field })
 }
 
 #[cfg(test)]
@@ -292,6 +395,47 @@ mod tests {
         assert_eq!(
             read_dnglab_srgb(b"\n"),
             Err(PnmError::MissingField("magic"))
+        );
+    }
+
+    #[test]
+    fn p6_rgb_reader_reads_a_wellformed_image() {
+        // 2x1 RGB, maxval 65535: pixel 0 = (1, 2, 3), pixel 1 = (4, 5, 6),
+        // big-endian. Header uses the exact `P6\n{w} {h}\n65535\n` shape
+        // `irr demosaic` writes.
+        let mut bytes = b"P6\n2 1\n65535\n".to_vec();
+        for s in [1u16, 2, 3, 4, 5, 6] {
+            bytes.extend_from_slice(&s.to_be_bytes());
+        }
+        let img = read_p6_rgb(&bytes).expect("a well-formed P6 RGB image");
+        assert_eq!((img.width, img.height), (2, 1));
+        assert_eq!(img.samples, vec![1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn p6_rgb_reader_rejects_a_short_payload() {
+        // Header promises a 2x1 RGB image (12 bytes); give it 4.
+        let mut bytes = b"P6\n2 1\n65535\n".to_vec();
+        bytes.extend_from_slice(&[0u8; 4]);
+        let err = read_p6_rgb(&bytes).expect_err("4 bytes is not w*h*3*2 = 12");
+        assert_eq!(
+            err,
+            PnmError::RgbPayloadLengthMismatch {
+                actual: 4,
+                expected: 12
+            }
+        );
+    }
+
+    #[test]
+    fn p6_rgb_reader_rejects_the_grayscale_magic() {
+        let mut bytes = b"P5\n2 1\n65535\n".to_vec();
+        bytes.extend_from_slice(&[0u8; 12]);
+        assert_eq!(
+            read_p6_rgb(&bytes),
+            Err(PnmError::UnexpectedMagic {
+                got: "P5".to_string()
+            })
         );
     }
 }

@@ -277,6 +277,47 @@ pub fn valid_cfa_sensor(order: Order) -> Vec<u8> {
     tiff(order, 8, &[Ifd::new(8, cfa_sensor_entries(order), 0)])
 }
 
+/// A valid 16-bit RGGB Bayer (CFA) DNG carrying a **real strip**: `samples`
+/// (`width * height`) written into the strip in `order`'s byte order, so
+/// `Container::parse → sensor → plane::unpack_into` round-trips to exactly
+/// `samples`. 16-bit is the byte-aligned unpack path (`DEC-008`), so the strip
+/// is a plain `u16` array with no bit-packing — all `SPEC-030`'s `irr demosaic`
+/// smoke needs. `SPEC-030`.
+pub fn cfa_dng_16bit(order: Order, width: u32, height: u32, samples: &[u16]) -> Vec<u8> {
+    assert_eq!(
+        samples.len() as u64,
+        u64::from(width) * u64::from(height),
+        "samples must be width * height"
+    );
+    let strip_offset: u32 = 256; // clear of the 8-byte header + IFD0
+    let strip_bytes = width * height * 2;
+    let entries = vec![
+        long(NEW_SUBFILE_TYPE, 0),
+        long(IMAGE_WIDTH, width),
+        long(IMAGE_LENGTH, height),
+        short(BITS_PER_SAMPLE, 16, order),
+        short(COMPRESSION, 1, order),
+        short(PHOTOMETRIC, CFA_PHOTOMETRIC, order),
+        short(SAMPLES_PER_PIXEL, 1, order),
+        long(STRIP_OFFSETS, strip_offset),
+        long(STRIP_BYTE_COUNTS, strip_bytes),
+        two_shorts(CFA_REPEAT_PATTERN_DIM, 2, 2, order),
+        inline_bytes(CFA_PATTERN, [0, 1, 1, 2], 4, order),
+        inline_bytes(CFA_PLANE_COLOR, [0, 1, 2, 0], 3, order),
+        short(CFA_LAYOUT, 1, order),
+    ];
+    let mut data = tiff(order, 8, &[Ifd::new(8, entries, 0)]);
+    let end = strip_offset as usize + strip_bytes as usize;
+    if data.len() < end {
+        data.resize(end, 0);
+    }
+    for (i, s) in samples.iter().enumerate() {
+        let at = strip_offset as usize + i * 2;
+        data[at..at + 2].copy_from_slice(&order.u16(*s));
+    }
+    data
+}
+
 /// A CFA plane whose `CFAPattern` payload points far past EOF with an absurd
 /// count. Per `DEC-012` the malformed *interpretation* tag is COSTED — the file
 /// still parses, `sensor()` returns with `color_filter == None` and `CFAPattern`
