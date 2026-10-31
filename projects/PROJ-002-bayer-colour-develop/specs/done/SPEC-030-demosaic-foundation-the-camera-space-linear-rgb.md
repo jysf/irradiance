@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -63,11 +63,44 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 45000000        # prediction (design): ~an [M] spec, cf. SPEC-028 52M / SPEC-029 41M grand
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      notes: "un-metered main-loop design cycle (orchestrator); spec body + ACs + failing tests + exact-arithmetic oracle design, in the main session's shared transcript — not separable per spec"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 25351356
+      estimated_usd: 55.03
+      duration_minutes: 30
+      recorded_at: 2026-10-31
+      notes: "RECOVERED at ship from the build session's OWN transcript (scratchpad uuid 93026a80-0784-4ed6-9408-46a32be4a9f4, deduped by message.id: 81 records, all claude-opus-4-8, 98.0% cache-read). HANDOFF-074 handback carried null because /cost is not exposed to a desktop Claude Code session. Priced per-component at Opus list rates (15/75/18.75-write/1.50-read per MTok)."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 8827092
+      estimated_usd: 20.44
+      duration_minutes: 35
+      recorded_at: 2026-10-31
+      notes: "RECOVERED at ship from the verify session's OWN transcript (scratchpad uuid eae8c836-5e74-4969-a9b0-f5a132fad651, deduped by message.id: 49 records, all claude-opus-4-8, 97.3% cache-read). HANDOFF-075 handback carried null for the same reason. Priced per-component at Opus list rates."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      notes: "un-metered main-loop ship cycle (orchestrator); the cost recovery + reflection + archive happen in the main session's shared transcript"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 34178448
+    estimated_usd: 75.47
+    session_count: 4
+shipped_at: 2026-10-31
 ---
 
 # SPEC-030: Demosaic foundation: the camera-space linear RGB
@@ -244,34 +277,49 @@ Written now; build makes them pass. All in **`tests/demosaic_oracle.rs`** unless
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Name the full phase coverage in the AC, not "BGGR (or GRBG)". AC2 accepted any
+   one non-RGGB phase, so the build fixture-verified RGGB + BGGR (both anti-diagonal
+   green phases) and left GRBG / GBRG (main-diagonal greens) unverified — correct
+   per the contract, and the kernel is phase-driven by construction, but STAGE-007's
+   Design Notes had aspired to all four phases. An AC naming "one main-diagonal + one
+   anti-diagonal phase" would have closed the only untested path in the same build
+   (this is SPEC-030/FU-1, Q3).
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No. The build emitted no new DEC — SPEC-030 sits entirely within
+   DEC-016/017/018/024 as designed. It chose the spec-sanctioned injected-neighbour-
+   swap red-proof over a DEC-017 crate-copy rebuild; verify independently confirmed
+   it goes genuinely red (three real-kernel mutations — a round-half-up weight, a
+   hard-coded phase, a dropped neighbour — none passed), so `oracle-must-be-shown-red`
+   held without a mechanism change. The one gap (GRBG/GBRG fixture) is a follow-up,
+   not a policy change (Q3).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec — **SPEC-030/FU-1** folds into the already-framed backlog: add a
+   **GRBG or GBRG** fixture (the only unverified Bayer phase) alongside SPEC-031's
+   MHC fixtures or SPEC-032's edge-phase hardening. The kernel is already phase-driven
+   and correct for all four phases by construction; this closes the fixture-coverage
+   gap the `measurement-over-generalised` lesson warns about. **SPEC-031** (clean-room
+   Malvar-He-Cutler, the quality kernel against this same harness) is the immediate
+   next spec.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `none` — clean build, approved on the first verify pass with no punch-list.
+   Verify independently re-derived the bit-exact oracle tables (a from-scratch
+   reference) and confirmed the red-proof genuinely goes red via three real-kernel
+   mutations, finding no code defect. The GRBG/GBRG fixture gap (FU-1) is
+   spec-compliant and non-blocking — not a defect.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, `irradiance` could read a Bayer **mosaic** (one colour per photosite)
+   but produced no colour image. After, `demosaic::demosaic_into` turns that mosaic
+   into a **3-channel camera-space linear RGB** image via a phase-driven bilinear
+   demosaic — verified **bit-exact** on analytic fixtures with a red-proof an
+   independent reviewer confirmed genuinely red — and `irr demosaic` emits it as a P6
+   PPM (both corpus DNGs: Nikon 4352×2868, Canon 5920×3950, payload exactly
+   `w*h*3*2`). The first multi-channel output irradiance produces — honestly
+   uncorrected (Canon min 1882, black not subtracted); the recognisable picture is
+   STAGE-007 + STAGE-008.
