@@ -146,7 +146,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 real specs at `cycle: frame` with stable IDs; the `[S]`/`[M]`/`[L]` tag is carried
 onto each as `task.complexity`.
 
-- [ ] SPEC-030 (design) — [M] Demosaic foundation: the camera-space linear RGB
+- [x] SPEC-030 (shipped on 2026-10-31) — [M] Demosaic foundation: the camera-space linear RGB
       buffer type + a **bilinear** baseline demosaic (exactly computable, the
       simplest red-provable kernel) + the analytic-fixture **bit-exact oracle
       harness** (+ perturbed-kernel red-proof) + border policy + `irr` RGB
@@ -161,7 +161,13 @@ onto each as `task.complexity`.
       degenerate / edge-phase planes (tiny, 1×1, odd-dim at the CFA phase); extend
       the fuzz corpus with a CFA demosaic path.
 
-**Count:** 0 shipped / 3 active / 0 pending
+**Count:** 1 shipped / 2 active / 0 pending
+
+> **SPEC-030/FU-1 (open, raised at SPEC-030 verify):** SPEC-030's demosaic oracle
+> fixture-verifies RGGB + BGGR only (both anti-diagonal green phases); add a **GRBG
+> or GBRG** fixture — in SPEC-031's MHC fixtures or SPEC-032's edge-phase hardening —
+> to close the one unverified Bayer phase. The kernel is phase-driven and correct for
+> all four phases by construction; this is fixture coverage, not a bug.
 
 > **Framing notes for review (Prompt 1c steps 3–4):**
 > - **Lean but not thin.** 3 specs is the brief's floor; the stage is one

@@ -28,5 +28,9 @@ Cycle prompts live in `prompts/SPEC-030-<cycle>.md`.
       P6 verified on both corpus Bayer DNGs. No changes needed; one non-blocking
       follow-up (GRBG/GBRG fixture coverage → SPEC-031/032). Build cost null
       (recover at ship, HANDOFF-074); verify cost null (recover at ship, HANDOFF-075).
-- [ ] **ship** — main session (reflection, cost totals, `complexity_actual`,
-      archive, brag).
+- [x] **ship** — completed 2026-10-31 (main session). Build code merged in PR #63
+      (`9e908f7`); this ship is the closing ritual = reflection + recovered cost
+      totals (build 25,351,356/$55.03 + verify 8,827,092/$20.44 = 34,178,448/$75.47,
+      both RECOVERED from the cold sessions' own transcripts since their handbacks
+      were null), `complexity_actual: M`, CHANGELOG, archive, brag. `verify_verdict:
+      approved`.

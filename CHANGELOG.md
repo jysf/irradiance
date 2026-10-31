@@ -10,6 +10,18 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **Bilinear Bayer demosaic** (`irradiance::demosaic`, SPEC-030, PROJ-002) — new
+  `demosaic::demosaic_into(sensor, &[u16], &mut [u16])` turns a Bayer **mosaic** into
+  a 3-channel **interleaved camera-space linear RGB** image (caller-owned buffer, no
+  alloc — DEC-016). Bilinear interpolation, **phase-driven** by `Sensor.color_filter`
+  (not hard-coded RGGB), **phase-preserving reflect** border, round-half-up integer
+  averages. New `Error` variants for the mono/absent-CFA, unsupported-CFA and
+  wrong-length cases, and a new **`irr demosaic`** subcommand emitting a **P6 PPM** —
+  the first multi-channel output irradiance produces. Verified **bit-exact** on
+  analytic fixtures with a perturbed-kernel red-proof (DEC-017), confirmed genuinely
+  red by an independent reviewer. Output is **uncorrected** (no white balance, no
+  colour matrix — those are STAGE-008), so it reads greenish/flat; the recognisable
+  picture is STAGE-007 + STAGE-008. (Note for the eventual 0.1.0 publish — DEC-028.)
 - **Colour metadata parsed** (`irradiance::ifd`, SPEC-026, PROJ-002) — `Sensor` now
   exposes the DNG colour-metadata block: `color_matrix_1`/`_2`,
   `forward_matrix_1`/`_2` and `as_shot_neutral` (a new verbatim `Rational { num, den }`,
