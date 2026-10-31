@@ -6,14 +6,14 @@
 task:
   id: SPEC-026
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -31,7 +31,7 @@ handoff:
   created_at: null
 
 references:
-  decisions: [DEC-012, DEC-015]    # cost-the-field; malformed_tags recorded only when the value is truly lost
+  decisions: [DEC-012, DEC-015, DEC-030]  # cost-the-field; malformed only when truly lost; DEC-030 = the exact-rational colour oracle this spec established
   constraints: [oracle-must-be-shown-red, no-panics-on-untrusted-input]
   related_specs: [SPEC-005, SPEC-010, SPEC-024, SPEC-025, SPEC-027]
 
@@ -80,10 +80,18 @@ cost:
       duration_minutes: 27
       recorded_at: 2026-10-30
       notes: "Cold Claude Code verify session. Verdict ✅ APPROVED at cc67ad6 (build PR #56, merged). Verified independently, corpus present (IRRADIANCE_CORPUS_DIR): just test exit 0, 0 failed across 14 binaries; lib 100/100 (incl. 5 new ifd colour unit tests), colour oracle 23/23 with 2/2 Bayer files present (proven via --nocapture, not skipped), metadata_oracle 31/31; the 1 ignored is the pre-existing SPEC-017/SB-1 corpus finding. AC1–AC8 confirmed against exiftool -T -n -s3 + dnglab analyze --meta --json + irr ifd on both corpus files (Canon matrices n/10000, AsShotNeutral 606276/1000000..., levels [2047,2047,2047,2048]/[15000]; Nikon ForwardMatrix None, AsShotNeutral 64000/100000..., levels [0]/[3808], illuminants 17/21). oracle-must-be-shown-red re-proven with two OWN adversarial mutations: neutering rationals_equal fails exactly the two red-proofs; perturbing src rationals() (num+1) turns the live tier-B oracle red (Canon 5 fields disagree) — both reverted, tree clean. Exact i128 cross-multiply spot-checked across three non-reduced denominators (n/10000, n/1000000, n/100000); decimal_to_rational None forces a mismatch. Mono SPEC-005/010 oracle byte-for-byte behaviourally unchanged (pure rename + additive fixture fields; red-proofs + metadata_matches_exiftool + dnglab_scalars green). ifd fuzz 11,876,467 runs/61s/0 crashes (rationals() on every entry). fmt --check 0, validate 0; CI observed green on merged SHA cc67ad6 (gh pr checks 56). Adjudicated: Deviation 1 (dnglab whitelevels plain ints, parse_rational_u32 only on blacklevels) HONEST + load-bearing (parse_rational_u32 needs a '/', would fail on whitelevels); Deviation 2 (AC7 Failing-Tests bullet self-contradictory) HONEST, AC7 genuinely met (Canon 4-value BlackLevel cannot pass the mono single-valued ToolReading, so files stay IN CFA_COVERED_BY_COLOUR_ORACLE + the colour oracle covers them); candidate exact-rational-oracle decision recommended for minting as DEC-030 at ship (cross-cutting, DEC-026 is the precedent). tokens_total from this session's own transcript JSONL (scratchpad-UUID 03bbdfe2 anchored, deduped by message.id, all claude-opus-4-8, input+output+cache_creation+cache_read), 97.3% cache-read; estimated_usd at per-category Opus list rates, no cache discount, order-of-magnitude. Hand-back snapshot. Ship (and DEC-030 minting + totals) is the maintainer's."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-10-30
+      notes: "Un-metered main-loop ship cycle (null-with-note per AGENTS.md §4 — the main session's own loop is not separately metered). Ship acts: minted DEC-030 (the colour-metadata oracle compares fractional DNG rationals exactly by i128 cross-multiplication against exiftool's full-precision decimal, no float tolerance; dnglab scoped off the matrices its JSON omits — extending DEC-005/DEC-026) + INDEX row; added references.decisions DEC-030; filled Reflection (5 Qs) + the ship timeline row; recomputed totals (build 29,850,028/$59.66 + verify 10,300,008/$23.63 = 40,150,036 tokens / $83.29, session_count 3 incl. this null ship); complexity_actual M (matched estimate); advance-cycle verify→ship (verify_verdict stamped approved); CHANGELOG [Unreleased]→Added (public-API change: Rational, Container::rationals(), Error::RationalValueOutOfRange, the 9 additive Sensor colour fields, irr ifd surfacing); brag logged; archive-spec → specs/done/. just cost-audit + validate green. This ships SPEC-026 and COMPLETES STAGE-006 (6 shipped / 0 open) — STAGE-007 demosaic (the first actual picture) is next."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 40150036
+    estimated_usd: 83.29
+    session_count: 3
+shipped_at: 2026-10-30
 ---
 
 # SPEC-026: Colour metadata parse + metadata-oracle extension: `AsShotNeutral`, `ColorMatrix1/2`, `CalibrationIlluminant1/2`, `ForwardMatrix1/2`, per-channel `BlackLevel`/`WhiteLevel` — diffed against `dnglab analyze --meta` + `exiftool`
@@ -351,34 +359,52 @@ Written now, before handoff; build's job is to make them pass.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**. Short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Write the Failing-Tests bullet as the *invariant*, not as a list-membership
+   claim that can read backwards. My AC7 bullet said "a test asserts the two Bayer
+   files are **absent** from the renamed list," but the whole point of the rename
+   was that the files **stay in** it (named "covered elsewhere") — the two
+   phrasings are opposite, and the build had to reconcile them. When a design both
+   renames a skip-list and keeps its members, state "file X stays skipped, for
+   reason Y" up front, then let the assertion follow from that — don't describe the
+   same fact two ways in the ACs and the Failing Tests.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — Yes — minted **DEC-030** (the colour-metadata oracle compares fractional DNG
+   rationals exactly by i128 cross-multiplication against exiftool's full-precision
+   decimal, no tolerance; `dnglab` scoped off the matrices its JSON omits),
+   extending `DEC-005`/`DEC-026`. No template or constraint change needed:
+   `oracle-must-be-shown-red` already governed and held (verify re-proved red with
+   two adversarial mutations of its own). The design's just-in-time measurement
+   pass is worth keeping as the norm — it corrected two spec-prose details
+   (dnglab's whitelevels are plain ints; the matrices live in IFD0) before a line
+   of build code.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec minted now. The remaining DNG colour-block tags left out of scope
+   (`CameraCalibration1/2`, `AnalogBalance`, `ReductionMatrix`, `BaselineExposure`)
+   now read trivially via the `rationals()` reader this spec added — a small
+   follow-up spec if STAGE-008 turns out to need them, not before. The named
+   next work is STAGE-007 (demosaic) and STAGE-008 (colour transform + ColorChecker
+   ΔE), which consume exactly the matrices / white balance SPEC-026 now trusts.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `design` — the two defects of the cycle were both in my spec prose (the
+   self-contradictory AC7 Failing-Tests bullet, and the imprecise "reuse
+   `parse_rational_u32` for whitelevels" when dnglab emits plain integers), each
+   caught at **build** by measurement against the real files. No code defect
+   escaped build; verify was clean; the library tree was never red for a reader
+   bug. Worst-origin: `design`.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, `Sensor` exposed the plane's structure and the monochrome scalar
+   metadata but **no colour metadata** — the matrices, white balance, and
+   per-channel levels were unread. After, `Sensor` carries the full DNG
+   colour-metadata block (`ColorMatrix1/2`, `ForwardMatrix1/2`, `AsShotNeutral`,
+   `CalibrationIlluminant1/2`, per-channel `BlackLevel`/`WhiteLevel`), parsed
+   truthfully and verified **exactly** against `exiftool` + `dnglab` on both corpus
+   Bayer DNGs (colour oracle 23/23, 2/2 Bayer files present) — the trusted colour
+   foundation STAGE-007 demosaic and STAGE-008 colour consume, with STAGE-006 now
+   complete.

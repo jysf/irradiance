@@ -10,6 +10,21 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **Colour metadata parsed** (`irradiance::ifd`, SPEC-026, PROJ-002) — `Sensor` now
+  exposes the DNG colour-metadata block: `color_matrix_1`/`_2`,
+  `forward_matrix_1`/`_2` and `as_shot_neutral` (a new verbatim `Rational { num, den }`,
+  read by `Container::rationals()` — SRATIONAL + fractional RATIONAL, with
+  `Error::RationalValueOutOfRange` on the `RATIONAL → i32` narrow), the
+  `calibration_illuminant_1`/`_2` light-source codes, and the full per-channel
+  `black_levels` / `white_levels`. The matrices/illuminants/`AsShotNeutral` read
+  from `IFD0`, the per-channel levels from the sensor IFD; each is an
+  interpretation-class field — a malformed tag costs that field, never the file
+  (DEC-012). **Parsed and exposed only, not applied to pixels** (demosaic is
+  STAGE-007, colour is STAGE-008). Verified **exactly** against `exiftool` +
+  `dnglab` on both corpus Bayer DNGs by i128 cross-multiplication, no tolerance
+  (DEC-030); `irr ifd` surfaces every field. The monochrome scalar metadata path is
+  unchanged. Completes STAGE-006 — the Bayer sensor is now fully read (bit-exact
+  plane + truthful colour metadata).
 - **Above-WhiteLevel samples accepted** (`irradiance::plane`, SPEC-029, PROJ-002) —
   `plane::unpack_into` no longer rejects a sample above `WhiteLevel` (specular
   highlights are legal); raw values are preserved, not clamped. Amends **DEC-008**
