@@ -797,9 +797,14 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-09-06
-    last_touched: 2026-10-30
+    last_touched: 2026-11-01
     raised_by: claude
     notes: |
+      ══ STAGE-007 CLOSE, 2026-11-01: DEFERRED, trigger unchanged, still N=2. ══
+      No STAGE-007 instance — demosaic was new-capability on a reused harness; DEC-032
+      (two-pass green held in `dst`'s own green slots) was a build-time design choice,
+      not a fix that hardened failing logic while keeping the assumption that let it
+      fail. Carries into STAGE-008 at N=2.
       ══ STAGE-006 CLOSE, 2026-10-30: DEFERRED, trigger unchanged, still N=2. ══
       STAGE-006 added no instance. Its six specs were new-capability parse code
       (SPEC-024 CFA identity, SPEC-026 colour metadata), plane assembly
@@ -1037,9 +1042,14 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-10-30
-    last_touched: 2026-10-30
+    last_touched: 2026-11-01
     raised_by: claude
     notes: |
+      ══ STAGE-007 CLOSE, 2026-11-01: DEFERRED, still N=1. ══ No new corpus/code-
+      assumption instance — the demosaic built on both corpus files as framed. The
+      MHC-patent-not-probed-at-frame surprise is adjacent but a DIFFERENT axis, and
+      is captured as the new lesson [[patent-check-named-algorithms-at-frame]] rather
+      than folded in here.
       Capture, do NOT promote — N=1. Adjacent to the codified
       [[unrun-docs-carry-errors]] and to STAGE-003's measure-before-build lesson,
       but distinct in WHEN: those say run the code before you write the doc; this
@@ -1050,3 +1060,70 @@ signals:
       STAGE-007's framing: demosaic will assume the `Cfa` pattern + the unpacked
       plane are both in hand — probe that on both corpus files before speccing the
       interpolation.
+
+  # --- lesson: a named algorithm/dependency can be patent-encumbered ----------
+  - id: patent-check-named-algorithms-at-frame
+    type: lesson
+    summary: "When a brief or stage names a specific algorithm or third-party dependency, patent-check it at FRAME time — clean-room reimplementation defeats copyright, NOT patents, so a live patent on a named method is a landmine for a permissive crate."
+    evidence: "N=1, STAGE-007 (2026-10-31). The PROJ-002 brief + STAGE-007 named 'clean-room Malvar-He-Cutler' as the quality demosaic with no patent check. Designing SPEC-031 surfaced that MHC is covered by US 7,502,505 (Microsoft), Google Patents 'Active, expires 2027-01-25' — still in force. Clean-room would NOT have helped (it beats copyright, not patents), and a patented demosaic in the MIT/Apache crate would defeat the whole permissive-adoption thesis. Forced a mid-design pivot to Hamilton-Adams (US 5,629,734, expired) + DEC-031 — a patent deep-dive + a re-scope + a DEC, mid-design, all avoidable by a one-line check when the stage named the algorithm."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-01
+    last_touched: 2026-11-01
+    raised_by: claude
+    notes: |
+      Capture, N=1. The fix is cheap and mechanical: the stage-FRAME step
+      (FIRST_SESSION_PROMPTS.md Prompt 1c) gains a line — "if the stage names a
+      specific algorithm or third-party dependency, confirm its patent status (and
+      licence) before designing it in; a live patent is worse than copyleft for a
+      permissive crate, because clean-room does not touch it." Watch for a second
+      instance the next time a stage names a method/dep (STAGE-008's colour-transform
+      maths, or the X-Trans DHT demosaic later). Related:
+      [[probe-the-hard-assumption-at-frame-time]] — same family (a load-bearing frame
+      assumption left unprobed); this is its patent/licence axis.
+
+  # --- golden-path: a reusable bit-exact oracle harness --------------------------
+  - id: reusable-bit-exact-oracle-harness
+    type: golden-path
+    summary: "Building the TYPE + analytic bit-exact oracle + red-proof + surfacing ONCE, as a foundation spec, makes every later kernel swap on it cheap and predictable."
+    evidence: "N=2, STAGE-007. SPEC-030 built the camera-space RGB buffer + the Tier-A analytic bit-exact oracle (hand-computed fixtures) + the perturbed-kernel red-proof + `irr demosaic` around a simple bilinear kernel. SPEC-031 (Hamilton-Adams — a materially more complex kernel) and SPEC-032 (fuzz + GRBG/GBRG phases) then reused that harness WHOLESALE: SPEC-031 landed at 23.6M tok (under its 50M estimate), SPEC-032 at 19.5M (right at estimate), both approved first pass. The oracle moved from the hard part to the free part — a kernel change became a localized, bit-exact-verified edit."
+    bar: "N=3"
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-11-01
+    last_touched: 2026-11-01
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote — N=2, and a wrong paved road is worse than none. The
+      pattern: when a stage has a SIMPLE-correct and a QUALITY variant of the same
+      operation, ship the simple one FIRST as the foundation spec, carrying the type +
+      the bit-exact analytic oracle + the red-proof + the surfacing, so the quality
+      variant is a kernel-only change against a proven, shown-red oracle. Mirrors
+      DEC-024's bilinear-baseline-then-upgrade and STAGE-006's precursor/capstone
+      rhythm. Revisit at PROJ-002 close with STAGE-008 as a possible N=3 (does the
+      colour transform reuse the develop oracle the same way?).
+
+  # --- process-debt: desktop /cost is not a tool, so handbacks ship null --------
+  - id: desktop-cost-tool-unavailable-handbacks-null
+    type: process-debt
+    summary: "A Claude Code DESKTOP (Code tab) session cannot read `/cost` as a tool, so every delegated build/verify handback returns `tokens_total: null` and the orchestrator must recover each cost from the session transcript at ship."
+    evidence: "N=8 and systematic. Every cold build/verify session in STAGE-006 (SPEC-030 build+verify) and STAGE-007 (SPEC-030/031/032 build+verify = 6 of the 8) handed back `tokens_total: null` with a note that /cost is not exposed to a desktop Code-tab session — correct per the contract (do not invent a number). The orchestrator recovered all of them at ship from each session's own transcript (scratchpad-uuid anchored, deduped by message.id): SPEC-030 build 93026a80 / verify eae8c836, SPEC-031 build 9b462a6e / verify 21f3a4a2, SPEC-032 build 0d68a8ef / verify 0b206331. The recovery works and is honest, but it is manual, per-session, and depends on the orchestrator holding each UUID — the handback cost contract (DEC-013) is effectively never satisfied by a desktop delegate."
+    bar: null
+    status: open
+    disposition_at: project-close
+    first_flagged: 2026-11-01
+    last_touched: 2026-11-01
+    raised_by: claude
+    notes: |
+      Not a defect in the sessions — they followed AGENTS.md §4 (null + a note, never
+      a fabricated number). The friction is that recovery is manual and relies on the
+      orchestrator capturing each delegate's scratchpad UUID (the verify/ship prompts
+      have started carrying them, the interim fix). Options at project close: (a) a
+      `just handback-cost SPEC-NNN <cycle> <uuid>` recipe that runs the
+      dedup-by-message.id measurement and writes the cost session, so the orchestrator
+      runs one command, not a hand-rolled script; (b) teach the delegate to emit the
+      measurement itself from its own jsonl before handing back (it CAN read its own
+      transcript even without a /cost tool); (c) accept recover-at-ship and codify the
+      UUID-passing. Related: [[identify-own-transcript-for-cost-handback]] (the
+      technique), [[token-counts-not-comparable]], [[flat-rate-overstates-cached-sessions]].

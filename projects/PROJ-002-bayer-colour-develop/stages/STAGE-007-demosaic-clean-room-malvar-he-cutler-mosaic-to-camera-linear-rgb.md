@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-007                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-10-31
-shipped_at: null
+shipped_at: 2026-11-01
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -54,10 +54,11 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
-                                    #   estimated_usd: N
-                                    #   recorded_at: YYYY-MM-DD
-                                    #   notes: "framing + spec breakdown"
+  sessions:
+    - tokens_total: 122077684
+      estimated_usd: 249.64
+      recorded_at: 2026-11-01
+      notes: "Stage grain (DEC-013 §5). ONE orchestrator session (work-status-next-steps, scratchpad uuid c0b7ec9b-2be4-41ad-9dea-77f3b6690343) ran STAGE-007 end to end in the main session: framing + the MHC→Hamilton-Adams patent pivot (deep-dive + DEC-031) + the design of all three specs + their 3 ships + dispatching/reconciling 6 cold build/verify sessions + this close. Measured FLOOR from that session's OWN transcript (scratchpad-uuid anchored, NOT text grep), deduped by message.id, all claude-opus-4-8, 98.0% cache-read: 195 usage-bearing messages dated >= 2026-10-31T02:59:41Z (the 'Frame STAGE-007' turn) -> in 390 / out 439,413 / cache-write 1,983,941 / cache-read 119,653,940 = 122,077,684 tokens, priced per-component at Opus list rates (15/75/18.75-write/1.50-read per MTok) = 249.64 USD. SCOPED: STAGE-006's entry already claimed the session through its close; the STAGE-006-close turn between that measurement and this boundary is STAGE-006's, excluded here. Floor: the turns writing this close post-date the measurement. RATIO: 122.1M orchestration against 77.3M delegated spec cost (SPEC-030/031/032 grand totals) = ~61% orchestration — high because all three bit-exact demosaic DESIGNS + the patent pivot were main-session work, while the builds reused SPEC-030's oracle harness cheaply (SPEC-031 build 14.3M, SPEC-032 build 12.7M)."
 ---
 
 # STAGE-007: Demosaic: clean-room Malvar-He-Cutler, mosaic to camera-linear RGB
@@ -248,21 +249,66 @@ onto each as `task.complexity`.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1d (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled 2026-11-01 at ship (SPEC-032 merged; all three specs in specs/done/).
+Drafted via Prompt 1d (Stage Ship).*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes, in full. A Bayer
+  mosaic now demosaics to a 3-channel **camera-space linear RGB** image via a
+  **patent-clean Hamilton-Adams** directional demosaic (directional green on the
+  lower-gradient axis + colour-difference red/blue), verified **bit-exact** on
+  analytic fixtures across **all four Bayer phases** (RGGB/BGGR/GRBG/GBRG), with a
+  perturbed-kernel red-proof (independently broken three ways at verify) and a
+  fuzz target (11.27M runs, 0 crashes). SPEC-030 (bilinear foundation + the
+  analytic-oracle harness + `irr demosaic`) → SPEC-031 (the Hamilton-Adams quality
+  kernel, zero-alloc via DEC-032) → SPEC-032 (fuzz + all-phase coverage). No colour
+  correction (that is STAGE-008); the monochrome path is byte-for-byte unchanged.
+- **How many specs did it actually take?** 3 (SPEC-030/031/032), exactly as framed.
+  No spec splits — SPEC-031's pre-named green/RB split was NOT needed (full
+  Hamilton-Adams fit as one [M] build). The one real change was SPEC-031's
+  **algorithm** (below), not the spec count.
+- **How many outlines survived unchanged?** 3 of 3 framed outlines shipped in their
+  slots. SPEC-031 kept its slot but its **approach was re-scoped mid-stage**
+  (Malvar-He-Cutler → Hamilton-Adams, DEC-031) — the backlog structure held 3/3;
+  one spec's algorithm was changed by a mid-design finding.
+- **What changed between starting and shipping?** The quality kernel changed from
+  **Malvar-He-Cutler to Hamilton-Adams** (DEC-031) after a mid-design patent check
+  found MHC encumbered (US 7,502,505, active to ~2027-01-25) — clean-room beats
+  copyright, not patents, so a patented demosaic would have defeated the
+  permissive-crate thesis.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - **Patent-check a named algorithm or dependency at FRAME time.** The brief +
+    STAGE-007 named MHC with no patent check; caught only mid-design (SPEC-031),
+    forcing a pivot + DEC-031. The stage-frame prompt (Prompt 1c) wants a one-line
+    "if the stage names an algorithm/dependency, patent-check it before designing."
+    Filed as lesson [[patent-check-named-algorithms-at-frame]] (watch, N=1).
+  - **A reusable bit-exact oracle harness makes kernel swaps cheap and predictable.**
+    SPEC-030 built the RGB type + analytic oracle + red-proof + `irr` once; SPEC-031
+    (HA) and SPEC-032 (fuzz/phases) reused it wholesale and landed at/under estimate
+    (23.6M, 19.5M). Filed as golden-path [[reusable-bit-exact-oracle-harness]]
+    (watch, N=2) — capture, don't promote yet.
+  - **Desktop Claude Code sessions cannot read `/cost`, so every delegated handback
+    returns `tokens_total: null`** and the orchestrator recovers each from the
+    session transcript at ship — 6/6 cold sessions this stage. Filed as process-debt
+    [[desktop-cost-tool-unavailable-handbacks-null]] (project-close).
+- **Signals dispositioned at this close?** (Prompt 1d step 7)
+  - [[a-fix-inherits-the-precondition-of-the-thing-it-fixes]] (watch, N=2) →
+    **deferred**: no STAGE-007 instance (demosaic was new-capability on a reused
+    harness; DEC-032 was a build-time design choice, not a fix hardening failing
+    logic). `last_touched` bumped.
+  - [[probe-the-hard-assumption-at-frame-time]] (watch, N=1) → **deferred**: no new
+    corpus/code-assumption instance (the demosaic built on the corpus as framed).
+    The MHC-patent-not-probed-at-frame is adjacent but a different axis — captured as
+    the new patent-check lesson instead. `last_touched` bumped.
+  - The four codified stage-close lessons ([[unrun-docs-carry-errors]],
+    [[attribute-text-inside-doc-comments]], [[measurement-over-generalised]],
+    [[a-gate-that-fails-mutely-is-a-gate-that-never-ran]]) are terminal and none
+    recurred.
+  - [[spec-reflection-shipped-unfilled]] (STAGE-006, project-close) did **not**
+    recur — all three STAGE-007 spec reflections were filled at their ships.
+  - New this close: lesson [[patent-check-named-algorithms-at-frame]] (N=1 watch),
+    golden-path [[reusable-bit-exact-oracle-harness]] (N=2 watch), process-debt
+    [[desktop-cost-tool-unavailable-handbacks-null]].
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - Yes — the **patent-check** lesson (SPEC-031's reflection) and the
+    **harness-reuse golden-path** (SPEC-032's reflection) are both promoted to the
+    stage-level signals filed above.
