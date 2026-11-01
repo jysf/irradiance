@@ -6,7 +6,7 @@
 task:
   id: SPEC-032
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -31,9 +31,9 @@ handoff:
   created_at: null
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  decisions: [DEC-003, DEC-016, DEC-017, DEC-027]    # no-corpus-seed / no-alloc / red-proof / fuzz-crate lint scope
+  constraints: [oracle-must-be-shown-red, no-panics-on-untrusted-input]
+  related_specs: [SPEC-030, SPEC-031, SPEC-027]      # bilinear foundation + HA kernel it hardens; CFA fuzz-seed pattern
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -47,7 +47,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-007's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "STAGE-007's demosaic hardening — a fuzz target + the GRBG/GBRG phase fixtures (closing SPEC-030/FU-1), proving demosaic_into panic-free and phase-driven on all four Bayer phases."
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -62,7 +62,7 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
+  tokens_estimate: 20000000        # prediction (design): an [S] test+fuzz spec, no src change; cf. SPEC-027 (corpus+fuzz, [S])
   sessions: []
   totals:
     tokens_total: 0
@@ -70,74 +70,123 @@ cost:
     session_count: 0
 ---
 
-# SPEC-032: CFA-demosaic **fuzz + panic-free hardening** on
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-032]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
+# SPEC-032: CFA-demosaic fuzz + panic-free hardening + the GRBG/GBRG phase fixture
 
 ## Context
 
-Why does this spec exist? What problem does it solve? Link to:
-- The parent `STAGE-007` and this spec's place in its backlog
-- The project `PROJ-002`
-- Any related discussions, issues, or prior decisions
+The last STAGE-007 spec. SPEC-030 (bilinear) + SPEC-031 (Hamilton-Adams) built
+`demosaic::demosaic_into` and its Tier-A bit-exact oracle. This spec HARDENS that
+surface two ways, with no algorithm change:
+1. A **fuzz target** that drives `demosaic_into` on arbitrary bytes, making its
+   panic-free contract a *fuzzed* guarantee (today only the 1×1 / 2×2 / 3×5 unit
+   tests exercise it) — the same discipline `plane` / `develop` already have
+   (AGENTS.md §12).
+2. Closes **SPEC-030/FU-1**: the oracle's phase fixtures cover RGGB + BGGR (both
+   anti-diagonal green phases) but not **GRBG / GBRG** (main-diagonal greens) — the
+   one unverified Bayer phase path, the `measurement-over-generalised` gap
+   STAGE-007's Design Notes flagged.
+
+`demosaic_into` is already phase-driven (SPEC-031) and panic-free (SPEC-030); this
+proves both *on all four phases and under fuzzing*. `depends_on` SPEC-030 + SPEC-031
+(both shipped).
 
 ## Goal
 
-1–2 sentences. Unambiguous. If you can't write the goal in two
-sentences, split the spec.
+Add a `demosaic` libFuzzer target (arbitrary bytes → parse → unpack → `demosaic_into`,
+never panics) with tier-A seeds, and **GRBG + GBRG bit-exact** analytic fixtures
+closing SPEC-030/FU-1 — so the demosaic's panic-free and phase-driven guarantees are
+proven on all four Bayer phases and under fuzzing. Test + fuzz only; no `src` change.
+
+## Design
+
+Measured against the fuzz + oracle harness on `main` (2026-11-01):
+1. **Fuzz mirrors `develop`.** `fuzz/fuzz_targets/develop.rs` is the template:
+   `Container::parse` → `sensor()` → `require_uncompressed` → cap `width*height ≤
+   MAX_PIXELS` → `unpack_into` → the entry point. `demosaic.rs` adds
+   `demosaic_into(&sensor, &plane, &mut rgb)` with `rgb` of `len*3` (bound `len*3`
+   against MAX_PIXELS too). A rejected container / sensor / unpack is a SUCCESS
+   (typed error, not panic). Register a `demosaic` bin in `fuzz/Cargo.toml`; add
+   `demosaic_seeds()` + a `write_seeds("demosaic", "tiff", …)` call in
+   `examples/fuzz-seeds.rs`, writing `fuzz/seeds/demosaic/` (hand-built tier-A —
+   reuse SPEC-027's `valid_cfa_sensor` builder + a truncated/degenerate CFA; DEC-003:
+   no corpus file as a seed).
+2. **Phase fixtures slot into the oracle.** `tests/demosaic_oracle.rs` already has
+   `RGGB=[0,1,1,2]`, `BGGR=[2,1,1,0]`, `bayer(pattern)`, `fixture_sensor`,
+   `demosaic()`, `EXPECTED_BGGR`. Add `GRBG=[1,0,2,1]`, `GBRG=[1,2,0,1]`; extend the
+   DC-preservation loop to all four; add ≥1 **bit-exact** GRBG (and/or GBRG) fixture
+   with a hand-computed `EXPECTED_*` table (like `EXPECTED_BGGR`), proving HA on the
+   main-diagonal green phases with the same code path.
+3. **No `src/demosaic.rs` change expected** — it is already phase-driven + panic-free.
+   If the fuzz finds a panic, fix it and flag it at verify; none is expected. Likely
+   TEST-ONLY (no public API change → no CHANGELOG, per the repo convention — confirm
+   at ship).
 
 ## Inputs
-
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Read:** `fuzz/fuzz_targets/develop.rs` + `plane.rs` (target template + MAX_PIXELS
+  + "rejected = success"), `fuzz/Cargo.toml` (bin registration), `examples/fuzz-seeds.rs`
+  (`develop_seeds` / `write_seeds`), `tests/demosaic_oracle.rs` (phase constants +
+  `bayer` / `fixture_sensor` / `demosaic` + `EXPECTED_BGGR`), `tests/support/tiff.rs`
+  (`valid_cfa_sensor`, SPEC-027), `src/demosaic.rs` (the fuzzed surface).
+- **Decisions:** DEC-003 (no corpus as seed), DEC-016 (no-alloc), DEC-027 (fuzz-crate
+  lint scope), DEC-017 (red-proof discipline — not re-done here).
 
 ## Outputs
-
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **`fuzz/fuzz_targets/demosaic.rs` (new)** + a `[[bin]] name = "demosaic"` entry in
+  **`fuzz/Cargo.toml`**.
+- **`examples/fuzz-seeds.rs`:** `demosaic_seeds()` + `write_seeds("demosaic", "tiff",
+  demosaic_seeds())`; **`fuzz/seeds/demosaic/`:** generated seed files.
+- **`tests/demosaic_oracle.rs`:** `GRBG` / `GBRG` constants; DC-preservation extended
+  to all four phases; ≥1 bit-exact GRBG/GBRG `EXPECTED_*` fixture + its test; a tier-A
+  `demosaic_is_panic_free_on_hostile_cfa` test (mirroring SPEC-027's panic-free-on-CFA
+  test) so CI (no nightly fuzz) still asserts the contract.
+- No `src/demosaic.rs` change expected.
 
 ## Acceptance Criteria
-
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] A `demosaic` fuzz target exists, is registered in `fuzz/Cargo.toml`, runs
+  (`cargo +nightly fuzz run demosaic …`) with no panic/crash over a bounded run, and
+  its seeds are generated by `examples/fuzz-seeds.rs` into `fuzz/seeds/demosaic/`
+- [ ] The oracle verifies HA **bit-exact** on a **GRBG** (and/or **GBRG**) fixture
+  with a hand-computed expected table — same code path, all four Bayer phases now
+  covered (closes SPEC-030/FU-1)
+- [ ] DC-preservation holds on all four phases (RGGB, BGGR, GRBG, GBRG)
+- [ ] A tier-A test asserts `demosaic_into` returns (typed error or ok, never panics)
+  on a hand-built hostile/degenerate CFA input — CI asserts the contract without
+  nightly fuzz
+- [ ] `src/demosaic.rs` unchanged (test + fuzz only); mono path + every STAGE-006/007
+  oracle stays green; panic-free lints hold; the fuzz crate lints clean (DEC-027)
 
 ## Failing Tests
-
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
-
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`tests/demosaic_oracle.rs`**
+  - `"adams_hamilton_grbg_matches_hand_computed"` (and/or `_gbrg_`) — bit-exact HA on
+    a GRBG fixture vs a hand-written `EXPECTED_GRBG`.
+  - `"constant_mosaic_is_preserved_on_all_four_phases"` — DC-preservation over
+    RGGB / BGGR / GRBG / GBRG.
+  - `"demosaic_is_panic_free_on_hostile_cfa"` — a hand-built hostile CFA (truncated
+    plane / odd dims / unsupported pattern) drives `demosaic_into` and asserts it
+    returns, never panics.
+- **`fuzz/fuzz_targets/demosaic.rs`** — the libFuzzer target (nightly fuzz, not CI;
+  the tier-A test above is CI's assertion of the same contract).
 
 ## Non-Goals
-
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
-
-- ...
+- No demosaic algorithm change (HA stays); no white balance / colour / ΔE (STAGE-008);
+  no MHC.
+- Not re-running SPEC-031's red-proof (this adds phase coverage + fuzz, not a new
+  oracle).
+- Non-2×2 / X-Trans CFA; real-image comparison (STAGE-008 ΔE).
 
 ## Notes for the Implementer
-
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- Mirror `fuzz/fuzz_targets/develop.rs` exactly (the `MAX_PIXELS` cap + the
+  "rejected container/sensor/unpack = SUCCESS" contract); the demosaic `dst` is
+  `len*3` — bound it the same way. Same `+nightly` / `+toolchain` handling as the
+  other targets (see `ifd.rs`'s header).
+- Phases: `GRBG=[1,0,2,1]` (row 0 G,R / row 1 B,G), `GBRG=[1,2,0,1]` (row 0 G,B /
+  row 1 R,G). Hand-compute `EXPECTED_*` with SPEC-031's HA arithmetic on a 5×5 fixture
+  (offset-2 in range), the same way `EXPECTED_BGGR` was built.
+- Almost certainly TEST-ONLY (no public API change) → **no CHANGELOG** (repo
+  convention for test-only specs, cf. SPEC-025 / SPEC-027); confirm at ship.
+- Seeds: reuse SPEC-027's `valid_cfa_sensor` (`tests/support/tiff.rs`) for a valid
+  demosaic seed + a truncated one; `cargo run --example fuzz-seeds` regenerates
+  `fuzz/seeds/`.
 
 ---
 
