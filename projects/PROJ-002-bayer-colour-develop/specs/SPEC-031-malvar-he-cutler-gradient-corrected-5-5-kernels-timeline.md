@@ -23,6 +23,20 @@ Cycle prompts live in `prompts/SPEC-031-<cycle>.md`.
       provenance row + CHANGELOG. Gates green: `just test`, `just lint-ci`,
       `cargo fmt --check`, `just validate`. Oracle is Tier-A (no corpus). Advanced to
       verify; PR #67 → `main`.
-- [ ] **verify** — cold independent review after build.
+- [x] **verify** — cold independent review after build, completed 2026-10-31 on
+      `claude/spec-031-verify-311cc7` (cold session, claude-opus-4-8; HANDOFF-077).
+      **✅ APPROVED — ship at commit `5450c70`.** Reproduced all gates in-worktree
+      (`just test` 16/16 binaries, demosaic_oracle 22/22, tier-B SKIPs loud;
+      `just lint-ci` pinned clippy 0.1.98 clean; `cargo fmt --check`; `just
+      validate`; `decisions-audit --changed` clean). Load-bearing red-proof
+      independently re-proven by breaking the REAL kernel three ways (pass-1 green
+      predictor, pass-2 diagonal, pass-2 green-site colour-difference) — each
+      turned the oracle red. Hand-recomputed pixel (2,2) incl. a nested classifier
+      tie → matches `EXPECTED_HA`. DEC-032 green-slot aliasing audited sound. No
+      regression (every STAGE-006 oracle green). Verify `tokens_total: null`
+      (desktop `/cost` unavailable — RECOVER from the verify transcript at ship,
+      UUID `21f3a4a2-4f9e-4e86-9dba-37e22e208e34`). Follow-up: SPEC-030/FU-1
+      (GRBG/GBRG fixture) still open, deferred to SPEC-032 — not a blocker.
+      Verify PR (build + verify together, because #67 is unmerged) → `main`.
 - [ ] **ship** — main session (reflection, cost totals, `complexity_actual`,
       archive, brag).
