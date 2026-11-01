@@ -32,6 +32,9 @@ Cycle prompts live in `prompts/SPEC-032-<cycle>.md`.
       non-vacuous (Ok control). tokens_total null (desktop `/cost` unavailable —
       recover from transcript at ship, UUID 0b206331). Ship prompt written;
       `advance-cycle → ship` (verdict approved) run.
-- [ ] **ship** — main session (reflection, cost totals, `complexity_actual`, archive,
-      brag). Likely TEST-ONLY → no CHANGELOG (confirm). STAGE-007 then fully shipped →
-      run the STAGE-007 stage-ship (Prompt 1d).
+- [x] **ship** — completed 2026-11-01 (main session). Build+verify merged (#71 build,
+      #72 verify-docs). Reflection + recovered cost totals (build 12,690,825/$28.06 +
+      verify 6,804,472/$15.84 = 19,495,297/$43.90, both recovered from the cold
+      sessions' transcripts since handbacks were null), `complexity_actual: S`, archive,
+      brag. TEST-ONLY → no CHANGELOG (confirmed). `verify_verdict: approved`. **STAGE-007
+      now fully shipped (3/3) → run the STAGE-007 stage-ship (Prompt 1d) next.**

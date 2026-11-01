@@ -167,14 +167,14 @@ onto each as `task.complexity`.
       provenance entry. ⚠ **L-risk** — if full HA (green + R/B) exceeds [M], ship the
       **green** interpolation first (R/B stay bilinear) and the **red/blue**
       colour-difference as a follow-on spec.
-- [ ] SPEC-032 (design) — [S] CFA-demosaic **fuzz + panic-free hardening** + the
+- [x] SPEC-032 (shipped on 2026-10-31) — [S] CFA-demosaic **fuzz + panic-free hardening** + the
       **GRBG/GBRG phase fixture** (closes SPEC-030/FU-1): a `demosaic` fuzz target
       over degenerate / edge-phase planes (tiny, 1×1, odd-dim at the CFA phase) +
       all-four-phase bit-exact oracle coverage. Test + fuzz only, no `src` change.
 
-**Count:** 2 shipped / 1 active / 0 pending
+**Count:** 3 shipped / 0 active / 0 pending
 
-> **SPEC-030/FU-1 (open, raised at SPEC-030 verify):** SPEC-030's demosaic oracle
+> **SPEC-030/FU-1 (✅ CLOSED by SPEC-032, 2026-11-01; raised at SPEC-030 verify):** SPEC-030's demosaic oracle
 > fixture-verifies RGGB + BGGR only (both anti-diagonal green phases); add a **GRBG
 > or GBRG** fixture — in SPEC-031's MHC fixtures or SPEC-032's edge-phase hardening —
 > to close the one unverified Bayer phase. The kernel is phase-driven and correct for
