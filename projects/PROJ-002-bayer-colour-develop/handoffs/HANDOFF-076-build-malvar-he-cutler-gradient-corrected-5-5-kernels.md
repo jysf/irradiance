@@ -47,7 +47,7 @@ handback:
   estimated_usd: null              # tokens_total × your rate, or your harness's number
   duration_minutes: 45
   branch: claude/spec-031-hamilton-adams-56ecec
-  pr: null
+  pr: "https://github.com/jysf/irradiance/pull/67"
   completed_at: 2026-10-31         # YYYY-MM-DD
   notes: "/cost is NOT exposed to this desktop Claude Code (Code tab) session, so tokens_total is left null (not invented). Recover the real number from THIS session's transcript at ship, as done for SPEC-030's build/verify (identify-own-transcript-for-cost-handback: anchor on the scratchpad-dir UUID 9b462a6e-5ff6-421d-be8a-1b6ea3098b04, not a text grep). Full Hamilton-Adams shipped (green + R/B) — NOT the green-only fallback."
   synced_at: null                  # stamped by `just handback-sync` — do not edit

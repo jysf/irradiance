@@ -22,7 +22,7 @@ Cycle prompts live in `prompts/SPEC-031-<cycle>.md`.
       directionality, classifier tie, DC-preservation, BGGR, red-proof mutant≠honest);
       provenance row + CHANGELOG. Gates green: `just test`, `just lint-ci`,
       `cargo fmt --check`, `just validate`. Oracle is Tier-A (no corpus). Advanced to
-      verify; PR to `main`.
+      verify; PR #67 → `main`.
 - [ ] **verify** — cold independent review after build.
 - [ ] **ship** — main session (reflection, cost totals, `complexity_actual`,
       archive, brag).
