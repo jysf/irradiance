@@ -92,6 +92,11 @@ fn bayer(pattern: [u8; 4]) -> Cfa {
 
 const RGGB: [u8; 4] = [0, 1, 1, 2];
 const BGGR: [u8; 4] = [2, 1, 1, 0];
+// The two MAIN-diagonal green phases (greens at slots 0 and 3), the paths
+// RGGB/BGGR (anti-diagonal greens) never exercise — the one unverified phase
+// gap STAGE-007's Design Notes flagged, closed here (`SPEC-030/FU-1`, SPEC-032).
+const GRBG: [u8; 4] = [1, 0, 2, 1]; // row 0: G, R   row 1: B, G
+const GBRG: [u8; 4] = [1, 2, 0, 1]; // row 0: G, B   row 1: R, G
 
 /// Demosaic a mosaic through the real `demosaic_into`, returning the interleaved
 /// RGB buffer. Panics (fine in a test) on any error — the error paths are their
@@ -231,12 +236,14 @@ fn classifier_tie_averages_both_predictors() {
 // DC preservation — every HA predictor sums to 1 (an average minus a zero-sum
 // second difference), so a CONSTANT mosaic must come out constant on all three
 // channels, independent of phase. The invariant the oracle can assert without
-// knowing the exact weights.
+// knowing the exact weights — now over ALL FOUR Bayer phases (SPEC-032), so the
+// main-diagonal green phases (GRBG/GBRG) carry it too, not just the anti-diagonal
+// ones RGGB/BGGR already covered.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn constant_mosaic_is_preserved_on_all_channels() {
-    for pattern in [RGGB, BGGR] {
+fn constant_mosaic_is_preserved_on_all_four_phases() {
+    for pattern in [RGGB, BGGR, GRBG, GBRG] {
         let sensor = fixture_sensor(5, 5, Some(bayer(pattern)));
         let out = demosaic(&sensor, &[4242u16; 25]);
         assert!(
@@ -283,6 +290,122 @@ fn phase_is_driven_by_the_pattern_bggr() {
     // its green) → R=43, not the centre 10 a hard-coded-RGGB kernel would store.
     let (r, _g, b) = (out[0], out[1], out[2]);
     assert_eq!((r, b), (43, 10), "corner is a BLUE site, not a RED one");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main-diagonal green phases — GRBG and GBRG (SPEC-032, closing SPEC-030/FU-1).
+// RGGB and BGGR both put the two greens on the ANTI-diagonal; GRBG/GBRG put them
+// on the MAIN diagonal, which flips which colour a green site's horizontal vs
+// vertical neighbours carry and which diagonal pair feeds a red/blue site. The
+// same `demosaic_into` must get both right from the pattern alone — so these are
+// bit-exact tables on 5×5 fixtures, built exactly as EXPECTED_BGGR was (SPEC-031's
+// HA arithmetic, floor-div round-half-up, phase-preserving reflect), each
+// cross-checked against the independent `local_hamilton_adams` reference below.
+// A representative interior pixel per phase is pinned inline with its arithmetic.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[rustfmt::skip]
+const MOSAIC_GRBG: [u16; 25] = [
+      5,  15,  25,  35,  45,
+     55,  65,  75,  85,  95,
+    105, 115, 125, 135, 145,
+    155, 165, 175, 185, 195,
+    205, 215, 225, 235, 245,
+];
+
+#[rustfmt::skip]
+const EXPECTED_GRBG: [u16; 75] = [
+    13,5,30,      15,10,38,     25,25,50,     35,40,63,     38,45,70,
+    63,55,55,     68,65,65,     75,75,75,     83,85,85,     88,95,95,
+    113,105,105,  115,110,113,  125,125,125,  135,140,138,  138,145,145,
+    163,155,155,  168,165,165,  175,175,175,  183,185,185,  188,195,195,
+    213,205,180,  215,210,188,  225,225,200,  235,240,213,  238,245,220,
+];
+
+#[test]
+fn adams_hamilton_grbg_matches_hand_computed() {
+    let sensor = fixture_sensor(5, 5, Some(bayer(GRBG)));
+    let out = demosaic(&sensor, &MOSAIC_GRBG);
+    assert_eq!(
+        out, EXPECTED_GRBG,
+        "GRBG (main-diagonal greens) must demosaic to the hand-computed HA table"
+    );
+    // The independent clean-room reference reproduces the same table — two
+    // implementations agreeing, so the table is derived, not a transcript of
+    // the kernel under test.
+    assert_eq!(
+        local_hamilton_adams(&sensor, &MOSAIC_GRBG, false),
+        EXPECTED_GRBG.to_vec(),
+        "the independent reference must reproduce the GRBG table too"
+    );
+
+    let px = |x: usize, y: usize| {
+        let i = (y * 5 + x) * 3;
+        (out[i], out[i + 1], out[i + 2])
+    };
+    // (3,2)=135 RED site (y even, x odd under GRBG). Neighbours W=125 E=145 N=85
+    //   S=185 WW=115 EE=135 NN=35 SS=235. lap_h=115-270+135=-20; lap_v=35-270+235=0.
+    //   CLh=|125-145|+20=40; CLv=|85-185|+0=100 → CLh<CLv, green horizontal:
+    //   gh=2*(125+145)-(-20)=560 → G=rnd4(560)=(560+2)/4=140. R=self=135.
+    //   B from diagonals NW=75 NE=95 SW=175 SE=195, greens 75/95/175/195:
+    //     lap_p=75-280+195=-10; lap_n=95-280+175=-10; dp=2*(75+195)+10=550;
+    //     dn=2*(95+175)+10=550; CLp=|195-75|+10=130; CLn=|175-95|+10=90 → CLn<CLp,
+    //     B=rnd4(550)=(550+2)/4=138.
+    assert_eq!(px(3, 2), (135, 140, 138));
+    // (2,3)=175 BLUE site (y odd, x even). The column/row around it is a smooth
+    //   ramp, so every HA predictor returns 175: all three channels equal.
+    assert_eq!(px(2, 3), (175, 175, 175));
+    // (2,2)=125 GREEN site (main diagonal) on a locally linear patch → 125 flat.
+    assert_eq!(px(2, 2), (125, 125, 125));
+}
+
+#[rustfmt::skip]
+const MOSAIC_GBRG: [u16; 25] = [
+      8,  16,  24,  32,  40,
+     48,  56,  64,  72,  80,
+     88,  96, 104, 112, 120,
+    128, 136, 144, 152, 160,
+    168, 176, 184, 192, 200,
+];
+
+#[rustfmt::skip]
+const EXPECTED_GBRG: [u16; 75] = [
+    28,8,14,      34,12,16,     44,24,24,     54,36,32,     60,40,34,
+    48,48,54,     56,56,58,     64,64,64,     72,72,70,     80,80,74,
+    88,88,94,     94,92,96,     104,104,104,  114,116,112,  120,120,114,
+    128,128,134,  136,136,138,  144,144,144,  152,152,150,  160,160,154,
+    148,168,174,  154,172,176,  164,184,184,  174,196,192,  180,200,194,
+];
+
+#[test]
+fn adams_hamilton_gbrg_matches_hand_computed() {
+    let sensor = fixture_sensor(5, 5, Some(bayer(GBRG)));
+    let out = demosaic(&sensor, &MOSAIC_GBRG);
+    assert_eq!(
+        out, EXPECTED_GBRG,
+        "GBRG (main-diagonal greens, red/blue swapped vs GRBG) must demosaic to its hand table"
+    );
+    assert_eq!(
+        local_hamilton_adams(&sensor, &MOSAIC_GBRG, false),
+        EXPECTED_GBRG.to_vec(),
+        "the independent reference must reproduce the GBRG table too"
+    );
+
+    let px = |x: usize, y: usize| {
+        let i = (y * 5 + x) * 3;
+        (out[i], out[i + 1], out[i + 2])
+    };
+    // (1,2)=96 BLUE site (y even, x odd under GBRG — slot 1 is Blue). Neighbours
+    //   W=88 E=104 N=56 S=136 WW=96 EE=112 NN=16 SS=176. lap_h=96-192+112=16;
+    //   lap_v=16-192+176=0. CLh=|88-104|+16=32; CLv=|56-136|+0=80 → CLh<CLv,
+    //   gh=2*(88+104)-16=368 → G=rnd4(368)=(368+2)/4=92. B=self=96. R from
+    //   diagonals NW=48 NE=64 SW=128 SE=144, greens 48/64/128/144:
+    //     lap_p=48-184+144=8; lap_n=64-184+128=8; dp=2*(48+144)-8=376;
+    //     dn=2*(64+128)-8=376; CLp=|144-48|+8=104; CLn=|128-64|+8=72 → CLn<CLp,
+    //     R=rnd4(376)=(376+2)/4=94.
+    assert_eq!(px(1, 2), (94, 92, 96));
+    // (2,2)=104 GREEN site (main diagonal) on a locally linear patch → 104 flat.
+    assert_eq!(px(2, 2), (104, 104, 104));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -565,6 +688,71 @@ fn degenerate_dims_do_not_panic() {
         84,84,77,  91,91,81,  98,98,84,
     ];
     assert_eq!(demosaic(&sensor, &mosaic), expected_3x5);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The tier-A stand-in for `fuzz/fuzz_targets/demosaic.rs` (SPEC-032). The
+// fuzzer proves `demosaic_into` returns (never panics) on arbitrary bytes under
+// nightly; CI has no nightly, so this asserts the SAME contract on a battery of
+// hand-built hostile/degenerate CFA inputs — a mono plane, non-Bayer and non-2×2
+// patterns, odd and zero dimensions, and src/dst buffers of the wrong length.
+// The assertion is that every call RETURNS: a panic would abort the test, so
+// reaching the end is the pass. A single Ok control guards against a vacuous
+// all-errors pass.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn demosaic_is_panic_free_on_hostile_cfa() {
+    let not_bayer = Cfa {
+        repeat_dim: [2, 2],
+        pattern: vec![0, 0, 1, 2], // two reds, no blue — not a Bayer
+        plane_color: vec![0, 1, 2],
+        layout: 1,
+    };
+    let xtrans = Cfa {
+        repeat_dim: [6, 6],
+        pattern: vec![1; 36], // non-2×2 repeat dim
+        plane_color: vec![0, 1, 2],
+        layout: 1,
+    };
+
+    // (width, height, cfa, src_len, dst_len) — hostile shapes crossing a
+    // dimension, a CFA, and buffer lengths that may or may not match
+    // width*height / width*height*3. This is the space the fuzzer explores.
+    let cases: Vec<(u32, u32, Option<Cfa>, usize, usize)> = vec![
+        (4, 4, Some(bayer(RGGB)), 16, 48), // valid control — demosaics cleanly
+        (4, 4, None, 16, 48),              // mono plane → NotAColorFilterArray
+        (4, 4, Some(not_bayer.clone()), 16, 48), // unsupported pattern
+        (4, 4, Some(xtrans.clone()), 16, 48), // unsupported repeat_dim
+        (4, 4, Some(bayer(RGGB)), 15, 48), // src one short
+        (4, 4, Some(bayer(RGGB)), 16, 47), // dst one short
+        (4, 4, Some(bayer(RGGB)), 0, 0),   // empty buffers, non-zero dims
+        (3, 5, Some(bayer(RGGB)), 15, 45), // odd × odd, correctly sized → runs kernel
+        (5, 3, Some(bayer(GRBG)), 15, 45), // odd × odd, main-diagonal phase
+        (1, 1, Some(bayer(BGGR)), 1, 3),   // degenerate 1×1
+        (2, 2, Some(bayer(GBRG)), 4, 12),  // the full Bayer quad, every phase
+        (0, 0, Some(bayer(RGGB)), 0, 0),   // zero dims
+        (7, 1, Some(bayer(RGGB)), 7, 21),  // a single odd-length row
+        (1, 7, Some(bayer(RGGB)), 7, 21),  // a single odd-length column
+    ];
+
+    for (w, h, cfa, src_len, dst_len) in &cases {
+        let sensor = fixture_sensor(*w, *h, cfa.clone());
+        let src = vec![1234u16; *src_len];
+        let mut dst = vec![0u16; *dst_len];
+        // Must RETURN — Ok or a typed Err, never a panic. (The specific error
+        // kinds are the contract tests above; here the point is no abort.)
+        let _ = demosaic_into(&sensor, &src, &mut dst);
+    }
+
+    // Guard against a vacuous pass: the valid control must actually reach and
+    // complete the kernel, so the battery isn't quietly all-errors.
+    let ok_sensor = fixture_sensor(4, 4, Some(bayer(RGGB)));
+    let mut ok_dst = [0u16; 48];
+    assert!(
+        demosaic_into(&ok_sensor, &[1234u16; 16], &mut ok_dst).is_ok(),
+        "the valid control in the battery must reach and complete the kernel"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

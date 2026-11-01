@@ -1,9 +1,11 @@
 //! Write the fuzz seed corpus for `fuzz/fuzz_targets/ifd.rs`,
 //! `fuzz/fuzz_targets/plane.rs`, `fuzz/fuzz_targets/develop.rs`,
-//! `fuzz/fuzz_targets/warp_opcode.rs`, and `fuzz/fuzz_targets/opcode.rs`
+//! `fuzz/fuzz_targets/warp_opcode.rs`, `fuzz/fuzz_targets/opcode.rs`
 //! (`SPEC-017`'s own target — `OpcodeList1`'s `FixBadPixelsConstant`, real
 //! bytes plus adversarial variants from `tests/support/opcode.rs::
-//! fix_bad_pixels_fuzz_seed_corpus`).
+//! fix_bad_pixels_fuzz_seed_corpus`), and `fuzz/fuzz_targets/demosaic.rs`
+//! (`SPEC-032`'s own target — the Bayer demosaic, seeded in [`demosaic_seeds`]
+//! from `SPEC-027`'s CFA builders).
 //!
 //! `SPEC-003`, extended by `SPEC-012` and `SPEC-014`. The `ifd` seeds are the
 //! hand-built tier-A fixtures in `tests/support/tiff.rs` — the same list
@@ -394,6 +396,58 @@ fn develop_seeds() -> Vec<(&'static str, Vec<u8>)> {
     ]
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Seeds for `fuzz/fuzz_targets/demosaic.rs` (SPEC-032)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Seeds for `fuzz/fuzz_targets/demosaic.rs` — one byte string that survives
+/// every stage and actually reaches `demosaic_into` (a real-strip CFA DNG),
+/// `SPEC-027`'s canonical valid CFA container (both byte orders), and the
+/// hostile CFA shapes the target must reject without panicking: a degenerate
+/// CFA whose pattern payload points past EOF (so `sensor().color_filter`
+/// resolves to `None` and the demosaic is a typed `NotAColorFilterArray`), and
+/// a real-strip DNG truncated mid-strip (so the unpack ahead of the demosaic
+/// rejects a short plane). All built from `SPEC-027`'s `tests/support/tiff.rs`
+/// CFA builders — own work, no corpus file is used as a seed (`DEC-003`).
+fn demosaic_seeds() -> Vec<(&'static str, Vec<u8>)> {
+    // A 6×6 RGGB mosaic with a real strip — big enough that interior pixels
+    // have genuine offset-2 neighbours, so this seed exercises the full HA
+    // kernel, not just its border policy. Values stay well inside 16 bits.
+    let samples: Vec<u16> = (0..36u16).map(|i| i * 100).collect();
+    let valid_cfa_dng = tiff::cfa_dng_16bit(tiff::Order::Little, 6, 6, &samples);
+
+    // The same real-strip DNG cut off mid-strip: the IFD survives (it sits near
+    // the 8-byte header), the strip does not, so the plane unpack ahead of the
+    // demosaic rejects it with a typed error.
+    let mut truncated_cfa_dng = valid_cfa_dng.clone();
+    truncated_cfa_dng.truncate(260);
+
+    vec![
+        // Reaches `demosaic_into` on a valid Bayer plane — the good seed a
+        // mutation-only fuzzer would otherwise never synthesize.
+        ("cfa-16bit-rggb", valid_cfa_dng),
+        // SPEC-027's canonical valid CFA container, both byte orders. Its strip
+        // is declared past EOF, so the unpack rejects — still a valid parse →
+        // sensor → CFA-read seed in each endianness.
+        (
+            "valid-cfa-sensor-ii",
+            tiff::valid_cfa_sensor(tiff::Order::Little),
+        ),
+        (
+            "valid-cfa-sensor-mm",
+            tiff::valid_cfa_sensor(tiff::Order::Big),
+        ),
+        // Degenerate CFA: `CFAPattern` points past EOF, so `color_filter` is
+        // `None` and the demosaic is a typed `NotAColorFilterArray`.
+        (
+            "cfa-pattern-past-eof",
+            tiff::cfa_pattern_past_eof(tiff::Order::Little),
+        ),
+        // A real-strip DNG truncated mid-strip.
+        ("truncated-cfa-strip", truncated_cfa_dng),
+    ]
+}
+
 fn write_seeds(
     subdir: &str,
     extension: &str,
@@ -434,6 +488,10 @@ fn main() {
         std::process::exit(1);
     }
     if let Err(e) = write_seeds("opcode", "bin", opcode::fix_bad_pixels_fuzz_seed_corpus()) {
+        eprintln!("fuzz-seeds: {e}");
+        std::process::exit(1);
+    }
+    if let Err(e) = write_seeds("demosaic", "tiff", demosaic_seeds()) {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);
     }
