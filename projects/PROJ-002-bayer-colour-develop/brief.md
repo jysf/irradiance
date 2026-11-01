@@ -121,7 +121,7 @@ so the whole wave bootstraps without native NEF parsing or SOF-3 decompression.
   `CalibrationIlluminant1/2`, and `ForwardMatrix1/2` when present
 - Mosaic-plane unpack (reuse the packed-bits unpack; the plane is still one `u16`
   buffer, now a mosaic) and the bit-exact plane oracle against a Bayer file
-- Clean-room **Malvar-He-Cutler** demosaic: CFA mosaic → camera-space linear RGB
+- Clean-room **Hamilton-Adams** demosaic (NOT Malvar-He-Cutler — patent, DEC-031): CFA mosaic → camera-space linear RGB
 - Colour transform: white balance (`AsShotNeutral`) → camera RGB → XYZ /
   linear-sRGB via `ColorMatrix` / `ForwardMatrix` → display encode (reuse `tone`)
 - A 3-channel colour develop path (new `develop_color_into` or a widened
@@ -143,7 +143,7 @@ so the whole wave bootstraps without native NEF parsing or SOF-3 decompression.
 Format: `- [status] STAGE-ID — one-line summary`
 
 - [x] STAGE-006 (shipped 2026-10-30) — CFA sensor model: identify + parse Bayer DNGs, unpack the mosaic, verify the plane bit-exact vs `dnglab`
-- [ ] STAGE-007 (proposed) — Demosaic: clean-room Malvar-He-Cutler, mosaic → camera-space linear RGB, bit-exact analytic-fixture oracle (real-image perceptual deferred to STAGE-008's ΔE)
+- [ ] STAGE-007 (active) — Demosaic: clean-room **Hamilton-Adams** (NOT MHC — patent, DEC-031), mosaic → camera-space linear RGB, bit-exact analytic-fixture oracle (real-image perceptual deferred to STAGE-008's ΔE); SPEC-030 bilinear baseline shipped
 - [ ] (not yet defined) — Colour transform + output: white balance, colour matrix, display encode, ColorChecker ΔE
 
 **Count:** 1 shipped / 0 active / 2 pending

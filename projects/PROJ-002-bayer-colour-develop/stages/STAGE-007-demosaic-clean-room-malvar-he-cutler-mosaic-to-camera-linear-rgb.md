@@ -62,6 +62,15 @@ orchestration_cost:
 
 # STAGE-007: Demosaic: clean-room Malvar-He-Cutler, mosaic to camera-linear RGB
 
+> **⚠ Algorithm changed to Hamilton-Adams — see DEC-031.** The quality demosaic is
+> **Adams-Hamilton** (US 5,629,734, expired), NOT Malvar-He-Cutler: MHC is
+> patent-encumbered (US 7,502,505, active to ~2027-01-25), which defeats the
+> permissive-crate thesis (clean-room beats copyright, not patents). SPEC-030's
+> shipped bilinear baseline + the bit-exact oracle are unchanged; SPEC-031 is
+> Hamilton-Adams. References to "MHC" / "Malvar-He-Cutler" below (including this
+> file's slug) are superseded by DEC-031 and get rewritten at the STAGE-007
+> stage-ship.
+
 ## What This Stage Is
 
 When this stage ships, `irradiance` turns a Bayer mosaic into colour — the
@@ -152,11 +161,12 @@ onto each as `task.complexity`.
       harness** (+ perturbed-kernel red-proof) + border policy + `irr` RGB
       surfacing. Stands up the whole mosaic→RGB path end-to-end before the hard
       kernel lands.
-- [ ] SPEC-031 (frame) — [M] **Malvar-He-Cutler** gradient-corrected 5×5 kernels
-      replacing the baseline; MHC-specific analytic fixtures; MHC provenance-ledger
-      entry. ⚠ **L-risk** — if the full 8-case MHC + fixtures exceeds [M] at
-      design, split the **green-channel** interpolation from the **red/blue-channel**
-      interpolation into two specs.
+- [ ] SPEC-031 (design) — [M] **Hamilton-Adams** directional demosaic (NOT MHC — patent, DEC-031)
+      replacing the bilinear baseline: directional green + colour-difference red/blue;
+      HA analytic fixtures + directionality + DC-preservation + red-proof; HA
+      provenance entry. ⚠ **L-risk** — if full HA (green + R/B) exceeds [M], ship the
+      **green** interpolation first (R/B stay bilinear) and the **red/blue**
+      colour-difference as a follow-on spec.
 - [ ] SPEC-032 (frame) — [S] CFA-demosaic **fuzz + panic-free hardening** on
       degenerate / edge-phase planes (tiny, 1×1, odd-dim at the CFA phase); extend
       the fuzz corpus with a CFA demosaic path.
