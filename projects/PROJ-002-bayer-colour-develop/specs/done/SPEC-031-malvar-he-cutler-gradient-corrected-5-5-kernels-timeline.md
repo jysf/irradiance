@@ -39,5 +39,8 @@ Cycle prompts live in `prompts/SPEC-031-<cycle>.md`.
       (GRBG/GBRG fixture) still open, deferred to SPEC-032 — not a blocker.
       Verify PR #68 (build + verify together, because #67 is unmerged) → `main`;
       merging #68 lands the whole spec and #67 closes as included.
-- [ ] **ship** — main session (reflection, cost totals, `complexity_actual`,
-      archive, brag).
+- [x] **ship** — completed 2026-10-31 (main session). Build+verify merged via PR #68
+      (#67 closed as superseded). Reflection + recovered cost totals (build
+      14,325,716/$34.69 + verify 9,247,175/$20.81 = 23,572,891/$55.50, both recovered
+      from the cold sessions' transcripts since handbacks were null), `complexity_actual:
+      M`, archive, brag. CHANGELOG written at build (confirmed). `verify_verdict: approved`.
