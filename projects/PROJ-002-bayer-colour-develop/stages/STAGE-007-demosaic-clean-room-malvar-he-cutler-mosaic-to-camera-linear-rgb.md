@@ -161,7 +161,7 @@ onto each as `task.complexity`.
       harness** (+ perturbed-kernel red-proof) + border policy + `irr` RGB
       surfacing. Stands up the whole mosaic→RGB path end-to-end before the hard
       kernel lands.
-- [ ] SPEC-031 (design) — [M] **Hamilton-Adams** directional demosaic (NOT MHC — patent, DEC-031)
+- [x] SPEC-031 (shipped on 2026-10-31) — [M] **Hamilton-Adams** directional demosaic (NOT MHC — patent, DEC-031)
       replacing the bilinear baseline: directional green + colour-difference red/blue;
       HA analytic fixtures + directionality + DC-preservation + red-proof; HA
       provenance entry. ⚠ **L-risk** — if full HA (green + R/B) exceeds [M], ship the
@@ -171,7 +171,7 @@ onto each as `task.complexity`.
       degenerate / edge-phase planes (tiny, 1×1, odd-dim at the CFA phase); extend
       the fuzz corpus with a CFA demosaic path.
 
-**Count:** 1 shipped / 2 active / 0 pending
+**Count:** 2 shipped / 1 active / 0 pending
 
 > **SPEC-030/FU-1 (open, raised at SPEC-030 verify):** SPEC-030's demosaic oracle
 > fixture-verifies RGGB + BGGR only (both anti-diagonal green phases); add a **GRBG

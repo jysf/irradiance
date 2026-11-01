@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -63,11 +63,44 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 50000000        # prediction (design): HA is more involved than SPEC-030's bilinear (34M actual); directional green + colour-difference R/B
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      notes: "un-metered main-loop design (orchestrator): the MHC→Hamilton-Adams re-scope + patent check + DEC-031 + the HA bit-exact design, in the main session's shared transcript"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 14325716
+      estimated_usd: 34.69
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      notes: "RECOVERED at ship from the build session's OWN transcript (scratchpad uuid 9b462a6e-5ff6-421d-be8a-1b6ea3098b04, deduped by message.id: 55 records, all claude-opus-4-8, 97.3% cache-read). HANDOFF-076 handback carried null (/cost not exposed to a desktop Claude Code session). Priced per-component at Opus list rates."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 9247175
+      estimated_usd: 20.81
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      notes: "RECOVERED at ship from the verify session's OWN transcript (scratchpad uuid 21f3a4a2-4f9e-4e86-9dba-37e22e208e34, deduped by message.id: 52 records, all claude-opus-4-8, 97.6% cache-read). HANDOFF-077 handback carried null for the same reason. Priced per-component at Opus list rates."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-10-31
+      notes: "un-metered main-loop ship (orchestrator): cost recovery + reflection + archive in the main session's shared transcript"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 23572891
+    estimated_usd: 55.50
+    session_count: 4
+shipped_at: 2026-10-31
 ---
 
 # SPEC-031: Hamilton-Adams directional demosaic (patent-clean quality kernel)
@@ -220,34 +253,42 @@ In **`tests/demosaic_oracle.rs`** (extending SPEC-030's):
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Patent-check a named algorithm at FRAME time, not mid-design. The brief +
+   STAGE-007 named Malvar-He-Cutler without a patent check; designing SPEC-031
+   surfaced that MHC is live-patented (US 7,502,505 → ~2027-01-25), forcing a
+   mid-design pivot to Hamilton-Adams + a DEC (DEC-031). A one-line patent check
+   when a stage names an algorithm would have chosen HA from the start. (A lesson
+   for the STAGE-007 stage-ship to file — see Q2.)
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — Minted two DECs: **DEC-031** (Hamilton-Adams not MHC — patent) and **DEC-032**
+   (the two passes share the green plane in `dst`'s own green slots → zero-alloc,
+   honouring DEC-016). The Q1 lesson should be filed as a `lesson` in
+   `/guidance/signals.yaml` at the STAGE-007 stage-ship: *patent-check any named
+   algorithm or dependency before designing it into the permissive crate — clean-
+   room beats copyright, not patents.* No template change.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new one. SPEC-030/FU-1 (a GRBG/GBRG phase fixture — the one unverified Bayer
+   phase) is still open and recorded on the STAGE-007 backlog → **SPEC-032** (CFA
+   fuzz + edge-phase hardening), the last STAGE-007 spec before the stage-ship.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `none` — clean build, approved first pass. Verify independently re-derived the
+   bit-exact math (hand-recomputed pixel (2,2) incl. a nested classifier tie) and
+   broke the REAL kernel three ways (pass-1 green predictor, pass-2 diagonal, pass-2
+   green-site colour-difference) to prove the oracle genuinely goes red — finding no
+   code defect. The open GRBG/GBRG fixture (FU-1) is spec-compliant, non-blocking.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, `irr demosaic` produced a **bilinear** demosaic (each missing channel
+   the average of its nearest same-colour neighbours — visible edge zippering / false
+   colour). After, it produces the **Adams-Hamilton** directional demosaic
+   (directional green on the lower-gradient axis + colour-difference red/blue) — a
+   real quality step, verified **bit-exact** on analytic fixtures with a red-proof an
+   independent reviewer broke three ways. No public-API change (only the pixel values
+   improve); output stays uncorrected camera-space linear RGB — the recognisable
+   colour picture is STAGE-007 + STAGE-008.
