@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -63,11 +63,44 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 20000000        # prediction (design): an [S] test+fuzz spec, no src change; cf. SPEC-027 (corpus+fuzz, [S])
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-11-01
+      notes: "un-metered main-loop design (orchestrator): the fuzz-target + GRBG/GBRG + panic-free design, in the main session's shared transcript"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 12690825
+      estimated_usd: 28.06
+      duration_minutes: null
+      recorded_at: 2026-11-01
+      notes: "RECOVERED at ship from the build session's OWN transcript (scratchpad uuid 0d68a8ef-a193-413b-8680-dfdf10ad0777, deduped by message.id: 58 records, claude-opus-4-8, 97.7% cache-read). HANDOFF-078 handback carried null (/cost not exposed to a desktop Claude Code session). Priced per-component at Opus list rates."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 6804472
+      estimated_usd: 15.84
+      duration_minutes: null
+      recorded_at: 2026-11-01
+      notes: "RECOVERED at ship from the verify session's OWN transcript (scratchpad uuid 0b206331-7897-4011-ae34-b36b97f66c84, deduped by message.id: 43 records, claude-opus-4-8, 97.3% cache-read). HANDOFF-079 handback carried null for the same reason. Priced per-component at Opus list rates."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-11-01
+      notes: "un-metered main-loop ship (orchestrator): cost recovery + reflection + archive in the main session's shared transcript"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 19495297
+    estimated_usd: 43.90
+    session_count: 4
+shipped_at: 2026-10-31
 ---
 
 # SPEC-032: CFA-demosaic fuzz + panic-free hardening + the GRBG/GBRG phase fixture
@@ -192,34 +225,32 @@ Measured against the fuzz + oracle harness on `main` (2026-11-01):
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing material — a clean [S] that landed right at estimate (19.5M vs 20M)
+   by reusing SPEC-030/031's oracle harness, `fuzz/fuzz_targets/develop.rs` as the
+   target template, and SPEC-027's CFA builders wholesale. The lesson is positive:
+   the Nth spec on an established harness is cheap and predictable — estimate it low.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No new DEC. Confirmed the test-only → no-CHANGELOG convention (cf. SPEC-025 /
+   SPEC-027). The patent-check lesson from SPEC-031 (patent-check a named algorithm
+   at frame time) is still pending — file it at the STAGE-007 stage-ship signal walk.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. This **closes SPEC-030/FU-1** (GRBG + GBRG fixtures → all four Bayer phases
+   now bit-exact-verified). STAGE-007's backlog is drained (3 shipped / 0 open), so
+   the next step is the **STAGE-007 stage-ship** (Prompt 1d), then STAGE-008.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `none` — clean build, approved first pass. Verify hand-recomputed the GRBG (3,2)
+   and GBRG (1,2) pixels from the HA definition (both matched), re-ran the fuzz
+   (8.6M runs, 0 crashes), and confirmed zero `src` change — finding no defect.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Same demosaic API, now **hardened and fully phase-verified**: before, the
+   panic-free contract was unit-tested only (1×1 / 2×2 / 3×5) and only RGGB + BGGR
+   were fixture-covered; after, a `demosaic` libFuzzer target proves it panic-free
+   over 11,273,543 runs (0 crashes) and GRBG + GBRG bit-exact fixtures cover all four
+   Bayer phases (closing SPEC-030/FU-1). No new call — the gain is the guarantee.
