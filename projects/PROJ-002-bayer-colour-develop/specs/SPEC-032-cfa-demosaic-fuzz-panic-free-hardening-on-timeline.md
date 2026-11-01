@@ -20,7 +20,18 @@ Cycle prompts live in `prompts/SPEC-032-<cycle>.md`.
       in `tests/demosaic_oracle.rs`. No `src` change. Gates green; nightly fuzz
       11,273,543 runs / 61s / 0 crashes. tokens_total null (desktop `/cost` unavailable —
       recover from transcript at ship). PR to `main`.
-- [ ] **verify** — cold independent review after build.
+- [x] **verify** — ✅ APPROVED — ship at `a7eae9e`. Cold independent review on
+      `claude/spec-032-verify-cfbf9c` (`claude-opus-4-8`, HANDOFF-079), retrospective
+      (build PR #71 already merged to main). Confirmed TEST+FUZZ only (no `src`);
+      all gates green (`just test` demosaic_oracle 23/23, `lint-ci`, `lint-fuzz`
+      DEC-027, `fmt`, `validate`, `decisions-audit --changed` clean). Hand-recomputed
+      GRBG (3,2)=(135,140,138) + GBRG (1,2)=(94,92,96) from the HA definition — both
+      match the pinned asserts + EXPECTED tables; both genuinely drive the
+      main-diagonal green phase (closes SPEC-030/FU-1, all four phases now covered).
+      Re-ran nightly fuzz: 8,642,384 runs / 46s / 0 crashes. Panic-free test
+      non-vacuous (Ok control). tokens_total null (desktop `/cost` unavailable —
+      recover from transcript at ship, UUID 0b206331). Ship prompt written;
+      `advance-cycle → ship` (verdict approved) run.
 - [ ] **ship** — main session (reflection, cost totals, `complexity_actual`, archive,
       brag). Likely TEST-ONLY → no CHANGELOG (confirm). STAGE-007 then fully shipped →
       run the STAGE-007 stage-ship (Prompt 1d).
