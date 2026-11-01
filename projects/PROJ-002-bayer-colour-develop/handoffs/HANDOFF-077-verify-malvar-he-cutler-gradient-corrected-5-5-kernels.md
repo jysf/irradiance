@@ -47,7 +47,7 @@ handback:
   estimated_usd: null              # tokens_total × your rate, or your harness's number
   duration_minutes: 40
   branch: claude/spec-031-verify-311cc7
-  pr: null                         # verify PR to main — recorded here once opened (see timeline)
+  pr: "https://github.com/jysf/irradiance/pull/68"  # verify PR to main (contains build + verify; #67 closes as included)
   completed_at: 2026-10-31         # YYYY-MM-DD
   notes: "✅ APPROVED — ship at 5450c70. /cost is NOT exposed to this desktop Claude Code (Code tab) verify session either, so tokens_total is null (not invented, AGENTS §13). Recover the real number from THIS verify session's transcript at ship — anchor on the scratchpad-dir UUID 21f3a4a2-4f9e-4e86-9dba-37e22e208e34, not a text grep (identify-own-transcript-for-cost-handback). This is the SAME handling the build used (HANDOFF-076, its own UUID 9b462a6e-5ff6-421d-be8a-1b6ea3098b04), so ship recovers TWO build/verify nulls for SPEC-031. Because build PR #67 is unmerged, this verify branch carries build+verify together; merging the verify PR lands both and closes #67 as included."
   synced_at: null                  # stamped by `just handback-sync` — do not edit

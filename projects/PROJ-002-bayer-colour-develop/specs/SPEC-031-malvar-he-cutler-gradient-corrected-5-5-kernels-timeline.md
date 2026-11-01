@@ -37,6 +37,7 @@ Cycle prompts live in `prompts/SPEC-031-<cycle>.md`.
       (desktop `/cost` unavailable — RECOVER from the verify transcript at ship,
       UUID `21f3a4a2-4f9e-4e86-9dba-37e22e208e34`). Follow-up: SPEC-030/FU-1
       (GRBG/GBRG fixture) still open, deferred to SPEC-032 — not a blocker.
-      Verify PR (build + verify together, because #67 is unmerged) → `main`.
+      Verify PR #68 (build + verify together, because #67 is unmerged) → `main`;
+      merging #68 lands the whole spec and #67 closes as included.
 - [ ] **ship** — main session (reflection, cost totals, `complexity_actual`,
       archive, brag).
