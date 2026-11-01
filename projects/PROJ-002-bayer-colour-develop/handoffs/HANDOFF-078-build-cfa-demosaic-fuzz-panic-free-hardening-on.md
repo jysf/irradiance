@@ -47,7 +47,7 @@ handback:
   estimated_usd: null
   duration_minutes: null
   branch: claude/spec-032-fuzz-689903
-  pr: null                         # filled below once the PR is opened
+  pr: "https://github.com/jysf/irradiance/pull/71"
   completed_at: 2026-10-31         # YYYY-MM-DD
   notes: "Claude desktop app (Code tab) session — the `/cost` terminal dialog is not available here, so tokens_total is null by the repo convention (NOT invented). Orchestrator recovers it from this session's transcript at ship; scratchpad/session UUID 0d68a8ef-a193-413b-8680-dfdf10ad0777 (model claude-opus-4-8). Test+fuzz only, no src change → no CHANGELOG (SPEC-025/027 convention)."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
