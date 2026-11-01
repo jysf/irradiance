@@ -167,9 +167,10 @@ onto each as `task.complexity`.
       provenance entry. ⚠ **L-risk** — if full HA (green + R/B) exceeds [M], ship the
       **green** interpolation first (R/B stay bilinear) and the **red/blue**
       colour-difference as a follow-on spec.
-- [ ] SPEC-032 (frame) — [S] CFA-demosaic **fuzz + panic-free hardening** on
-      degenerate / edge-phase planes (tiny, 1×1, odd-dim at the CFA phase); extend
-      the fuzz corpus with a CFA demosaic path.
+- [ ] SPEC-032 (design) — [S] CFA-demosaic **fuzz + panic-free hardening** + the
+      **GRBG/GBRG phase fixture** (closes SPEC-030/FU-1): a `demosaic` fuzz target
+      over degenerate / edge-phase planes (tiny, 1×1, odd-dim at the CFA phase) +
+      all-four-phase bit-exact oracle coverage. Test + fuzz only, no `src` change.
 
 **Count:** 2 shipped / 1 active / 0 pending
 
