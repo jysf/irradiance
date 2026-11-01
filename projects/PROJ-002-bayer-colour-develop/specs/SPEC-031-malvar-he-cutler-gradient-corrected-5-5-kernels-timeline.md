@@ -14,8 +14,15 @@ Cycle prompts live in `prompts/SPEC-031-<cycle>.md`.
       signed i32, round-half-up, clamp [0,65535], two-pass (green first), offset-2
       reflect; bit-exact analytic oracle + DC-preservation + directionality fixture
       + red-proof, on SPEC-030's harness. Failing tests enumerated; `cycle: design`.
-- [ ] **build** — dispatch to a cold session once the design PR merges. ⚠ L-risk:
-      ship green first (R/B bilinear), then R/B colour-difference, if full HA > [M].
+- [x] **build** — completed 2026-10-31 on `claude/spec-031-hamilton-adams-56ecec`
+      (cold session, claude-opus-4-8; HANDOFF-076). **Full Hamilton-Adams shipped
+      (green + R/B), not the green-only fallback** — it fit as one [M] build. Two-pass
+      kernel in `src/demosaic.rs` (green held in `dst`'s own green slots, zero-alloc —
+      DEC-032); bit-exact oracle extended in `tests/demosaic_oracle.rs` (6×6 HA table,
+      directionality, classifier tie, DC-preservation, BGGR, red-proof mutant≠honest);
+      provenance row + CHANGELOG. Gates green: `just test`, `just lint-ci`,
+      `cargo fmt --check`, `just validate`. Oracle is Tier-A (no corpus). Advanced to
+      verify; PR to `main`.
 - [ ] **verify** — cold independent review after build.
 - [ ] **ship** — main session (reflection, cost totals, `complexity_actual`,
       archive, brag).

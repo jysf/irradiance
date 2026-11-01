@@ -8,6 +8,24 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Changed
+
+- **Demosaic kernel upgraded to Hamilton-Adams** (`irradiance::demosaic`, SPEC-031,
+  PROJ-002) — `demosaic_into` now interpolates with the **Adams-Hamilton** directional
+  kernel (directional green on the lower-gradient axis + colour-difference red/blue)
+  instead of SPEC-030's bilinear baseline — a real quality step (directional green
+  removes most of bilinear's edge zippering / false colour). The public signature, the
+  caller-owned zero-alloc buffer contract (DEC-016 / DEC-032 — the two passes share the
+  green plane in `dst`'s own green slots) and the `irr demosaic` P6 output are all
+  unchanged; only the decoded pixel values change. Per **DEC-031** the algorithm is
+  Hamilton-Adams (US 5,629,734, **expired**), **not** Malvar-He-Cutler — MHC is still
+  patent-encumbered (US 7,502,505, active to ~2027-01-25) and a patented method in a
+  permissive crate defeats the thesis: **clean-room beats copyright, not patents**.
+  Verified **bit-exact** on analytic fixtures (interior / edge / corner, a
+  directionality fixture, the classifier tie, DC-preservation, BGGR) with a
+  perturbed-kernel red-proof (DEC-017). Output stays **uncorrected** camera-space
+  linear RGB — colour is STAGE-008.
+
 ### Added
 
 - **Bilinear Bayer demosaic** (`irradiance::demosaic`, SPEC-030, PROJ-002) — new
