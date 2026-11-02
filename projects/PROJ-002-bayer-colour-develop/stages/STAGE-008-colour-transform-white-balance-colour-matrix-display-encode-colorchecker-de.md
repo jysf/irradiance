@@ -131,23 +131,23 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 `just frame-stage STAGE-008` promotes the `(not yet written)` lines below into real
 specs at `cycle: frame`; the `[S]`/`[M]`/`[L]` tag carries onto `task.complexity`.
 
-- [ ] (not yet written) — [M] **Colour-transform core + first colour develop**: WB
+- [ ] SPEC-033 (frame) — [M] **Colour-transform core + first colour develop**: WB
       (AsShotNeutral) + camera→XYZ (ForwardMatrix-when-present else invert-ColorMatrix)
       + XYZ→linear-sRGB, **single illuminant** for now; new `develop_color_into`
       (demosaic→WB→matrix→tone encode); `irr` full-colour sRGB output; analytic
       bit-exact matrix/WB fixtures + a scoped dnglab-render cross-check; colour-matrix
       provenance entry. ⚠ **L-risk** — if it exceeds [M], split the matrix MATH (WB +
       camera→XYZ→sRGB) from the `develop_color_into` + `irr` composition.
-- [ ] (not yet written) — [M] **Dual-illuminant interpolation + chromatic adaptation**:
+- [ ] SPEC-034 (frame) — [M] **Dual-illuminant interpolation + chromatic adaptation**:
       interpolate `ColorMatrix` / `ForwardMatrix1/2` between `CalibrationIlluminant1/2`
       by the scene white (inverse-CCT); Bradford D50→D65. Analytic fixtures (known
       illuminants → known interpolated matrix). Refines colour accuracy.
-- [ ] (not yet written) — [M] **ColorChecker ΔE oracle (GATED on the maintainer's
+- [ ] SPEC-035 (frame) — [M] **ColorChecker ΔE oracle (GATED on the maintainer's
       ColorChecker shot)**: render the chart, measure per-patch **ΔE2000** vs the known
       ColorChecker reference (Lab/sRGB), with a red-proof (a wrong matrix/WB spikes ΔE).
       The fully-independent colour-accuracy capstone — the oracle PROJ-001 could not reach.
 
-**Count:** 0 shipped / 0 active / 0 pending
+**Count:** 0 shipped / 3 active / 0 pending
 
 > **Framing notes for review (Prompt 1c steps 3–4):**
 > - **3 specs, one gated.** Core transform → illuminant interpolation → ColorChecker
