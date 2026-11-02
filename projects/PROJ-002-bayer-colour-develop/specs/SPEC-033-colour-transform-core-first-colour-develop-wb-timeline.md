@@ -7,4 +7,7 @@ Cycle prompts live in `prompts/SPEC-033-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **design** — completed 2026-11-02 (PR #77; minted DEC-033)
+- [~] **build** — HANDOFF-080 (delegated build); branch `claude/spec-033-build-f223ec`
+- [ ] **verify** — prompt: pending (waiting on build)
+- [ ] **ship** — prompt: pending (waiting on verify)
