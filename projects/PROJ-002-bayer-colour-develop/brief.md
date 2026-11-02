@@ -144,7 +144,7 @@ Format: `- [status] STAGE-ID — one-line summary`
 
 - [x] STAGE-006 (shipped 2026-10-30) — CFA sensor model: identify + parse Bayer DNGs, unpack the mosaic, verify the plane bit-exact vs `dnglab`
 - [ ] STAGE-007 (active) — Demosaic: clean-room **Hamilton-Adams** (NOT MHC — patent, DEC-031), mosaic → camera-space linear RGB, bit-exact analytic-fixture oracle (real-image perceptual deferred to STAGE-008's ΔE); SPEC-030 bilinear baseline shipped
-- [ ] (not yet defined) — Colour transform + output: white balance, colour matrix, display encode, ColorChecker ΔE
+- [ ] STAGE-008 (framed) — Colour transform + output: white balance (AsShotNeutral), illuminant-interpolated colour matrix (ForwardMatrix/ColorMatrix), D50→D65, display encode (tone/DEC-025), **ColorChecker ΔE** oracle — the last PROJ-002 stage
 
 **Count:** 1 shipped / 0 active / 2 pending
 
