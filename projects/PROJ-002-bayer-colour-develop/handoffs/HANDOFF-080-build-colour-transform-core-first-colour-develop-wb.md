@@ -47,7 +47,7 @@ handback:
   estimated_usd: null              # tokens_total × your rate, or your harness's number
   duration_minutes: 95
   branch: claude/spec-033-build-f223ec
-  pr: null                         # filled with the PR number once opened
+  pr: 79
   completed_at: 2026-11-02         # YYYY-MM-DD
   notes: >
     Built WHOLE — did not need the pre-named [M] split (reused the demosaic/tone/irr

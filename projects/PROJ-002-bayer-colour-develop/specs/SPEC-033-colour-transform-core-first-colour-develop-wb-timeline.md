@@ -8,6 +8,7 @@ Cycle prompts live in `prompts/SPEC-033-<cycle>.md`.
 ## Instructions
 
 - [x] **design** — completed 2026-11-02 (PR #77; minted DEC-033)
-- [~] **build** — HANDOFF-080 (delegated build); branch `claude/spec-033-build-f223ec`
-- [ ] **verify** — prompt: pending (waiting on build)
+- [x] **build** — HANDOFF-080 (delegated build), branch `claude/spec-033-build-f223ec`
+       PR #79, cost null (desktop `/cost` unavailable — recover from transcript at ship), completed 2026-11-02
+- [~] **verify** — cycle advanced to verify; awaiting a cold verify session
 - [ ] **ship** — prompt: pending (waiting on verify)
