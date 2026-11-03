@@ -1127,3 +1127,27 @@ signals:
       transcript even without a /cost tool); (c) accept recover-at-ship and codify the
       UUID-passing. Related: [[identify-own-transcript-for-cost-handback]] (the
       technique), [[token-counts-not-comparable]], [[flat-rate-overstates-cached-sessions]].
+
+  # --- lesson: a saturating `as` cast can mask an explicit clamp in a test ------
+  - id: saturating-as-cast-masks-explicit-clamp-in-quantize-tests
+    type: lesson
+    summary: "An explicit clamp before a Rust `f64 as u16` cast is numerically redundant with the cast's own saturation, so a test that only checks the output can pass with the clamp removed — the clamp's load-bearing claim is asserted but not proven."
+    evidence: "N=1, SPEC-033 (verify, HANDOFF-081). `color`'s quantize does `v.clamp(0.0, 65535.0) + 0.5` then `as u16`; because `f64 as u16` already saturates (negative → 0, > 65535 → 65535, NaN → 0), `quantize_clamps_before_rounding` still passes if the `.clamp(...)` is deleted. Output is identical and DEC-018's off-gamut pinning still holds (the cast provides it), so it is correctness-neutral — but the test does not prove the explicit clamp is the thing doing the pinning."
+    bar: "N=2"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-02
+    last_touched: 2026-11-02
+    raised_by: claude
+    notes: |
+      Non-blocking; raised by the SPEC-033 cold verify and recorded (not acted on) at
+      ship. The underlying ask: when a test claims an explicit guard is load-bearing,
+      make the test FAIL without it — here there is no input where clamp-vs-no-clamp
+      diverges (the saturating cast covers the same window), so the honest options are
+      (a) accept the clamp as defensive/explicit documentation that the cast is NOT the
+      guarantor and drop the "load-bearing" framing, or (b) assert the clamp's effect at
+      a layer the cast cannot mask (e.g. on the pre-cast f64, or a type whose `as` does
+      not saturate). Decide at a STAGE-008 close: promote to a convention only if a
+      second instance appears (N=2) — a lone redundant-but-harmless clamp is not worth a
+      rule. Related: the `oracle-must-be-shown-red` discipline (a guard you cannot show
+      load-bearing is the same shape as an oracle you cannot show red).
