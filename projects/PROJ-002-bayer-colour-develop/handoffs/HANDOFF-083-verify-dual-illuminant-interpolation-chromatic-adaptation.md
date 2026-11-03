@@ -47,7 +47,7 @@ handback:
   estimated_usd: null              # tokens_total × your rate, or your harness's number
   duration_minutes: 40
   branch: claude/spec-034-verify-6466d9
-  pr: null                         # filled below once the verify PR is opened
+  pr: 87                           # verify PR (docs-only) against main
   completed_at: 2026-11-03          # YYYY-MM-DD
   notes: "✅ APPROVED at 2fbc03f1c21b4ae30d470e1a6c11c98daa603da5. Desktop Claude Code session — /cost is unavailable here (the known recurring metering gap, memory `desktop-cost-tool-unavailable-handbacks-null`); tokens_total left null, NOT invented. Recover the real total from this verify session's transcript at ship (scratchpad session UUID 1815e3c4-005e-401b-a35b-dc96bf72a60f)."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -124,7 +124,7 @@ Filled below.
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-034-verify-6466d9` → verify PR (docs-only) against `main`,
+- **Branch / PR:** `claude/spec-034-verify-6466d9` → PR #87 (docs-only) against `main`,
   referencing HANDOFF-083, SPEC-034, STAGE-008, PROJ-002, DEC-034/033/030/017.
 - **Completed at:** 2026-11-03
 - **All acceptance criteria met?** Yes — every one, independently confirmed (not just the
