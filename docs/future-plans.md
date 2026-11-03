@@ -80,16 +80,23 @@ Rough size signal from the brief: the Bayer path is ~1,300–1,600 lines vs.
 ~550–700 for the monochrome path. Resumes once PROJ-001 ships and a colour
 camera's files are in the corpus.
 
-## Sequencing — `0.1.0` first, then `0.2.0`
+## Sequencing — `0.1.1` is live; `0.2.0` next
 
-Maintainer decision (2026-11-02): **cut and publish `0.1.0` with the current
-surface first** (DEC-028), after the in-flight gates close, so the additions
-below land cleanly in `0.2.0` without holding up the initial release.
+**Correction (2026-11-02).** An earlier version of this section said to "cut and
+publish `0.1.0` first". That was written without checking crates.io. As of
+2026-11-03 (`curl https://crates.io/api/v1/crates/irradiance/versions`):
+**`0.1.1` is published** (2026-10-29, `rust_version` 1.90) and `0.1.0` is
+**yanked**. Both predate all demosaic work, so the next release is a minor,
+**`0.2.0`**, carrying what is under `[Unreleased]` in `CHANGELOG.md`
+(`demosaic`, colour metadata, `to_linear_f32_into`) plus whatever of the
+downstream `pyirradiance` asks lands first (`feedback/2026-11-02-pyirradiance-requests.md`).
+Whether `0.2.0` waits for STAGE-008 colour is a maintainer call. The additions
+below land after it, as `0.3.0`+.
 
-1. `0.1.0` — current surface. ⚠ DEC-028 scoped it as "monochrome, uncompressed,
-   one camera"; the surface now also carries the Bayer plane, colour metadata and
-   demosaic, but **not** the colour transform (STAGE-008). The crate docs, README
-   and CHANGELOG must say exactly that, not either extreme.
+1. `0.2.0` — a release spec (`just new-release-spec`) under the `DEC-028` publish
+   checks. The crate docs, README and CHANGELOG must say exactly what the surface
+   is: monochrome and Bayer planes, demosaic, but **not** the colour transform
+   until STAGE-008 ships.
 2. Then, independent of each other: **PROJ-004 Stage A** (forensics) and
    **PROJ-003** (SOF-3 core). STAGE-008 continues on its own thread.
 3. A bounded **spike** before PROJ-004 Stage B is designed (see below).
