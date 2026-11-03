@@ -7,4 +7,7 @@ Cycle prompts live in `prompts/SPEC-034-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **design** — completed 2026-11-02 (DEC-034 minted, PR #83)
+- [~] **build** — prompt: `prompts/SPEC-034-build.md` (HANDOFF-082)
+- [ ] **verify** — prompt: pending (waiting on build)
+- [ ] **ship** — prompt: pending (waiting on verify)

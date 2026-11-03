@@ -10,6 +10,26 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **Colour matrix is now scene-adaptive — dual-illuminant interpolation**
+  (`irradiance::color`, SPEC-034, PROJ-002) — for a DNG carrying **two** colour
+  calibrations (`ColorMatrix1/2`, and usually `ForwardMatrix1/2`, at
+  `CalibrationIlluminant1/2`), `to_srgb_linear_into` / `develop_color_into` now build the
+  camera→XYZ matrix from the calibration **interpolated at the scene colour temperature**
+  (the DNG reciprocal-temperature `NeutralToXY` method — `AsShotNeutral` → McCamy CCT →
+  mired interpolation weight `g`, **DEC-034**), instead of using the first illuminant
+  only. The result is materially more accurate across illuminants (a daylight shot is no
+  longer rendered through a tungsten calibration). The **public API is unchanged** (no new
+  functions, signatures, or `Error` variants — the weight is an internal, once-per-image
+  refinement), and only the decoded pixel values change, **only for dual-calibration
+  files**: a **single-calibration** sensor (no `ColorMatrix2`, or a missing/unknown
+  `CalibrationIlluminant`) is **byte-identical** to SPEC-033. The weight is committed-constant
+  **`f64`**, `+ − × ÷` only (McCamy is a polynomial, no `powf`/transcendental — byte-identical
+  across platforms, **DEC-033**/**DEC-034**). Verified **bit-exact** on analytic fixtures
+  against an independent `NeutralToXY` re-derivation, with a perturbed-`ColorMatrix2`
+  red-proof (**DEC-017**); every divide guarded (no panic, no NaN). The
+  `ColorMatrix`-path scene-white→D50 chromatic-adaptation CAT remains deferred to a
+  follow-on judged by SPEC-035's ΔE (DEC-034 Non-Goal).
+
 - **Demosaic kernel upgraded to Hamilton-Adams** (`irradiance::demosaic`, SPEC-031,
   PROJ-002) — `demosaic_into` now interpolates with the **Adams-Hamilton** directional
   kernel (directional green on the lower-gradient axis + colour-difference red/blue)

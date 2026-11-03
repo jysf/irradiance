@@ -106,14 +106,128 @@ fn wb_of(asn: &[Rational]) -> [[f64; 3]; 3] {
     d
 }
 
-/// Reference build of `M = C · cam2xyz` (FM path else inv(CM) path).
+/// Independent transcription of the SPEC-034 illuminant→CCT table (a `match`
+/// against src/color.rs's committed slice — a genuine cross-check of the values).
+fn illum_cct(code: u32) -> Option<f64> {
+    match code {
+        1 => Some(5500.0),
+        3 => Some(2856.0),
+        17 => Some(2856.0),
+        18 => Some(4874.0),
+        19 => Some(6774.0),
+        20 => Some(5503.0),
+        21 => Some(6504.0),
+        22 => Some(7504.0),
+        23 => Some(5003.0),
+        24 => Some(3200.0),
+        _ => None,
+    }
+}
+
+/// Reference element-wise matrix lerp `(1−g)·a + g·b` (triple loop).
+fn ref_lerp(a: [[f64; 3]; 3], b: [[f64; 3]; 3], g: f64) -> [[f64; 3]; 3] {
+    let mut o = [[0.0f64; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            o[i][j] = (1.0 - g) * a[i][j] + g * b[i][j];
+        }
+    }
+    o
+}
+
+/// Reference matrix-vector product `m · v`.
+fn ref_mul_vec(m: [[f64; 3]; 3], v: [f64; 3]) -> [f64; 3] {
+    let mut o = [0.0f64; 3];
+    for i in 0..3 {
+        o[i] = m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2];
+    }
+    o
+}
+
+/// Reference McCamy cubic, `None` on a zero denominator.
+fn ref_mccamy(x: f64, y: f64) -> Option<f64> {
+    let denom = 0.1858 - y;
+    if denom == 0.0 {
+        return None;
+    }
+    let n = (x - 0.3320) / denom;
+    Some(449.0 * n * n * n + 3525.0 * n * n + 6823.3 * n + 5520.33)
+}
+
+/// Reference scene weight by the DNG NeutralToXY method (`None` ⇒ fallback).
+fn ref_weight(sensor: &Sensor) -> Option<f64> {
+    let cm1 = sensor.color_matrix_1.as_ref()?;
+    let cm2 = sensor.color_matrix_2.as_ref()?;
+    if cm1.len() != 9 || cm2.len() != 9 {
+        return None;
+    }
+    let t1 = illum_cct(sensor.calibration_illuminant_1?)?;
+    let t2 = illum_cct(sensor.calibration_illuminant_2?)?;
+    let inv_t1 = 1.0 / t1;
+    let denom = inv_t1 - 1.0 / t2;
+    if denom == 0.0 {
+        return None;
+    }
+    let asn = sensor.as_shot_neutral.as_ref()?;
+    if asn.len() != 3 {
+        return None;
+    }
+    let neutral = [
+        f64::from(asn[0].num) / f64::from(asn[0].den),
+        f64::from(asn[1].num) / f64::from(asn[1].den),
+        f64::from(asn[2].num) / f64::from(asn[2].den),
+    ];
+    let (m1, m2) = (matrix_of(cm1), matrix_of(cm2));
+    let mut g = 0.0f64;
+    for _ in 0..3 {
+        let ic = inv(ref_lerp(m1, m2, g))?;
+        let w = ref_mul_vec(ic, neutral);
+        let sum = w[0] + w[1] + w[2];
+        if sum <= 0.0 {
+            return None;
+        }
+        let t = ref_mccamy(w[0] / sum, w[1] / sum)?;
+        g = ((inv_t1 - 1.0 / t) / denom).clamp(0.0, 1.0);
+    }
+    Some(g)
+}
+
+/// Reference build of `M = C · cam2xyz`. When the dual-calibration preconditions
+/// hold (`ref_weight` is `Some`), `cam2xyz` is the illuminant-interpolated
+/// `FM(g) · D` (both FMs present) else `inv(CM(g)) · D`; otherwise it is the
+/// SPEC-033 single-illuminant path (`FM1` else `inv(CM1)`).
 fn reference_matrix(sensor: &Sensor) -> [[f64; 3]; 3] {
     let wb = wb_of(sensor.as_shot_neutral.as_ref().expect("asn"));
-    let cam2xyz = if let Some(fm1) = sensor.forward_matrix_1.as_ref() {
-        mm(matrix_of(fm1), wb)
-    } else {
-        let cm = matrix_of(sensor.color_matrix_1.as_ref().expect("cm1"));
-        mm(inv(cm).expect("invertible"), wb)
+    let cam2xyz = match ref_weight(sensor) {
+        Some(g) => {
+            let fm_pair = match (
+                sensor.forward_matrix_1.as_ref(),
+                sensor.forward_matrix_2.as_ref(),
+            ) {
+                (Some(fm1), Some(fm2)) if fm1.len() == 9 && fm2.len() == 9 => {
+                    Some((matrix_of(fm1), matrix_of(fm2)))
+                }
+                _ => None,
+            };
+            if let Some((f1, f2)) = fm_pair {
+                mm(ref_lerp(f1, f2, g), wb)
+            } else {
+                let cm = ref_lerp(
+                    matrix_of(sensor.color_matrix_1.as_ref().expect("cm1")),
+                    matrix_of(sensor.color_matrix_2.as_ref().expect("cm2")),
+                    g,
+                );
+                mm(inv(cm).expect("interpolated CM invertible"), wb)
+            }
+        }
+        None => {
+            if let Some(fm1) = sensor.forward_matrix_1.as_ref() {
+                mm(matrix_of(fm1), wb)
+            } else {
+                let cm = matrix_of(sensor.color_matrix_1.as_ref().expect("cm1"));
+                mm(inv(cm).expect("invertible"), wb)
+            }
+        }
     };
     let c = mm(S_SRGB_FROM_XYZ_D65, B_BRADFORD_D50_TO_D65);
     mm(c, cam2xyz)
@@ -571,4 +685,211 @@ fn degenerate_dims_do_not_panic() {
     let mut rgb_dst = vec![0u16; 3];
     to_srgb_linear_into(&sensor, &camera_rgb, &mut rgb_dst).expect("1x1 matrix path");
     assert_eq!(rgb_dst, reference_to_srgb(&sensor, &camera_rgb));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-034 — dual-illuminant interpolation (DNG NeutralToXY + McCamy, DEC-034).
+// The matrix is built from the illuminant-interpolated calibration; the public
+// output still matches the independent reference to the bit, dual-calibration
+// files move off the illuminant-1 render, and a perturbed ColorMatrix2 goes red.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ILLUMINANT_A: u32 = 17; // Standard light A → 2856 K
+const ILLUMINANT_D65: u32 = 21; // D65 → 6504 K
+
+/// Fixture `ColorMatrix1` (warm calibration) — `num/10000`; invertible.
+fn fixture_cm1() -> Vec<Rational> {
+    matrix_rationals([
+        [39216, -17647, -39216],
+        [-24510, 73529, -100490],
+        [-9804, -70588, 259804],
+    ])
+}
+
+/// Fixture `ColorMatrix2` (cool calibration) — `num/10000`; invertible.
+fn fixture_cm2() -> Vec<Rational> {
+    matrix_rationals([
+        [35893, -13393, -9821],
+        [-6071, 41071, -23214],
+        [-32143, -17857, 53571],
+    ])
+}
+
+/// A cooler companion to [`forward_matrix_d50`] for illuminant 2 (`num/100000`).
+fn forward_matrix_cool() -> Vec<Rational> {
+    let rows = [
+        [52000, 36000, 8422],
+        [16000, 78000, 6000],
+        [6000, 14000, 70521],
+    ];
+    let mut out = Vec::with_capacity(9);
+    for row in rows {
+        for num in row {
+            out.push(Rational { num, den: 100000 });
+        }
+    }
+    out
+}
+
+/// The four-pixel camera RGB the interpolation fixtures run on.
+fn dual_camera_rgb() -> Vec<u16> {
+    vec![
+        16384, 32768, 16384, // neutral (∝ asn)
+        40000, 8000, 8000, // red-biased
+        20000, 20000, 20000, // equal camera channels
+        60000, 60000, 60000, // bright
+    ]
+}
+
+#[test]
+fn forward_matrix_path_interpolates_both_matrices() {
+    let mut sensor = fixture_sensor(2, 2);
+    sensor.color_matrix_1 = Some(fixture_cm1());
+    sensor.color_matrix_2 = Some(fixture_cm2());
+    sensor.forward_matrix_1 = Some(forward_matrix_d50());
+    sensor.forward_matrix_2 = Some(forward_matrix_cool());
+    sensor.as_shot_neutral = Some(asn_half_one_half());
+    sensor.calibration_illuminant_1 = Some(ILLUMINANT_A);
+    sensor.calibration_illuminant_2 = Some(ILLUMINANT_D65);
+
+    let camera_rgb = dual_camera_rgb();
+    let mut dst = vec![0u16; camera_rgb.len()];
+    to_srgb_linear_into(&sensor, &camera_rgb, &mut dst).expect("valid dual calibration");
+
+    // cam2xyz = C · FM(g) · D, FM(g) = lerp(FM1, FM2, g) — bit-exact vs the ref.
+    assert_eq!(
+        dst,
+        reference_to_srgb(&sensor, &camera_rgb),
+        "the FM(g) interpolation must match the independent reference to the bit"
+    );
+
+    // It genuinely interpolated: the render differs from the illuminant-1-only
+    // (SPEC-033) render, and lands interior (not all clamped to a rail).
+    let mut single = sensor.clone();
+    single.color_matrix_2 = None; // forces the single-illuminant fallback (FM1 only)
+    let dst_single = reference_to_srgb(&single, &camera_rgb);
+    assert_ne!(
+        dst, dst_single,
+        "interpolation must move the output off the illuminant-1 render"
+    );
+    assert!(
+        dst.iter().any(|&v| v > 0 && v < 65535),
+        "expected interior output, got {dst:?}"
+    );
+}
+
+#[test]
+fn color_matrix_path_interpolates() {
+    // No ForwardMatrix → the inverted interpolated-ColorMatrix path.
+    let mut sensor = fixture_sensor(2, 2);
+    sensor.color_matrix_1 = Some(fixture_cm1());
+    sensor.color_matrix_2 = Some(fixture_cm2());
+    sensor.as_shot_neutral = Some(asn_half_one_half());
+    sensor.calibration_illuminant_1 = Some(ILLUMINANT_A);
+    sensor.calibration_illuminant_2 = Some(ILLUMINANT_D65);
+
+    let camera_rgb = dual_camera_rgb();
+    let mut dst = vec![0u16; camera_rgb.len()];
+    to_srgb_linear_into(&sensor, &camera_rgb, &mut dst).expect("invertible interpolated CM");
+
+    assert_eq!(
+        dst,
+        reference_to_srgb(&sensor, &camera_rgb),
+        "the inv(CM(g)) interpolation must match the independent reference to the bit"
+    );
+
+    // Differs from the illuminant-1-only (inv(CM1)) render, and is interior.
+    let mut single = sensor.clone();
+    single.color_matrix_2 = None;
+    assert_ne!(dst, reference_to_srgb(&single, &camera_rgb));
+    assert!(dst.iter().any(|&v| v > 0 && v < 65535));
+}
+
+#[test]
+fn single_illuminant_is_byte_identical_to_spec_033() {
+    // A sensor with no ColorMatrix2 (even with both CalibrationIlluminants set)
+    // takes the single-illuminant fallback — byte-identical to SPEC-033's
+    // illuminant-1 result. The shipped SPEC-033 fixtures (which carry no CM2)
+    // already assert this; here the illuminants are present to prove it is the
+    // missing CM2, not missing illuminants, that triggers the fallback.
+    let mut sensor = fixture_sensor(2, 2);
+    sensor.forward_matrix_1 = Some(forward_matrix_d50());
+    sensor.as_shot_neutral = Some(asn_half_one_half());
+    sensor.calibration_illuminant_1 = Some(ILLUMINANT_A);
+    sensor.calibration_illuminant_2 = Some(ILLUMINANT_D65);
+
+    let camera_rgb = dual_camera_rgb();
+    let mut dst = vec![0u16; camera_rgb.len()];
+    to_srgb_linear_into(&sensor, &camera_rgb, &mut dst).expect("single-illuminant fallback");
+
+    // Build the SPEC-033 illuminant-1 result independently (no interpolation):
+    // a fresh sensor with only FM1 + asn renders exactly C · FM1 · D.
+    let mut spec_033 = fixture_sensor(2, 2);
+    spec_033.forward_matrix_1 = Some(forward_matrix_d50());
+    spec_033.as_shot_neutral = Some(asn_half_one_half());
+    assert_eq!(
+        dst,
+        reference_to_srgb(&spec_033, &camera_rgb),
+        "a sensor with no ColorMatrix2 must be byte-identical to SPEC-033"
+    );
+}
+
+#[test]
+fn the_honest_dual_control_is_green() {
+    let mut sensor = fixture_sensor(3, 1);
+    sensor.color_matrix_1 = Some(fixture_cm1());
+    sensor.color_matrix_2 = Some(fixture_cm2());
+    sensor.forward_matrix_1 = Some(forward_matrix_d50());
+    sensor.forward_matrix_2 = Some(forward_matrix_cool());
+    sensor.as_shot_neutral = Some(asn_half_one_half());
+    sensor.calibration_illuminant_1 = Some(ILLUMINANT_A);
+    sensor.calibration_illuminant_2 = Some(ILLUMINANT_D65);
+
+    let camera_rgb = red_proof_camera();
+    let mut dst = vec![0u16; camera_rgb.len()];
+    to_srgb_linear_into(&sensor, &camera_rgb, &mut dst).expect("valid dual calibration");
+
+    // The real interpolating transform reproduces the independent reference —
+    // the control the mutant below is a one-ColorMatrix2-coefficient perturbation of.
+    assert_eq!(dst, reference_to_srgb(&sensor, &camera_rgb));
+}
+
+#[test]
+fn a_perturbed_second_matrix_turns_the_oracle_red() {
+    let mut honest = fixture_sensor(3, 1);
+    honest.color_matrix_1 = Some(fixture_cm1());
+    honest.color_matrix_2 = Some(fixture_cm2());
+    honest.forward_matrix_1 = Some(forward_matrix_d50());
+    honest.forward_matrix_2 = Some(forward_matrix_cool());
+    honest.as_shot_neutral = Some(asn_half_one_half());
+    honest.calibration_illuminant_1 = Some(ILLUMINANT_A);
+    honest.calibration_illuminant_2 = Some(ILLUMINANT_D65);
+
+    let camera_rgb = red_proof_camera();
+    let mut honest_dst = vec![0u16; camera_rgb.len()];
+    to_srgb_linear_into(&honest, &camera_rgb, &mut honest_dst).expect("valid");
+
+    // Mutate ONE real ColorMatrix2 coefficient — CM2[0][0] — in a copy. It feeds
+    // the weight (shifting g) AND, since both FMs are present, the render path
+    // uses FM(g): the perturbation reaches the output only through g, which is
+    // exactly what makes this a real red-proof of the interpolation.
+    let mut mutant = honest.clone();
+    let mut mutant_cm2 = fixture_cm2();
+    mutant_cm2[0] = Rational {
+        num: mutant_cm2[0].num + 5000,
+        den: mutant_cm2[0].den,
+    };
+    mutant.color_matrix_2 = Some(mutant_cm2);
+
+    let mut mutant_dst = vec![0u16; camera_rgb.len()];
+    to_srgb_linear_into(&mutant, &camera_rgb, &mut mutant_dst).expect("valid");
+
+    // The load-bearing clause (DEC-017): the perturbation must CHANGE THE OUTPUT,
+    // not be a no-op the oracle misses.
+    assert_ne!(
+        mutant_dst, honest_dst,
+        "perturbing CM2[0][0] did NOT change the output — the red-proof caught nothing"
+    );
+    // And the honest reference rejects the mutant — the oracle goes red.
+    assert_ne!(mutant_dst, reference_to_srgb(&honest, &camera_rgb));
 }
