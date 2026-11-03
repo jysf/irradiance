@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-02
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-034
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
+  status: completed                # completed | blocked | rejected
   tokens_total: null               # REAL combined count — what cost-audit reads
   estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  duration_minutes: 45
+  branch: claude/spec-034-build-9eab3f
+  pr: 86
+  completed_at: 2026-11-02          # YYYY-MM-DD
+  notes: "Desktop Claude Code session — /cost is unavailable here (recurring metering gap, see memory `desktop-cost-tool-unavailable-handbacks-null`); tokens_total left null, NOT invented. Recover the real total from this build session's transcript at ship (scratchpad session UUID fca0626e-be12-40d9-b8b7-9dd8cb857b97)."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -199,10 +199,21 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-034-build-9eab3f` → https://github.com/jysf/irradiance/pull/86
+- **Completed at:** 2026-11-02
+- **All acceptance criteria met?** Yes. `build_camera_to_srgb_linear` now interpolates
+  `FM(g)`/`CM(g)` via `interpolation_weight` (DNG `NeutralToXY`, N=3, McCamy cubic, committed
+  `ILLUMINANT_CCT` table); new private helpers `interpolation_weight`, `cct_of_illuminant`,
+  `mccamy_cct`, `lerp_matrix`, `xyz_to_xy`, `mul_mat_vec`, `neutral_vector` (+ `cam_to_xyz_interpolated`
+  / `cam_to_xyz_single_illuminant`). No public API change, no new `Error` variant. Every
+  Failing Test is present and green (in-module: weight-matches-NeutralToXY bit-exact,
+  clamp outside range, McCamy known chromaticities, preconditions fall back, single-illuminant
+  byte-identical to SPEC-033, degenerate-inputs-no-panic; `tests/color_oracle.rs`: FM-path
+  interpolates, CM-path interpolates, single-illuminant byte-identical, perturbed-`ColorMatrix2`
+  red-proof + honest dual control). Built **WHOLE** — the pre-named [M] split was not needed.
+  Gates: `just test` (NO failures), `just lint-ci` (`-D warnings`, `--all-targets --all-features`),
+  `cargo fmt --check`, `just validate` (39 artifacts) all green; the oracle is Tier-A (no corpus).
+- **For `verify`:** n/a (this is the build cycle).
 
 ### Cost self-report
 
@@ -210,27 +221,61 @@ Mirror what you put in the `handback:` front-matter, and say where the number
 came from. **This is the number that lands in the spec** — the orchestrator
 transcribes it via `just handback-sync`, it does not estimate it.
 
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** null — not available in this interface (not invented).
+- **Estimated USD:** null.
+- **Duration (minutes):** ~45 (estimate).
+- **Source of the number:** none available. This is a **desktop Claude Code** session and
+  `/cost` cannot be read here (the known recurring gap — memory
+  `desktop-cost-tool-unavailable-handbacks-null`; the session-mgmt usage tool reports only
+  the live context window, not a cumulative total). **Recover the real total from this build
+  session's transcript at ship** (scratchpad session UUID `fca0626e-be12-40d9-b8b7-9dd8cb857b97`),
+  as SPEC-030/031/032/033 did.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None. `DEC-034` (minted at design) governs; `DEC-033`/`DEC-030`/`DEC-017` apply unchanged.
 - **Deviations from spec:**
-  - [list]
+  - **`ILLUMINANT_CCT` table membership.** The spec's `## Design` table is illustrative
+    (ends "…"). I committed the standard illuminants with crisp published CCTs — codes
+    1 (Daylight 5500), 3/17 (Tungsten/A 2856), 18 (B 4874), 19 (C 6774), 20 (D55 5503),
+    21 (D65 6504), 22 (D75 7504), 23 (D50 5003), 24 (ISO studio tungsten 3200) — each with
+    its EXIF/CIE source in-comment, and omitted the fuzzy daylight/fluorescent codes (their
+    CCTs are ranges, not points) → unknown code = single-illuminant fallback (DEC-034's
+    stated behaviour). The spec table's **"248"** is not a real EXIF/DNG `LightSource` code;
+    read as a typo for **24** (ISO studio tungsten), committed at its ISO 3200 K (not the
+    spec's "2856", which belongs to Tungsten/A). This only affects uncovered-code handling,
+    not any test or the Canon/Nikon corpus (both use 17/21).
+  - **Degeneracy policy (resolving a mild tension in `## Design`).** The design's iteration
+    step 2 notes "singular → MissingColorCalibration" while the fallback paragraph lists "a
+    degenerate weight step" → fallback. Implemented: any degeneracy **inside the weight
+    iteration** (singular `CM(g)`, `xy` sum ≤ 0, McCamy den 0) → `interpolation_weight`
+    returns `None` → the byte-identical single-illuminant fallback; a singular **final
+    interpolated** `CM(g)` in the build → `MissingColorCalibration`. Both outcomes are
+    explicitly sanctioned by the Acceptance Criteria ("each is `MissingColorCalibration` or
+    the graceful fallback, no panic"); neither panics or writes a NaN.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - None new. SPEC-035 (ColorChecker ΔE) and the deferred `ColorMatrix`-path scene-white→D50
+    CAT are already on the STAGE-008 backlog (DEC-034 Non-Goals). If a corpus file ever
+    carries a `CalibrationIlluminant` the table does not cover, extend `ILLUMINANT_CCT`
+    (DEC-034 already anticipates this as the revisit trigger) — not worth a spec pre-emptively.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Two small things, both resolved above: the illuminant table's bogus "248" code, and the
+   step-2-vs-fallback tension on where a degenerate weight step lands. Neither blocked; both
+   are documented as deviations so verify can confirm the calls.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `DEC-034/033/030/017` + `no-panics-on-untrusted-input` + `oracle-must-be-shown-red`
+   fully covered it. One soft gap: the exact `ILLUMINANT_CCT` membership was left to
+   implementer judgment (the "…"); fine here, but a future spec touching illuminants could
+   name the authoritative EXIF/CIE source table so there's no judgment call.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing structural. The one non-obvious step was constructing a fixture whose scene CCT
+   lands *between* the two calibration illuminants so `g` is a genuine interior blend
+   (`g = 0.5203`), not a trivial clamp — done by choosing `inv(CM)` warm/cool and rounding
+   back to clean `num/10000` rationals. Worth recording that fixture-construction trick for
+   the next interpolation spec (it generalises the SPEC-033 "rows sum to D50 white" trick).
