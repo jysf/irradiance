@@ -119,5 +119,14 @@ hash job); item 2 → a release spec after item 1 lands.
 
 ## Resolution
 
-*Open.* Triaged only; no spec exists yet. Fill in with the spec ids, merge commits and the
-released version for item 2 when each is done.
+*Specs minted 2026-11-03* under **STAGE-009** (PROJ-002), all at `cycle: frame`; nothing is
+built. Fill in merge commits and the released version as each ships.
+
+| Item | Spec | Notes |
+|---|---|---|
+| 1 validate-before-allocate | SPEC-036 `[M]` | blocking; `plane::validate`, forged-dims tests, fuzz |
+| 3 error categories | SPEC-037 `[S]` | needs a DEC first (next free DEC-035); depends_on SPEC-036 |
+| 4 cross-arch determinism | SPEC-038 `[S]` | tier-A fixtures + two-OS matrix; corpus hashes local only |
+| 2 release with `demosaic` | SPEC-039 `[S]` release | version to pin: **`0.2.0`** (not yet cut); depends_on SPEC-036 |
+
+Status stays `open` until SPEC-036 and SPEC-039 ship.
