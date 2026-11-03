@@ -14,7 +14,7 @@ planning sessions and folded in here (see [Open questions](#open-questions--to-r
 > ([`projects/PROJ-001-monochrome-dng-develop/brief.md`](../projects/PROJ-001-monochrome-dng-develop/brief.md));
 > this doc is the readable narrative over it.
 
-_Last reconstructed: 2026-10-27._
+_Last reconstructed: 2026-10-27; PROJ-003/004/005 and sequencing added 2026-11-02._
 
 ## The through-line
 
@@ -80,7 +80,24 @@ Rough size signal from the brief: the Bayer path is ~1,300–1,600 lines vs.
 ~550–700 for the monochrome path. Resumes once PROJ-001 ships and a colour
 camera's files are in the corpus.
 
-## PROJ-003 — Lossless JPEG SOF-3 · *next*
+## Sequencing — `0.1.0` first, then `0.2.0`
+
+Maintainer decision (2026-11-02): **cut and publish `0.1.0` with the current
+surface first** (DEC-028), after the in-flight gates close, so the additions
+below land cleanly in `0.2.0` without holding up the initial release.
+
+1. `0.1.0` — current surface. ⚠ DEC-028 scoped it as "monochrome, uncompressed,
+   one camera"; the surface now also carries the Bayer plane, colour metadata and
+   demosaic, but **not** the colour transform (STAGE-008). The crate docs, README
+   and CHANGELOG must say exactly that, not either extreme.
+2. Then, independent of each other: **PROJ-004 Stage A** (forensics) and
+   **PROJ-003** (SOF-3 core). STAGE-008 continues on its own thread.
+3. A bounded **spike** before PROJ-004 Stage B is designed (see below).
+4. **PROJ-005** after SPEC-033 (WB) and SPEC-034.
+5. Any M10 / M11 / Q3 Monochrom conformance claim waits for real Tier-B files and
+   their rows in `docs/conformance-matrix.md`.
+
+## PROJ-003 — Compressed planes: lossless JPEG (SOF-3) + GainMap · *next*
 
 The compressed-plane decoder. The Q2M is uncompressed so PROJ-001 does not need
 it, but it is the **keystone shared by roughly eight vendor decoders** — most
@@ -88,6 +105,116 @@ non-trivial RAW files carry a losslessly-JPEG-compressed plane (e.g. the Leica M
 Monochrom Typ 246 is big-endian *and* JPEG-compressed). Landing SOF-3 is what
 turns irradiance from "develops one uncompressed file" into "develops the files
 people actually have."
+
+- **`Compression 7` and SOF-3 are one work item**: `7` is the DNG container tag,
+  SOF-3 is the coding. Core (Huffman, predictors 1–7, point transform,
+  multi-component CFA interleave, restart markers, 8–16-bit) plus the DNG binding
+  (tiles/strips, big-endian, feeding the existing plane path).
+- **Oracle:** bit-exact vs `dnglab --raw-checksum` on held files, plus an analytic
+  encode→decode round-trip. Patent-check the algorithm at frame time (DEC-031);
+  `oxideav-mjpeg` (MIT) and `photocraft-raw` are cross-check references only.
+- **`OpcodeList2` `GainMap`** (flat-field / lens vignetting): parse, then apply
+  or bypass. Not parsed today (it arrives as `Opcode::Unknown`). dnglab applies no
+  DNG opcodes (DEC-024 F2), so **analytic fixtures only**, each with a red-proof.
+  First check which held files carry `OpcodeList2` at all (the spike).
+- **Out of scope:** lossy-DCT DNG, Nikon NEF-lossless (a different Huffman-
+  difference scheme + linearization curve), Pentax PEF (`65535`).
+- **Targets:** Leica M Monochrom Typ 246 and Pentax K-3 III DNG (held, both
+  currently `UnsupportedCompression`); M10 / M11 / Q3 Monochrom and the Nikon
+  D750 DNG **only once files are held**.
+
+## PROJ-004 — Instrument layer: sensor forensics, optical black, geometry · *next*
+
+The telemetry and calibration surface the Monochrom app's `[ I. SENSITOMETER ]`
+and `[ II. OPTICS & PLANE ]` benches need (companion docs:
+`~/PSeven/experiments/monochrom-app/docs/irradiance-apple-app-design.md` and
+`…-deep-dive.md`). All of it stays zero-I/O and caller-allocated.
+
+**Stage A — Forensics (read-only; no new decoder; works on the uncompressed Q2M):**
+- Preview-slice accessors on `Container<'a>` → `&'a [u8]` + dimensions for the
+  embedded preview SubIFDs (select on `NewSubfileType`, per DEC-012 /
+  `docs/measured-q2m-dng.md`) beside the `LinearRaw` sensor IFD. The host decodes
+  the JPEG; irradiance never does.
+- Raw-ADU histogram + zone kernel (rules below).
+- `collect_bad_pixels` — **only if the spike's opcode inventory justifies it**
+  (today only `FixBadPixelsConstant` is parsed, and SPEC-017 recorded zero hits on
+  real Q2M frames). Must share one code path with `apply_fix_bad_pixels_constant`.
+
+**Stage B — Optical black (spike-gated, see below):** analyzer over the masked
+columns (`ActiveArea` right edge → sensor width) and an opt-in black mode
+(`NominalTag` default / `GlobalOpticalBlack` / `RowCorrelatedOpticalBlack`).
+
+**Stage C — Geometry:** `WarpRect::lerp(alpha)`, two framing modes, and the
+displacement-field sampler.
+
+### Locked API and spec rules (maintainer, 2026-11-02)
+
+- Slice accessors return `&'a [u8]` tied to the **input** lifetime, not `&self`
+  (unlike today's `Container::payload`).
+- Histogram: caller-allocated `bins: &mut [u32; 65536]` (or a `len == 65536`
+  slice). Pixel paths stay `u16` (DEC-016 / DEC-018); `f32` is telemetry-only.
+- Bad pixels: allocation-free iterator or caller `&mut [BadPixel]`.
+- Optical-black row offsets: caller `&mut [i32]`, one per row. `NominalTag` stays
+  the default so every dnglab-compared oracle stays green; the new modes are tested
+  only against an **analytic synthetic banded-frame oracle with a red-proof**.
+- Warp field: caller `&mut [(f32, f32)]` over an N×M grid; the maximum corner
+  pull is **measured on the Q2M corpus, not assumed** (the earlier "503.8 px" is
+  unrecorded).
+- Counts: `sub_black_count` is strictly `< black_level`; `clipped_count` is
+  `>= white_level` (samples above are legal, DEC-029). Zones `0..=X` are exact
+  integer-rounded linear stops below `white_level` relative to `black_level`.
+  Provenance rows in `docs/provenance-ledger.md` for the zone definition, the
+  Engineering-DR formula and the row-black estimator.
+- **Geometry modes — two only:** `StandardCrop` (`DefaultCrop`, 8368×5584 on Q2M)
+  and `FullActiveArea` (`ActiveArea`, 8392×5632, recovering **536,832**
+  photosites). `UncroppedOverscan` is **dropped from v1**: no undefined-pixel
+  mask, no overscan canvas.
+
+### Pin at design time (gaps in the locked rules)
+
+1. **`FullActiveArea` + `lerp` validity is an assumption until measured.** It
+   holds only if the backward radial scale `f(r) = kr0 + kr1·r² + …` stays `<= 1`
+   across the whole normalised domain, including the corners. `lerp` gives
+   `f_α = (1−α) + α·f`, so `f <= 1` everywhere ⇒ `f_α <= 1` for every α. The
+   sampler must check this on the Q2M, and the applier must still return a typed
+   error (never read out of bounds or panic) for a lens where `f > 1`.
+2. **Zone 0 vs `at_black`.** "`at_black_count` *or* Zone 0 covers `== black_level`"
+   is ambiguous. Specify one partition (`< black`, `== black`, zones…, `>= white`)
+   so the counts sum to the in-area total, and test that invariant.
+3. **Bin-count width.** `u32` bins are safe to 4.29 G samples (a 47 MP frame is
+   fine); state it and the histogram's `ActiveArea` clip rule.
+
+### Spike — before PROJ-004 Stage B (and Stage A's `collect_bad_pixels`)
+
+A bounded `SPIKE-NNN` on the held Q2M files (and the rest of the corpus):
+
+- Inventory `OpcodeList1/2/3` across **all held files** with `irr ifd`; record
+  whether `FixBadPixelsList`, `GainMap` or `BlackLevelDeltaV/H` appear anywhere.
+  (`BlackLevelDeltaV/H` is the DNG spec's own per-row/column black — if Leica
+  writes it, use it before inventing a parallel mechanism; it is unparsed today.)
+- Verify columns `ActiveArea.right..Sensor.width` (`8392..8424` on Q2M) are truly
+  masked optical black; measure their row-to-row σ; and test whether a per-row
+  median over ~32 columns **removes banding or injects its own row noise** (and
+  whether smoothing in y is then needed — which contradicts "zero blur").
+
+## PROJ-005 — Post-WB spectral monochrome mixer (Bayer → mono) · *after SPEC-033/034*
+
+A scene-linear monochrome formation for **colour** Bayer DNGs (Leica Q2/Q3,
+M10/M11, SL2/SL3) — the PROJ-002 bridge for the monochrome app.
+
+- **Framing:** **post-demosaic, post-white-balance** camera-RGB → monochrome. It is
+  *not* "pre-demosaic": a full-resolution mono needs the other channels
+  interpolated at each site, and the weights are only meaningful on white-balanced
+  RGB, hence the dependency on SPEC-033 (and SPEC-034 for the matrices).
+- **Weights:** integer / fixed-point rational, `u16` pixel path (DEC-018), so the
+  oracle stays bit-exact.
+- **Highlights:** deterministic **clip-aware weight renormalisation** only — a
+  channel clipped at `>= white_level` is dropped and the remaining unclipped
+  weights are renormalised to sum to 1. **No spatial highlight reconstruction**
+  (PROJ-002 keeps that out of scope as an unbounded tuning loop).
+- **Presets** (Schott Yellow 495, Green 530, Orange 550, Red 590, Ortho Blue 470):
+  each recorded in `docs/provenance-ledger.md` as an **approximation**, because a
+  DNG carries no sensor spectral sensitivity.
 
 ## Later — more sensors and vendor containers
 
