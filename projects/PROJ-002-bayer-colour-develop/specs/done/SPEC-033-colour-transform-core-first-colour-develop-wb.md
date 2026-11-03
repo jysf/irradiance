@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # built WHOLE (no pre-named [M] split), approved first pass; 32.5M build+verify (under the 40M estimate) by reusing STAGE-007's demosaic/tone/irr harness — the frame's L-risk did not materialise
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -66,11 +66,44 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 40000000  # ~28M build + ~12M verify; new math + oracle, but reuses demosaic/tone/irr harness
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-11-02
+      notes: "un-metered main-loop design (orchestrator): the colour-transform math + DEC-033 + the bit-exact oracle design + HANDOFF-080, in the main session's shared transcript"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 22998451
+      estimated_usd: 50.61
+      duration_minutes: 95
+      recorded_at: 2026-11-02
+      notes: "RECOVERED at ship from the build session's OWN transcript (scratchpad uuid 3ebc0450-cef9-4f37-89e1-73f5198d9581, deduped by message.id: 81 records, all claude-opus-4-8, 98.0% cache-read). HANDOFF-080 handback carried null (/cost not exposed to a desktop Claude Code session). Priced per-component at Opus list rates."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 9468151
+      estimated_usd: 22.01
+      duration_minutes: 50
+      recorded_at: 2026-11-02
+      notes: "RECOVERED at ship from the verify session's OWN transcript (scratchpad uuid 790c21da-873f-437d-9be9-d67eb55a46dd, deduped by message.id: 45 records, all claude-opus-4-8, 97.2% cache-read). HANDOFF-081 handback carried null for the same reason. Priced per-component at Opus list rates."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-11-02
+      notes: "un-metered main-loop ship (orchestrator): cost recovery + reflection + archive in the main session's shared transcript"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 32466602
+    estimated_usd: 72.62
+    session_count: 4
+shipped_at: 2026-11-02
 ---
 
 # SPEC-033: **Colour-transform core + first colour develop**: WB
@@ -327,34 +360,48 @@ expand this one.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Trust the harness reuse more at estimate time: the frame flagged an L-risk and I
+   predicted 40M, but reusing STAGE-007's demosaic/tone/irr harness made it a clean,
+   built-whole [M] (32.5M build+verify, approved first pass) — the split never
+   materialised. And I'd state at design, even more plainly than DEC-033 does, that the
+   `ColorMatrix`-only (Nikon) path is *approximate* until SPEC-034 (it treats
+   `inv(CM1)` output as XYZ(D50) with no scene-white adaptation), so no one reads the
+   first Nikon render as colour-accurate before the ΔE lands.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No DEC/template change. One non-blocking numerical observation (verify,
+   HANDOFF-081): the explicit `quantize` clamp is redundant with Rust's **saturating**
+   `f64 as u16` cast, so `quantize_clamps_before_rounding` still passes with the clamp
+   removed — correctness-neutral (output identical; DEC-018 pinning holds). Recorded as
+   a `watch` lesson in `/guidance/signals.yaml`
+   (`saturating-as-cast-masks-explicit-clamp-in-quantize-tests`, N=1) for a future
+   stage-close to decide whether to make the test prove the clamp is load-bearing
+   independently of the cast.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. The planned backlog already covers the refinements: **SPEC-034**
+   (dual-illuminant interpolation + scene-adaptive matrix selection — which also
+   sharpens the `ColorMatrix`/Nikon path) and **SPEC-035** (ColorChecker ΔE, blocked on
+   the maintainer's shot).
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `none` — clean build, approved first pass. The cold verify independently
+   re-derived the bit-exact oracle from the standards (own Python reference,
+   standards-transcribed `S`/`B` constants, exact `f64` op order → reproduced the real
+   kernel to the bit on the FM path, the `inv(CM)` path, neutral→grey, off-gamut clamp
+   and the red-proof), broke the REAL kernel two independent ways (perturbed committed
+   `S[0][0]`; removed the WB `1/asn` division), and ran `irr color` end-to-end on both
+   real frames — finding no defect.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before: `demosaic_into` produced a greenish, flat, **camera-space** image with no
+   display encoding. After: `irr color <bayer DNG>` renders the first recognisable
+   **display-referred sRGB** picture — WB (`AsShotNeutral`) + camera→XYZ
+   (`ForwardMatrix1`, else `inv(ColorMatrix1)`) + the committed Bradford-D50→D65 ·
+   linear-sRGB constant — via new public `color::to_srgb_linear_into` /
+   `color::develop_color_into`, confirmed end-to-end as valid P6 PPM on the real Canon
+   5D-III (FM1) and Nikon D300S (`inv(CM1)`) frames. Colorimetric accuracy is SPEC-035's
+   ΔE (blocked on a ColorChecker shot).

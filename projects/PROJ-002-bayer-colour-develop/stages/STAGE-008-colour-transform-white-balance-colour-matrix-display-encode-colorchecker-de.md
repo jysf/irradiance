@@ -131,13 +131,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 `just frame-stage STAGE-008` promotes the `(not yet written)` lines below into real
 specs at `cycle: frame`; the `[S]`/`[M]`/`[L]` tag carries onto `task.complexity`.
 
-- [ ] SPEC-033 (frame) — [M] **Colour-transform core + first colour develop**: WB
-      (AsShotNeutral) + camera→XYZ (ForwardMatrix-when-present else invert-ColorMatrix)
-      + XYZ→linear-sRGB, **single illuminant** for now; new `develop_color_into`
-      (demosaic→WB→matrix→tone encode); `irr` full-colour sRGB output; analytic
-      bit-exact matrix/WB fixtures + a scoped dnglab-render cross-check; colour-matrix
-      provenance entry. ⚠ **L-risk** — if it exceeds [M], split the matrix MATH (WB +
-      camera→XYZ→sRGB) from the `develop_color_into` + `irr` composition.
+- [x] SPEC-033 (shipped 2026-11-02) — [M] **Colour-transform core + first colour develop**:
+      WB (AsShotNeutral) + camera→XYZ (ForwardMatrix1 else inv(ColorMatrix1)) +
+      committed Bradford-D50→D65·linear-sRGB constant (DEC-033); `color::to_srgb_linear_into`
+      + `color::develop_color_into`; `irr color` → P6 PPM (first colour picture). Built
+      **whole** (L-risk did not materialise), bit-exact analytic oracle + FM1 red-proof;
+      verified ✅ on Canon (FM1) + Nikon inv(CM1). Build+verify 32.5M tok / $72.62.
 - [ ] SPEC-034 (frame) — [M] **Dual-illuminant interpolation + chromatic adaptation**:
       interpolate `ColorMatrix` / `ForwardMatrix1/2` between `CalibrationIlluminant1/2`
       by the scene white (inverse-CCT); Bradford D50→D65. Analytic fixtures (known
@@ -147,7 +146,7 @@ specs at `cycle: frame`; the `[S]`/`[M]`/`[L]` tag carries onto `task.complexity
       ColorChecker reference (Lab/sRGB), with a red-proof (a wrong matrix/WB spikes ΔE).
       The fully-independent colour-accuracy capstone — the oracle PROJ-001 could not reach.
 
-**Count:** 0 shipped / 3 active / 0 pending
+**Count:** 1 shipped / 2 active / 0 pending
 
 > **Framing notes for review (Prompt 1c steps 3–4):**
 > - **3 specs, one gated.** Core transform → illuminant interpolation → ColorChecker

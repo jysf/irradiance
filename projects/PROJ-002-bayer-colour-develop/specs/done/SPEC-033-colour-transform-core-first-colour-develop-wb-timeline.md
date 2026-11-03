@@ -15,4 +15,9 @@ Cycle prompts live in `prompts/SPEC-033-<cycle>.md`.
        `S`/`B`, exact f64 order → matches the real kernel to the bit); proved the oracle bites via
        2 real-kernel mutations (perturbed `S[0][0]`; removed the WB `1/asn`); `irr color` end-to-end
        on Canon (FM1) + Nikon inv(CM1) → valid P6 PPM, genuine colour; all gates green.
-- [ ] **ship** — prompt: `prompts/SPEC-033-ship.md`
+- [x] **ship** — completed 2026-11-02 (prompt: `prompts/SPEC-033-ship.md`). Cycle was at
+       `ship` with `verify_verdict: approved` (verify advanced it). Recovered both metered
+       nulls from transcripts: build 22,998,451 tok / $50.61 (uuid `3ebc0450`), verify
+       9,468,151 tok / $22.01 (uuid `790c21da`); design + ship un-metered. complexity_actual
+       **M** (built whole, approved first pass, under the 40M estimate via harness reuse).
+       Filed signal [[saturating-as-cast-masks-explicit-clamp-in-quantize-tests]].
