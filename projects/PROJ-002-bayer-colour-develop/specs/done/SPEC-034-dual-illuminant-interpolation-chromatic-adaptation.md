@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # built WHOLE (pre-named [M] split not needed), approved first pass; 30.9M build+verify (under the 35M estimate) by reusing SPEC-033's color.rs matrix infra + oracle harness
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -65,11 +65,44 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 35000000  # ~24M build + ~11M verify; novel interpolation math (no reuse), but reuses color.rs matrix infra + the oracle harness
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-11-02
+      notes: "un-metered main-loop design (orchestrator): the DNG NeutralToXY + McCamy interpolation design + DEC-034 + the analytic oracle + HANDOFF-082, in the main session's shared transcript"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 15844141
+      estimated_usd: 36.26
+      duration_minutes: 45
+      recorded_at: 2026-11-03
+      notes: "RECOVERED at ship from the build session's OWN transcript (scratchpad uuid fca0626e-be12-40d9-b8b7-9dd8cb857b97, deduped by message.id: 66 records, all claude-opus-4-8, 97.7% cache-read). HANDOFF-082 handback carried null (/cost not exposed to a desktop Claude Code session). Priced per-component at Opus list rates."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 15076571
+      estimated_usd: 31.02
+      duration_minutes: 40
+      recorded_at: 2026-11-03
+      notes: "RECOVERED at ship from the verify session's OWN transcript (scratchpad uuid 1815e3c4-005e-401b-a35b-dc96bf72a60f, deduped by message.id: 68 records, all claude-opus-4-8, 98.1% cache-read). HANDOFF-083 handback carried null for the same reason. Priced per-component at Opus list rates."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-11-03
+      notes: "un-metered main-loop ship (orchestrator): cost recovery + reflection + archive in the main session's shared transcript"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 30920712
+    estimated_usd: 67.28
+    session_count: 4
+shipped_at: 2026-11-03
 ---
 
 # SPEC-034: **Dual-illuminant interpolation + chromatic adaptation**:
@@ -288,34 +321,44 @@ expand this one.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little — the harness-reuse estimate held (30.9M build+verify vs 35M, built whole, the
+   pre-named split unused). The one thing to carry forward: make [[SPEC-035]]'s ΔE
+   explicitly **measure the ColorMatrix-path (Nikon) error** so the deferred scene-white→D50
+   CAT decision (DEC-034) is driven by a number, not a guess.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No. `DEC-034` stands; the deferred CM-path CAT is already tracked in its
+   Validation/Revisit (SPEC-035's ΔE decides). Stage-close note (not promoted here): the
+   golden-path signal [[reusable-bit-exact-oracle-harness]] gained another instance —
+   SPEC-034 reused SPEC-033's `color.rs` matrix infra + the `color_oracle.rs` harness
+   wholesale — a candidate N for the STAGE-008 close walk.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. [[SPEC-035]] (ColorChecker ΔE, blocked on the maintainer's shot) is the
+   last STAGE-008 spec. The ColorMatrix-path scene-white→D50 CAT becomes its own spec
+   **only if** SPEC-035's ΔE shows the Nikon render misses tolerance — conditional on data,
+   not written now.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `none` — clean build, approved first pass. The cold verify independently re-derived the
+   `NeutralToXY` weight with its own Python reference (3-iteration loop + McCamy + mired blend
+   → reproduced the fixture `g = 0.5202685520213226` **to the bit**), re-derived McCamy on the
+   D65/D50 white points, audited the committed `ILLUMINANT_CCT`/McCamy constants against the
+   CIE/EXIF/McCamy-1992 sources, broke the REAL kernel two independent ways (dropped an
+   iteration `0..3 → 0..2`; reversed the mired direction) — each turned the oracle red, honest
+   control green — confirmed the single-illuminant fallback byte-identical to SPEC-033, and ran
+   `irr color` end-to-end on both real dual-calibration frames. No defect.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before: the camera→XYZ matrix was built from the **first** illuminant only — a daylight
+   shot rendered through a tungsten calibration. After: it is **interpolated at the scene
+   colour temperature** (the DNG `NeutralToXY` reciprocal-temperature method, `AsShotNeutral`
+   → McCamy CCT → mired weight `g`, DEC-034), so a dual-calibration DNG renders with the
+   scene-illuminant-correct matrix — confirmed end-to-end by `irr color` on the real Canon
+   5D-III (A/D65, `FM(g)` path, `g ≈ 0.426`) and Nikon D300S (`inv(CM(g))` path, `g ≈ 0.763`)
+   frames, both genuine interior weights (interpolation actively engaged, not a fallback),
+   both a valid P6 PPM. Colorimetric accuracy itself is SPEC-035's ΔE (blocked on a
+   ColorChecker shot).

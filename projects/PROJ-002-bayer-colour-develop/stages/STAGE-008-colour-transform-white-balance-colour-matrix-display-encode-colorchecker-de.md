@@ -137,16 +137,18 @@ specs at `cycle: frame`; the `[S]`/`[M]`/`[L]` tag carries onto `task.complexity
       + `color::develop_color_into`; `irr color` → P6 PPM (first colour picture). Built
       **whole** (L-risk did not materialise), bit-exact analytic oracle + FM1 red-proof;
       verified ✅ on Canon (FM1) + Nikon inv(CM1). Build+verify 32.5M tok / $72.62.
-- [ ] SPEC-034 (frame) — [M] **Dual-illuminant interpolation + chromatic adaptation**:
-      interpolate `ColorMatrix` / `ForwardMatrix1/2` between `CalibrationIlluminant1/2`
-      by the scene white (inverse-CCT); Bradford D50→D65. Analytic fixtures (known
-      illuminants → known interpolated matrix). Refines colour accuracy.
+- [x] SPEC-034 (shipped 2026-11-03) — [M] **Dual-illuminant interpolation**: `build_camera_to_srgb_linear`
+      interpolates `ColorMatrix1/2` + `ForwardMatrix1/2` at the scene colour temperature (DNG
+      `NeutralToXY` + McCamy CCT, DEC-034), once per image in f64; single-calibration byte-identical
+      to SPEC-033. No public API change. Bit-exact analytic oracle + perturbed-CM2 red-proof;
+      verified ✅ on real Canon (FM(g), g≈0.426) + Nikon (inv(CM(g)), g≈0.763). Build+verify 30.9M tok / $67.28.
+      (The ColorMatrix-path scene-white→D50 CAT is deferred — SPEC-035's ΔE judges.)
 - [ ] SPEC-035 (frame) — [M] **ColorChecker ΔE oracle (GATED on the maintainer's
       ColorChecker shot)**: render the chart, measure per-patch **ΔE2000** vs the known
       ColorChecker reference (Lab/sRGB), with a red-proof (a wrong matrix/WB spikes ΔE).
       The fully-independent colour-accuracy capstone — the oracle PROJ-001 could not reach.
 
-**Count:** 1 shipped / 2 active / 0 pending
+**Count:** 2 shipped / 1 active / 0 pending
 
 > **Framing notes for review (Prompt 1c steps 3–4):**
 > - **3 specs, one gated.** Core transform → illuminant interpolation → ColorChecker
