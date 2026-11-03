@@ -47,7 +47,7 @@ handback:
   estimated_usd: null              # tokens_total × your rate, or your harness's number
   duration_minutes: 50
   branch: claude/spec-033-verify-28f03a
-  pr: null                         # verify PR — opened against main after this handback
+  pr: 80                           # verify PR against main (docs-only; code landed via #79)
   completed_at: 2026-11-02         # YYYY-MM-DD
   notes: >
     ✅ APPROVED at commit bb4aab11 (PR #79's build; byte-identical at worktree HEAD
