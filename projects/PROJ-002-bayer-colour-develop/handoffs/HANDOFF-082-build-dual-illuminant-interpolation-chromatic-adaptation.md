@@ -47,7 +47,7 @@ handback:
   estimated_usd: null              # tokens_total × your rate, or your harness's number
   duration_minutes: 45
   branch: claude/spec-034-build-9eab3f
-  pr: null
+  pr: 86
   completed_at: 2026-11-02          # YYYY-MM-DD
   notes: "Desktop Claude Code session — /cost is unavailable here (recurring metering gap, see memory `desktop-cost-tool-unavailable-handbacks-null`); tokens_total left null, NOT invented. Recover the real total from this build session's transcript at ship (scratchpad session UUID fca0626e-be12-40d9-b8b7-9dd8cb857b97)."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -199,7 +199,7 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-034-build-9eab3f` → PR against `main` (link added at PR open).
+- **Branch / PR:** `claude/spec-034-build-9eab3f` → https://github.com/jysf/irradiance/pull/86
 - **Completed at:** 2026-11-02
 - **All acceptance criteria met?** Yes. `build_camera_to_srgb_linear` now interpolates
   `FM(g)`/`CM(g)` via `interpolation_weight` (DNG `NeutralToXY`, N=3, McCamy cubic, committed
