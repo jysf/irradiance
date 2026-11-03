@@ -28,6 +28,26 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **Colour transform — first display-referred colour render** (`irradiance::color`,
+  SPEC-033, PROJ-002) — new `color::to_srgb_linear_into(sensor, &[u16], &mut [u16])`
+  turns camera-space linear RGB into **linear-sRGB** by white balance
+  (`AsShotNeutral`) + camera→XYZ(D50) (`ForwardMatrix1`, else inverted `ColorMatrix1`;
+  single illuminant) + XYZ(D50)→linear-sRGB, folded into one 3×3 matrix built once per
+  image; and `color::develop_color_into(sensor, &[u16], &mut [u16])` composes the whole
+  mosaic→picture path (per-channel level-normalize → `demosaic_into` → the matrix). The
+  arithmetic is committed-constant **`f64`**, `+ − × ÷` only (**DEC-033**): the
+  irrational sRGB (IEC 61966-2-1) and Bradford (D50→D65) constants are committed `S`/`B`
+  arrays, so the transform is byte-identical across platforms — the same basis `tone`
+  relies on. The sRGB **OETF** is **not** applied here (`color` outputs linear-sRGB;
+  `tone::encode_srgb16_into` encodes — DEC-025). The apply is scale-free (`65535 ≡ 1.0`,
+  DEC-018) and clamps before the round-half-up quantize. New `Error` variants
+  `ColorSourceWrongLength` and `MissingColorCalibration` (a zero-denominator required
+  rational, absent/ill-shaped `AsShotNeutral`/`ForwardMatrix`/`ColorMatrix`, or a
+  singular `ColorMatrix` → typed error, never a panic), and a new **`irr color`**
+  subcommand emitting a **P6 PPM** — the first recognisable colour picture. Verified
+  **bit-exact** on analytic fixtures against an independent reference with a
+  perturbed-`ForwardMatrix` red-proof (DEC-017). Caller-owned buffers, no alloc on the
+  matrix path (DEC-016). (Note for the eventual publish — DEC-028.)
 - **Bilinear Bayer demosaic** (`irradiance::demosaic`, SPEC-030, PROJ-002) — new
   `demosaic::demosaic_into(sensor, &[u16], &mut [u16])` turns a Bayer **mosaic** into
   a 3-channel **interleaved camera-space linear RGB** image (caller-owned buffer, no

@@ -45,9 +45,18 @@
 //!   balance, no colour matrix, no levels (STAGE-008) — so it reads
 //!   greenish/flat.
 //!
-//! `irr ifd`/`irr unpack`/`irr develop`/`irr demosaic` read a file, which the
-//! library never does — the library takes bytes. The I/O is here, on purpose,
-//! and stays here.
+//! - `irr color <file>` — unpack the Bayer mosaic, then develop it to a
+//!   **display-referred sRGB** image (`SPEC-033`, `color::develop_color_into`:
+//!   per-channel level-normalize → demosaic → white balance + colour matrix →
+//!   linear-sRGB), encode the linear-sRGB through the `tone` sRGB OETF
+//!   (`encode_srgb16_into`, `DEC-025`), and write a **P6 PPM** (maxval 65535,
+//!   big-endian RGB) to **stdout** — the first recognisable colour picture
+//!   (unlike `irr demosaic`'s uncorrected greenish output). Stats go to
+//!   **stderr** so they do not corrupt the binary image on stdout.
+//!
+//! `irr ifd`/`irr unpack`/`irr develop`/`irr demosaic`/`irr color` read a file,
+//! which the library never does — the library takes bytes. The I/O is here, on
+//! purpose, and stays here.
 
 use std::io::Write;
 use std::process::ExitCode;
@@ -63,6 +72,7 @@ usage:
   irr develop  [--format linear-f32|srgb16|srgb8] <file>
                                    unpack, develop, then encode (default srgb8)
   irr demosaic <file>              unpack a Bayer mosaic, bilinear-demosaic it, write a P6 PPM (stdout)
+  irr color    <file>              unpack, develop to display sRGB (WB + colour matrix + sRGB OETF), write a P6 PPM (stdout)
 ";
 
 fn main() -> ExitCode {
@@ -74,6 +84,7 @@ fn main() -> ExitCode {
         ["unpack", rest @ ..] => cmd_unpack(rest),
         ["develop", rest @ ..] => cmd_develop(rest),
         ["demosaic", rest @ ..] => cmd_demosaic(rest),
+        ["color", rest @ ..] => cmd_color(rest),
         [] | ["-h"] | ["--help"] => {
             print!("{USAGE}");
             ExitCode::SUCCESS
@@ -503,6 +514,105 @@ fn cmd_demosaic(args: &[&str]) -> ExitCode {
     let mut stdout = std::io::stdout().lock();
     if let Err(e) = stdout.write_all(&ppm).and_then(|()| stdout.flush()) {
         eprintln!("irr demosaic: writing PPM to stdout: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    ExitCode::SUCCESS
+}
+
+fn cmd_color(args: &[&str]) -> ExitCode {
+    let Some(path) = args.first().copied() else {
+        eprintln!("irr color: expected a file\n\n{USAGE}");
+        return ExitCode::FAILURE;
+    };
+
+    let data = match std::fs::read(path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("irr color: cannot read {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let container = match Container::parse(&data) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("irr color: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let sensor = match container.sensor() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("irr color: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // `unwrap()`/`expect()` are fine here — dev/oracle binary (module doc's
+    // panic-policy note). The plane, the linear-sRGB RGB and the encoded sRGB
+    // are all caller-owned allocations (`DEC-016`); the library allocates none.
+    let pixel_count = usize::try_from(u64::from(sensor.width) * u64::from(sensor.height))
+        .expect("plane too large for this host");
+    let mut plane = vec![0u16; pixel_count];
+    if let Err(e) =
+        irradiance::plane::unpack_into(&sensor, container.byte_order(), &data, &mut plane)
+    {
+        eprintln!("irr color: {path}: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    // Develop the mosaic to LINEAR-sRGB (WB + colour matrix), then encode the
+    // sRGB OETF — `color` produces linear, `tone` encodes (`DEC-025`).
+    let mut linear_srgb = vec![0u16; pixel_count * 3];
+    if let Err(e) = irradiance::color::develop_color_into(&sensor, &plane, &mut linear_srgb) {
+        eprintln!("irr color: {path}: {e}");
+        return ExitCode::FAILURE;
+    }
+    let mut srgb = vec![0u16; pixel_count * 3];
+    if let Err(e) = irradiance::tone::encode_srgb16_into(&linear_srgb, &mut srgb) {
+        eprintln!("irr color: {path}: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    // Stats to STDERR — stdout carries the binary P6 image (see `cmd_demosaic`).
+    let head: Vec<u16> = srgb.iter().take(8).copied().collect();
+    eprintln!("file            {path}");
+    eprintln!("dimensions      {} x {}", sensor.width, sensor.height);
+    eprintln!(
+        "cfa_pattern     {:?}",
+        sensor.color_filter.as_ref().map(|c| &c.pattern)
+    );
+    eprintln!(
+        "forward_matrix  {}",
+        if sensor.forward_matrix_1.is_some() {
+            "present (FM1 path)"
+        } else {
+            "absent (inv(CM1) path)"
+        }
+    );
+    eprintln!("srgb[0..8]      {head:?}");
+    eprintln!(
+        "min             {}",
+        srgb.iter().min().copied().unwrap_or(0)
+    );
+    eprintln!(
+        "max             {}",
+        srgb.iter().max().copied().unwrap_or(0)
+    );
+    eprintln!("srgb_bytes      {}", srgb.len() * 2);
+    eprintln!("note            display-referred sRGB (WB + colour matrix + sRGB OETF — STAGE-008)");
+
+    // The P6 PPM on STDOUT: `"P6\n{w} {h}\n65535\n"` then big-endian u16 RGB.
+    let mut ppm: Vec<u8> = format!("P6\n{} {}\n65535\n", sensor.width, sensor.height).into_bytes();
+    ppm.reserve(srgb.len() * 2);
+    for sample in &srgb {
+        ppm.extend_from_slice(&sample.to_be_bytes());
+    }
+    let mut stdout = std::io::stdout().lock();
+    if let Err(e) = stdout.write_all(&ppm).and_then(|()| stdout.flush()) {
+        eprintln!("irr color: writing PPM to stdout: {e}");
         return ExitCode::FAILURE;
     }
 

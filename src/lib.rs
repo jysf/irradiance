@@ -81,7 +81,14 @@
 //! It is pure interpolation — no white balance, no colour matrix, no levels
 //! (STAGE-008) — so its output reads greenish/flat; the quality kernel
 //! (clean-room Malvar-He-Cutler) swaps in at `SPEC-031` against the same
-//! harness. Still absent, by design:
+//! harness. `SPEC-033` added [`color`], STAGE-008's colour transform: white
+//! balance (`AsShotNeutral`) + camera→XYZ (`ForwardMatrix1`, else inverted
+//! `ColorMatrix1`; single illuminant) + XYZ(D50)→linear-sRGB folded into one
+//! committed-`f64` 3×3 matrix ([`color::to_srgb_linear_into`]), and the mosaic
+//! compose ([`color::develop_color_into`]) that normalizes levels per CFA
+//! colour, demosaics, and applies it — the first display-referred colour render
+//! (`DEC-033`; the `tone` OETF still does the final sRGB encode, `DEC-025`).
+//! Still absent, by design:
 //! `ASCII` and the signed field types (no DNG tag PROJ-001 reads needs them
 //! yet), and any compressed-plane decode (PROJ-003).
 
@@ -94,6 +101,7 @@
     clippy::arithmetic_side_effects
 )]
 
+pub mod color;
 pub mod demosaic;
 pub mod develop;
 pub mod ifd;
@@ -525,6 +533,31 @@ pub enum Error {
         /// `dst.len()` as given.
         actual: usize,
     },
+
+    /// `SPEC-033`. A [`color`] function's colour **source** does not hold the
+    /// expected number of samples — the interleaved camera RGB
+    /// ([`color::to_srgb_linear_into`], `width * height * 3`) or the raw Bayer
+    /// mosaic ([`color::develop_color_into`], `width * height`). The caller owns
+    /// and sizes the input buffer (`DEC-016`); its length is the one
+    /// precondition checked before the transform runs, and a mismatch is this
+    /// typed error, never a panic. The interleaved RGB **destination** reuses
+    /// [`Error::RgbBufferWrongLength`].
+    ColorSourceWrongLength {
+        /// The required length — `width * height * 3` for the matrix path,
+        /// `width * height` for the mosaic compose.
+        expected: u64,
+        /// The source slice's length as given.
+        actual: usize,
+    },
+
+    /// `SPEC-033`. [`color`] cannot build the camera → linear-sRGB transform
+    /// because `sensor` carries no usable colour calibration: no
+    /// `AsShotNeutral`, neither a well-shaped `ForwardMatrix1` nor
+    /// `ColorMatrix1`, a required rational with a zero denominator (or a
+    /// non-positive neutral), or a singular `ColorMatrix` that cannot be
+    /// inverted. Unusable calibration is this typed error, never a panic and
+    /// never a `NaN`/`inf` written to `dst`.
+    MissingColorCalibration,
 }
 
 impl fmt::Display for Error {
@@ -763,6 +796,16 @@ impl fmt::Display for Error {
                     "demosaic RGB buffer holds {actual} sample(s), expected {expected} (width x height x 3)"
                 )
             }
+            Error::ColorSourceWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "colour source holds {actual} sample(s), expected {expected}"
+                )
+            }
+            Error::MissingColorCalibration => f.write_str(
+                "no usable colour calibration (AsShotNeutral + ForwardMatrix1 or invertible \
+                 ColorMatrix1) — cannot build the camera to linear-sRGB transform",
+            ),
         }
     }
 }

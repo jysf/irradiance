@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-02
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-033
@@ -42,14 +42,22 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
+  status: completed                # completed | blocked | rejected
   tokens_total: null               # REAL combined count — what cost-audit reads
   estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  duration_minutes: 95
+  branch: claude/spec-033-build-f223ec
+  pr: 79
+  completed_at: 2026-11-02         # YYYY-MM-DD
+  notes: >
+    Built WHOLE — did not need the pre-named [M] split (reused the demosaic/tone/irr
+    harness as the design predicted). tokens_total is null because this is a desktop
+    Claude Code (app) session: `/cost` is a terminal-dialog command the app session
+    cannot run (the recurring `desktop-cost-tool-unavailable-handbacks-null` gap, same
+    as the SPEC-030/031/032 builds). The orchestrator must recover the REAL count from
+    THIS session's transcript at ship — do NOT invent a number. `get_usage` reports
+    only the context-window snapshot (~345k), which is the wrong metric and a severe
+    undercount, so it is deliberately not used here.
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -213,10 +221,25 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-033-build-f223ec` → PR (see `handback.pr`;
+  opened against `main`, references SPEC-033 / STAGE-008 / PROJ-002 /
+  DEC-033/018/025/016).
+- **Completed at:** 2026-11-02
+- **All acceptance criteria met?** **yes.** `to_srgb_linear_into` builds
+  `M = C·FM1·diag(1/asn)` / `C·inv(CM1)·diag(1/asn)` once per image and applies
+  per pixel; bit-exact apply (identity / diagonal / negative / overshoot, with a
+  round-half-up tie) and bit-exact builder (FM path + CM path, `f64 ==` vs an
+  independent re-derivation) are pinned; neutral→grey (`R == G == B`), clamp
+  (off-gamut → `0`/`65535`), the FM1 red-proof (mutant ≠ honest, honest control
+  green), the compose (`develop_color_into == normalize ∘ demosaic ∘ matrix`),
+  every typed-error/no-panic path and the 1×1 degenerate case all pass. The mono
+  develop + STAGE-006/007 oracles stay green; `just test` / `just lint-ci`
+  (`-D warnings`) / `cargo fmt --check` / `just validate` all pass. Built
+  **whole** — the pre-named [M] split was not needed. Behavioural pre-flight
+  (AGENTS.md §12): `irr color` runs end-to-end on the real Canon 5D-III (FM1
+  path) and Nikon D300S (inv(CM1) path) Bayer frames, emitting a valid P6 PPM
+  with genuine, non-degenerate colour.
+- **For `verify`:** n/a (this is the build handoff).
 
 ### Cost self-report
 
@@ -224,27 +247,58 @@ Mirror what you put in the `handback:` front-matter, and say where the number
 came from. **This is the number that lands in the spec** — the orchestrator
 transcribes it via `just handback-sync`, it does not estimate it.
 
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** **null** — a desktop Claude Code (app) session cannot run
+  `/cost` (a terminal-dialog command the app session does not expose). This is
+  the known recurring `desktop-cost-tool-unavailable-handbacks-null` gap (same as
+  the SPEC-030/031/032 builds). The orchestrator must recover the REAL count from
+  THIS session's transcript at ship. **Do NOT invent a number.** (`get_usage`
+  reports only the ~345k context-window snapshot — the wrong metric and a severe
+  undercount — so it is deliberately not reported here.)
+- **Estimated USD:** null (follows from tokens_total).
+- **Duration (minutes):** ~95.
+- **Source of the number:** none available (see above — recover from transcript).
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None. `DEC-033` was minted at design; this build implements it unchanged.
 - **Deviations from spec:**
-  - [list]
+  - None material. The per-channel level-normalize indexes `black_levels` /
+    `white_levels` by **2×2 mosaic position** (`(y&1,x&1)`), the DNG
+    repeat-block layout, with the scalar `black_level`/`white_level` (then
+    `0`/`2^bits-1`) as the fallback — the concrete reading of the spec's "per CFA
+    colour" for a Bayer plane.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - **The Tier-B `dnglab`-render cross-check was deferred** (spec's optional
+    `#[ignore]`/corpus-gated `"corpus_render_broadly_tracks_dnglab_srgb"`). The
+    MATH is proven Tier-A bit-exact + a behavioural pre-flight on both real Bayer
+    frames; a loose structural dnglab sanity check is worth adding but is NOT an
+    accuracy gate (that is SPEC-035's ΔE) and did not block the build. A small
+    follow-on spec (or an addition to SPEC-035's scope) could land it.
+  - `SPEC-035` (ColorChecker ΔE) remains **blocked** on the maintainer's
+    ColorChecker shot — already in the STAGE-008 backlog, flagged here as the
+    thing that will actually judge the Nikon (single-illuminant) render's colour.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little — the spec's `## Design` was transcription-ready. The one thing
+   that needed a judgment call was how to **index the per-channel black/white
+   levels** ("per CFA colour" vs the DNG per-2×2-position layout); I used
+   per-position (which is what real DNG `BlackLevel` arrays are), noted above.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The references (DEC-033/018/025/016/030, DEC-017, the two constraints)
+   were complete. Worth recording for future colour specs: `clippy::arithmetic_side_effects`
+   does **not** fire on `f64` `+ − × ÷` (only integer ops), so the matrix math is
+   lint-clean without an `#[allow]` — the `src/warp.rs` precedent the handoff
+   cited is exactly right, and `rounded as u16` after a clamp is the sanctioned
+   float→int conversion.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing structural. I over-worried that the committed sRGB/Bradford constants
+   might not compose a neutral back to `R == G == B` within ½ LSB; the Lindbloom
+   constants are mutually consistent to ~1e-7, so the mid-grey neutral test holds
+   bit-exact. I confirmed it empirically rather than trusting the reasoning —
+   which is the right order, but I could have reached for the empirical check
+   sooner instead of hand-deriving the accuracy.
