@@ -1151,3 +1151,25 @@ signals:
       second instance appears (N=2) — a lone redundant-but-harmless clamp is not worth a
       rule. Related: the `oracle-must-be-shown-red` discipline (a guard you cannot show
       load-bearing is the same shape as an oracle you cannot show red).
+
+  # --- lesson: a round-trip oracle is blind to a helper both halves share ------
+  - id: shared-path-oracle-tautology
+    type: lesson
+    summary: "An encode->decode round-trip oracle cannot catch a regression in a helper that BOTH halves call — the error cancels — so a shared helper's sign/edge branches need a direct, hand-computed assertion, not just the round-trip."
+    evidence: "N=1, SPEC-037 (verify, HANDOFF-088). The LJ92 round-trip oracle and the production decoder both call `predict`->`floor_div2`; mutating `floor_div2` to truncate-toward-zero (dropping the negative-odd floor) left all 18 ljpeg tests green — encode and decode made the same error and it cancelled, and the one hand-computed predictor test used only positive neighbours (no negative `>>1` intermediate). The cold verify caught it; the fix was one direct assertion with a negative-odd intermediate (predictor 5, Rb<Rc), mutation-confirmed to fail on truncation."
+    bar: "N=2"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-05
+    last_touched: 2026-11-05
+    raised_by: claude
+    notes: |
+      Same family as the `plane_oracle.rs` no-op lesson and
+      `saturating-as-cast-masks-explicit-clamp-in-quantize-tests`: a check that cannot
+      be shown to fail proves nothing. Generalised here to round-trip / encode-decode
+      oracles — whenever both directions share a helper, the oracle is tautological for
+      that helper. Convention if a second instance appears (N=2): a round-trip / analytic
+      oracle must be paired with at least one direct hand-computed assertion exercising
+      each shared helper's sign/edge branch, and the design's failing-tests should name
+      it. Related: the `oracle-must-be-shown-red` constraint and SPEC-030's
+      perturbed-kernel red-proof pattern.

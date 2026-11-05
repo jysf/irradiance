@@ -1,14 +1,23 @@
-//! SOF-3 lossless-JPEG entropy front-end — `SPEC-036`, `DEC-035`.
+//! SOF-3 lossless-JPEG decoder — `SPEC-036` (entropy front-end) +
+//! `SPEC-037` (reconstruction); `DEC-035`.
 //!
 //! A DNG `Compression 7` sensor plane is a lossless-JPEG (SOF-3, ITU-T T.81
-//! Annex H) bitstream. This module turns that stream, down to the Huffman-coded
-//! scan, into the ordered **difference** values (plus the parsed frame
-//! parameters) that `SPEC-037` reconstructs into a `u16` plane. It stops at the
-//! difference stream: predictors, the initial prediction `2^(P−Pt−1)`, the
-//! point transform, the per-restart predictor reset and the output plane are
-//! all `SPEC-037`.
+//! Annex H) bitstream. This module decodes it in two layers:
 //!
-//! What it does:
+//! - **The entropy front-end (`SPEC-036`)** turns the stream, down to the
+//!   Huffman-coded scan, into the ordered signed **difference** values (plus
+//!   the parsed frame parameters): [`parse_headers`], [`HuffTable`],
+//!   [`ScanReader`].
+//! - **Reconstruction (`SPEC-037`)** turns those differences into the exact
+//!   caller-owned `u16` sample plane: [`reconstruct`] and the one-call
+//!   [`decode_into`]. This is the lossless predictor model of ITU-T T.81 Annex
+//!   H.1 — predictors 1–7 (Table H.1), the initial prediction `2^(P−Pt−1)`, the
+//!   §H.2.1 line/scan/restart boundary rules, the point transform `Pt`, and the
+//!   per-restart predictor reset — all in the point-transformed domain, modular
+//!   `2^16` via explicit `wrapping_*` (`DEC-018`), writing into the caller's
+//!   buffer with no allocation (`DEC-016`).
+//!
+//! What the front-end does:
 //!
 //! - [`parse_headers`] walks the marker/segment structure (`SOI → {DHT | DRI |
 //!   SOF3} → SOS`, ITU-T T.81 Annex B), returning the single-component [`Frame`]
@@ -52,11 +61,11 @@
 //! patents expired and never read on it). See `docs/provenance-ledger.md`.
 
 // Nothing in the crate calls this module yet — STAGE-010 wires `Compression 7`
-// to it and SPEC-037 adds reconstruction in-place. The front-end's items are
-// `pub(crate)` per SPEC-036 and are exercised by this module's own `mod tests`
-// (every function and every `Frame` field is read there), but the non-test
-// library build sees no caller, so `dead_code` would fire. This allow is
-// scoped to exactly this pre-consumer module and comes off when STAGE-010
+// to [`decode_into`]. Both the SPEC-036 front-end and the SPEC-037
+// reconstruction below are `pub(crate)` and are exercised by this module's own
+// `mod tests` (every function and every `Frame` field is read there), but the
+// non-test library build sees no caller, so `dead_code` would fire. This allow
+// is scoped to exactly this pre-consumer module and comes off when STAGE-010
 // wires it in.
 #![allow(dead_code)]
 
@@ -771,6 +780,228 @@ fn extend(v: u32, ssss: u32) -> i32 {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Reconstruction (ITU-T T.81 Annex H.1) — SPEC-037
+//
+// Turns SPEC-036's per-sample signed differences into the caller's `u16` plane:
+// predictors 1–7 (Table H.1), the initial prediction `2^(P−Pt−1)`, the §H.2.1
+// line/scan/restart boundary rules, the point transform `Pt`, and the
+// per-restart predictor reset. All prediction arithmetic is in the
+// point-transformed domain, modular `2^16` via explicit `wrapping_*` (`DEC-018`
+// — intent, not a silencing cast); the output is caller-owned with no
+// allocation (`DEC-016`).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Floor division by two of a signed working value — the `>> 1` of T.81 Table
+/// H.1 predictors 5/6/7, which is an arithmetic (sign-preserving) shift, i.e. a
+/// floor toward negative infinity. Done without the `/` or `>>` operators the
+/// crate root denies (`clippy::arithmetic_side_effects`): `wrapping_div`/
+/// `wrapping_rem` by the constant `2` never panic (the divisor is neither `0`
+/// nor the `i32::MIN / -1` overflow case), and the correction turns truncation
+/// toward zero into a true floor for negative odd inputs.
+fn floor_div2(x: i32) -> i32 {
+    let q = x.wrapping_div(2);
+    let r = x.wrapping_rem(2);
+    if r != 0 && x < 0 {
+        q.wrapping_sub(1)
+    } else {
+        q
+    }
+}
+
+/// The T.81 Table H.1 lossless predictor `Px` for selector `sel` (`1..=7`),
+/// from the point-transformed neighbours `Ra` (left), `Rb` (above) and `Rc`
+/// (above-left). Working values are `i32` so predictors 4/5/6 can go negative
+/// and the `>> 1` of 5/6/7 floors correctly (T.81 H.1); the final modular
+/// `2^16` reduction happens in [`reconstruct`]. `sel` is validated `1..=7` by
+/// [`parse_headers`]; the catch-all never panics on an unexpected value, it
+/// falls back to `Ra` (predictor 1).
+fn predict(sel: u8, ra: i32, rb: i32, rc: i32) -> i32 {
+    match sel {
+        1 => ra,
+        2 => rb,
+        3 => rc,
+        4 => ra.wrapping_add(rb).wrapping_sub(rc),
+        5 => ra.wrapping_add(floor_div2(rb.wrapping_sub(rc))),
+        6 => rb.wrapping_add(floor_div2(ra.wrapping_sub(rc))),
+        7 => floor_div2(ra.wrapping_add(rb)),
+        _ => ra,
+    }
+}
+
+/// Read a already-reconstructed neighbour `back` samples before linear index
+/// `idx` as an `i32`, or `0` when it would be out of range. Callers only read a
+/// neighbour where the boundary rules guarantee it exists; the bounded form
+/// keeps the function total (no slice indexing, no panicking subtraction) for
+/// `no-panics-on-untrusted-input`.
+fn neighbour(out: &[u16], idx: usize, back: usize) -> i32 {
+    match idx.checked_sub(back) {
+        Some(j) => out.get(j).copied().map(i32::from).unwrap_or(0),
+        None => 0,
+    }
+}
+
+/// Reconstruct a single-component SOF-3 plane from `reader`'s decoded
+/// difference stream into the caller-owned `out` (ITU-T T.81 Annex H.1).
+///
+/// `out` must hold exactly `frame.lines × frame.samples_per_line` samples
+/// (else [`Error::LjpegPlaneWrongLength`]); it is then filled **row-major** by
+/// decoding one difference per sample ([`ScanReader::decode_difference`]) and
+/// adding the prediction. For each sample at `(r, c)`:
+///
+/// - the first sample of the scan **and** the first sample of each restart
+///   interval use the initial prediction `2^(P−Pt−1)`;
+/// - the rest of the first line (`r == 0`) uses `Ra` (the left neighbour);
+/// - the first column of each later line (`c == 0`) uses `Rb` (the sample
+///   above);
+/// - every other sample uses the selected predictor ([`predict`]).
+///
+/// The reconstructed value is `(Px + difference) mod 2^16` (`wrapping_*`,
+/// `DEC-018`) computed in the point-transformed domain; the stored output is
+/// that value `<< Pt` (applied as a final modular multiply, so the predictor
+/// neighbours above are the pre-shift values). When `frame.restart_interval >
+/// 0`, [`ScanReader::restart`] is called at each interval boundary and the
+/// prediction resets to the scan-start rule for the next sample.
+///
+/// No allocation occurs (`DEC-016`): the only buffer is the caller's `out`.
+///
+/// # Errors
+///
+/// [`Error::LjpegPlaneWrongLength`] if `out` is the wrong length, or any typed
+/// [`Error`] surfaced by `reader` (a truncated scan, a bad code, a missing or
+/// wrong restart marker). Never a panic on malformed input.
+pub(crate) fn reconstruct(
+    frame: &Frame,
+    table: &HuffTable,
+    reader: &mut ScanReader<'_>,
+    out: &mut [u16],
+) -> Result<(), Error> {
+    let width = usize::from(frame.samples_per_line);
+    let height = usize::from(frame.lines);
+
+    // Length precondition (the one check a caller-owned, no-alloc path can make
+    // before writing). `checked_mul` keeps the lint happy and covers the
+    // (unreachable on 32/64-bit targets) overflow: a plane larger than
+    // `usize::MAX` cannot match any real buffer.
+    let expected = match width.checked_mul(height) {
+        Some(e) => e,
+        None => {
+            return Err(Error::LjpegPlaneWrongLength {
+                expected: usize::MAX,
+                got: out.len(),
+            });
+        }
+    };
+    if out.len() != expected {
+        return Err(Error::LjpegPlaneWrongLength {
+            expected,
+            got: out.len(),
+        });
+    }
+    if expected == 0 {
+        // A zero-sample plane (either dimension 0) has nothing to decode.
+        return Ok(());
+    }
+
+    // Initial prediction `2^(P − Pt − 1)`. `P` is `2..=16` and `Pt` is `0..=15`
+    // (both from the parsed header); a `Pt >= P` (malformed, since valid
+    // streams have `Pt < P`) makes the exponent negative — treated as `0`
+    // rather than panicking.
+    let p = i32::from(frame.precision);
+    let pt = frame.point_transform;
+    let initial: i32 = {
+        let exp = p.wrapping_sub(i32::from(pt)).wrapping_sub(1);
+        if exp < 0 {
+            0
+        } else {
+            i32::try_from(pow2(u32::try_from(exp).unwrap_or(0))).unwrap_or(0)
+        }
+    };
+
+    let restart_interval = usize::from(frame.restart_interval);
+    let selector = frame.predictor;
+
+    let mut idx: usize = 0;
+    // Samples decoded in the current restart interval (resets to 0 at the scan
+    // start and after each restart). `== 0` is exactly the set of samples that
+    // take the initial prediction: the first sample of the scan, and the first
+    // sample after each restart.
+    let mut count_in_interval: usize = 0;
+
+    for r in 0..height {
+        for c in 0..width {
+            if restart_interval > 0 && count_in_interval == restart_interval {
+                reader.restart()?;
+                count_in_interval = 0;
+            }
+
+            let diff = reader.decode_difference(table)?;
+
+            let px: i32 = if count_in_interval == 0 {
+                initial
+            } else if r == 0 {
+                // Rest of the first line: Ra (left).
+                neighbour(out, idx, 1)
+            } else if c == 0 {
+                // First column of a later line: Rb (above).
+                neighbour(out, idx, width)
+            } else {
+                let ra = neighbour(out, idx, 1);
+                let rb = neighbour(out, idx, width);
+                let rc = neighbour(out, idx, width.wrapping_add(1));
+                predict(selector, ra, rb, rc)
+            };
+
+            // Sample = (Px + difference) mod 2^16, in the point-transformed
+            // domain. `& 0xFFFF` on the two's-complement sum is the modular
+            // reduction (a negative sum maps to its 0..=65535 residue).
+            let sample = px.wrapping_add(diff) & 0xFFFF;
+            if let Some(slot) = out.get_mut(idx) {
+                *slot = u16::try_from(sample).unwrap_or(0);
+            }
+
+            idx = idx.wrapping_add(1);
+            count_in_interval = count_in_interval.wrapping_add(1);
+        }
+    }
+
+    // Point transform: the stored output is `reconstructed << Pt`. Done as a
+    // modular `2^16` multiply so a malformed over-range value wraps rather than
+    // panics; for honest input `reconstructed < 2^(P−Pt)` so `<< Pt` never
+    // overflows 16 bits. `Pt == 0` (every held corpus file) is a no-op.
+    if pt > 0 {
+        let factor = u16::try_from(pow2(u32::from(pt))).unwrap_or(1);
+        for slot in out.iter_mut() {
+            *slot = slot.wrapping_mul(factor);
+        }
+    }
+
+    Ok(())
+}
+
+/// One-call single-component SOF-3 decode: [`parse_headers`] → length check →
+/// [`ScanReader`] over the entropy bytes → [`reconstruct`], returning the
+/// parsed [`Frame`]. This is the entry point STAGE-010 wires `Compression 7`
+/// to; `out` is the caller-owned `u16` plane (`DEC-016`).
+///
+/// # Errors
+///
+/// Any typed [`Error`] from header parsing, the length check
+/// ([`Error::LjpegPlaneWrongLength`]), or reconstruction — never a panic on
+/// malformed input.
+pub(crate) fn decode_into(data: &[u8], out: &mut [u16]) -> Result<Frame, Error> {
+    let (frame, table, offset) = parse_headers(data)?;
+    // `offset` is `<= data.len()` (parse_headers only advances through
+    // bounds-checked reads), so this slice is always present; the `ok_or`
+    // keeps the path total without an index.
+    let entropy = data
+        .get(offset..)
+        .ok_or(Error::Truncated { at: offset, len: 0 })?;
+    let mut reader = ScanReader::new(entropy);
+    reconstruct(&frame, &table, &mut reader, out)?;
+    Ok(frame)
+}
+
 #[cfg(test)]
 #[allow(
     // Test code is not a parse/decode path on untrusted input — the same five
@@ -1136,5 +1367,594 @@ mod tests {
         let mut r = ScanReader::new(&data[off..]);
         // Code "0" → symbol 0 → category 0 → difference 0.
         assert_eq!(r.decode_difference(&table).unwrap(), 0);
+    }
+
+    // ══ SPEC-037: reconstruction ══════════════════════════════════════════
+    //
+    // The in-harness LJ92 **encoder** below is the stage's corpus-free oracle.
+    // It is the inverse of the decoder: given the final `u16` samples it emits
+    // a complete SOF-3 stream (SOI / SOF3 / DHT / optional DRI / SOS / a
+    // Huffman-coded + EXTENDed + 0xFF-stuffed scan + RSTm / EOI) that
+    // `decode_into` must reconstruct bit-for-bit. It is also the seed generator
+    // for SPEC-038's fuzz target, so it is kept clean and parameterised.
+    //
+    // It uses a flat 17-symbol / 5-bit DC Huffman table (symbols = categories
+    // `0..=16`): canonical code of symbol `s` is the 5-bit value `s`, so the
+    // encoder emits `s` directly and `HuffTable::build` decodes it back. A
+    // realistic variable-length table is SPEC-036's ground already; here a flat
+    // table keeps the encoder a trivially-correct inverse.
+
+    const SYMBOL_BITS: u32 = 5;
+
+    /// The flat DC table's `BITS`/`HUFFVAL`: 17 codes all of length 5, symbols
+    /// `0..=16` in order.
+    fn flat_table_bytes() -> ([u8; 16], Vec<u8>) {
+        let mut bits = [0u8; 16];
+        bits[4] = 17; // 17 codes of length 5 (index 4 == length 5)
+        let huffval: Vec<u8> = (0u8..=16).collect();
+        (bits, huffval)
+    }
+
+    /// MSB-first bit sink with JPEG `0xFF 0x00` byte-stuffing and 1-bit pad to a
+    /// byte boundary — the encoder's counterpart to `ScanReader`.
+    struct BitWriter {
+        bytes: Vec<u8>,
+        acc: u32,
+        nbits: u32,
+    }
+
+    impl BitWriter {
+        fn new() -> BitWriter {
+            BitWriter {
+                bytes: Vec::new(),
+                acc: 0,
+                nbits: 0,
+            }
+        }
+
+        fn put_bits(&mut self, value: u32, count: u32) {
+            let mut i = count;
+            while i > 0 {
+                i -= 1;
+                let bit = (value >> i) & 1;
+                self.acc = (self.acc << 1) | bit;
+                self.nbits += 1;
+                if self.nbits == 8 {
+                    self.emit_acc();
+                }
+            }
+        }
+
+        fn emit_acc(&mut self) {
+            let b = (self.acc & 0xFF) as u8;
+            self.bytes.push(b);
+            if b == 0xFF {
+                self.bytes.push(0x00); // stuff a literal 0xFF data byte
+            }
+            self.acc = 0;
+            self.nbits = 0;
+        }
+
+        /// Pad the partial byte with 1-bits and flush, so a marker can follow.
+        fn flush_to_byte(&mut self) {
+            if self.nbits > 0 {
+                let pad = 8 - self.nbits;
+                self.acc = (self.acc << pad) | ((1u32 << pad) - 1);
+                self.nbits = 8;
+                self.emit_acc();
+            }
+        }
+
+        /// Emit `0xFF <code>` (caller must have flushed to a byte boundary).
+        fn emit_marker(&mut self, code: u8) {
+            self.bytes.push(0xFF);
+            self.bytes.push(code);
+        }
+    }
+
+    /// Inverse of `RECEIVE`+`EXTEND` (ITU-T T.81 §F.1.2.1 / Annex H.1.2.1):
+    /// map a signed difference `d` (already reduced to `[-32768, 32767]`) to its
+    /// category `SSSS` and the `SSSS`-bit value to append. `d == 0` → category
+    /// 0, no bits; `d == -32768` → category 16, no bits; otherwise category =
+    /// bit-length of `|d|`, value = low `SSSS` bits of `d` (of `d-1` when `d`
+    /// is negative).
+    fn encode_diff(d: i32) -> (u32, u32) {
+        if d == 0 {
+            return (0, 0);
+        }
+        if d == -32768 {
+            return (16, 0);
+        }
+        let mag = d.unsigned_abs(); // 1..=32767
+        let ssss = 32 - mag.leading_zeros(); // bit length, 1..=15
+        let mask = (1u32 << ssss) - 1;
+        let raw = if d > 0 { d as u32 } else { (d - 1) as u32 };
+        (ssss, raw & mask)
+    }
+
+    /// Encode an ordered difference list into a Huffman-coded, `0xFF`-stuffed
+    /// entropy scan, inserting an `RSTm` marker before every `restart_interval`
+    /// samples (cycling `D0..D7`), byte-aligning first — exactly where
+    /// `reconstruct` calls `ScanReader::restart`.
+    fn encode_scan(diffs: &[i32], restart_interval: usize) -> Vec<u8> {
+        let mut w = BitWriter::new();
+        let mut rst: u8 = 0;
+        for (i, &d) in diffs.iter().enumerate() {
+            if restart_interval > 0 && i > 0 && i % restart_interval == 0 {
+                w.flush_to_byte();
+                w.emit_marker(MARKER_RST0 + rst);
+                rst = (rst + 1) % 8;
+            }
+            let (ssss, value) = encode_diff(d);
+            w.put_bits(ssss, SYMBOL_BITS); // flat table: code == symbol
+            if (1..=15).contains(&ssss) {
+                w.put_bits(value, ssss);
+            }
+        }
+        w.flush_to_byte();
+        w.bytes
+    }
+
+    /// The in-harness LJ92 encoder — the round-trip oracle. Given the final
+    /// `u16` samples (row-major, `cols * rows`) it produces a complete
+    /// single-component SOF-3 stream that `decode_into` reconstructs
+    /// bit-for-bit. Prediction mirrors `reconstruct` exactly (it shares the
+    /// production `predict`), computing each difference in the point-transformed
+    /// domain; the differences are the inverse of the decoder's.
+    fn encode_lj92(
+        samples: &[u16],
+        cols: usize,
+        rows: usize,
+        precision: u8,
+        predictor: u8,
+        point_transform: u8,
+        restart_interval: usize,
+    ) -> Vec<u8> {
+        assert_eq!(samples.len(), cols * rows, "samples must be cols*rows");
+        let pt = point_transform;
+        // Pre-shift reconstructed values (the point-transformed domain).
+        let v: Vec<i32> = samples.iter().map(|&s| i32::from(s >> pt)).collect();
+        let initial = {
+            let e = i32::from(precision) - i32::from(pt) - 1;
+            if e < 0 {
+                0
+            } else {
+                1i32 << e
+            }
+        };
+        let mut diffs: Vec<i32> = Vec::with_capacity(samples.len());
+        let mut idx = 0usize;
+        let mut count = 0usize;
+        for r in 0..rows {
+            for c in 0..cols {
+                if restart_interval > 0 && count == restart_interval {
+                    count = 0;
+                }
+                let px = if count == 0 {
+                    initial
+                } else if r == 0 {
+                    v[idx - 1]
+                } else if c == 0 {
+                    v[idx - cols]
+                } else {
+                    predict(predictor, v[idx - 1], v[idx - cols], v[idx - cols - 1])
+                };
+                let raw = (v[idx] - px).rem_euclid(65536);
+                let d = if raw >= 32768 { raw - 65536 } else { raw };
+                diffs.push(d);
+                idx += 1;
+                count += 1;
+            }
+        }
+
+        let entropy = encode_scan(&diffs, restart_interval);
+        let (bits, huffval) = flat_table_bytes();
+        let mut data = vec![0xFF, MARKER_SOI];
+        data.extend(sof3_segment(precision, rows as u16, cols as u16));
+        if restart_interval > 0 {
+            data.extend(dri_segment(restart_interval as u16));
+        }
+        data.extend(dht_segment(0, &bits, &huffval));
+        data.extend(sos_segment(predictor, point_transform, 0));
+        data.extend(entropy);
+        data.extend_from_slice(&[0xFF, MARKER_EOI]);
+        data
+    }
+
+    /// An INDEPENDENT re-implementation of the lossless predictor set (using the
+    /// native `>>` arithmetic shift rather than production's `floor_div2`), for
+    /// the red-proof's reference decoder. A match here cross-checks production's
+    /// `predict`/`floor_div2`; a deliberate mutation of it drives the RED.
+    fn honest_predict(sel: u8, ra: i32, rb: i32, rc: i32) -> i32 {
+        match sel {
+            1 => ra,
+            2 => rb,
+            3 => rc,
+            4 => ra + rb - rc,
+            5 => ra + ((rb - rc) >> 1),
+            6 => rb + ((ra - rc) >> 1),
+            7 => (ra + rb) >> 1,
+            _ => ra,
+        }
+    }
+
+    /// An INDEPENDENT reconstruction driver (its own boundary/restart/point-
+    /// transform loop, not production's) parameterised by a predictor function.
+    /// With `honest_predict` it must agree with `decode_into`; with a perturbed
+    /// predictor it must diverge — that divergence is the red-proof.
+    fn reference_decode(
+        data: &[u8],
+        out: &mut [u16],
+        predict_fn: &dyn Fn(u8, i32, i32, i32) -> i32,
+    ) {
+        let (frame, table, offset) = parse_headers(data).unwrap();
+        let mut reader = ScanReader::new(&data[offset..]);
+        let width = frame.samples_per_line as usize;
+        let height = frame.lines as usize;
+        assert_eq!(out.len(), width * height);
+        let pt = frame.point_transform;
+        let initial = {
+            let e = frame.precision as i32 - pt as i32 - 1;
+            if e < 0 {
+                0
+            } else {
+                1i32 << e
+            }
+        };
+        let ri = frame.restart_interval as usize;
+        let sel = frame.predictor;
+        let mut idx = 0usize;
+        let mut count = 0usize;
+        for r in 0..height {
+            for c in 0..width {
+                if ri > 0 && count == ri {
+                    reader.restart().unwrap();
+                    count = 0;
+                }
+                let diff = reader.decode_difference(&table).unwrap();
+                let px = if count == 0 {
+                    initial
+                } else if r == 0 {
+                    out[idx - 1] as i32
+                } else if c == 0 {
+                    out[idx - width] as i32
+                } else {
+                    predict_fn(
+                        sel,
+                        out[idx - 1] as i32,
+                        out[idx - width] as i32,
+                        out[idx - width - 1] as i32,
+                    )
+                };
+                out[idx] = ((px + diff) & 0xFFFF) as u16;
+                idx += 1;
+                count += 1;
+            }
+        }
+        if pt > 0 {
+            let factor = 1u16 << pt;
+            for s in out.iter_mut() {
+                *s = s.wrapping_mul(factor);
+            }
+        }
+    }
+
+    // ── Acceptance tests (SPEC-037 `## Failing Tests`) ─────────────────────
+
+    #[test]
+    fn reconstruct_applies_each_predictor_1_through_7() {
+        // 2x2 grid, P=8, Pt=0 → initial = 2^7 = 128. Differences are chosen so
+        // the interior sample (1,1) has neighbours Ra=120, Rb=110, Rc=100; the
+        // expected value is hand-computed per T.81 Table H.1, independent of
+        // `predict`.
+        let (bits, huffval) = flat_table_bytes();
+        let table = HuffTable::build(&bits, huffval).unwrap();
+        // s0=(0,0)=128+(-28)=100; s1=(0,1)=Ra(100)+10=110; s2=(1,0)=Rb(100)+20=120.
+        let diffs = [-28i32, 10, 20, 5];
+        let hand_interior = |sel: u8| -> u16 {
+            let px = match sel {
+                1 => 120,
+                2 => 110,
+                3 => 100,
+                4 => 120 + 110 - 100,
+                5 => 120 + ((110 - 100) >> 1),
+                6 => 110 + ((120 - 100) >> 1),
+                7 => (120 + 110) >> 1,
+                _ => unreachable!(),
+            };
+            (px + 5) as u16
+        };
+        for sel in 1u8..=7 {
+            let frame = Frame {
+                precision: 8,
+                lines: 2,
+                samples_per_line: 2,
+                point_transform: 0,
+                predictor: sel,
+                restart_interval: 0,
+            };
+            let entropy = encode_scan(&diffs, 0);
+            let mut reader = ScanReader::new(&entropy);
+            let mut out = [0u16; 4];
+            reconstruct(&frame, &table, &mut reader, &mut out).unwrap();
+            assert_eq!(out[0], 100, "sel={sel}: first sample (initial+d)");
+            assert_eq!(out[1], 110, "sel={sel}: first-line Ra");
+            assert_eq!(out[2], 120, "sel={sel}: first-column Rb");
+            assert_eq!(out[3], hand_interior(sel), "sel={sel}: interior predictor");
+        }
+    }
+
+    #[test]
+    fn reconstruct_floors_negative_odd_predictor_intermediate() {
+        // SPEC-037 verify punch-list (HANDOFF-088, item 1): pin `floor_div2`'s
+        // floor-toward-negative-infinity on a NEGATIVE ODD `>> 1` intermediate
+        // (predictor 5's `Rb - Rc`, T.81 H.1). The round-trip oracle cannot catch
+        // a truncate-toward-zero regression here — it shares `predict`→`floor_div2`
+        // so the error cancels in encode→decode — and the positive neighbours of
+        // `reconstruct_applies_each_predictor_1_through_7` never reach the negative
+        // branch. So this asserts a hand-computed value directly.
+        //
+        // 2x2, P=8, Pt=0, predictor 5, initial = 128.
+        //   s0=(0,0)=128-28=100; s1=(0,1)=Ra(100)-3=97; s2=(1,0)=Rb(100)+20=120.
+        //   interior (1,1): Ra=120, Rb=97, Rc=100 → Rb-Rc = -3 (negative, odd).
+        //   px = 120 + floor_div2(-3) = 120 + (-2) = 118   (truncate-to-zero → 119)
+        //   out[3] = px + 5 = 123                            (truncate-to-zero → 124)
+        let (bits, huffval) = flat_table_bytes();
+        let table = HuffTable::build(&bits, huffval).unwrap();
+        let diffs = [-28i32, -3, 20, 5];
+        let frame = Frame {
+            precision: 8,
+            lines: 2,
+            samples_per_line: 2,
+            point_transform: 0,
+            predictor: 5,
+            restart_interval: 0,
+        };
+        let entropy = encode_scan(&diffs, 0);
+        let mut reader = ScanReader::new(&entropy);
+        let mut out = [0u16; 4];
+        reconstruct(&frame, &table, &mut reader, &mut out).unwrap();
+        assert_eq!(
+            out[3], 123,
+            "predictor 5: floor_div2(-3) must floor to -2, not truncate to -1"
+        );
+    }
+
+    #[test]
+    fn reconstruct_honours_the_h21_boundary_rules() {
+        // 3x2 grid, P=8, Pt=0, selected predictor = 2 (Rb) — so the first-line
+        // and first-column rules must OVERRIDE the selected predictor.
+        // idx: 0=(0,0) 1=(0,1) 2=(1,0) 3=(1,1) 4=(2,0) 5=(2,1).
+        // (0,0) initial 128 + 0        = 128
+        // (0,1) Ra=128 + 5             = 133   (first line uses Ra, not pred 2)
+        // (1,0) Rb=out[0]=128 + 10     = 138
+        // (1,1) pred2 = Rb=out[1]=133  = 133
+        // (2,0) Rb=out[2]=138 + (-8)   = 130   (first col uses Rb=above, not initial)
+        // (2,1) pred2 = Rb=out[3]=133  = 133
+        let (bits, huffval) = flat_table_bytes();
+        let table = HuffTable::build(&bits, huffval).unwrap();
+        let diffs = [0i32, 5, 10, 0, -8, 0];
+        let frame = Frame {
+            precision: 8,
+            lines: 3,
+            samples_per_line: 2,
+            point_transform: 0,
+            predictor: 2,
+            restart_interval: 0,
+        };
+        let entropy = encode_scan(&diffs, 0);
+        let mut reader = ScanReader::new(&entropy);
+        let mut out = [0u16; 6];
+        reconstruct(&frame, &table, &mut reader, &mut out).unwrap();
+        assert_eq!(out[0], 128, "first sample of scan = 2^(P-Pt-1)");
+        assert_eq!(out[1], 133, "rest of first line uses Ra (not predictor 2)");
+        assert_eq!(out[2], 138, "first column of a later line uses Rb");
+        assert_eq!(
+            out[4], 130,
+            "first column uses Rb=above(138), not initial(128)"
+        );
+    }
+
+    #[test]
+    fn reconstruct_applies_the_point_transform() {
+        // 2x2, P=12, Pt=2 → initial = 2^(12-2-1) = 2^9 = 512. Prediction is in
+        // the pre-shift domain; the stored output is reconstructed << 2.
+        // recon: (0,0)=512, (0,1)=Ra512+3=515, (1,0)=Rb512-12=500, (1,1)=Ra500+4=504.
+        let (bits, huffval) = flat_table_bytes();
+        let table = HuffTable::build(&bits, huffval).unwrap();
+        let diffs = [0i32, 3, -12, 4];
+        let frame = Frame {
+            precision: 12,
+            lines: 2,
+            samples_per_line: 2,
+            point_transform: 2,
+            predictor: 1,
+            restart_interval: 0,
+        };
+        let entropy = encode_scan(&diffs, 0);
+        let mut reader = ScanReader::new(&entropy);
+        let mut out = [0u16; 4];
+        reconstruct(&frame, &table, &mut reader, &mut out).unwrap();
+        // reconstructed = [512, 515, 500, 504]; stored = reconstructed << 2.
+        assert_eq!(out, [2048, 2060, 2000, 2016]);
+        // out[1] == 2060 proves Ra was 512 (pre-shift), not 2048 (post-shift):
+        // a post-shift prediction would give (2048+3)<<2 = 8204.
+    }
+
+    #[test]
+    fn reconstruct_resets_prediction_at_each_restart() {
+        // 2x2, P=8, Pt=0, restart_interval = 2 (one RST0 between the two rows).
+        // (0,0) initial 128 + 20 = 148
+        // (0,1) Ra=148 + (-10)   = 138
+        //   -- RST0; prediction resets --
+        // (1,0) initial 128 + 5  = 133   (NOT Rb=out[0]=148, which would give 153)
+        // (1,1) pred1 Ra=133 + 0 = 133
+        let (bits, huffval) = flat_table_bytes();
+        let table = HuffTable::build(&bits, huffval).unwrap();
+        let diffs = [20i32, -10, 5, 0];
+        let frame = Frame {
+            precision: 8,
+            lines: 2,
+            samples_per_line: 2,
+            point_transform: 0,
+            predictor: 1,
+            restart_interval: 2,
+        };
+        let entropy = encode_scan(&diffs, 2);
+        let mut reader = ScanReader::new(&entropy);
+        let mut out = [0u16; 4];
+        reconstruct(&frame, &table, &mut reader, &mut out).unwrap();
+        assert_eq!(out[0], 148);
+        assert_eq!(out[1], 138);
+        assert_eq!(
+            out[2], 133,
+            "first sample after a restart uses the initial prediction"
+        );
+        assert_eq!(out[3], 133);
+    }
+
+    #[test]
+    fn round_trip_is_bit_identical_across_predictors_precisions_and_pt() {
+        // The analytic encode→decode oracle over the full matrix: predictors
+        // 1..=7 × precision {8,12,16} × Pt {0,2} × restart {off, 7}.
+        let width = 5usize;
+        let height = 4usize;
+        for &precision in &[8u8, 12, 16] {
+            for &pt in &[0u8, 2] {
+                for predictor in 1u8..=7 {
+                    for &ri in &[0usize, 7] {
+                        let shift_bits = precision - pt; // P - Pt (6..=16)
+                        let modulo: u32 = 1u32 << shift_bits; // 2^(P-Pt)
+                        let mut state = 0x1357u32
+                            ^ (u32::from(precision) << 1)
+                            ^ (u32::from(pt) << 8)
+                            ^ (u32::from(predictor) << 12)
+                            ^ (ri as u32);
+                        let mut samples = vec![0u16; width * height];
+                        for s in samples.iter_mut() {
+                            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+                            let recon = (state >> 8) % modulo; // 0 .. 2^(P-Pt)-1
+                            *s = (recon << pt) as u16; // stored value
+                        }
+                        let stream =
+                            encode_lj92(&samples, width, height, precision, predictor, pt, ri);
+                        let mut out = vec![0u16; width * height];
+                        let frame = decode_into(&stream, &mut out).unwrap_or_else(|e| {
+                            panic!("decode P={precision} Pt={pt} pred={predictor} ri={ri}: {e}")
+                        });
+                        assert_eq!(
+                            out, samples,
+                            "round-trip P={precision} Pt={pt} pred={predictor} ri={ri}"
+                        );
+                        assert_eq!(frame.predictor, predictor);
+                        assert_eq!(frame.point_transform, pt);
+                        assert_eq!(frame.restart_interval as usize, ri);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn round_trip_red_proof_a_perturbed_predictor_breaks_the_round_trip() {
+        // oracle-must-be-shown-red: a decoder with ONE predictor formula altered
+        // (predictor 4: Ra+Rb-Rc → Ra+Rb+Rc) must break the round-trip, with the
+        // honest control green. Samples are in [1, 2^P) so every Rc is non-zero
+        // and the perturbation provably moves the first interior sample.
+        let cols = 4usize;
+        let rows = 3usize;
+        let precision = 12u8;
+        let pt = 0u8;
+        let predictor = 4u8;
+        let max: u32 = 1u32 << precision; // Pt == 0, so stored == reconstructed
+        let mut state = 0xABCDu32;
+        let mut samples = vec![0u16; cols * rows];
+        for s in samples.iter_mut() {
+            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            *s = (((state >> 13) % (max - 1)) + 1) as u16; // 1 ..= 2^P - 1
+        }
+        let stream = encode_lj92(&samples, cols, rows, precision, predictor, pt, 0);
+
+        // Honest control: the real decoder round-trips bit-exactly.
+        let mut honest = vec![0u16; cols * rows];
+        let frame = decode_into(&stream, &mut honest).unwrap();
+        assert_eq!(honest, samples, "honest control must round-trip");
+        assert_eq!(frame.predictor, 4);
+
+        // The independent reference with the SAME predictor agrees — this ties
+        // the reference driver to production so the RED below is the mutation.
+        let mut reference = vec![0u16; cols * rows];
+        reference_decode(&stream, &mut reference, &honest_predict);
+        assert_eq!(
+            reference, samples,
+            "independent honest reference must agree"
+        );
+
+        // RED: perturb predictor 4 to Ra+Rb+Rc. The round-trip now FAILS.
+        let mutant = |sel: u8, ra: i32, rb: i32, rc: i32| -> i32 {
+            if sel == 4 {
+                ra + rb + rc
+            } else {
+                honest_predict(sel, ra, rb, rc)
+            }
+        };
+        let mut mutated = vec![0u16; cols * rows];
+        reference_decode(&stream, &mut mutated, &mutant);
+        assert_ne!(
+            mutated, samples,
+            "a perturbed predictor MUST break the round-trip (oracle-must-be-shown-red)"
+        );
+    }
+
+    #[test]
+    fn wrong_out_length_is_a_typed_error() {
+        let samples = [10u16, 20, 30, 40, 50, 60]; // 3x2
+        let stream = encode_lj92(&samples, 3, 2, 8, 1, 0, 0);
+
+        let mut too_short = [0u16; 5];
+        assert!(matches!(
+            decode_into(&stream, &mut too_short),
+            Err(Error::LjpegPlaneWrongLength {
+                expected: 6,
+                got: 5
+            })
+        ));
+
+        let mut too_long = [0u16; 7];
+        assert!(matches!(
+            decode_into(&stream, &mut too_long),
+            Err(Error::LjpegPlaneWrongLength {
+                expected: 6,
+                got: 7
+            })
+        ));
+
+        // The exact length decodes cleanly.
+        let mut exact = [0u16; 6];
+        assert!(decode_into(&stream, &mut exact).is_ok());
+        assert_eq!(exact, samples);
+
+        // reconstruct itself refuses a mismatched buffer without reading the
+        // scan — a typed error, never a panic.
+        let frame = Frame {
+            precision: 8,
+            lines: 2,
+            samples_per_line: 3,
+            point_transform: 0,
+            predictor: 1,
+            restart_interval: 0,
+        };
+        let (bits, huffval) = flat_table_bytes();
+        let table = HuffTable::build(&bits, huffval).unwrap();
+        let entropy = encode_scan(&[0, 0, 0, 0, 0, 0], 0);
+        let mut reader = ScanReader::new(&entropy);
+        let mut wrong = [0u16; 1];
+        assert!(matches!(
+            reconstruct(&frame, &table, &mut reader, &mut wrong),
+            Err(Error::LjpegPlaneWrongLength {
+                expected: 6,
+                got: 1
+            })
+        ));
     }
 }

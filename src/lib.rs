@@ -638,6 +638,20 @@ pub enum Error {
         /// The marker code (or byte) actually found.
         marker: u8,
     },
+
+    /// `SPEC-037`. The caller's destination buffer handed to lossless-JPEG
+    /// reconstruction does not hold exactly `lines × samples_per_line`
+    /// samples. [`ljpeg::reconstruct`] takes no allocator (`DEC-016`; the
+    /// caller owns the `u16` plane), so this length is the one precondition it
+    /// checks before writing — the lossless-JPEG sibling of
+    /// [`Error::PlaneBufferWrongLength`], following the crate's `*WrongLength`
+    /// convention.
+    LjpegPlaneWrongLength {
+        /// `frame.lines × frame.samples_per_line`, the required length.
+        expected: usize,
+        /// `out.len()` as given.
+        got: usize,
+    },
 }
 
 impl fmt::Display for Error {
@@ -924,6 +938,12 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "lossless JPEG: unexpected marker {marker:#04x} where entropy data or a restart was expected"
+                )
+            }
+            Error::LjpegPlaneWrongLength { expected, got } => {
+                write!(
+                    f,
+                    "lossless JPEG: destination plane holds {got} sample(s), expected {expected} (lines x samples_per_line)"
                 )
             }
         }

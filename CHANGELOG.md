@@ -48,6 +48,15 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **SOF-3 single-component decoder completed — internal** (`irradiance` `ljpeg`,
+  SPEC-037, PROJ-003) — `ljpeg::reconstruct` / `decode_into` turn the SOF-3 entropy
+  front-end's per-sample differences into the `u16` sensor plane: predictors 1–7,
+  the §H.2.1 boundary rules, the point transform (`out = reconstructed << Pt`), and
+  restart reset (T.81 Annex H.1), proven by an in-harness encode→decode round-trip
+  oracle with a perturbed-decoder red-proof. Adds one more additive `Error` variant
+  (`LjpegPlaneWrongLength`). Still `pub(crate)` and not reachable until STAGE-010
+  wires `Compression 7`; SPEC-038 (fuzz) remains.
+
 - **SOF-3 lossless-JPEG entropy front-end — internal** (`irradiance` `ljpeg`,
   SPEC-036, PROJ-003) — a new `pub(crate)` `src/ljpeg.rs` decodes the entropy
   layer of a DNG `Compression 7` (lossless JPEG, ITU-T T.81 Annex H) sensor plane:
