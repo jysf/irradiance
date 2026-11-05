@@ -6,7 +6,7 @@
 task:
   id: SPEC-037
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,11 +27,11 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # HANDOFF-087 (build) → tier_map.build
+  created_at: 2026-11-05
 
 references:
-  decisions: [DEC-016, DEC-018]    # caller-owned output buffer + u16 full-scale
+  decisions: [DEC-035, DEC-016, DEC-018]  # SOF-3 patent-clean/provenance (DEC-035); caller-owned buffer (DEC-016); u16 modular (DEC-018)
   constraints: [no-panics-on-untrusted-input, oracle-must-be-shown-red, provenance-recorded-per-algorithm, test-before-implementation]
   related_specs: [SPEC-036, SPEC-038]
 
@@ -62,8 +62,16 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 34000000        # ~34M — reconstruction + the in-harness LJ92 encoder oracle; [M], slightly over SPEC-036
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 40
+      recorded_at: 2026-11-05
+      notes: "main-session design (un-metered); reconstruction + round-trip oracle spec + HANDOFF-087 + build prompt"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -71,11 +79,6 @@ cost:
 ---
 
 # SPEC-037: Lossless reconstruction (predictors, point transform, restart)
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-037]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
 
 ## Context
 
@@ -107,40 +110,135 @@ transform.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Standard (implement from this):** ITU-T T.81 (1992) — lossless JPEG. **Annex
+  H.1** (the lossless mode: prediction, the predictor set, modular reconstruction),
+  **§H.2.1** (prediction at line/scan/restart boundaries), and the point transform
+  `Pt`. `RECEIVE`/`EXTEND` and the entropy layer are already done in SPEC-036.
+  Patent/provenance posture is `DEC-035`.
+- **Code to read / build on (the SPEC-036 interface, already on `main` — the §12
+  probe; use these EXACT names):**
+  - `src/ljpeg.rs` — `pub(crate) struct Frame { precision: u8, lines: u16,
+    samples_per_line: u16, point_transform: u8, predictor: u8, restart_interval:
+    u16 }`; `pub(crate) fn parse_headers(&[u8]) -> Result<(Frame, HuffTable,
+    usize)>` (the `usize` is the entropy-data offset); `ScanReader::new(entropy:
+    &[u8])`, `ScanReader::decode_difference(&HuffTable) -> Result<i32>` (one signed
+    difference — `SSSS==0 → 0`, `SSSS==16 → 32768` already handled),
+    `ScanReader::restart() -> Result<()>` (byte-aligns + consumes the next `RSTm`
+    in the `D0..D7` cycle; **resetting the predictor is this spec's job**). This
+    spec adds the reconstruction that turns those differences into samples.
+  - `src/lib.rs` (`pub enum Error`) — the 7 `Ljpeg*` variants SPEC-036 added, and
+    the `*WrongLength` convention (e.g. `PlaneBufferWrongLength`, ~line 347): the
+    one new variant here follows both (`LjpegPlaneWrongLength`).
+  - `src/plane.rs` — the `u16` plane is **row-major, one sample per pixel**,
+    uncropped/un-normalised (the representation STAGE-010 will checksum against
+    `dnglab`); match it.
+- **Cross-reference only (read for structure; never copied/linked — clean-room,
+  `DEC-035`):** `oxideav-mjpeg`, `photocraft-raw`.
+- **No external crate, no corpus file:** reconstruction is proven on hand-built
+  scans and the in-harness round-trip encoder (STAGE-010 adds the real-file
+  `dnglab --raw-checksum` check).
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:** `src/ljpeg.rs` (the reconstruction, same `pub(crate)`
+  module — SPEC-036 is its front-end); `src/lib.rs` (one new `Error` variant);
+  `docs/provenance-ledger.md` (a row for the lossless reconstruction — predictors
+  / initial prediction / point transform, T.81 Annex H.1, `DEC-035`).
+- **New items (crate-internal):**
+  - `pub(crate) fn reconstruct(frame: &Frame, table: &HuffTable, reader: &mut
+    ScanReader<'_>, out: &mut [u16]) -> Result<(), Error>` — the core. Requires
+    `out.len() == frame.lines as usize * frame.samples_per_line as usize` (else
+    `LjpegPlaneWrongLength`), then fills `out` **row-major** by decoding one
+    difference per sample (`reader.decode_difference(table)`) and adding the
+    prediction. **No allocation** on this path (caller-owned buffer, `DEC-016`).
+  - `pub(crate) fn decode_into(data: &[u8], out: &mut [u16]) -> Result<Frame,
+    Error>` — the one-call single-component decoder STAGE-010 uses:
+    `parse_headers` → length check → `ScanReader::new(&data[offset..])` →
+    `reconstruct`; returns the `Frame`.
+- **Reconstruction (from T.81 Annex H.1 — the build implements the exact
+  arithmetic; this is the contract):**
+  - **Neighbours** at sample (row `r`, col `c`), in the point-transformed domain:
+    `Ra` = left `(r, c-1)`, `Rb` = above `(r-1, c)`, `Rc` = above-left `(r-1,
+    c-1)`.
+  - **Predictor `Px`** (`frame.predictor`, T.81 Table H.1): `1`→`Ra`, `2`→`Rb`,
+    `3`→`Rc`, `4`→`Ra+Rb−Rc`, `5`→`Ra+((Rb−Rc)>>1)`, `6`→`Rb+((Ra−Rc)>>1)`,
+    `7`→`(Ra+Rb)>>1`.
+  - **Boundary rules (§H.2.1):** the first sample of the scan **and** the first
+    sample after each restart use `Px = 2^(P−Pt−1)` (`P = precision`, `Pt =
+    point_transform`); the rest of the **first line** uses `Ra`; the **first
+    column** of each later line uses `Rb`; every other sample uses the selected
+    predictor.
+  - **Sample** = `(Px + difference) mod 2^16` (explicit `wrapping_*`, `DEC-018`),
+    computed in the point-transformed domain; the stored output is that value
+    **`<< Pt`** (for the held files `Pt == 0`, so output == reconstructed; the
+    general `Pt` is covered and STAGE-010's `dnglab` check confirms it).
+  - **Restart:** when `frame.restart_interval > 0`, after every `restart_interval`
+    samples call `reader.restart()` and reset the prediction to the scan-start rule
+    for the next sample; `restart_interval == 0` → no restarts.
+  - `frame.predictor` is already validated `1..=7` by `parse_headers` — reconstruct
+    trusts that but still never panics on an unexpected value.
+- **New `Error` variant:** `LjpegPlaneWrongLength { expected: usize, got: usize }`
+  — the `out` buffer does not match `lines × samples_per_line` (follows the
+  `Ljpeg*` family and the crate's `*WrongLength` convention).
+- **No public API, no CLI, no flags** (`irr` unchanged; STAGE-010 wires the
+  container and may add an `irr` path).
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] Each predictor `1..=7` reconstructs an interior sample correctly from
+  hand-built differences + neighbours (`Ra`/`Rb`/`Rc`), per T.81 Table H.1.
+- [ ] The §H.2.1 boundary rules hold: the first sample of the scan is
+  `2^(P−Pt−1)`; the rest of the first line uses `Ra`; the first column of later
+  lines uses `Rb`; the first sample after a restart is `2^(P−Pt−1)`.
+- [ ] The point transform is applied: with `Pt > 0`, output `== reconstructed <<
+  Pt` and prediction arithmetic is in the point-transformed domain; with `Pt == 0`
+  output `==` reconstructed. (tested at `Pt = 0` and a `Pt > 0` case)
+- [ ] A scan with `restart_interval > 0` reconstructs across `RSTm` boundaries
+  with the predictor reset at each; `restart_interval == 0` decodes with no
+  restarts.
+- [ ] **The analytic encode→decode round-trip is bit-identical** for honest input
+  across predictors `1..=7`, precisions `{8, 12, 16}`, `Pt ∈ {0, k}`, and with and
+  without a restart interval.
+- [ ] **`oracle-must-be-shown-red`:** a deliberately perturbed decoder (a predictor
+  formula, the `EXTEND`, or the `Pt` shift) makes the round-trip assertion go
+  **RED**, with the honest control green — proving the assertions constrain the
+  real reconstructed values (the `plane_oracle.rs` no-op lesson).
+- [ ] `out.len() != lines × samples_per_line` returns `Error::LjpegPlaneWrongLength`
+  and **never panics**; the reconstruction path allocates nothing (`DEC-016`).
+- [ ] Reconstruction arithmetic is modular `2^16` via explicit `wrapping_*`
+  (`DEC-018`); compiles under `#![forbid(unsafe_code)]` + the five-lint deny
+  policy; `just test`, `just lint-ci -D warnings`, `just fmt-check`, `just
+  validate` green.
+- [ ] `docs/provenance-ledger.md` carries the reconstruction row (T.81 Annex H.1,
+  `DEC-035`).
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+All in `src/ljpeg.rs` under `#[cfg(test)] mod tests` (with SPEC-036's). The
+in-harness **LJ92 encoder** (`fn encode_lj92(samples, cols, rows, precision,
+predictor, point_transform, restart_interval) -> Vec<u8>` — SOI / SOF3 / DHT /
+optional DRI / SOS / Huffman-coded + `EXTEND`ed + `0xFF`-stuffed scan + `RSTm` /
+EOI) is the oracle, and also the seed generator for SPEC-038.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`src/ljpeg.rs` (`mod tests`)**
+  - `"reconstruct applies each predictor 1..=7"` — hand-built `Frame` + scan with
+    known differences; assert `out` matches the hand-computed samples for each
+    predictor at an interior position.
+  - `"reconstruct honours the H.2.1 boundary rules"` — first sample `= 2^(P−Pt−1)`,
+    first line `= Ra`, first column `= Rb`.
+  - `"reconstruct applies the point transform"` — a `Pt > 0` frame: assert `out ==
+    reconstructed << Pt` and that prediction used the point-transformed neighbours.
+  - `"reconstruct resets prediction at each restart"` — `restart_interval > 0`:
+    reconstruct across an `RSTm` and assert the sample after it used `2^(P−Pt−1)`.
+  - `"round_trip is bit-identical across predictors, precisions and Pt"` —
+    `encode_lj92(samples, …)` → `decode_into` → `assert_eq!(out, samples)` over the
+    matrix (predictors `1..=7` × precision `{8,12,16}` × `Pt {0,2}` × restart
+    on/off).
+  - `"round_trip red-proof: a perturbed predictor breaks the round-trip"` — a
+    staged mutant decoder with one predictor formula altered makes the round-trip
+    `assert_eq!` fail; the honest control passes (assert mutant `!=` honest).
+  - `"wrong out length is a typed error"` — `out.len()` wrong →
+    `Error::LjpegPlaneWrongLength`, no panic.
 
 ## Non-Goals
 
@@ -158,8 +256,42 @@ expand this one.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **Build on SPEC-036, don't re-do it.** `parse_headers`, `Frame`, `HuffTable`,
+  and `ScanReader` are already shipped (`src/ljpeg.rs`, `pub(crate)`). Call
+  `reader.decode_difference(table)` once per sample and `reader.restart()` at each
+  restart boundary; do not re-parse markers or re-decode Huffman.
+- **The prediction domain is point-transformed.** Do all of `Ra/Rb/Rc` + the
+  predictor + the initial `2^(P−Pt−1)` in the `(P−Pt)`-bit domain, modular `2^16`
+  with explicit `wrapping_add`/`wrapping_sub` (`DEC-018` — satisfy
+  `arithmetic_side_effects` by intent, never a silencing cast). The stored output
+  is `reconstructed << Pt`. The held corpus files are `Pt == 0`; implement the
+  general `Pt` anyway (cheap, and STAGE-010's `dnglab` check would catch it).
+- **The `>>1` in predictors 5/6/7 is a floor on the signed intermediate** — mind
+  sign (use `i32` working values, not `u16`), per T.81 H.1.
+- **Caller-owned, no alloc (`DEC-016`).** `reconstruct` writes into the caller's
+  `&mut [u16]`; the only length check is `out.len() == lines × samples_per_line`.
+  No per-sample allocation, no intermediate difference buffer.
+- **RAW is attacker-influenced (`no-panics-on-untrusted-input`).** Every neighbour
+  access and restart is bounded; a short scan / wrong restart surfaces as a typed
+  `Error` from `ScanReader`, never a panic. SPEC-038 fuzzes the whole decoder.
+- **The round-trip oracle must be shown RED (`oracle-must-be-shown-red`).** Don't
+  just assert green round-trips — include the perturbed-decoder red-proof so a
+  broken predictor/`EXTEND`/`Pt` is provably caught (the `plane_oracle.rs` no-op
+  lesson, and SPEC-030/031's perturbed-kernel pattern). The `encode_lj92` harness
+  also seeds SPEC-038's fuzz corpus — keep it clean and parameterised.
+- **Clean-room from T.81 (`DEC-035`).** Implement the predictors / boundary rules
+  / point transform from Annex H; the cross-reference crates (`oxideav-mjpeg`,
+  `photocraft-raw`) are read-for-structure only, never copied or linked. Add the
+  provenance-ledger row.
+- **Pre-named L-risk split (the build's escape hatch).** Designed whole at [M]. If
+  it runs long, split along: (a) `reconstruct` (predictors + boundary rules + `Pt`
+  + restart) with direct hand-built-scan tests, then (b) the `encode_lj92`
+  round-trip oracle + the red-proof. Ship (a) then (b); don't expand scope.
+- **§12 probe (done at design against `main`):** the real surfaces are the shipped
+  SPEC-036 interface (`Frame` fields, `ScanReader::decode_difference -> i32`,
+  `restart`, `parse_headers -> (Frame, HuffTable, usize)`) and the `*WrongLength`
+  error convention in `src/lib.rs`. No runtime baseline — correctness, not
+  throughput, is the target.
 
 ---
 

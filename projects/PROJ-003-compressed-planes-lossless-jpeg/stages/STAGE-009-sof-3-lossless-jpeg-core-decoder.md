@@ -134,7 +134,7 @@ it) and rewrites the line in place. The `[S]`/`[M]`/`[L]` tag is carried onto
 the spec as `task.complexity`.
 
 - [x] SPEC-036 (shipped 2026-11-05) — [M] SOF-3 entropy front-end (markers, bit reader, DC Huffman)
-- [ ] SPEC-037 (frame) — [M] Lossless reconstruction (predictors, point transform, restart)
+- [ ] SPEC-037 (build) — [M] Lossless reconstruction (predictors, point transform, restart)
 - [ ] SPEC-038 (frame) — [S] SOF-3 decoder fuzz + truncation hardening
 
 **Count:** 1 shipped / 2 active / 0 pending
