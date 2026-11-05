@@ -23,7 +23,7 @@ handoff:
   from_role: architect
   to_role: implementer
   created_at: 2026-11-05
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-036
@@ -47,14 +47,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 299209             # context-window occupancy at handback (see notes) — a LOWER BOUND, not a /cost cumulative
+  estimated_usd: null              # not applied — see notes (no confident list rate; the figure is a lower bound anyway)
+  duration_minutes: 25
+  branch: claude/spec-036-build-fbb6dc
+  pr: 97
+  completed_at: 2026-11-05         # YYYY-MM-DD
+  notes: "No interactive /cost readout exists in the Claude Code desktop app's Code tab. 299209 is this session's context-window token occupancy at handback, read via the app usage tool (ccd_session_mgmt get_usage) and mirrored by the harness's ~15M token-budget counter (15,000,000 − ~14.69M). It is a snapshot / lower bound: true cumulative input+output across the build's turns is higher (per-turn context resends not captured). Not invented, but not a /cost number — treat as a floor in rollups."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -188,37 +188,94 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
+- **Branch / PR:** `claude/spec-036-build-fbb6dc` → PR #97.
+- **Completed at:** 2026-11-05
+- **All acceptance criteria met?** Yes. New module `src/ljpeg.rs` implements
+  `parse_headers → (Frame, HuffTable, entropy_offset)`, `HuffTable::build`
+  (canonical Annex C codes → the Annex F Figure F.15 `MINCODE`/`MAXCODE`/`VALPTR`
+  decode form), and `ScanReader` with `decode_difference` (`DECODE` →
+  `RECEIVE`+`EXTEND`, `SSSS` `0..=16`) and `restart` (byte-align + consume the
+  next `RSTm`). Seven additive `Ljpeg*` `Error` variants in `src/lib.rs`
+  (documented struct-variant style; EOF reuses `Error::Truncated`). All of the
+  spec's `## Failing Tests` pass, plus three extra edge tests (missing SOI,
+  over-subscribed Huffman table, DC-table-selection-by-`Td`). The
+  `docs/provenance-ledger.md` row is added (T.81 Annexes B/C/F/H, `DEC-035`,
+  clean-room). Gates green: `just test` (132 lib + all integration),
+  `just lint-ci` (clippy 0.1.98, `-D warnings`), `cargo fmt --check`,
+  `just validate`. `#![forbid(unsafe_code)]` + the five-lint deny policy hold;
+  the module carries a scoped `#![allow(dead_code)]` because nothing in the
+  crate calls it yet (STAGE-010 wires `Compression 7`; SPEC-037 reconstructs) —
+  every item is exercised by the module's own `mod tests`.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec.**
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 299,209 — see the caveat below.
+- **Estimated USD:** null (no confident Opus list rate applied; the token figure
+  is a lower bound, so a `$` conversion would compound the understatement).
+- **Duration (minutes):** ~25 (estimate).
+- **Source of the number:** harness report — `ccd_session_mgmt get_usage`
+  (context-window occupancy), mirrored by the harness `~15M` token-budget
+  counter. **This is NOT a `/cost` cumulative figure:** the Claude Code desktop
+  app's Code tab exposes no interactive `/cost` readout, and `get_usage`
+  reports how full the context window is (299,209 of 1,000,000 at handback), a
+  **snapshot / lower bound** on the true cumulative input+output across the
+  build's turns (per-turn context resends are not captured). Reported, with this
+  provenance, rather than `null` because it is a real measured number — but
+  treat it as a floor in any rollup, not a metered total.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any — e.g. if the Huffman-table representation or an
-    error-variant consolidation warranted one)
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+- **New decisions emitted:** none. Every implementation choice fell inside the
+  latitude the spec already granted ("the exact set may be consolidated at build
+  so long as every malformed input maps to a typed, documented variant and
+  nothing panics"), so none rose to a `DEC-*`:
+  - A Huffman code that does not resolve within 16 bits, and a decoded category
+    `> 16`, both map to `Error::LjpegInvalidHuffmanTable` (the "a code that
+    overruns 16 bits" clause of that variant's remit).
+  - `ScanReader::restart` tracks the expected `RSTm` in the `D0..D7` cycle, so a
+    *wrong restart number* (not just a non-restart marker) is a typed error —
+    stricter than "accept any RSTm", and what the spec's "a wrong or absent
+    restart marker is a typed error" asks for.
+  - The reader reads bit-by-bit (not batched like `plane::BitReader`'s `read(n)`)
+    because `DECODE` needs one bit at a time anyway; correctness, not throughput,
+    is the target (spec's §12 note).
+  - The pre-consumer module carries a scoped `#![allow(dead_code)]` (the lib
+    build sees no caller until STAGE-010; tests are the readers now).
+- **Deviations from spec:** none material. The proposed 7-variant `Error` set was
+  implemented as-is; `decode_difference` returns `i32`; `restart` is
+  `fn(&mut self) -> Result<(), Error>` as specified; the front-end stops at the
+  difference stream + parsed `Frame` (no predictors / initial prediction / point
+  transform / `u16` plane — those are SPEC-037).
+- **Follow-up work identified:** none new. SPEC-037 (reconstruction) and SPEC-038
+  (fuzz) are already in the stage backlog. For SPEC-037: its inputs are
+  `Frame { precision, lines, samples_per_line, point_transform, predictor,
+  restart_interval }`, `ScanReader::decode_difference(&HuffTable) -> i32`, and
+  `ScanReader::restart()`; `parse_headers` returns the entropy offset to slice
+  `ScanReader::new` from.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little — the spec was unusually complete. The only genuine
+   under-specifications were implementer's-choice by design: which `Error`
+   variant an unresolvable (>16-bit) Huffman code should take (no dedicated
+   "corrupt scan" variant exists), and whether `restart` should validate the
+   exact `RSTm` number. Both were resolved from T.81 without stopping, since
+   neither changes the public contract or an acceptance test. The one thing the
+   spec implies but doesn't name is that a `pub(crate)` module with no in-crate
+   caller is dead-code in the non-test lib build and needs a scoped allow.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No; `DEC-035`/`DEC-018`/`DEC-016` + the three constraints covered it. Minor
+   friction only: the handoff reads `DEC-018` as "front-end accumulation is
+   `checked_*`" (correct, by analogy to its modular-`u16` arithmetic), but
+   `DEC-018` itself is about develop output being `u16` with clamped levels — a
+   reader chasing it for *JPEG* specifics finds levels-normalization text. Not
+   blocking.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the test-helper nibble-packing without the documentation-only
+   `(0 << 4) | x` form, which clippy's `identity_op` rejects even in test code
+   under `-D warnings` (one small rework pass). Otherwise the design-time read
+   of `plane::BitReader` + the `Error` enum + the T.81 structure before writing
+   made the build close to a transcription, exactly as AGENTS.md §12 predicts.
