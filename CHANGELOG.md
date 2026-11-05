@@ -115,6 +115,18 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   interpretation-class field — a malformed CFA tag costs that field, never the file
   (DEC-012) — and the mosaic plane still reads bit-exact. No demosaic or colour
   yet; the monochrome path is byte-for-byte unchanged.
+
+## [0.1.1] - 2026-10-29
+
+First crates.io release (DEC-028): the monochrome, uncompressed-DNG develop
+pipeline ("monochrome, uncompressed, one camera"), through STAGE-005. Identical
+source to the yanked 0.1.0, re-published with a trimmed package (`#33` publish →
+`#34` trim → `#35` bump). Everything under `[Unreleased]` above — the Bayer
+plane, colour metadata, demosaic and the colour transform — landed *after* this
+release and is **not** in it.
+
+### Added
+
 - The crate exists: `irradiance` library + `irr` dev binary, edition 2021,
   measured MSRV 1.90, **zero dependencies**, `MIT OR Apache-2.0` (SPEC-001).
 - Panic-free lint policy (`unwrap_used`, `expect_used`, `indexing_slicing`,
@@ -346,3 +358,9 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   instead of trusted from a table one past session typed by hand; the layer-0
   packing check now compares against the file's own live `StripByteCounts`
   rather than a second hand-typed copy of it.
+
+## [0.1.0] - 2026-10-29 [YANKED]
+
+Initial crates.io publish (DEC-028), **yanked** ~10 minutes later and superseded
+by 0.1.1 — identical source, trimmed published package. It remains on crates.io
+only as a yanked version; use 0.1.1.
