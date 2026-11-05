@@ -48,6 +48,23 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **SOF-3 lossless-JPEG entropy front-end — internal** (`irradiance` `ljpeg`,
+  SPEC-036, PROJ-003) — a new `pub(crate)` `src/ljpeg.rs` decodes the entropy
+  layer of a DNG `Compression 7` (lossless JPEG, ITU-T T.81 Annex H) sensor plane:
+  it parses the SOF-3 marker/segment structure into the single-component `Frame`
+  (precision, dimensions, point transform, predictor, restart interval) + the DC
+  `HuffTable`, then reads the `0xFF`-destuffing MSB-first entropy scan and
+  `DECODE`+`RECEIVE`+`EXTEND`s each sample to a signed difference. It adds **seven
+  additive `Ljpeg*` variants** to the public `#[non_exhaustive]` `Error` —
+  **additive, non-breaking, and not yet producible** (nothing in the crate
+  constructs them until STAGE-010 routes `Compression 7`). No public API or
+  runtime behaviour is reachable yet; this is the first half of STAGE-009's
+  compressed-bytes→`u16` decoder (SPEC-037 adds predictor reconstruction, SPEC-038
+  the fuzz target). Implemented **clean-room** from the published T.81 standard
+  (**DEC-035** — patent-clean: the lossy-DCT and arithmetic-coding JPEG patents
+  expired and never read on SOF-3 Huffman), never from Adobe's DNG SDK; panic-free
+  on untrusted input under `#![forbid(unsafe_code)]` + the five-lint deny policy.
+
 - **Colour transform — first display-referred colour render** (`irradiance::color`,
   SPEC-033, PROJ-002) — new `color::to_srgb_linear_into(sensor, &[u16], &mut [u16])`
   turns camera-space linear RGB into **linear-sRGB** by white balance
