@@ -6,14 +6,14 @@
 task:
   id: SPEC-036
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -72,10 +72,35 @@ cost:
       duration_minutes: 45
       recorded_at: 2026-11-05
       notes: "main-session design (un-metered); patent check DEC-035 + spec + HANDOFF-085 + build prompt"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 12616500
+      estimated_usd: 32.97
+      duration_minutes: 25
+      recorded_at: 2026-11-05
+      notes: "HANDOFF-085 (PR #97 -> folded into #98 at ef16fa1). RECOVERED from the cold build transcript (session local_771cd23a / e3ec5308), deduped by message.id at Opus list rates: 12,616,500 tok (96.8% cache-read) / $32.97. The handback's 299,209 was a context-occupancy FLOOR (no interactive /cost in the desktop app); this cumulative supersedes it."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 15879247
+      estimated_usd: 33.67
+      duration_minutes: 30
+      recorded_at: 2026-11-05
+      notes: "HANDOFF-086 (PR #98). RECOVERED from the cold verify transcript (session local_f86cfec7 / 29b85195), deduped by message.id at Opus list rates: 15,879,247 tok (98.1% cache-read) / $33.67. The handback's 199,216 was a context-occupancy FLOOR; this cumulative supersedes it."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 30
+      recorded_at: 2026-11-05
+      notes: "main-session ship (un-metered); reflection + transcript cost recovery + archive + brag + CHANGELOG"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 28495747
+    estimated_usd: 66.64
+    session_count: 4
+shipped_at: 2026-11-05
 ---
 
 # SPEC-036: SOF-3 entropy front-end (markers, bit reader, DC Huffman)
@@ -290,34 +315,41 @@ expand this one.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little — patent-checking SOF-3 first (`DEC-035`) and implementing clean-room
+   from the published T.81 standard kept the build clean and approved first pass,
+   with no algorithm surprise. The one miss: the spec / handoff / build-prompt
+   cited `just fmt-check` as a required gate, but that recipe did not exist in the
+   justfile (only a `cargo fmt --check` CI job) — the verify session had to add it
+   (chore PR #99). Next time, confirm a gate command actually exists before citing
+   it as a required gate.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No DEC / constraint change. Two recurring process signals: (a) the phantom
+   `just fmt-check` gate — a command referenced across live files that never
+   existed (fixed by #99); and (b) the desktop-cost-tool gap — both metered
+   handbacks reported context-occupancy FLOORS (299K build / 199K verify, ~42×/80×
+   low) because the Claude Code desktop app has no interactive `/cost`, so the true
+   cumulative (12.6M / 15.9M) had to be recovered from the cold-session transcripts
+   at ship. Both are known signals; recovering metered cost from the transcript at
+   ship is now the standing practice.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. SPEC-037 (reconstruction) and SPEC-038 (fuzz) are already in the
+   STAGE-009 backlog; the build handed SPEC-037 a precise interface (`Frame`,
+   `ScanReader::decode_difference`, `ScanReader::restart`, and the entropy offset
+   `parse_headers` returns).
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `none` (clean first try; verify's two adversarial mutations confirmed the
+   over-subscription guard and `EXTEND` sign-extension actually constrain the
+   decoded values, and found no defect).
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — `none` — the new `src/ljpeg.rs` is `pub(crate)` and unreachable until
+   STAGE-010 routes `Compression 7`; it is the first half of STAGE-009's
+   compressed-bytes→u16 decoder, exercised only on hand-built bitstreams. The
+   user-facing payoff (developing a Compression-7 DNG) lands when STAGE-010 wires
+   the decoder to the container.
