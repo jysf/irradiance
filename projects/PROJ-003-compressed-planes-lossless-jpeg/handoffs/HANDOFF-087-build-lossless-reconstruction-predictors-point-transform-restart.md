@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-05
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-037
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 271544             # FLOOR — context-window occupancy, not /cost (see notes)
+  estimated_usd: null              # no rate applied to a floor figure
+  duration_minutes: 45
+  branch: claude/spec-037-build-233973
+  pr: 102
+  completed_at: 2026-11-05         # YYYY-MM-DD
+  notes: "No interactive /cost in the Claude Code desktop app's Code tab (same as HANDOFF-085/086). 271544 is this build session's context-window token occupancy at handback, read via the app usage tool (ccd_session_mgmt get_usage: 271,544 of 1,000,000, 27%). It is a snapshot / lower bound: true cumulative input+output across the build's turns is higher (per-turn context resends not captured). Not invented, but not a /cost number — treat as a FLOOR in rollups, exactly as HANDOFF-085/086 reported. All four gates green first pass; no new DEC."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -185,38 +185,80 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-037-build-233973` → PR #102
+- **Completed at:** 2026-11-05
+- **All acceptance criteria met?** yes. `reconstruct` + `decode_into` implement
+  predictors 1–7 (T.81 Table H.1), the §H.2.1 boundary rules (first sample /
+  first line Ra / first column Rb / post-restart = `2^(P−Pt−1)`), the point
+  transform (prediction in the pre-shift domain, stored `<< Pt`), and the
+  per-restart predictor reset; caller-owned, zero-allocation (`DEC-016`),
+  modular `2^16` via explicit `wrapping_*` + a shift-free `floor_div2`
+  (`DEC-018`); `Error::LjpegPlaneWrongLength { expected, got }` added. The seven
+  `## Failing Tests` all pass, including the full round-trip matrix (predictors
+  `1..=7` × precision `{8,12,16}` × `Pt {0,2}` × restart on/off) and the
+  perturbed-predictor red-proof. `docs/provenance-ledger.md` carries the
+  reconstruction row. `just test` · `just lint-ci` (clippy 0.1.98, the floating
+  CI version) · `just fmt-check` · `just validate` all green first pass.
+- **For `verify`:** n/a (this is the build cycle).
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 271544 — a **FLOOR**, not a `/cost` cumulative.
+- **Estimated USD:** null (no rate applied to a floor).
+- **Duration (minutes):** ~45.
+- **Source of the number:** none available (no interactive `/cost` in the
+  Claude Code desktop app's Code tab). 271,544 is this session's context-window
+  occupancy at handback (`ccd_session_mgmt get_usage`: 271,544 / 1,000,000,
+  27%). It is a lower bound — per-turn context resends are not captured — and is
+  reported as a floor exactly as HANDOFF-085/086 did; the orchestrator
+  supersedes it from the session transcript at ship.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None. Reconstruction is straight T.81 Annex H.1 governed by the existing
+    `DEC-035` (patent/clean-room/provenance), `DEC-016` (caller-owned buffer)
+    and `DEC-018` (u16 modular arithmetic) — no judgment call needed a new DEC.
 - **Deviations from spec:**
-  - [list]
+  - Field name: the new variant is `LjpegPlaneWrongLength { expected, got }`
+    (as the spec's `## Outputs` and the build prompt specify). The crate's other
+    `*WrongLength` variants use `actual` rather than `got`; I followed the spec's
+    explicit `got`. Flagging the convention is not uniform — the architect may
+    want to settle it (a trivial rename either way) but it is not blocking.
+  - Nothing else: the spec's `## Outputs` was a complete arithmetic contract
+    (predictor table, boundary-rule precedence, modular-`2^16` + point-transform
+    domain, restart semantics) and was implemented verbatim.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - None beyond the already-planned STAGE-009 backlog: SPEC-038 (fuzz /
+    truncation-hardening — the `encode_lj92` harness is kept clean and
+    parameterised to seed it) and STAGE-010 (the DNG `Compression 7` container
+    binding + the real-file `dnglab --raw-checksum` cross-check, which is where
+    `Pt > 0` and multi-strip LJ92 meet real bytes).
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing in the content; the one friction was mechanical. The handoff and
+   build prompt (and the spec's reconstruction contract) had just landed on
+   `main` via PR #101, so on my freshly-cut worktree the two files 404'd on first
+   read and I had to fast-forward to `origin/main` before starting. The handoff
+   does say "sync if you don't see the design commit," but the 404 arrived first.
+   A build branch cut *after* its design PR merges would avoid the one-commit lag.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The genuinely-underspecified corner in lossless JPEG — the prediction
+   after a *mid-interval* restart, and whether the post-restart "use the initial
+   prediction" rule outranks the first-line/first-column positional rules — the
+   spec's `## Outputs` pinned explicitly (it lists the initial-prediction case
+   first, "AND the first sample after each restart"), so I gave it precedence and
+   the round-trip oracle (encoder mirrors the exact same rule) proves
+   self-consistency. Nothing was left to guess.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Fast-forward and confirm the `design(spec-037)` commit is present *before*
+   reading the handoff, rather than after a 404. And I'd reach for the shared
+   production `predict` in the oracle's encoder from the start: I briefly weighed
+   duplicating the predictor formulas in the encoder for "independence," but the
+   real independent checks are the hand-computed direct tests (which never call
+   `predict`) and the perturbed-decoder red-proof — so sharing `predict` makes the
+   encoder a trivially-correct inverse with no loss of rigour.
