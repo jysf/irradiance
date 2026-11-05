@@ -133,11 +133,11 @@ a real spec at `cycle: frame` with a stable ID (so `depends_on:` can point at
 it) and rewrites the line in place. The `[S]`/`[M]`/`[L]` tag is carried onto
 the spec as `task.complexity`.
 
-- [ ] (not yet written) — [M] SOF-3 entropy front-end: marker/frame parse (SOI/SOF3/DHT/SOS/DRI/RSTn/EOI) + JPEG bit reader (0xFF destuffing) + DC Huffman table build and symbol decode (category → difference). Pre-named L-risk split: marker/frame parse / Huffman build + decode.
-- [ ] (not yet written) — [M] Lossless reconstruction: predictors 1–7, initial Px = 2^(P−Pt−1), point transform Pt, restart reset → u16 sample plane (caller-owned buffer, DEC-016); the analytic encode→decode round-trip oracle + perturbed-predictor red-proof.
-- [ ] (not yet written) — [S] Fuzz + truncation hardening: a libFuzzer target over the full single-component decoder (hostile / truncated / oversized-table bitstreams), panic-free under the five-lint deny policy; seeds from the round-trip encoder.
+- [ ] SPEC-036 (frame) — [M] SOF-3 entropy front-end (markers, bit reader, DC Huffman)
+- [ ] SPEC-037 (frame) — [M] Lossless reconstruction (predictors, point transform, restart)
+- [ ] SPEC-038 (frame) — [S] SOF-3 decoder fuzz + truncation hardening
 
-**Count:** 0 shipped / 0 active / 3 pending
+**Count:** 0 shipped / 3 active / 0 pending
 
 ## Design Notes
 
@@ -162,6 +162,12 @@ the spec as `task.complexity`.
 - **Errors** extend the existing `Error` enum with LJ92-specific typed variants;
   every malformed-input path returns a typed error, never a panic (the
   RAW-is-attacker-influenced invariant).
+- **Pre-named L-risk split (SPEC-036):** the entropy front-end bundles
+  marker/frame parse + the JPEG bit reader (`0xFF` destuffing) + DC Huffman table
+  build and symbol decode (category → difference). If it proves L-sized at
+  design, split along the pre-named seam: marker/frame parse as one spec, Huffman
+  build + decode as the other. The fuzz spec (SPEC-038) seeds its corpus from the
+  round-trip encoder that SPEC-037 builds.
 
 ## Dependencies
 
