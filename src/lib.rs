@@ -110,6 +110,14 @@ pub mod plane;
 pub mod tone;
 pub mod warp;
 
+/// The SOF-3 lossless-JPEG decoder (DNG `Compression 7`, ITU-T T.81 Annex H).
+/// Crate-internal (`pub(crate)`): the container wiring and the public surface
+/// are STAGE-010's call, not this module's. `SPEC-036` built its entropy
+/// front-end (marker/frame parse, the `0xFF`-destuffing JPEG bit reader, DC
+/// Huffman decode to per-sample differences); `SPEC-037` adds predictor
+/// reconstruction in the same module. Patent clearance + provenance: `DEC-035`.
+mod ljpeg;
+
 /// The committed, generated sRGB OETF encode tables backing [`tone`]. Private:
 /// it is data, not API — `examples/gen-tone-table.rs` writes it, `just
 /// gen-tone-table` regenerates it. See `DEC-025`.
@@ -558,6 +566,78 @@ pub enum Error {
     /// inverted. Unusable calibration is this typed error, never a panic and
     /// never a `NaN`/`inf` written to `dst`.
     MissingColorCalibration,
+
+    /// `SPEC-036`. A SOF (start-of-frame) marker selects a JPEG process this
+    /// decoder does not implement. [`ljpeg`] decodes only **SOF3** (lossless,
+    /// Huffman — ITU-T T.81 Annex H, DNG `Compression 7`); baseline/extended
+    /// DCT (SOF0/1), progressive (SOF2), differential (SOF5/6/7) and arithmetic
+    /// (SOF9/10/11) are each this typed error rather than a misdecode. The
+    /// patent clearance (`DEC-035`) covers SOF3 Huffman only.
+    LjpegUnsupportedProcess {
+        /// The SOF marker code found (`0xC0`..=`0xCF`, excluding `0xC3`).
+        sof: u8,
+    },
+
+    /// `SPEC-036`. A SOF3 frame (or its scan) declares a component count this
+    /// front-end does not handle. [`ljpeg`] decodes the **single-component**
+    /// (`Nf == 1`) case only; a multi-component / Bayer-in-LJ92 scan
+    /// (`Nf != 1`) is a later spec's scope and refused here, never guessed at.
+    LjpegUnsupportedComponentCount {
+        /// The component count found in the frame or scan header.
+        nf: u8,
+    },
+
+    /// `SPEC-036`. The SOF3 sample precision `P` is outside the lossless range
+    /// ITU-T T.81 Annex H defines (`2..=16`). A precision this decoder cannot
+    /// represent is this typed error rather than a truncated sample path.
+    LjpegUnsupportedPrecision {
+        /// The `P` (sample precision) value found.
+        precision: u8,
+    },
+
+    /// `SPEC-036`. The SOF3 scan selects a lossless predictor outside the
+    /// defined range. T.81 Annex H.1 numbers the seven predictors `1..=7` in
+    /// the scan header's `Ss` field (`Ss == 0` is the hierarchical-mode
+    /// difference, unsupported here); anything else is this typed error. The
+    /// predictor is parsed by the entropy front-end (`SPEC-036`) and *applied*
+    /// by reconstruction (`SPEC-037`).
+    LjpegUnsupportedPredictor {
+        /// The `Ss` (predictor selector) value found.
+        predictor: u8,
+    },
+
+    /// `SPEC-036`. A DHT (define-Huffman-table) segment is internally
+    /// inconsistent: its `BITS` counts do not sum to the `HUFFVAL` length the
+    /// segment length allows, or the code lengths over-subscribe the 16-bit
+    /// code space (a canonical code would exceed 16 bits — ITU-T T.81 Annex C).
+    /// A category symbol that decodes outside the lossless range (`0..=16`),
+    /// and an entropy code that does not resolve within 16 bits, also land
+    /// here. A malformed table is refused rather than used to misdecode.
+    LjpegInvalidHuffmanTable,
+
+    /// `SPEC-036`. A marker required by the SOF3 header walk is absent where it
+    /// was expected, or a segment's declared length does not fit its own
+    /// contents: no `SOI` at the start, a scan (`SOS`) with no preceding
+    /// frame (`SOF3`) or DC table (`DHT`), an `EOI` before any scan, or a
+    /// frame/scan/restart segment whose length word disagrees with its fixed
+    /// layout (ITU-T T.81 Annex B). EOF within a segment is
+    /// [`Error::Truncated`], not this.
+    LjpegMissingMarker {
+        /// The marker code expected but not found (`0` when a marker was
+        /// expected but the byte at that position was not one).
+        marker: u8,
+    },
+
+    /// `SPEC-036`. A JPEG marker appeared where entropy-coded data (or a
+    /// specific restart marker) was expected: a `0xFF` + non-stuffing byte in
+    /// the middle of the Huffman-coded scan, or a restart that is not the next
+    /// expected `RSTm` in the `D0..D7` cycle (ITU-T T.81 Annex B — `0xFF 0x00`
+    /// is a stuffed literal `0xFF`, any other `0xFF xx` is a marker). The byte
+    /// where a marker was expected but none was found is reported as `marker`.
+    LjpegUnexpectedMarker {
+        /// The marker code (or byte) actually found.
+        marker: u8,
+    },
 }
 
 impl fmt::Display for Error {
@@ -806,6 +886,46 @@ impl fmt::Display for Error {
                 "no usable colour calibration (AsShotNeutral + ForwardMatrix1 or invertible \
                  ColorMatrix1) — cannot build the camera to linear-sRGB transform",
             ),
+            Error::LjpegUnsupportedProcess { sof } => {
+                write!(
+                    f,
+                    "lossless JPEG: SOF marker {sof:#04x} is not SOF3 (only lossless Huffman is supported)"
+                )
+            }
+            Error::LjpegUnsupportedComponentCount { nf } => {
+                write!(
+                    f,
+                    "lossless JPEG: {nf} components, but only single-component (Nf = 1) scans are supported"
+                )
+            }
+            Error::LjpegUnsupportedPrecision { precision } => {
+                write!(
+                    f,
+                    "lossless JPEG: sample precision {precision} is outside the supported range (2..=16)"
+                )
+            }
+            Error::LjpegUnsupportedPredictor { predictor } => {
+                write!(
+                    f,
+                    "lossless JPEG: predictor {predictor} is outside the defined range (Ss in 1..=7)"
+                )
+            }
+            Error::LjpegInvalidHuffmanTable => f.write_str(
+                "lossless JPEG: malformed Huffman table (BITS/HUFFVAL length mismatch, a code \
+                 that overruns 16 bits, or a symbol out of range)",
+            ),
+            Error::LjpegMissingMarker { marker } => {
+                write!(
+                    f,
+                    "lossless JPEG: required marker {marker:#04x} is missing, or a segment length does not fit"
+                )
+            }
+            Error::LjpegUnexpectedMarker { marker } => {
+                write!(
+                    f,
+                    "lossless JPEG: unexpected marker {marker:#04x} where entropy data or a restart was expected"
+                )
+            }
         }
     }
 }
