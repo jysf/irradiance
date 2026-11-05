@@ -47,7 +47,7 @@ handback:
   estimated_usd: null              # not applied — see notes (no confident list rate; the figure is a lower bound anyway)
   duration_minutes: 30
   branch: claude/spec-036-verify-652148
-  pr: null                         # the verify PR — filled when opened (see ## Handback); ship transcribes it
+  pr: 98                           # the verify PR (carries the build commit ef16fa1 too — see ## Handback)
   completed_at: 2026-11-05         # YYYY-MM-DD
   notes: "Verdict ✅ APPROVED at commit ef16fa1. No interactive /cost readout exists in the Claude Code desktop app's Code tab (same as the build cycle). 199216 is this verify session's context-window token occupancy at handback, read via the app usage tool (ccd_session_mgmt get_usage: 199,216 of 1,000,000, 20%). It is a snapshot / lower bound: true cumulative input+output across the verify's turns is higher (per-turn context resends not captured). Not invented, but not a /cost number — treat as a floor in rollups, exactly as HANDOFF-085 reported its build figure."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -118,9 +118,11 @@ set both statuses `completed`, return the verdict.
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-036-verify-652148` → the verify PR (verify
-  bookkeeping only; number filled into `handback.pr` once opened). Reviewed
-  build **PR #97** (branch `claude/spec-036-build-fbb6dc`, HEAD `ef16fa1`) cold.
+- **Branch / PR:** `claude/spec-036-verify-652148` → **PR #98** (verify
+  bookkeeping; also carries the build commit `ef16fa1` because the branch was
+  cut from the build branch — land #97 then #98, or #98 alone as a superset
+  against `main`). Reviewed build **PR #97** (branch `claude/spec-036-build-fbb6dc`,
+  HEAD `ef16fa1`) cold.
 - **Completed at:** 2026-11-05
 - **All acceptance criteria met?** Yes — all eight, and each is actually tested
   (see below).
