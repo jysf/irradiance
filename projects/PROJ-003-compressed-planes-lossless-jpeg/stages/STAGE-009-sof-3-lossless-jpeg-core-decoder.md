@@ -133,7 +133,7 @@ a real spec at `cycle: frame` with a stable ID (so `depends_on:` can point at
 it) and rewrites the line in place. The `[S]`/`[M]`/`[L]` tag is carried onto
 the spec as `task.complexity`.
 
-- [ ] SPEC-036 (frame) — [M] SOF-3 entropy front-end (markers, bit reader, DC Huffman)
+- [ ] SPEC-036 (build) — [M] SOF-3 entropy front-end (markers, bit reader, DC Huffman)
 - [ ] SPEC-037 (frame) — [M] Lossless reconstruction (predictors, point transform, restart)
 - [ ] SPEC-038 (frame) — [S] SOF-3 decoder fuzz + truncation hardening
 
