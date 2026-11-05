@@ -306,6 +306,13 @@ printf 'lint: using %s (%s) — unpinned; `just lint-ci` is what CI sees\n' "$(c
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 
+# fmt-check  — the `cargo fmt --check` half of `just lint` as its own gate, so
+#              the specs/prompts/handoffs across the repo that name
+#              `just fmt-check` are runnable (the formatting check previously
+#              only lived inside `just lint`). `just lint` still runs clippy +
+#              fmt together; this is the formatting slice alone.
+cargo fmt --check
+
 # lint-red-proof — proves the panic-free lint policy actually rejects a
 #              violating function injected into a copy of src/lib.rs, with the
 #              UNMUTATED copy run first as a negative control (DEC-009)
