@@ -65,6 +65,15 @@ lint:
     cargo clippy --all-targets --all-features -- -D warnings
     cargo fmt --check
 
+# Format check only — the `cargo fmt --check` half of `just lint` as its own
+# gate. Added because specs, prompts and handoffs across the repo already name
+# `just fmt-check` as a gate (it never existed — the formatting check only ever
+# lived inside `just lint`). This makes that name runnable without re-running
+# clippy. The full local suite is still `just lint` (clippy + fmt); the gate CI
+# sees is `just lint-ci` (pinned).
+fmt-check:
+    cargo fmt --check
+
 # Type check — Rust has no separate typecheck; `check` is the fast path
 typecheck:
     cargo check --all-targets --all-features
