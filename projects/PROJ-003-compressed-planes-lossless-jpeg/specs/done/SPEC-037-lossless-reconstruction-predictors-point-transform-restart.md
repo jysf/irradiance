@@ -6,14 +6,14 @@
 task:
   id: SPEC-037
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -72,10 +72,35 @@ cost:
       duration_minutes: 40
       recorded_at: 2026-11-05
       notes: "main-session design (un-metered); reconstruction + round-trip oracle spec + HANDOFF-087 + build prompt"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 9852623
+      estimated_usd: 27.21
+      duration_minutes: 30
+      recorded_at: 2026-11-05
+      notes: "HANDOFF-087, PR #102. RECOVERED from the cold build transcript (session local_240819e7 / 26130f84), deduped by message.id at Opus list rates: 9,852,623 tok (96.4% cache-read) / $27.21. The handback's 271,544 was a context-occupancy FLOOR; this cumulative supersedes it."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 9560701
+      estimated_usd: 22.59
+      duration_minutes: 30
+      recorded_at: 2026-11-05
+      notes: "HANDOFF-088, PR #103. Cold verify returned ⚠ PUNCH LIST (one low-severity coverage item); code correct. RECOVERED from the verify transcript (session local_0d3bc22a / 6ed513c5): 9,560,701 tok (97.1% cache-read) / $22.59. The handback's 235,814 was a context-occupancy FLOOR; this cumulative supersedes it."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 40
+      recorded_at: 2026-11-05
+      notes: "main-session ship (un-metered); resolved the verify punch-list (added the floor_div2 negative-odd test, mutation-confirmed it bites) + reflection + cost recovery + archive + brag"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 19413324
+    estimated_usd: 49.80
+    session_count: 4
+shipped_at: 2026-11-05
 ---
 
 # SPEC-037: Lossless reconstruction (predictors, point transform, restart)
@@ -297,34 +322,40 @@ expand this one.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Pre-seed a *negative-odd* predictor assertion in the spec's failing tests. I
+   flagged the `>>1` sign trap in the Notes but didn't require a test that reaches
+   `floor_div2`'s negative branch, so the build's suite passed green with that
+   branch untested and the cold verify had to catch it. The deeper point: a
+   round-trip oracle whose encode and decode both call the same helper
+   (`predict`→`floor_div2`) is **tautological** for that helper — the error cancels
+   — so shared helpers need a direct, hand-computed assertion on their sign/edge
+   branches.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No DEC / constraint change, but a reusable lesson: **a shared-path oracle
+   cannot catch a regression in a helper both halves call** (the `plane_oracle`
+   no-op lesson, generalised to encode/decode-shared helpers like `floor_div2`).
+   Recorded as a `watch` signal (`shared-path-oracle-tautology`, N=1) in
+   `/guidance/signals.yaml` so a future round-trip spec pairs its oracle with
+   independent direct assertions on the sign/edge branches.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. SPEC-038 (fuzz) is the last STAGE-009 spec and reuses the same
+   `encode_lj92` harness; the `floor_div2` coverage is closed here, so SPEC-038
+   needn't carry it.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — `verify` — the cold review caught the one issue (a test-coverage gap; **no
+   production defect** — the code was correct). Resolved at ship by adding the
+   negative-odd `floor_div2` assertion and mutation-confirming it fails on
+   truncate-toward-zero.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — `none` directly — `src/ljpeg.rs` stays `pub(crate)` and unreachable until
+   STAGE-010 wires `Compression 7`. But SPEC-036 + SPEC-037 now form the **complete
+   single-component SOF-3 decoder** (compressed bytes → `u16` plane), proven by the
+   round-trip oracle; the user-facing payoff (developing a Compression-7 DNG) lands
+   when STAGE-010 routes it.

@@ -1685,6 +1685,42 @@ mod tests {
     }
 
     #[test]
+    fn reconstruct_floors_negative_odd_predictor_intermediate() {
+        // SPEC-037 verify punch-list (HANDOFF-088, item 1): pin `floor_div2`'s
+        // floor-toward-negative-infinity on a NEGATIVE ODD `>> 1` intermediate
+        // (predictor 5's `Rb - Rc`, T.81 H.1). The round-trip oracle cannot catch
+        // a truncate-toward-zero regression here — it shares `predict`→`floor_div2`
+        // so the error cancels in encode→decode — and the positive neighbours of
+        // `reconstruct_applies_each_predictor_1_through_7` never reach the negative
+        // branch. So this asserts a hand-computed value directly.
+        //
+        // 2x2, P=8, Pt=0, predictor 5, initial = 128.
+        //   s0=(0,0)=128-28=100; s1=(0,1)=Ra(100)-3=97; s2=(1,0)=Rb(100)+20=120.
+        //   interior (1,1): Ra=120, Rb=97, Rc=100 → Rb-Rc = -3 (negative, odd).
+        //   px = 120 + floor_div2(-3) = 120 + (-2) = 118   (truncate-to-zero → 119)
+        //   out[3] = px + 5 = 123                            (truncate-to-zero → 124)
+        let (bits, huffval) = flat_table_bytes();
+        let table = HuffTable::build(&bits, huffval).unwrap();
+        let diffs = [-28i32, -3, 20, 5];
+        let frame = Frame {
+            precision: 8,
+            lines: 2,
+            samples_per_line: 2,
+            point_transform: 0,
+            predictor: 5,
+            restart_interval: 0,
+        };
+        let entropy = encode_scan(&diffs, 0);
+        let mut reader = ScanReader::new(&entropy);
+        let mut out = [0u16; 4];
+        reconstruct(&frame, &table, &mut reader, &mut out).unwrap();
+        assert_eq!(
+            out[3], 123,
+            "predictor 5: floor_div2(-3) must floor to -2, not truncate to -1"
+        );
+    }
+
+    #[test]
     fn reconstruct_honours_the_h21_boundary_rules() {
         // 3x2 grid, P=8, Pt=0, selected predictor = 2 (Rb) — so the first-line
         // and first-column rules must OVERRIDE the selected predictor.
