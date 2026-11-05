@@ -163,7 +163,7 @@ maintainer reviews before the next begins.
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [ ] STAGE-009 (proposed) — **SOF-3 lossless-JPEG core decoder** (single
+- [ ] STAGE-009 (framed) — **SOF-3 lossless-JPEG core decoder** (single
   component): Huffman DC tables, predictors 1–7, point transform, restart
   markers, 8–16-bit; a pure compressed-bytes→`u16`-samples function, verified by
   an analytic encode→decode round-trip oracle + a red-proof, fuzzed panic-free
