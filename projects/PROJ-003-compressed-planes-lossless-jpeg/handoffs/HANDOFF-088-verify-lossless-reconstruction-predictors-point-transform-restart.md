@@ -47,7 +47,7 @@ handback:
   estimated_usd: null              # no rate applied to a floor figure
   duration_minutes: 40
   branch: claude/spec-037-verify-7b258a
-  pr: null                         # set to the verify PR number once opened
+  pr: 103                          # the verify PR (carries build commit e5a1062 + verify bookkeeping)
   completed_at: 2026-11-05         # YYYY-MM-DD
   notes: "Verdict: ⚠ PUNCH LIST (1 low-severity item — a test-coverage gap, not a bug; code is correct, all four gates + all 8 acceptance criteria green). No interactive /cost in the Claude Code desktop app's Code tab (same as HANDOFF-085/086/087). 235814 is this verify session's context-window occupancy at handback, read via ccd_session_mgmt get_usage (235,814 of 1,000,000, 24%). It is a snapshot / lower bound: true cumulative input+output across the verify's turns is higher (per-turn context resends not captured). Not invented, but not a /cost number — treat as a FLOOR in rollups, exactly as HANDOFF-085/086/087 reported; the orchestrator supersedes it from the transcript at ship."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -114,7 +114,8 @@ this — it transcribes it.*
 
 - **Reviewed commit:** `e5a1062824086fcf72cf937841584cace622ea7a` (build PR #102,
   branch `claude/spec-037-build-233973`; my verify worktree is cut from it).
-- **Verify branch / PR:** `claude/spec-037-verify-7b258a` → PR (number stamped once opened).
+- **Verify branch / PR:** `claude/spec-037-verify-7b258a` → **PR #103** (carries build
+  commit `e5a1062` + verify bookkeeping; `src/` byte-identical to `e5a1062`).
 - **Completed at:** 2026-11-05
 - **Verdict:** ⚠ **PUNCH LIST** — one low-severity item (a non-tautological
   test-coverage gap on predictors 5/6/7's floor-toward-negative-infinity, the
