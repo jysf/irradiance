@@ -6,7 +6,7 @@
 task:
   id: SPEC-038
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,11 +27,11 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # HANDOFF-089 (build) → tier_map.build
+  created_at: 2026-11-05
 
 references:
-  decisions: []                    # governed by constraints, not a specific DEC
+  decisions: [DEC-036, DEC-035]    # fuzzing-feature exposure (DEC-036); decoder is clean-room/patent-clean (DEC-035)
   constraints: [no-panics-on-untrusted-input, no-new-top-level-deps-without-decision]
   related_specs: [SPEC-036, SPEC-037]
 
@@ -62,8 +62,16 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 20000000        # ~20M — [S/M]: the fuzz target + feature exposure (DEC-036) + seed-gen + replay test
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 45
+      recorded_at: 2026-11-05
+      notes: "main-session design (un-metered); fuzz target spec + DEC-036 (fuzzing-feature exposure) + HANDOFF-089 + build prompt"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -71,11 +79,6 @@ cost:
 ---
 
 # SPEC-038: SOF-3 decoder fuzz + truncation hardening
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-038]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
 
 ## Context
 
@@ -103,40 +106,112 @@ generated from SPEC-037's round-trip encoder.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **The decoder being fuzzed (shipped, SPEC-036/037):** `src/ljpeg.rs` —
+  `pub(crate) fn decode_into(data: &[u8], out: &mut [u16]) -> Result<Frame,
+  Error>` (the full single-component decode), `parse_headers`, `reconstruct`, and
+  the test-only `encode_lj92` / `encode_scan` (in `mod tests`) — the shape the
+  seeds mirror.
+- **`DEC-036`** — the exposure decision: a `fuzzing` cargo feature (NOT
+  `cfg(fuzzing)`), because the `clippy — fuzz graph` gate builds the fuzz crate
+  with plain `cargo clippy` (no `--cfg fuzzing`). Read it before wiring visibility.
+- **The fuzz harness to mirror:**
+  - `fuzz/fuzz_targets/plane.rs` — the closest analog (a decoder target that
+    bounds a hostile `width×height` with `MAX_PIXELS` before allocating its own
+    buffer; "declining to chase OOM is the target's choice, not a library
+    guarantee weakened"). Copy its shape.
+  - `fuzz/Cargo.toml` — the `[[bin]]` list + `[dependencies.irradiance] path =
+    ".."` (add `features = ["fuzzing"]`).
+  - `examples/fuzz-seeds.rs` — the committed seed writer; it pulls shared
+    fixtures via `#[path = "../tests/support/*.rs"]` and builds some seeds
+    locally (`plane_fixture`, "kept in sync by hand" — the precedent for a
+    local SOF-3 seed builder).
+  - `.github/workflows/ci.yml` (`clippy-fuzz` / `licenses-fuzz`) — the gates that
+    auto-cover a new target; `tests/opcode.rs` — the seed-replay panic-free test
+    pattern (here it becomes an in-crate unit test, since `decode_into` is
+    `pub(crate)`).
+- **No corpus file, no external crate.** `libfuzzer-sys` is the existing fuzz
+  dev-dependency; seeds are own-work SOF-3 bitstreams (`DEC-003`).
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **`Cargo.toml`:** a `[features]` section with `fuzzing = []` (empty — exposure
+  only, no deps; `DEC-036`).
+- **`src/lib.rs`:** `#[cfg(feature = "fuzzing")] #[doc(hidden)] pub fn
+  __fuzz_ljpeg(data: &[u8])` — parse the header, **bound** `lines ×
+  samples_per_line` with checked arithmetic against a `MAX_PIXELS` cap (mirror
+  `plane.rs`), allocate a capped `u16` buffer, call `ljpeg::decode_into`, and drop
+  the typed `Result`. Reaches the `pub(crate)` decoder (same crate); satisfies the
+  five-lint policy (it is compiled under `--all-features`). Default builds compile
+  it out — `ljpeg` stays `pub(crate)`.
+- **`fuzz/Cargo.toml`:** `[dependencies.irradiance]` gains `features =
+  ["fuzzing"]`; a new `[[bin]] name = "ljpeg" path = "fuzz_targets/ljpeg.rs" test
+  = false doc = false bench = false`.
+- **`fuzz/fuzz_targets/ljpeg.rs`:** `#![no_main]` + `fuzz_target!(|data: &[u8]| {
+  irradiance::__fuzz_ljpeg(data); })`, with a header stating the contract (every
+  byte string returns; nothing panics) + the `cargo +nightly fuzz run ljpeg
+  fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=60` recipe.
+- **`examples/fuzz-seeds.rs`:** a `ljpeg_seeds()` writer → `fuzz/seeds/ljpeg/`,
+  from a local SOF-3 builder that mirrors `encode_lj92` (hand-synced like
+  `plane_fixture`, or a shared `tests/support/ljpeg.rs`): valid scans across
+  predictors / precision / `Pt` / restart, plus the hostile shapes (truncated
+  header, truncated scan, oversized DHT, `Nf≠1`, bad marker).
+- **`fuzz/seeds/ljpeg/*`:** the committed seed files.
+- **`src/ljpeg.rs` (`mod tests`):** the panic-free replay test (below) — a UNIT
+  test, so it reaches `decode_into` directly without the feature.
+- **No new runtime dependency, no public API** (`ljpeg` stays `pub(crate)`; the
+  `fuzzing` feature is dev-only exposure, `DEC-036`). **No CI yaml change
+  required** — the `clippy — fuzz graph` + `license policy — fuzz graph` gates
+  build the whole fuzz crate and so cover the new target; a `fuzz smoke — ljpeg`
+  job is optional (the smoke set is curated — only `opcode` + `warp_opcode`).
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] A `ljpeg` libFuzzer target (`fuzz/fuzz_targets/ljpeg.rs` + the `[[bin]]`)
+  drives the full decoder via the `fuzzing`-feature entry; `cargo +nightly fuzz
+  run ljpeg fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=60` runs clean
+  (documented; the long run is manual, not CI).
+- [ ] The `clippy — fuzz graph (-D warnings)` and `license policy — fuzz graph`
+  gates stay green with the new target — i.e. plain `cargo clippy --manifest-path
+  fuzz/Cargo.toml --all-targets` compiles it (the `fuzzing` **feature**, not
+  `cfg(fuzzing)`, per `DEC-036`).
+- [ ] A **panic-free replay unit test** runs every committed `fuzz/seeds/ljpeg/`
+  seed **and** a set of hostile / truncated / oversized-table inputs through the
+  decoder and asserts **no panic** — each returns `Ok` or a typed `Error`. Runs in
+  `just test`.
+- [ ] `cargo run --example fuzz-seeds` (re)writes `fuzz/seeds/ljpeg/` with valid
+  scans (predictors, precision, `Pt`, restart) + the hostile shapes; the seeds are
+  committed and own-work (`DEC-003`).
+- [ ] `ljpeg` stays `pub(crate)`: a default-feature `cargo build` / `cargo doc`
+  exposes no `ljpeg` symbol and no `__fuzz_ljpeg`; the entry is `#[doc(hidden)]`
+  and compiled out without the feature (`DEC-036`).
+- [ ] `#![forbid(unsafe_code)]` + the five-lint deny policy hold on the
+  feature-gated entry (compiled under `--all-features`); `just test`, `just
+  lint-ci`, `just fmt-check`, `just validate`, `just lint-fuzz`, `just deny-fuzz`
+  all green.
+- [ ] No new runtime dependency (the `fuzzing` feature is empty; `libfuzzer-sys`
+  is the existing fuzz dev-dep) — `no-new-top-level-deps-without-decision`
+  satisfied, recorded in `DEC-036`.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+The panic-free guarantee is enforced in `just test` by in-crate unit tests (they
+reach `pub(crate) decode_into` directly — no feature needed); the libFuzzer run
+itself is manual (`cargo +nightly fuzz run`).
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`src/ljpeg.rs` (`mod tests`)**
+  - `"fuzz_seed_corpus_decodes_without_panic"` — read every file in
+    `<CARGO_MANIFEST_DIR>/fuzz/seeds/ljpeg/`, run each through `decode_into` into a
+    bounded buffer, and assert each **returns** (`Ok` or a typed `Error`) — i.e.
+    the whole committed seed corpus is panic-free. (Also asserts the corpus is
+    non-empty, so a missing seed-gen fails loudly.)
+  - `"hostile_bitstreams_are_typed_errors_not_panics"` — a table of crafted
+    inputs, each asserted to be a typed `Error` (never a panic): empty input; a
+    valid header then a truncated scan; a `SOF3` with `Nf = 3`; a DHT whose `BITS`
+    oversubscribe (sum > codes / overruns 16 bits); a forged `65535 × 65535`
+    dimension; a bad/again-wrong `RSTm`.
+- **`examples/fuzz-seeds.rs`** — `cargo run --example fuzz-seeds` writes a
+  non-empty `fuzz/seeds/ljpeg/` (verified by the corpus test above, which the
+  seed-gen must satisfy).
 
 ## Non-Goals
 
@@ -154,8 +229,40 @@ expand this one.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **The exposure is a `fuzzing` cargo FEATURE, not `cfg(fuzzing)` — `DEC-036`.**
+  The `clippy — fuzz graph` gate runs plain `cargo clippy --manifest-path
+  fuzz/Cargo.toml` (no `--cfg fuzzing`, no nightly), so a `cfg(fuzzing)` entry
+  would be absent there and the target wouldn't compile → gate red. Enable the
+  feature on the fuzz crate's `irradiance` dep.
+- **The panic-free replay is an in-crate UNIT test** (`src/ljpeg.rs mod tests`),
+  so it reaches `decode_into` directly — do **not** route it through the feature
+  entry or widen `decode_into`.
+- **Bound dimensions in `__fuzz_ljpeg`** with checked arithmetic (cap pixels, as
+  `plane.rs` does with `MAX_PIXELS`) before allocating — the target declines to
+  chase an OOM on `65535×65535`; that is the target's choice, not a weakened
+  library guarantee (`decode_into` would reject a too-small buffer with
+  `LjpegPlaneWrongLength` anyway). The entry must be five-lint clean (it compiles
+  under `--all-features`): no `unwrap`/`expect`/indexing/`panic`, checked/wrapping
+  arithmetic, drop the `Result` with `let _ =`.
+- **Seeds are own-work SOF-3 bitstreams (`DEC-003`)** — build them in
+  `examples/fuzz-seeds.rs` from a local builder mirroring `encode_lj92`
+  (hand-synced, like `plane_fixture`) or a shared `tests/support/ljpeg.rs`. Cover
+  valid (each predictor, 8/12/16-bit, `Pt`, restart) + the hostile shapes. Never
+  commit a corpus file.
+- **No CI yaml change needed** — the fuzz-graph clippy + license gates already
+  build the whole fuzz crate. A `fuzz smoke — ljpeg` job is optional (the smoke
+  set is curated: only `opcode` + `warp_opcode`; `plane`/`ifd`/`develop`/`demosaic`
+  have none). The millions-of-runs clean is the manual `cargo +nightly fuzz run
+  ljpeg`.
+- **Scope:** fuzz the single-component decoder only — no DNG container path, no
+  multi-component, no bit-exactness (that is SPEC-037's oracle / STAGE-010's
+  `dnglab` check). Don't touch the decoder's logic; this spec only exercises it.
+- **Last STAGE-009 spec** — when it ships, STAGE-009 stage-ships (Prompt 1d).
+- **§12 probe (done at design against `main`):** the real surfaces are
+  `decode_into`/`parse_headers` (`src/ljpeg.rs`), the `plane.rs` fuzz target +
+  `MAX_PIXELS` pattern, `examples/fuzz-seeds.rs`'s `#[path]`/local-builder seed
+  mechanism, `fuzz/Cargo.toml`'s `[[bin]]` shape, and the `clippy-fuzz` CI job's
+  plain-`cargo` build (the reason for the feature, `DEC-036`).
 
 ---
 

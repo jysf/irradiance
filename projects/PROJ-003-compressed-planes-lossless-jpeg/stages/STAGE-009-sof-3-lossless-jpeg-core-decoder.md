@@ -135,7 +135,7 @@ the spec as `task.complexity`.
 
 - [x] SPEC-036 (shipped 2026-11-05) — [M] SOF-3 entropy front-end (markers, bit reader, DC Huffman)
 - [x] SPEC-037 (shipped 2026-11-05) — [M] Lossless reconstruction (predictors, point transform, restart)
-- [ ] SPEC-038 (frame) — [S] SOF-3 decoder fuzz + truncation hardening
+- [ ] SPEC-038 (build) — [S] SOF-3 decoder fuzz + truncation hardening
 
 **Count:** 2 shipped / 1 active / 0 pending
 
