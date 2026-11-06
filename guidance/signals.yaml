@@ -1219,20 +1219,39 @@ signals:
   - id: probe-the-decode-input-not-just-the-container
     type: lesson
     summary: "A design §12 probe must read the DATA THE DECODER WILL SEE (the bitstream / frame header), not just the container metadata around it — probing the container tags can confirm a false premise while the real header says otherwise."
-    evidence: "N=1, SPEC-043 (STAGE-011, 2026-11-05). The design probed `irr ifd` (container tags: Compression=7, strip offsets/counts, bits_per_sample) and confirmed both held files single-strip, then recorded them as the single-component corpus-verified path. The build probed the real SOF3 FRAME HEADER inside the strip and found both are two-component (Nf=2) column-interleave — which the single-component decoder cannot decode. The container probe was correct but answered the wrong question: the load-bearing fact (Nf) lives in the JPEG frame header, one layer below the TIFF tags. Forced a mid-stage re-plan (DEC-037 + a new SPEC-046). The PROJ-003 brief's own premise ('both held files single-component') had the same shape — a monochrome SENSOR assumed to mean a single-component JPEG."
+    evidence: |
+      N=2 paired-opposing (STAGE-011). Bar met.
+      N=1 (the MISS), SPEC-043 (2026-11-05): the design probed `irr ifd` (container
+      tags: Compression=7, strip offsets/counts, bits_per_sample) and confirmed both
+      held files single-strip, then recorded them as the single-component
+      corpus-verified path. The build probed the real SOF3 FRAME HEADER inside the
+      strip and found both are two-component (Nf=2) column-interleave — which the
+      single-component decoder cannot decode. The container probe answered the wrong
+      question: the load-bearing fact (Nf) lives in the JPEG frame header, one layer
+      below the TIFF tags. Forced a mid-stage re-plan (DEC-037 + a new SPEC-046).
+      N=2 (the CORRECTION applied), SPEC-044 design (2026-11-06): the §12 probe this
+      time ran the ACTUAL decoder on both real files (decoded through
+      `plane::unpack_into`, hashed the plane vs `dnglab --raw-checksum`) rather than
+      reading only the container. It caught, at design, that K3III has an APP0 segment
+      between DHT and SOS that the header parser rejects (`LjpegUnexpectedMarker 0xe0`)
+      — a real-file structural element invisible to the container view. Fixed with a
+      one-arm header-skip proven by the same probe (DEC-039), no re-plan, no build-time
+      surprise. The lesson, applied, paid off: probing the innermost layer turned a
+      would-be build failure into a design-time decision.
     bar: "N=2 paired-opposing"
-    status: watch
+    status: open
     disposition_at: stage-close
     first_flagged: 2026-11-05
-    last_touched: 2026-11-05
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
-      Capture, N=1. Sibling of [[probe-the-hard-assumption-at-frame-time]] — same
-      family (a load-bearing assumption left unprobed at design) but a sharper rule:
-      when the assumption is about the DATA a decoder/parser will consume, probe at
-      that layer (parse the actual bytes / header), not the metadata wrapping it.
-      The falsifier was cheap and available at design — parse the SOF3 SOF marker
-      from the strip (~15 lines, which the orchestrator ran to confirm the build's
-      finding). Codify into the §12 step if a second instance appears: "probe the
-      innermost load-bearing layer the work depends on, not the outer container."
+      N=2, paired-opposing, bar met — disposition at STAGE-011 close (imminent).
+      Sibling of [[probe-the-hard-assumption-at-frame-time]] — same family (a
+      load-bearing assumption left unprobed at design) but a sharper rule: when the
+      assumption is about the DATA a decoder/parser will consume, probe at that layer
+      (run the actual decode / parse the real bytes), not the metadata wrapping it.
+      Proposed codification for the §12 step at stage-close: "probe the innermost
+      load-bearing layer the work depends on — run the real decode on the real input —
+      not the outer container." The SPEC-044 instance shows the falsifier is cheap
+      (~40 lines decoding the held files) and decisive at design time.
       Related: [[unrun-docs-carry-errors]] (run the tool — here, run the RIGHT read).
