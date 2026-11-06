@@ -11,8 +11,13 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
+                                   #   Expected S held: one new fuzz target + the dev-only
+                                   #   `fuzzing` feature entry + 14 seeds + two replay tests,
+                                   #   no decoder-logic change, built whole, approved first pass
+                                   #   with no punch list (the token volume is cache-read resend,
+                                   #   not scope).
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
@@ -72,10 +77,35 @@ cost:
       duration_minutes: 45
       recorded_at: 2026-11-05
       notes: "main-session design (un-metered); fuzz target spec + DEC-036 (fuzzing-feature exposure) + HANDOFF-089 + build prompt"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 16853660
+      estimated_usd: 36.50
+      duration_minutes: 40
+      recorded_at: 2026-11-05
+      notes: "HANDOFF-089, PR #106. Built whole, approved first pass, no punch list. RECOVERED from the cold build transcript (session local_264196a3 / 577ca8cb), deduped by message.id at Opus list rates: 16,853,660 tok (97.9% cache-read) / $36.50. The handback's 267,704 was a context-occupancy FLOOR; this cumulative supersedes it."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 8159773
+      estimated_usd: 18.77
+      duration_minutes: 50
+      recorded_at: 2026-11-05
+      notes: "HANDOFF-090, PR #107. Cold verify returned APPROVED first pass (no defect). RECOVERED from the verify transcript (session local_36664dac / 65ea5d91): 8,159,773 tok (97.3% cache-read) / $18.77. The handback's 185,694 was a context-occupancy FLOOR; this cumulative supersedes it."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 30
+      recorded_at: 2026-11-05
+      notes: "main-session ship (un-metered); reflection + cost recovery from both transcripts + archive + brag + STAGE-009 stage-ship (Prompt 1d)"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 25013433
+    estimated_usd: 55.27
+    session_count: 4
+shipped_at: 2026-11-05
 ---
 
 # SPEC-038: SOF-3 decoder fuzz + truncation hardening
@@ -271,22 +301,39 @@ expand this one.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nothing structural. The one real design risk — how the fuzz target reaches a
+   `pub(crate)` decoder without a public-API change — was pinned before build by a
+   §12 probe of the `clippy — fuzz graph` gate (it builds `fuzz/Cargo.toml` with
+   **plain** `cargo clippy`, no `--cfg fuzzing`), which forced the `fuzzing`-feature
+   exposure over `cfg(fuzzing)` (DEC-036). With that settled the build landed whole
+   and the verify had a single load-bearing thing to confirm (the replay tests
+   aren't tautological). The only friction was host-local: a slow tier-B oracle made
+   a cold full `just test` race the verify, so the verifier leaned on PR #106's green
+   CI at the exact commit (`d6b73ad`) — the right call, and already the "trust the
+   PR's green CI for cargo-heavy gates, run only the non-CI-covered gate locally"
+   habit worth keeping.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No. DEC-036 captured the feature-vs-`cfg(fuzzing)` rule and its reason; the
+   existing fuzz infra carried the shape unchanged (`plane.rs`'s `MAX_PIXELS`
+   dimension bound → `__fuzz_ljpeg`; `examples/fuzz-seeds.rs`'s local-builder seed
+   pattern → the LJ92 seed writer). The recurring desktop-app gap (no interactive
+   `/cost` in the Code tab, so handbacks report context-occupancy floors) is already
+   tracked as the `desktop-cost-tool-unavailable-handbacks-null` signal and handled
+   by transcript recovery at ship; nothing new to record.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None in STAGE-009 — **this is its last spec**, so STAGE-009 stage-ships next
+   (Prompt 1d). STAGE-010 (DNG `Compression 7` container binding + bit-exact
+   `dnglab --raw-checksum` verification) is already framed and is the next wave; when
+   it exposes a real public `Compression 7` entry, the dev-only `fuzzing` feature +
+   `__fuzz_ljpeg` hook may be retired (DEC-036 Validation).
 
 4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
    the defect-escape distribution is greppable across specs:
    `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
    `none` (clean first try).
-   — <one word>
+   — none
    *(Runtime/operational defects — the escape-prone class — only exist once the
    artifact meets its real host. `escaped` here is a signal to strengthen the
    §12 behavioral pre-flight for that surface.)*
@@ -298,4 +345,14 @@ expand this one.
    `impact` field is transcribed from, and both halves are already written above
    (## Context is the before, ## Goal is the after): confirm the prediction,
    don't reconstruct it from memory.
-   — <answer | none>
+   — none — `ljpeg` stays `pub(crate)` and is unreachable until STAGE-010 wires
+   `Compression 7`, so no consumer-visible surface changed. This is the **safety**
+   half of STAGE-009's deliverable: the complete single-component SOF-3 decoder
+   (SPEC-036 entropy front-end + SPEC-037 reconstruction) is now proven panic-free
+   on hostile input — a libFuzzer `ljpeg` target reaching the internal decoder
+   through the dev-only `fuzzing` feature (DEC-036) ran **3,098,220 executions with
+   no crash** (on top of the build's 2.55M), and two in-crate replay tests assert
+   every truncated / oversized-table / forged-65535×65535 bitstream returns a typed
+   `Ljpeg*` `Error` rather than panicking, under `#![forbid(unsafe_code)]` + the
+   five-lint deny policy. The user-facing payoff lands when STAGE-010 routes the
+   decoder through the container.

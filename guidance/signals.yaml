@@ -797,9 +797,17 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-09-06
-    last_touched: 2026-11-01
+    last_touched: 2026-11-05
     raised_by: claude
     notes: |
+      ══ STAGE-009 CLOSE, 2026-11-05: DEFERRED, trigger unchanged, still N=2. ══
+      No STAGE-009 instance. Its three specs were a new-capability SOF-3 decoder
+      (SPEC-036 entropy front-end, SPEC-037 reconstruction) and a fuzz target
+      (SPEC-038) — none was a FIX that hardened failing logic while silently keeping
+      the assumption that let it fail, so the "third instance ON DIFFERENT CODE"
+      trigger was not exercised. Carries into STAGE-010 at N=2; the DNG container
+      binding there (feeding real strip bytes into a decoder specced corpus-free) is
+      the first STAGE-009+ work likely to HARDEN an existing path, so watch it there.
       ══ STAGE-007 CLOSE, 2026-11-01: DEFERRED, trigger unchanged, still N=2. ══
       No STAGE-007 instance — demosaic was new-capability on a reused harness; DEC-032
       (two-pass green held in `dst`'s own green slots) was a build-time design choice,
@@ -1042,9 +1050,16 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-10-30
-    last_touched: 2026-11-01
+    last_touched: 2026-11-05
     raised_by: claude
     notes: |
+      ══ STAGE-009 CLOSE, 2026-11-05: DEFERRED, still N=1. ══ No STAGE-009 corpus-
+      assumption miss — the stage was corpus-free by design (its oracle is the
+      in-harness LJ92 round-trip encoder, not a held file), so there was no capstone
+      resting on an unprobed file assumption. The one hard assumption STAGE-009 did
+      have — how the fuzz target reaches a pub(crate) decoder without a public-API
+      change — WAS probed at SPEC-038 design (the §12 fuzz-graph-gate check that
+      drove DEC-036), the positive application of this lesson. Carries at N=1.
       ══ STAGE-007 CLOSE, 2026-11-01: DEFERRED, still N=1. ══ No new corpus/code-
       assumption instance — the demosaic built on both corpus files as framed. The
       MHC-patent-not-probed-at-frame surprise is adjacent but a DIFFERENT axis, and
@@ -1070,9 +1085,19 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-01
-    last_touched: 2026-11-01
+    last_touched: 2026-11-05
     raised_by: claude
     notes: |
+      ══ STAGE-009 CLOSE, 2026-11-05: POSITIVE counter-instance, still N=1 same-outcome. ══
+      STAGE-009 named a specific algorithm (SOF-3 lossless JPEG / ITU-T T.81 Annex H)
+      and DID patent-check it at design — DEC-035 confirmed it patent-clean (the
+      lossy-DCT and arithmetic-coding JPEG patents expired and never read on SOF-3
+      Huffman) BEFORE SPEC-036 built, so there was no mid-design landmine. This is the
+      opposite outcome to the STAGE-007 MHC miss, i.e. the lesson applied correctly —
+      it does NOT add to the N=3 same-outcome (miss) count, but it strengthens the case
+      to land the cheap Prompt 1c patent-check line now rather than wait for a third
+      miss. Proposed in STAGE-009's reflection; left `watch` pending that decision.
+      ──
       Capture, N=1. The fix is cheap and mechanical: the stage-FRAME step
       (FIRST_SESSION_PROMPTS.md Prompt 1c) gains a line — "if the stage names a
       specific algorithm or third-party dependency, confirm its patent status (and
@@ -1137,9 +1162,15 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-02
-    last_touched: 2026-11-02
+    last_touched: 2026-11-05
     raised_by: claude
     notes: |
+      ══ STAGE-009 CLOSE (PROJ-003), 2026-11-05: DEFERRED, still N=1. ══ No instance:
+      the SOF-3 decoder is integer u16 prediction (wrapping add/sub per T.81), with no
+      `f64 as u16` saturating cast and no explicit-clamp-before-cast pattern, so the
+      redundant-clamp shape could not recur. Its own decision point remains a PROJ-002
+      STAGE-008 close (the quantize path lives in `color`, not `ljpeg`). Carries at N=1.
+      ──
       Non-blocking; raised by the SPEC-033 cold verify and recorded (not acted on) at
       ship. The underlying ask: when a test claims an explicit guard is load-bearing,
       make the test FAIL without it — here there is no input where clamp-vs-no-clamp
@@ -1164,6 +1195,16 @@ signals:
     last_touched: 2026-11-05
     raised_by: claude
     notes: |
+      ══ STAGE-009 CLOSE, 2026-11-05: walked at the stage-born close, kept `watch`, still N=1. ══
+      This is STAGE-009's own lesson (raised by SPEC-037's verify). SPEC-038 added no
+      second instance — it is a fuzz target, not a round-trip oracle sharing a helper —
+      but its verify APPLIED the discipline: it confirmed the two panic-free replay tests
+      are non-tautological (each hostile input asserts a distinct typed `Ljpeg*` variant
+      that exists in `lib.rs`; the corpus test asserts non-empty), the same "show it can
+      fail" check this lesson generalises. Bar is N=2; the convention lands at a confirmed
+      second instance (watch STAGE-010, which adds the real-file `dnglab --raw-checksum`
+      oracle — a different shape, but still a check that must be shown red).
+      ──
       Same family as the `plane_oracle.rs` no-op lesson and
       `saturating-as-cast-masks-explicit-clamp-in-quantize-tests`: a check that cannot
       be shown to fail proves nothing. Generalised here to round-trip / encode-decode

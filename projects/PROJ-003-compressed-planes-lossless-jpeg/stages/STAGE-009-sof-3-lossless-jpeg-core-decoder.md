@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-009                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-05
-shipped_at: null
+shipped_at: 2026-11-05
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -48,10 +48,11 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
-                                    #   estimated_usd: N
-                                    #   recorded_at: YYYY-MM-DD
-                                    #   notes: "framing + spec breakdown"
+  sessions:
+    - tokens_total: 191124332
+      estimated_usd: 402.28
+      recorded_at: 2026-11-05
+      notes: "Stage grain (DEC-013 §5), not split across specs. ONE orchestrator session (work-status-next-steps, scratchpad uuid c0b7ec9b-2be4-41ad-9dea-77f3b6690343) ran STAGE-009 end to end in the main session: the PROJ-003 brief + STAGE-009 frame + the ID-collision resolution it triggered (a full PROJ-002 renumber to STAGE-010/SPEC-039-042, #95) + the design AND ship of all three specs + dispatching/reconciling their 6 cold build/verify sessions + this stage close. Measured FLOOR from that session's OWN transcript (scratchpad-uuid anchored, NOT text grep), deduped by message.id, all claude-opus-4-8, 98.1% cache-read: 410 usage-bearing messages dated >= 2026-11-04T00:00Z -> in 820 / out 923,539 / cache-write 2,765,435 / cache-read 187,434,538 = 191,124,332 tokens, priced per-component at Opus list rates (15/75/18.75-write/1.50-read per MTok) = 402.28 USD. SCOPED: STAGE-007's entry already claimed this file through its 2026-11-01 close; STAGE-008's colour work (SPEC-033/034, 11-02/03) is EXCLUDED here (STAGE-008 is not yet shipped and will claim it). INCLUDES the STAGE-009-framing-induced PROJ-002 0.2.0 reconcile (#95) as framing overhead rather than orphan it (PROJ-002 STAGE-010's own close must NOT re-claim #95). Floor: the push + ship-PR turns post-date the measurement. RATIO: 191.1M orchestration against 72.9M delegated spec cost (SPEC-036 28.5M + SPEC-037 19.4M + SPEC-038 25.0M grand totals) = ~72% of the stage's total spend is orchestration no spec recorded — higher than STAGE-006 (40%) / STAGE-007 (61%) because the ID-collision reconcile + the PROJ-003 project brief + all three specs' un-metered design AND ship cycles all ran in this main session."
 ---
 
 # STAGE-009: SOF-3 lossless-JPEG core decoder
@@ -135,9 +136,9 @@ the spec as `task.complexity`.
 
 - [x] SPEC-036 (shipped 2026-11-05) — [M] SOF-3 entropy front-end (markers, bit reader, DC Huffman)
 - [x] SPEC-037 (shipped 2026-11-05) — [M] Lossless reconstruction (predictors, point transform, restart)
-- [ ] SPEC-038 (build) — [S] SOF-3 decoder fuzz + truncation hardening
+- [x] SPEC-038 (shipped 2026-11-05) — [S] SOF-3 decoder fuzz + truncation hardening
 
-**Count:** 2 shipped / 1 active / 0 pending
+**Count:** 3 shipped / 0 active / 0 pending — **stage complete.**
 
 ## Design Notes
 
@@ -186,21 +187,73 @@ the spec as `task.complexity`.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Drafted at ship (Prompt 1d), 2026-11-05.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** `src/ljpeg.rs`
+  is a self-contained, container-agnostic single-component SOF-3 (lossless JPEG,
+  T.81 Annex H) decoder: it parses the marker/frame structure
+  (SOI/SOF3/DHT/SOS/DRI/RSTn/EOI), builds and applies the DC Huffman table, and
+  reconstructs samples through predictors 1–7, the initial prediction, the point
+  transform, and restart resets — SPEC-036 (entropy front-end) + SPEC-037
+  (reconstruction), proven **bit-exact** by the analytic encode→decode round-trip
+  oracle with a perturbed-decoder red-proof, and SPEC-038 proving it **panic-free**
+  on hostile input (3,098,220+ fuzz runs, no crash; typed `Ljpeg*` errors on every
+  truncated / oversized-table / forged-dimension bitstream). No DNG container
+  binding and no real-file `dnglab --raw-checksum` — both correctly deferred to
+  STAGE-010, as framed.
+- **How many specs did it actually take?** **3, exactly as framed**
+  (SPEC-036/037/038). The pre-named L-risk split on SPEC-036 (marker/frame parse
+  as one spec, Huffman build+decode as the other) was **not** needed — it designed
+  as M and built whole.
+- **How many outlines survived unchanged?** **3 of 3.** Every framed outline held
+  scope from frame to ship (entropy front-end; reconstruction; fuzz + hardening).
+  Framing paid for itself — in contrast to STAGE-006, which grew 4→6 under a
+  corpus-assumption surprise; STAGE-009 was corpus-free by design (its oracle is
+  the in-harness round-trip encoder), so nothing forced a precursor split.
+- **What changed between starting and shipping?** Nothing structural — the one
+  design-time decision that mattered (DEC-036: expose the `pub(crate)` decoder to
+  the fuzz crate via a `fuzzing` cargo **feature**, not `cfg(fuzzing)`, because the
+  `clippy — fuzz graph` gate builds with plain `cargo clippy`) was pinned by a §12
+  probe before SPEC-038 built, so there was no mid-stage pivot; SPEC-037's verify
+  raised one coverage punch-list (the shared-helper oracle tautology, `floor_div2`)
+  that was resolved at its own ship.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - The "probe the hard assumption at design/frame time" discipline paid off
+    directly: STAGE-009 had **zero mid-stage pivots** because DEC-035 (SOF-3
+    patent-clean) and DEC-036 (the fuzz-graph-gate mechanism) were both settled by
+    §12 probes before building. **Candidate to land now:** the cheap Prompt 1c
+    patent-check line proposed under `patent-check-named-algorithms-at-frame` —
+    STAGE-009's proactive DEC-035 is the positive counter-instance to STAGE-007's
+    MHC miss (still below the N=3-same-outcome bar, so left `watch`).
+  - The desktop-no-interactive-`/cost` cost-recovery practice (recover the true
+    cumulative from each cold transcript, deduped by message.id at Opus list rates,
+    supersede the context-occupancy handback floor at ship) is now routine across
+    SPEC-036/037/038 and this stage's orchestration entry. The
+    `desktop-cost-tool-unavailable-handbacks-null` process-debt is well-characterized
+    (project-close owned) — no new action here.
+- **Signals dispositioned at this close?** (Prompt 1d step 7) **Yes — all five
+  `disposition_at: stage-close` lessons still at `watch` were walked; none silently
+  carried, none reached bar, all remain `watch` with `last_touched: 2026-11-05`:**
+  - `shared-path-oracle-tautology` (stage-born, SPEC-037) — N=1, bar N=2. No second
+    instance in STAGE-009; SPEC-038's verify instead **applied** the discipline
+    (confirmed the replay tests bite — a distinct typed variant per hostile shape,
+    corpus asserted non-empty). Kept `watch`.
+  - `patent-check-named-algorithms-at-frame` — N=1 (STAGE-007 miss). STAGE-009 is
+    the **positive** counter-instance (DEC-035 checked at design, no landmine), not
+    a same-outcome miss; bar is N=3 same-outcome, so kept `watch`. Proposed the
+    cheap Prompt 1c line above.
+  - `probe-the-hard-assumption-at-frame-time` — N=1 (STAGE-006 corpus miss). No
+    STAGE-009 miss (corpus-free stage); SPEC-038's §12 fuzz-graph-gate probe is a
+    positive application. Kept `watch`.
+  - `a-fix-inherits-the-precondition-of-the-thing-it-fixes` — N=2, needs N=3 on
+    DIFFERENT code. STAGE-009 added no instance (new-capability decoder + a fuzz
+    target, not a fix hardening failing logic). Deferred, kept `watch` at N=2.
+  - `saturating-as-cast-masks-explicit-clamp-in-quantize-tests` — N=1 (PROJ-002
+    SPEC-033). No instance in STAGE-009 (integer u16 prediction, no `f64 as u16`
+    saturating cast); its own decision point is a PROJ-002 STAGE-008 close. Kept
+    `watch`.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - `shared-path-oracle-tautology` is the one stage-born lesson (SPEC-037); recorded
+    as a `watch` signal at N=1 (bar N=2) — a round-trip oracle is blind to a helper
+    both halves share. **No promotion yet**; the convention lands at a confirmed
+    second instance.
