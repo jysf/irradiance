@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-05
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-038
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 267704             # FLOOR — context-window occupancy, not /cost (see notes)
+  estimated_usd: null              # no rate applied to a floor figure
+  duration_minutes: 40
+  branch: claude/spec-038-build-a93ad6
+  pr: 106
+  completed_at: 2026-11-05         # YYYY-MM-DD
+  notes: "No interactive /cost in the Claude Code desktop app's Code tab (same as HANDOFF-085/086/087). 267704 is this build session's context-window token occupancy at handback, read via the app usage tool (ccd_session_mgmt get_usage: 267,704 of 1,000,000, 27%). It is a snapshot / lower bound: true cumulative input+output across the build's turns is higher (per-turn context resends not captured). Not invented, but not a /cost number — treat as a FLOOR in rollups, as HANDOFF-085/086/087 reported; the orchestrator supersedes it from the transcript at ship. All six gates green first pass; no new DEC (DEC-036 was minted at design)."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -183,38 +183,84 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-038-build-a93ad6` → **PR #106**.
+- **Completed at:** 2026-11-05
+- **All acceptance criteria met?** yes — all six of SPEC-038's `## Acceptance
+  Criteria`:
+  1. The `ljpeg` libFuzzer target (`fuzz/fuzz_targets/ljpeg.rs` + the `[[bin]]`)
+     drives the full decoder via the `fuzzing`-feature entry; the documented
+     `cargo +nightly fuzz run ljpeg …` recipe runs clean (smoke below).
+  2. `clippy — fuzz graph` / `license policy — fuzz graph` stay green —
+     `just lint-fuzz` (plain `cargo clippy --manifest-path fuzz/Cargo.toml
+     --all-targets`, the exact CI build) compiles the target via the **feature**,
+     not `cfg(fuzzing)` (DEC-036); `just deny-fuzz` green.
+  3. `fuzz_seed_corpus_decodes_without_panic` replays every committed seed, and
+     `hostile_bitstreams_are_typed_errors_not_panics` a crafted table — each a
+     typed `Error` or `Ok`, never a panic; both run in `just test`.
+  4. `cargo run --example fuzz-seeds` (re)writes 14 seeds to `fuzz/seeds/ljpeg/`
+     (valid predictors / precision / Pt / restart + the five hostile shapes),
+     committed and own-work (DEC-003).
+  5. `ljpeg` stays `pub(crate)`: a default `cargo build` / `cargo doc` exposes no
+     `ljpeg` symbol and no `__fuzz_ljpeg` (verified — the entry is `#[doc(hidden)]`
+     and `#[cfg(feature = "fuzzing")]`).
+  6. `#![forbid(unsafe_code)]` + the five-lint deny policy hold on the entry
+     (compiled under `--all-features`); all six gates green; no new runtime dep
+     (the `fuzzing` feature is empty).
+- **Behavioral confirmation (not CI):** `PATH=… cargo +nightly fuzz run ljpeg
+  fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=25` → **2,552,124
+  executions in 26 s, no crash, no artifact** (`cov: 379 ft: 1284`).
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 267704 — a **FLOOR**, not a `/cost` cumulative.
+- **Estimated USD:** null (no rate applied to a floor).
+- **Duration (minutes):** ~40.
+- **Source of the number:** none available (no interactive `/cost` in the
+  Claude Code desktop app's Code tab). 267,704 is this session's context-window
+  occupancy at handback (`ccd_session_mgmt get_usage`: 267,704 / 1,000,000,
+  27%). A lower bound — per-turn context resends are not captured — reported as
+  a floor exactly as HANDOFF-085/086/087 did; the orchestrator supersedes it
+  from the session transcript at ship.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none — `DEC-036` (the `fuzzing`-feature exposure) was minted at design and
+    is validated by this build: `just lint-fuzz`'s plain `cargo clippy` over
+    `fuzz/Cargo.toml` compiles the target because the fuzz crate enables the
+    feature, and a default `cargo doc` shows no `ljpeg` symbol.
 - **Deviations from spec:**
-  - [list]
+  - none. The seed builder is the spec's local-builder option (mirroring
+    `encode_lj92` by hand, like `plane_fixture`), not a shared
+    `tests/support/ljpeg.rs` — the spec offered either; the local builder keeps
+    the shipped test module untouched.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - none for STAGE-009 (this is its last spec). STAGE-010 (DNG container binding
+    + `dnglab` bit-exact) is the next wave and already framed; when it adds a
+    real public `Compression 7` entry, the target can switch to it and the
+    `fuzzing` feature + `__fuzz_ljpeg` hook may be retired (DEC-036 Validation).
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing blocking. The one real decision was whether to share the oracle's
+   `encode_lj92` via a new `tests/support/ljpeg.rs` or re-port it locally in the
+   example. The spec named both; I chose the local port (the `plane_fixture`
+   precedent) to avoid editing the shipped SPEC-037 test module, but the
+   hand-sync obligation it creates is worth a line in the toolchain brief.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `DEC-036` named the exact mechanism (feature, not `cfg(fuzzing)`) and
+   the reason (the plain-`cargo-clippy` fuzz-graph gate), and the constraints
+   (`no-panics-on-untrusted-input`, `no-new-top-level-deps-without-decision`)
+   were exactly the two that bit. The toolchain brief's `+toolchain`/PATH traps
+   saved the nightly-fuzz loop. One small gap: `cargo fuzz` refuses to run until
+   `fuzz/corpus/<target>/` exists (it is gitignored, so a first run must `mkdir`
+   it) — not documented anywhere I read.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Create `fuzz/corpus/ljpeg/` before the first `cargo fuzz run` (it cost one
+   retry). And I would still port the encoder locally rather than refactor the
+   shipped test module — but I would add a one-line cross-reference comment on
+   both copies pointing at each other, so the hand-sync is explicit on the
+   production side too, not only in the example.
