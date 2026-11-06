@@ -21,7 +21,8 @@
 //! What the front-end does:
 //!
 //! - [`parse_headers`] walks the marker/segment structure (`SOI → {DHT | DRI |
-//!   SOF3} → SOS`, ITU-T T.81 Annex B), returning the single-component [`Frame`]
+//!   SOF3 | APPn | COM} → SOS`, ITU-T T.81 Annex B; APPn / COM are skipped by
+//!   length, `DEC-039`), returning the [`Frame`]
 //!   parameters, the DC [`HuffTable`], and the byte offset where entropy-coded
 //!   data begins.
 //! - [`HuffTable::build`] turns a DHT `BITS`/`HUFFVAL` segment into a canonical
@@ -99,6 +100,12 @@ const MARKER_SOS: u8 = 0xDA;
 const MARKER_DRI: u8 = 0xDD;
 /// First restart marker; the eight are `0xD0..=0xD7`.
 const MARKER_RST0: u8 = 0xD0;
+/// First application segment; the sixteen are `0xE0..=0xEF` (`APP0..APP15`).
+const MARKER_APP0: u8 = 0xE0;
+/// Last application segment (`APP15`).
+const MARKER_APP15: u8 = 0xEF;
+/// Comment segment.
+const MARKER_COM: u8 = 0xFE;
 
 /// `2^n` for `n` in `0..=16`, without the shift/`pow` operators the crate root
 /// denies (`clippy::arithmetic_side_effects`). The bit reader needs `n <= 7`
@@ -388,6 +395,10 @@ pub(crate) fn parse_headers(data: &[u8]) -> Result<(Frame, Vec<HuffTable>, usize
                 };
                 return Ok((frame, component_tables, pos));
             }
+            // APPn / COM carry optional metadata (camera-written: the Pentax
+            // K-3 III puts an APP0 between DHT and SOS). They are skipped by
+            // their declared length, never parsed (`DEC-039`).
+            MARKER_APP0..=MARKER_APP15 | MARKER_COM => skip_segment(data, &mut pos)?,
             MARKER_EOI => return Err(Error::LjpegMissingMarker { marker: MARKER_SOS }),
             m if is_other_sof(m) => return Err(Error::LjpegUnsupportedProcess { sof: m }),
             other => return Err(Error::LjpegUnexpectedMarker { marker: other }),
@@ -515,6 +526,29 @@ fn parse_dht(
     if *pos != seg_end {
         return Err(Error::LjpegInvalidHuffmanTable);
     }
+    Ok(())
+}
+
+/// Skip a length-delimited marker segment the decoder does not interpret —
+/// APPn / COM (ITU-T T.81 B.2.4.5–B.2.4.6). The 2-byte length `L` counts
+/// itself, so the payload is `L - 2` bytes; `pos` advances past it. Same
+/// length-read idiom as [`parse_dht`]. A length below 2, or one that runs past
+/// the buffer, is [`Error::Truncated`] — never a panic (`DEC-039`).
+fn skip_segment(data: &[u8], pos: &mut usize) -> Result<(), Error> {
+    let at = *pos;
+    let len = usize::from(read_u16_be(data, pos)?);
+    let payload = len.checked_sub(2).ok_or(Error::Truncated { at, len })?;
+    let seg_end = pos.checked_add(payload).ok_or(Error::Truncated {
+        at: *pos,
+        len: payload,
+    })?;
+    if seg_end > data.len() {
+        return Err(Error::Truncated {
+            at: *pos,
+            len: payload,
+        });
+    }
+    *pos = seg_end;
     Ok(())
 }
 
@@ -2862,5 +2896,178 @@ mod tests {
             matches!(result, Err(Error::Truncated { .. })),
             "a scan truncated mid-second-component must be a typed error, got {result:?}"
         );
+    }
+
+    // ══ SPEC-044 / DEC-039: APPn / COM header segments are skipped ═════════
+    //
+    // Tier-A (hand-built, no corpus). The real Pentax K-3 III stream is
+    // `SOI → SOF3 → DHT → APP0(len 60) → SOS`; these fixtures put the same
+    // shape around the SPEC-046 two-component encoder. The real-file proof is
+    // the tier-B `dnglab --raw-checksum` oracle in `tests/plane_oracle.rs`.
+
+    /// A length-delimited marker segment `0xFF code | L | payload`, with
+    /// `L = payload.len() + 2` (the length counts itself).
+    fn marker_segment(code: u8, payload: &[u8]) -> Vec<u8> {
+        let mut seg = vec![0xFF, code];
+        seg.extend_from_slice(&((payload.len() + 2) as u16).to_be_bytes());
+        seg.extend_from_slice(payload);
+        seg
+    }
+
+    /// `stream` with `segment` spliced in immediately before its SOS marker —
+    /// i.e. between DHT and SOS, where K3III carries its APP0. The SOS is found
+    /// before the splice, so a payload containing `0xFF 0xDA` cannot confuse it.
+    fn insert_before_sos(stream: &[u8], segment: &[u8]) -> Vec<u8> {
+        let sos = stream
+            .windows(2)
+            .position(|w| w == [0xFF, MARKER_SOS])
+            .expect("stream has an SOS marker");
+        let mut out = stream[..sos].to_vec();
+        out.extend_from_slice(segment);
+        out.extend_from_slice(&stream[sos..]);
+        out
+    }
+
+    /// A deterministic 2·X × Y plane at precision `p` for the APPn fixtures.
+    fn appn_fixture_plane(x: usize, rows: usize, precision: u8) -> Vec<u16> {
+        let modulo = 1u32 << precision;
+        let mut state = 0x044u32;
+        (0..x * 2 * rows)
+            .map(|_| {
+                state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+                ((state >> 9) % modulo) as u16
+            })
+            .collect()
+    }
+
+    /// Decode `stream` (two-component, `2·x·rows` samples) to a fresh plane.
+    fn decode_plane(stream: &[u8], len: usize) -> Result<Vec<u16>, Error> {
+        let mut out = vec![0u16; len];
+        decode_into(stream, &mut out)?;
+        Ok(out)
+    }
+
+    #[test]
+    fn appn_segment_between_dht_and_sos_is_skipped() {
+        // K3III's shape: P=14, predictor 1, Pt 0, two components, an APP0
+        // between DHT and SOS. The payload deliberately contains `0xFF 0xDA`
+        // (an SOS lookalike) and `0xFF 0x00`: a skip by declared length must
+        // step over them, never interpret them.
+        let (x, rows, precision) = (4usize, 3usize, 14u8);
+        let samples = appn_fixture_plane(x, rows, precision);
+        let clean = encode_lj92_two_component(&samples, x, rows, precision, 1, 0, 0);
+        let mut payload = b"PENTAX \0".to_vec();
+        payload.extend_from_slice(&[0xFF, MARKER_SOS, 0xFF, 0x00, 0x12]);
+        payload.resize(58, 0xAB); // 58 + 2 = L 60, as on the real file
+        let with_app0 = insert_before_sos(&clean, &marker_segment(MARKER_APP0, &payload));
+
+        let len = samples.len();
+        let base = decode_plane(&clean, len).unwrap();
+        assert_eq!(base, samples, "segment-free frame decodes bit-exact");
+        let got = decode_plane(&with_app0, len).unwrap();
+        assert_eq!(got, base, "an APP0 between DHT and SOS must be skipped");
+
+        // Every APPn (APP0..APP15), stacked, and an empty-payload one (L = 2).
+        let mut stacked = clean.clone();
+        for code in MARKER_APP0..=MARKER_APP15 {
+            stacked = insert_before_sos(&stacked, &marker_segment(code, &[code, 0xFF]));
+        }
+        stacked = insert_before_sos(&stacked, &marker_segment(MARKER_APP0 + 1, &[]));
+        assert_eq!(decode_plane(&stacked, len).unwrap(), base);
+
+        // The returned entropy offset moves by exactly the segment length.
+        let (_, _, off_clean) = parse_headers(&clean).unwrap();
+        let (_, _, off_app) = parse_headers(&with_app0).unwrap();
+        assert_eq!(off_app, off_clean + 2 + 60);
+    }
+
+    #[test]
+    fn com_segment_is_skipped() {
+        let (x, rows, precision) = (3usize, 2usize, 12u8);
+        let samples = appn_fixture_plane(x, rows, precision);
+        let clean = encode_lj92_two_component(&samples, x, rows, precision, 1, 0, 0);
+        let com = marker_segment(MARKER_COM, b"irradiance SPEC-044 \xFF\xD9 comment");
+        let with_com = insert_before_sos(&clean, &com);
+        let len = samples.len();
+        assert_eq!(decode_plane(&with_com, len).unwrap(), samples);
+
+        // A COM right after SOI (before SOF3) is skipped too: the arm is
+        // position-independent within the header marker sequence.
+        let mut early = vec![0xFF, MARKER_SOI];
+        early.extend_from_slice(&com);
+        early.extend_from_slice(&clean[2..]);
+        assert_eq!(decode_plane(&early, len).unwrap(), samples);
+    }
+
+    #[test]
+    fn truncated_appn_length_is_a_typed_error_not_a_panic() {
+        let samples = appn_fixture_plane(2, 2, 12);
+        let clean = encode_lj92_two_component(&samples, 2, 2, 12, 1, 0, 0);
+        let sos = clean
+            .windows(2)
+            .position(|w| w == [0xFF, MARKER_SOS])
+            .unwrap();
+        let head = &clean[..sos]; // SOI, SOF3, DHT
+
+        // A declared length that runs past the end of the buffer.
+        let mut past_end = head.to_vec();
+        past_end.extend_from_slice(&[0xFF, MARKER_APP0, 0x00, 0xC8, 1, 2, 3]);
+        assert!(matches!(
+            parse_headers(&past_end),
+            Err(Error::Truncated { .. })
+        ));
+        // The same, mid-stream in a full frame (L = 0xFFFF swallows the rest).
+        let mut huge = head.to_vec();
+        huge.extend_from_slice(&[0xFF, MARKER_COM, 0xFF, 0xFF]);
+        huge.extend_from_slice(&clean[sos..]);
+        let mut out = vec![0u16; samples.len()];
+        assert!(matches!(
+            decode_into(&huge, &mut out),
+            Err(Error::Truncated { .. })
+        ));
+        // A length below 2 (it must count its own two bytes).
+        for bad_len in [0u8, 1] {
+            let mut short = head.to_vec();
+            short.extend_from_slice(&[0xFF, MARKER_APP0 + 5, 0x00, bad_len]);
+            short.extend_from_slice(&clean[sos..]);
+            assert!(matches!(
+                parse_headers(&short),
+                Err(Error::Truncated { .. })
+            ));
+        }
+        // The length field itself cut off after one byte, and absent.
+        let mut half = head.to_vec();
+        half.extend_from_slice(&[0xFF, MARKER_APP0, 0x00]);
+        assert!(matches!(parse_headers(&half), Err(Error::Truncated { .. })));
+        let mut none = head.to_vec();
+        none.extend_from_slice(&[0xFF, MARKER_COM]);
+        assert!(matches!(parse_headers(&none), Err(Error::Truncated { .. })));
+        // A segment that ends exactly at EOF parses, then the missing SOS is
+        // the typed error.
+        let mut exact = head.to_vec();
+        exact.extend_from_slice(&marker_segment(MARKER_APP0, &[9, 9]));
+        assert!(parse_headers(&exact).is_err());
+    }
+
+    #[test]
+    fn single_component_decode_unchanged_by_appn_arm() {
+        // Characterization: a segment-free Nf=1 scan decodes exactly as shipped
+        // (fixed plane, fixed stream), and its entropy offset is unchanged.
+        let samples = [10u16, 4095, 2000, 7, 1234, 4094]; // 3x2, P=12
+        let stream = encode_lj92(&samples, 3, 2, 12, 1, 0, 0);
+        let (frame, _, offset) = parse_headers(&stream).unwrap();
+        assert_eq!(frame.components, 1);
+        // SOI(2) + SOF3 Nf=1 (2+11) + DHT (2+2+1+16+HUFFVAL) + SOS (2+8).
+        let (_bits, huffval) = flat_table_bytes();
+        assert_eq!(offset, 2 + 13 + (2 + 2 + 1 + 16 + huffval.len()) + 10);
+        let mut out = [0u16; 6];
+        decode_into(&stream, &mut out).unwrap();
+        assert_eq!(out, samples);
+
+        // And an APP0 in an Nf=1 stream is skipped to the same plane.
+        let with_app = insert_before_sos(&stream, &marker_segment(MARKER_APP0, b"JFIF\0"));
+        let mut out2 = [0u16; 6];
+        decode_into(&with_app, &mut out2).unwrap();
+        assert_eq!(out2, samples);
     }
 }

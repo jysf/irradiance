@@ -1028,3 +1028,83 @@ fn flipping_orientation_is_positionally_correct_at_production_scale() {
         elapsed.as_secs_f64()
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-044 — a held Compression-7 file develops through the existing pipeline
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The two held DNG `Compression 7` (lossless-JPEG SOF-3) files decode bit-exact
+// against `dnglab --raw-checksum` (`tests/plane_oracle.rs`). This smoke proves
+// the decoded plane is a SOURCE SWAP into the same develop path, not a second
+// pipeline: the real, unmodified `Sensor` (opcode lists included) runs through
+// the same `unpack_into` -> `develop_into` calls as every uncompressed file.
+
+/// The two held Compression-7 DNGs (Typ 246 big-endian; K3III little-endian
+/// with the APP0 segment `DEC-039` skips).
+const DECODABLE_COMPRESSED: [&str; 2] = [
+    "LEICA-M-MONOCHROM-TYP246/M2462362.DNG",
+    "PENTAX-K3III-MONO/K3III.DNG",
+];
+
+/// Parse, decode and develop `data` end-to-end, returning the output
+/// dimensions and the developed plane.
+fn develop_end_to_end(path: &str, data: &[u8]) -> ((u32, u32), Vec<u16>) {
+    let container = Container::parse(data).unwrap_or_else(|e| panic!("parse {path}: {e}"));
+    let sensor = container
+        .sensor()
+        .unwrap_or_else(|e| panic!("sensor {path}: {e}"));
+    assert_eq!(
+        sensor.compression,
+        Compression::Jpeg,
+        "{path} is meant to exercise the Compression-7 route"
+    );
+    let mut plane = vec![0u16; sensor.width as usize * sensor.height as usize];
+    unpack_into(&sensor, container.byte_order(), data, &mut plane)
+        .unwrap_or_else(|e| panic!("unpack {path}: {e}"));
+    let dims =
+        output_dimensions(&sensor).unwrap_or_else(|e| panic!("output_dimensions {path}: {e}"));
+    let mut output = vec![0u16; dims.0 as usize * dims.1 as usize];
+    develop_into(&sensor, &plane, &mut output)
+        .unwrap_or_else(|e| panic!("develop_into {path}: {e}"));
+    (dims, output)
+}
+
+#[test]
+fn compression7_file_develops_through_the_existing_pipeline() {
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
+    let root = CorpusRoot::resolve();
+
+    for path in DECODABLE_COMPRESSED {
+        let entry = manifest
+            .get(path)
+            .unwrap_or_else(|| panic!("{path} must be in the manifest"));
+        let Some(file_path) = entry.require(&root) else {
+            continue; // SKIP already announced by CorpusFile::require
+        };
+        let data = std::fs::read(&file_path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+
+        let (dims, first) = develop_end_to_end(path, &data);
+        assert_eq!(
+            first.len(),
+            dims.0 as usize * dims.1 as usize,
+            "{path}: developed output must be exactly output_dimensions(sensor)"
+        );
+        // A non-degenerate image, not a buffer the pipeline left untouched.
+        let lo = first.iter().copied().min().unwrap_or(0);
+        let hi = first.iter().copied().max().unwrap_or(0);
+        assert!(lo < hi, "{path}: developed output is constant ({lo})");
+
+        // Deterministic: a second, fully independent decode + develop is
+        // byte-identical.
+        let (dims2, second) = develop_end_to_end(path, &data);
+        assert_eq!(dims2, dims, "{path}: output dimensions differ across runs");
+        assert!(
+            first == second,
+            "{path}: two develops of the same file are not byte-identical"
+        );
+        eprintln!(
+            "COMPRESSION-7 DEVELOP ({path}): {}x{} output, range {lo}..={hi}, deterministic",
+            dims.0, dims.1
+        );
+    }
+}

@@ -13,7 +13,10 @@
 //!   `hand_built_fixtures_plane_matches_its_known_md5`) run everywhere, no
 //!   corpus, no tools — `AC5`, and the only half CI ever sees (`DEC-003`).
 //! - **Tier B** (`plane_md5_matches_the_pinned_raw_checksum`) needs the real
-//!   corpus and skips loudly, per-entry, when absent.
+//!   corpus and skips loudly, per-entry, when absent. Since `SPEC-044` it also
+//!   hashes the two held `Compression 7` (lossless-JPEG) DNGs
+//!   (`DECODABLE_COMPRESSED`), whose red-proof mutates `src/ljpeg.rs`
+//!   (`ljpeg_decode_fault_turns_compression7_oracle_red`).
 //! - **The red-proof** (`an_injected_unpacker_fault_turns_the_oracle_red`,
 //!   `the_honest_tree_is_the_negative_control`) needs the real corpus too, but
 //!   is its own category: it does not merely READ the unpacker, it rebuilds a
@@ -105,36 +108,40 @@ const DECODABLE: [&str; 6] = [
 /// path the injected fault targets — and the smallest of the three Q2M files.
 const REFERENCE_FILE: &str = "LEICA-Q2-MONO/L1021223.DNG";
 
-/// The three corpus files this oracle does NOT decode, and why — named here
-/// rather than left as "whatever `DECODABLE` doesn't mention", so an entry
-/// that falls through neither list fails `compressed_files_are_skipped_by_name`
-/// instead of silently vanishing (AC2: "skipped by name with a stated reason,
-/// not silently").
-const SKIPPED_COMPRESSED: [(&str, &str); 3] = [
-    (
-        "LEICA-M-MONOCHROM-TYP246/M2462362.DNG",
-        "Compression 7 (JPEG) - lossless JPEG SOF-3 decode is out of scope for PROJ-001",
-    ),
-    (
-        "PENTAX-K3III-MONO/K3III.DNG",
-        "Compression 7 (JPEG) - same SOF-3 gap, a different camera",
-    ),
-    (
-        "PENTAX-K3III-MONO/K3III.PEF",
-        "Compression 65535 (vendor PEF) - a different container entirely",
-    ),
-];
+/// The two held DNG `Compression 7` (lossless-JPEG SOF-3) files, decoded
+/// through `plane::unpack_into`'s SPEC-043 route into the two-component
+/// (`Nf=2`) column-interleave decoder (SPEC-046 / `DEC-037`). The Pentax needs
+/// `ljpeg::parse_headers` to skip its APP0 segment (`DEC-039`). Kept apart from
+/// `DECODABLE` because they are compressed: the partition test asserts every
+/// `DECODABLE` entry is `require_uncompressed().is_ok()`, and these are not.
+/// Their expected digests come from the manifest like every other entry.
+const TYP246_LJPEG: &str = "LEICA-M-MONOCHROM-TYP246/M2462362.DNG";
+const K3III_LJPEG: &str = "PENTAX-K3III-MONO/K3III.DNG";
+const DECODABLE_COMPRESSED: [&str; 2] = [TYP246_LJPEG, K3III_LJPEG];
+
+/// The corpus files this oracle does NOT decode, and why — named here rather
+/// than left as "whatever `DECODABLE` doesn't mention", so an entry that falls
+/// through every list fails `compressed_files_are_skipped_by_name` instead of
+/// silently vanishing (AC2: "skipped by name with a stated reason, not
+/// silently"). SPEC-044 moved the two Compression-7 DNGs out to
+/// `DECODABLE_COMPRESSED`; only the vendor PEF remains.
+const SKIPPED_COMPRESSED: [(&str, &str); 1] = [(
+    "PENTAX-K3III-MONO/K3III.PEF",
+    "Compression 65535 (vendor PEF) - a different container entirely",
+)];
 
 #[test]
 fn compressed_files_are_skipped_by_name() {
     let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
 
     assert_eq!(
-        DECODABLE.len() + SKIPPED_COMPRESSED.len(),
+        DECODABLE.len() + DECODABLE_COMPRESSED.len() + SKIPPED_COMPRESSED.len(),
         manifest.files.len(),
-        "DECODABLE ({}) + SKIPPED_COMPRESSED ({}) must account for every [[file]] in the \
-         manifest ({}) -- an entry that falls through both lists is a silent skip",
+        "DECODABLE ({}) + DECODABLE_COMPRESSED ({}) + SKIPPED_COMPRESSED ({}) must account \
+         for every [[file]] in the manifest ({}) -- an entry that falls through every list is \
+         a silent skip",
         DECODABLE.len(),
+        DECODABLE_COMPRESSED.len(),
         SKIPPED_COMPRESSED.len(),
         manifest.files.len()
     );
@@ -147,6 +154,20 @@ fn compressed_files_are_skipped_by_name() {
         assert!(
             !SKIPPED_COMPRESSED.iter().any(|(p, _)| *p == path),
             "{path} is in both DECODABLE and SKIPPED_COMPRESSED"
+        );
+        assert!(
+            !DECODABLE_COMPRESSED.contains(&path),
+            "{path} is in both DECODABLE and DECODABLE_COMPRESSED"
+        );
+    }
+    for path in DECODABLE_COMPRESSED {
+        assert!(
+            manifest.get(path).is_some(),
+            "{path} is in DECODABLE_COMPRESSED but not in the manifest"
+        );
+        assert!(
+            !SKIPPED_COMPRESSED.iter().any(|(p, _)| *p == path),
+            "{path} is in both DECODABLE_COMPRESSED and SKIPPED_COMPRESSED"
         );
     }
     for (path, reason) in SKIPPED_COMPRESSED {
@@ -184,6 +205,28 @@ fn compressed_files_are_skipped_by_name() {
              the file and this one is false",
             sensor.compression
         );
+        checked += 1;
+    }
+    // SPEC-044: the Compression-7 entries are compressed (so not `DECODABLE`)
+    // yet DO decode -- both halves asserted against the real bytes.
+    for path in DECODABLE_COMPRESSED {
+        let entry = manifest.get(path).expect("in manifest");
+        let Some(p) = entry.require(&root) else {
+            continue;
+        };
+        let bytes = std::fs::read(&p).expect("read corpus file");
+        let container = Container::parse(&bytes).expect("parses");
+        let sensor = container.sensor().expect("has a sensor plane");
+        assert!(
+            sensor.require_uncompressed().is_err(),
+            "{path} is in DECODABLE_COMPRESSED but it is UNCOMPRESSED -- it belongs in DECODABLE"
+        );
+        let pixel_count = usize::try_from(u64::from(sensor.width) * u64::from(sensor.height))
+            .expect("plane fits this host");
+        let mut plane = vec![0u16; pixel_count];
+        unpack_into(&sensor, container.byte_order(), &bytes, &mut plane).unwrap_or_else(|e| {
+            panic!("{path} is in DECODABLE_COMPRESSED but unpack_into failed: {e}")
+        });
         checked += 1;
     }
     for (path, _) in SKIPPED_COMPRESSED {
@@ -606,7 +649,9 @@ fn plane_md5_matches_the_pinned_raw_checksum() {
     let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
     let root = CorpusRoot::resolve();
 
-    for path in DECODABLE {
+    // SPEC-044: the two Compression-7 files ride the same loop -- same digest
+    // shape, same manifest-sourced `raw_checksum`, same mismatch locator.
+    for path in DECODABLE.iter().chain(DECODABLE_COMPRESSED.iter()) {
         let entry = manifest
             .get(path)
             .unwrap_or_else(|| panic!("{path} must be in the manifest"));
@@ -733,6 +778,13 @@ fn probe_source() -> String {
 /// this same machinery with a byte-aligned injector, so the injector is a
 /// parameter rather than a fixed call.
 fn stage_probe_crate(dest: &Path, inject: Option<fn(&Path)>) {
+    stage_probe_crate_into(dest, "src/plane.rs", inject);
+}
+
+/// [`stage_probe_crate`] with the injection target named: SPEC-044's red-proof
+/// mutates `src/ljpeg.rs` (the SOF-3 decode), which the `src/plane.rs`
+/// injectors above never reach.
+fn stage_probe_crate_into(dest: &Path, target: &str, inject: Option<fn(&Path)>) {
     let repo_root = corpus::crate_root();
 
     std::fs::create_dir_all(dest.join("src/bin")).expect("mkdir src/bin");
@@ -744,7 +796,7 @@ fn stage_probe_crate(dest: &Path, inject: Option<fn(&Path)>) {
     copy_dir_recursive(&repo_root.join("src"), &dest.join("src"));
 
     if let Some(inject) = inject {
-        inject(&dest.join("src/plane.rs"));
+        inject(&dest.join(target));
     }
 
     std::fs::write(dest.join("src/bin/plane_oracle_probe.rs"), probe_source())
@@ -937,7 +989,8 @@ fn the_honest_tree_is_the_negative_control() {
 // `NIKON_BAYER` are now in `DECODABLE`, so `plane_md5_matches_the_pinned_raw_checksum`
 // hashes both and compares against each one's manifest `raw_checksum`, exactly
 // like the four mono entries — and `compressed_files_are_skipped_by_name`'s
-// partition is now `DECODABLE (6) + SKIPPED_COMPRESSED (3) == 9`. The bespoke
+// partition is now `DECODABLE (6) + SKIPPED_COMPRESSED (3) == 9` (SPEC-044 later moved
+// the two Compression-7 DNGs to `DECODABLE_COMPRESSED`: 6 + 2 + 1). The bespoke
 // direct-path Bayer oracle test and the hard-coded
 // `CANON_RAW_CHECKSUM`/`NIKON_RAW_CHECKSUM` constants it used are gone: nothing
 // here pins a Bayer checksum as a literal any more.
@@ -1063,4 +1116,126 @@ fn the_bayer_red_proof_control_is_green() {
         apparatus_digest, entry.oracle.raw_checksum,
         "the UNMUTATED copy-and-rebuild apparatus must reproduce the pinned Nikon checksum"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-044 — the Compression-7 (lossless-JPEG) oracle's red-proof
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The two held Compression-7 DNGs are hashed by
+// `plane_md5_matches_the_pinned_raw_checksum` (via `DECODABLE_COMPRESSED`). None
+// of the `src/plane.rs` injectors above reach their decode: it runs in
+// `src/ljpeg.rs`. And SPEC-046's tier-A round-trip red-proof cannot stand in --
+// its encoder shares the decoder's interleave convention
+// (`shared-path-oracle-tautology`). So this red-proof mutates the staged copy's
+// `src/ljpeg.rs` and runs the real files through it.
+
+/// The Compression-7 red-proof's fault: a per-component predictor neighbour.
+/// In a two-component column-interleave scan, component `k`'s left neighbour
+/// `Ra` is its OWN previous sample, two output columns back. This makes both
+/// `Ra` reads in `predict_component` take ONE column back -- the adjacent,
+/// OTHER component's sample -- the classic mistake of predicting the
+/// interleaved plane as if it were one component. Values change wherever the
+/// two column phases differ; the entropy bits consumed never change, so it
+/// cannot turn into a `Truncated` error instead of a wrong digest.
+fn inject_two_component_neighbour_fault(ljpeg_rs: &Path) {
+    let src = std::fs::read_to_string(ljpeg_rs)
+        .unwrap_or_else(|e| panic!("read {}: {e}", ljpeg_rs.display()));
+
+    let needle = "neighbour(out, slot, 2)";
+    let occurrences = src.matches(needle).count();
+    assert_eq!(
+        occurrences, 2,
+        "expected exactly two `{needle}` in src/ljpeg.rs (predict_component's same-component \
+         Ra reads); found {occurrences} -- the injection point moved, update this test"
+    );
+
+    let mutated = src.replace(
+        needle,
+        "neighbour(out, slot, 1) /* RED-PROOF INJECTION -- tests/plane_oracle.rs, never in the real tree */",
+    );
+    std::fs::write(ljpeg_rs, mutated)
+        .unwrap_or_else(|e| panic!("write mutated {}: {e}", ljpeg_rs.display()));
+}
+
+/// The held Compression-7 files present in this corpus, with their manifest
+/// `raw_checksum`. Empty (each absence announced by `CorpusFile::require`)
+/// when there is no corpus.
+fn present_compression7_files() -> Vec<(&'static str, PathBuf, String)> {
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
+    let root = CorpusRoot::resolve();
+    DECODABLE_COMPRESSED
+        .iter()
+        .filter_map(|path| {
+            let entry = manifest
+                .get(path)
+                .unwrap_or_else(|| panic!("{path} must be in the manifest"));
+            entry
+                .require(&root)
+                .map(|p| (*path, p, entry.oracle.raw_checksum.clone()))
+        })
+        .collect()
+}
+
+#[test]
+fn ljpeg_decode_fault_turns_compression7_oracle_red() {
+    let files = present_compression7_files();
+    if files.is_empty() {
+        return; // SKIP already announced by CorpusFile::require
+    }
+
+    let dir = TempDir::new("ljpeg-mutant");
+    stage_probe_crate_into(
+        &dir.0,
+        "src/ljpeg.rs",
+        Some(inject_two_component_neighbour_fault),
+    );
+
+    // Both byte orders when both are present: Typ 246 is big-endian, K3III
+    // little-endian (and carries the APP0 DEC-039 skips).
+    for (path, file_path, pinned) in files {
+        // The honest digest, IN-PROCESS via the real, UNMUTATED decoder linked
+        // into this binary -- so this test does not depend on the oracle test
+        // having run first.
+        let (_, _, _, honest_digest) =
+            decode_and_hash(&file_path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        assert_eq!(
+            honest_digest, pinned,
+            "{path}: the honest tree must match the pinned raw_checksum before this red-proof \
+             means anything"
+        );
+
+        let mutant_digest = build_and_run_probe(&dir.0, &file_path);
+        // Assert the OUTPUT changed before concluding anything.
+        assert_ne!(
+            mutant_digest, honest_digest,
+            "{path}: the injected two-component neighbour fault did NOT change the plane MD5 -- \
+             it is a semantic no-op, and this red-proof has caught NOTHING"
+        );
+        eprintln!(
+            "LJPEG RED-PROOF ({path}): honest={honest_digest} mutant={mutant_digest} -- the \
+             injected two-component fault turned the Compression-7 oracle red"
+        );
+    }
+}
+
+#[test]
+fn the_ljpeg_red_proof_control_is_green() {
+    // The negative control: the UNMUTATED staged copy must reproduce each pinned
+    // digest, or a red above could be the copy-and-rebuild apparatus rather
+    // than the injection (DEC-009).
+    let files = present_compression7_files();
+    if files.is_empty() {
+        return; // SKIP already announced by CorpusFile::require
+    }
+
+    let dir = TempDir::new("ljpeg-control");
+    stage_probe_crate_into(&dir.0, "src/ljpeg.rs", None);
+    for (path, file_path, pinned) in files {
+        let apparatus_digest = build_and_run_probe(&dir.0, &file_path);
+        assert_eq!(
+            apparatus_digest, pinned,
+            "{path}: the UNMUTATED copy-and-rebuild apparatus must reproduce the pinned digest"
+        );
+    }
 }

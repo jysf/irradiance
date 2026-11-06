@@ -8,7 +8,7 @@ Cycle prompts live in `prompts/SPEC-044-<cycle>.md`.
 ## Instructions
 
 - [x] **design** — completed 2026-11-06
-- [ ] **build** — prompt: `prompts/SPEC-044-build.md`
+- [x] **build** — completed 2026-11-06 — PR #124; cost FLOOR 185,963 tokens (context occupancy, no /cost in the Code tab)
 - [ ] **verify** — prompt: pending (waiting on build)
 - [ ] **ship** — prompt: pending (waiting on verify)
 

@@ -13,7 +13,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-06
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-044
@@ -30,14 +30,14 @@ repo:
 # from your interface (Claude Code: `/cost`). If your platform exposes NO token
 # count, set tokens_total: null AND say why in `notes`. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null
-  estimated_usd: null
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 185963             # FLOOR — context-window occupancy, not /cost (see notes)
+  estimated_usd: null              # no rate applied to a floor figure
+  duration_minutes: 50
+  branch: claude/spec-044-build-ab78fc
+  pr: 124                          # build PR against main
+  completed_at: 2026-11-06         # YYYY-MM-DD
+  notes: "No interactive /cost in the Claude Code desktop app's Code tab (same as HANDOFF-089..094). 185963 is this build session's context-window token occupancy near handback, read via ccd_session_mgmt get_usage (185,963 of 1,000,000, 19%). A snapshot / lower bound: true cumulative input+output across turns is higher (per-turn context resends not captured; a few bookkeeping writes follow this read). Not invented, but not a /cost number — treat as a FLOOR; the orchestrator supersedes it from the transcript at ship. Both pinned MD5s hit exactly on the real corpus (Typ246 c72e7d95…ac1d, K3III 98bae133…3189); ljpeg red-proof RED on both files, control green; develop smoke green on both."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -159,22 +159,72 @@ PR body and files.
 *Filled in by the receiving agent.*
 
 ### Execution notes
-- **Branch / PR:** <branch> / PR #<n>
-- **Completed at:** <YYYY-MM-DD>
-- **All acceptance criteria met?** <yes/no — walk each SPEC-044 acceptance criterion>
+- **Branch / PR:** `claude/spec-044-build-ab78fc` / PR #124
+- **Completed at:** 2026-11-06
+- **All acceptance criteria met?** yes —
+  - **Both planes bit-exact:** `plane_md5_matches_the_pinned_raw_checksum` now loops
+    `DECODABLE` + `DECODABLE_COMPRESSED`; run against the real corpus
+    (`IRRADIANCE_CORPUS_DIR` set, no SKIP lines): Typ 246 `c72e7d9579e2adaef9c6247841b8ac1d`,
+    K3III `98bae1339c25eb6e04fbac6b5f643189` — both equal the manifest `raw_checksum`.
+  - **Three-list partition:** `compressed_files_are_skipped_by_name` asserts
+    `DECODABLE (6) + DECODABLE_COMPRESSED (2) + SKIPPED_COMPRESSED (1) == 9`, no list
+    overlaps, and (corpus-present) each Compression-7 entry is
+    `require_uncompressed().is_err()` yet `unpack_into` succeeds; the PEF stays
+    compressed-and-skipped. `checked == 9`.
+  - **APPn/COM skip (tier A):** `appn_segment_between_dht_and_sos_is_skipped` (K3III shape:
+    APP0 L=60 between DHT and SOS, payload containing `FF DA` / `FF 00` lookalikes; all
+    sixteen APPn stacked; empty-payload L=2; entropy offset moves by exactly 62),
+    `com_segment_is_skipped` (between DHT/SOS and right after SOI),
+    `truncated_appn_length_is_a_typed_error_not_a_panic` (L past EOF, L=0xFFFF mid-frame,
+    L=0 and 1, length field cut, length field absent — all `Error::Truncated`).
+  - **Nf=1 / Typ 246 unchanged:** `single_component_decode_unchanged_by_appn_arm`
+    (characterization: fixed plane, fixed entropy offset) + every shipped `ljpeg::` test
+    green (31/31); Typ 246 has no APPn so the arm never fires on it, and its checksum is
+    the same pinned value as the design probe measured unmodified.
+  - **Red-proof:** `ljpeg_decode_fault_turns_compression7_oracle_red` stages a copy, mutates
+    `src/ljpeg.rs` (both `predict_component` same-component `Ra` reads, two columns back →
+    one column back, i.e. the other component's sample) and runs both real files: Typ 246
+    mutant `c7adf8e9bcba30498023289f6fbfd45b`, K3III mutant
+    `43d92ce11b04cbe5bdba5d2432a572a6` — both ≠ honest. `the_ljpeg_red_proof_control_is_green`
+    (unmutated staged copy) reproduces both pinned digests.
+  - **Develop smoke:** `compression7_file_develops_through_the_existing_pipeline`
+    (`tests/develop_oracle.rs`) — the real, unmodified `Sensor` → `unpack_into` →
+    `develop_into` on both files: Typ 246 5976×3992, K3III 6192×4128, each
+    `== output_dimensions`, non-constant, byte-identical across two independent runs.
+  - **Policy:** no new `Error` variant, dependency, or public API; `ljpeg` stays `pub(crate)`;
+    `just lint-ci`, `just fmt-check`, `just validate` green locally. Targeted suites
+    (`cargo test --lib`, `--test plane_oracle`, `--test develop_oracle`) run with the corpus;
+    the broad tier-A sweep is left to the PR's CI as the handoff directs.
 
 ### Cost self-report
-- **Tokens (total):** <real /cost number, or an explicit FLOOR with its source>
-- **Estimated USD:** <or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** <interface>
+- **Tokens (total):** 185,963 — **FLOOR** (context-window occupancy, not `/cost`)
+- **Estimated USD:** null (no rate applied to a floor)
+- **Duration (minutes):** ~50
+- **Source of the number:** Claude Code desktop Code tab, `ccd_session_mgmt get_usage`
+  (185,963 / 1,000,000, 19%) — no `/cost` meter in this interface.
 
 ### Drift and new artifacts
-- **New decisions emitted:** <none expected — DEC-039 covers the APPn/COM skip>
-- **Deviations from spec:** <none, or what and why>
-- **Follow-up work identified:** <e.g. anything for SPEC-045>
+- **New decisions emitted:** none — DEC-039 covers the APPn/COM skip.
+- **Deviations from spec:** none of substance. Small choices: the skip lives in a named
+  helper `skip_segment` (called from the one new match arm) rather than inline, and three
+  consts (`MARKER_APP0`, `MARKER_APP15`, `MARKER_COM`) name the range. A length below 2 maps
+  to `Error::Truncated` (the spec's named error) rather than `parse_dht`'s
+  `LjpegMissingMarker`. `stage_probe_crate` gained a sibling `stage_probe_crate_into` that
+  names the injection target file; the old function delegates to it unchanged. The red-proof
+  runs both real files off one staged build (both byte orders). The develop smoke develops
+  with the opcode lists intact (true end-to-end), not with them cleared.
+- **Follow-up work identified:** none new for SPEC-045 beyond its existing scope. Note for
+  ship: the worktree was cut one commit behind main (missing the design PR #123); I
+  fast-forwarded before starting.
 
 ### Reflection (3 questions, short answers)
-1. **What was unclear in the spec or handoff that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec or handoff that slowed you down?** — Nothing in the spec;
+   the §12 probe numbers made the build pure transcription. The only friction was the
+   worktree being cut before the design PR merged, so the build prompt/handoff/DEC-039 were
+   missing until a fast-forward.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — No. The
+   red-proof's "must change the OUTPUT, not just compile" rule (plane_oracle module doc) was
+   the key constraint and it is in the file the spec points at.
+3. **If you did this task again, what would you do differently?** — Run the release-mode
+   targeted tests first (seconds) before the debug suites; the staged red-proof build was
+   ~7s, far cheaper than feared.
