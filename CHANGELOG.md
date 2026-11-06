@@ -66,6 +66,21 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **SOF-3 decoder now decodes two-component (`Nf=2`) column-interleave — internal**
+  (`irradiance` `ljpeg`, SPEC-046, PROJ-003) — the `pub(crate)` `src/ljpeg.rs` decoder
+  grows to decode the two-component column-interleave SOF-3 frame both held monochrome
+  Compression-7 DNGs actually use (Leica M Typ 246 at P=12, Pentax K-3 III at P=14):
+  `reconstruct_two_component` decodes the interleaved scan with genuine **per-component**
+  predictor state and de-interleaves the two column phases into one `2·X`-wide monochrome
+  `u16` plane; DC tables are keyed by `Td` (both held files share `Td=0`), and the length
+  check keys on `Nf`. The `Nf=1` path is **byte-for-byte unchanged**; `Nf>2` (Bayer / CFA
+  colour) stays a clean typed `LjpegUnsupportedComponentCount` (DEC-037). Proven bit-exact
+  at P=12 / P=14 by an analytic two-component round-trip with an `oracle-must-be-shown-red`
+  red-proof (an independent reference decoder defeats the shared-helper tautology). **No
+  public API, no new `Error` variant, no new dependency** — `ljpeg` stays `pub(crate)`; the
+  real-file bit-exact confirmation and the exact de-interleave mapping are SPEC-044
+  (`dnglab --raw-checksum`).
+
 - **SOF-3 decoder proven panic-free on hostile input — internal, completes
   STAGE-009** (`irradiance` `ljpeg`, SPEC-038, PROJ-003) — a `ljpeg` libFuzzer
   target now drives the full single-component SOF-3 decoder (SPEC-036 + SPEC-037)

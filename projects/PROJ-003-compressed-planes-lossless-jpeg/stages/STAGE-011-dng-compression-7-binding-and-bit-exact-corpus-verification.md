@@ -165,7 +165,7 @@ SPEC-043 → SPEC-046 → SPEC-044 → SPEC-045.
   `Compression` — uncompressed unchanged, `Compression 7` routed per-strip to
   `ljpeg::decode_into`, else `UnsupportedCompression`. Both held files now REACH the
   decoder (and hit the Nf=2 finding below).
-- [ ] SPEC-046 (build) — [M] Two-component (Nf=2) SOF-3 decode + column de-interleave
+- [x] SPEC-046 (shipped 2026-11-05) — [M] Two-component (Nf=2) SOF-3 decode + column de-interleave
   (DEC-037): extend `ljpeg` to decode the two column components of the held files'
   Nf=2 frames into one monochrome `u16` plane, with an analytic two-component
   round-trip red-proof; the Nf=1 path stays byte-identical. depends_on SPEC-043.
@@ -179,7 +179,7 @@ SPEC-043 → SPEC-046 → SPEC-044 → SPEC-045.
   Compression-7 binding, a macOS/Linux byte-identical determinism assertion, and
   container→decoder truncation / hostile-strip hardening. depends_on SPEC-044.
 
-**Count:** 1 shipped / 3 active / 0 pending (SPEC-043 shipped; SPEC-046 at ship; SPEC-044/045 framed)
+**Count:** 2 shipped / 2 active / 0 pending (SPEC-043 + SPEC-046 shipped; SPEC-044/045 framed)
 
 *The Nf=2 finding (SPEC-043 build, DEC-037) re-opened the single-component scope for
 the held files' monochrome column-interleave; SPEC-046 is the inserted decode spec. No
