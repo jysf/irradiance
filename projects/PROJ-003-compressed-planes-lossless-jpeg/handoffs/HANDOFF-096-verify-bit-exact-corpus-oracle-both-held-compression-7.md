@@ -36,7 +36,7 @@ handback:
   estimated_usd: null              # no rate applied to a floor figure
   duration_minutes: 30
   branch: claude/spec-044-verify-988ffd
-  pr: null                         # verify PR against main — stamped after it opens
+  pr: 125                          # verify PR against main (verify bookkeeping atop the build commits)
   completed_at: 2026-11-06         # YYYY-MM-DD
   notes: "Verdict APPROVED at commit 64a2bce513e0c0b8278b6d0c22e74ab55fdd2c79 (the build PR #124 head). No interactive /cost in the Claude Code desktop app's Code tab (same as HANDOFF-089..095). 165000 is a rounded-up reading of this verify session's context-window occupancy near handback via ccd_session_mgmt get_usage (150,332 of 1,000,000, 15% at the last read before these bookkeeping writes). A snapshot / lower bound: per-turn context resends are not captured. Not invented, but not a /cost number — treat as a FLOOR; the orchestrator supersedes it from the transcript at ship. Both pinned MD5s hit on the real corpus with no SKIP lines; ljpeg red-proof RED on both files, control green; develop smoke green and deterministic on both; an independent counterfactual (APPn arm removed in a scratch copy) shows Typ 246 still matches and K3III fails with unexpected marker 0xe0, so the arm is the whole K3III fix and does not touch Typ 246."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -99,7 +99,7 @@ oracle for both held `Compression 7` DNGs plus the DEC-039 APPn/COM header-skip
 ### Execution notes
 
 - **Branch / PR:** verify branch `claude/spec-044-verify-988ffd`, cut from the build
-  branch `claude/spec-044-build-ab78fc` (head `64a2bce`), so the verify PR carries the
+  branch `claude/spec-044-build-ab78fc` (head `64a2bce`); verify PR #125. It carries the
   build commits and the verify bookkeeping — a clean superset of #124 against `main`.
 - **Completed at:** 2026-11-06
 - **All acceptance criteria met?** yes — all seven of SPEC-044's `## Acceptance
