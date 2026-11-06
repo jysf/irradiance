@@ -66,6 +66,23 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **Both held DNG `Compression 7` files now decode bit-exact against `dnglab`**
+  (`irradiance::plane`, SPEC-044, PROJ-003) — the Leica M Monochrom Typ 246 (big-endian,
+  P=12) and the Pentax K-3 III Mono (little-endian, P=14) now decode through the public
+  `plane::unpack_into` to a `u16` plane whose MD5 **equals** `dnglab analyze --raw-checksum`
+  exactly (`c72e7d9579e2adaef9c6247841b8ac1d` and `98bae1339c25eb6e04fbac6b5f643189`), and
+  develop end-to-end through the existing pipeline unchanged — a source swap, not a second
+  pipeline. To get the Pentax file to decode at all, the lossless-JPEG header parser now
+  **skips `APPn` (`0xFFE0..=0xFFEF`) and `COM` (`0xFFFE`) marker segments by their declared
+  length** (**DEC-039**): that file carries an `APP0` segment between its Huffman table and
+  the start of scan that the parser previously rejected. The skip is bounds-checked (a bad
+  length is a typed `Error`, never a panic); the Leica file carries no `APPn`, so its decode
+  is byte-for-byte unchanged, as is the single-component path. The real-file oracle also
+  **confirms SPEC-046's column de-interleave mapping** on both byte orders — the thing the
+  analytic round-trip could not prove (`shared-path-oracle-tautology`) — and is proven red
+  by a staged-copy fault injected into the `ljpeg` decode. **No new public API, no new
+  `Error` variant, no new dependency.**
+
 - **SOF-3 decoder now decodes two-component (`Nf=2`) column-interleave — internal**
   (`irradiance` `ljpeg`, SPEC-046, PROJ-003) — the `pub(crate)` `src/ljpeg.rs` decoder
   grows to decode the two-component column-interleave SOF-3 frame both held monochrome
