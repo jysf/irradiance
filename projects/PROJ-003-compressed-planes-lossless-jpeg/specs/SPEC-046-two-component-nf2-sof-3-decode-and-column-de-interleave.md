@@ -6,7 +6,7 @@
 task:
   id: SPEC-046
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -29,8 +29,8 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # HANDOFF-093 (build) → tier_map.build
+  created_at: 2026-11-05
 
 references:
   decisions: [DEC-037, DEC-035, DEC-016, DEC-018]   # two-component re-scope (DEC-037); clean-room/patent-clean (DEC-035); caller-owned buffer (DEC-016); u16 modular arithmetic (DEC-018)
@@ -64,8 +64,16 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 32000000        # ~32M — two-component interleaved decode + per-component predictor state + Td-keyed tables + the encoder extension + 6 tier-A tests; [M], comparable to SPEC-037
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 45
+      recorded_at: 2026-11-05
+      notes: "main-session design (un-metered); §12 probe parsing both real strips' SOF3+DHT+SOS (one interleaved scan, Ns=2, both H=V=1, one Td=0 table, predictor 1, Pt=0, no DRI) + the ljpeg extension seam (parse_frame_header/parse_scan_header/Frame/reconstruct/decode_into); acceptance + failing tests + HANDOFF-093 + build prompt"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -96,40 +104,98 @@ single-component (`Nf=1`) path stays byte-for-byte unchanged.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:**
+  - `src/ljpeg.rs` — the shipped single-component decoder; the exact extension points:
+    `parse_frame_header` (≈ line 376) rejects `nf != 1` → `LjpegUnsupportedComponentCount`
+    and reads one component spec; `parse_scan_header` (≈ 493) rejects `ns != 1` and reads
+    one component selector + `Ss`(predictor) / `Al`(Pt) / `Td`; the `Frame` struct (≈ 182:
+    `precision`, `lines`, `samples_per_line`, `point_transform`, `predictor`,
+    `restart_interval` — **no component count yet**); `reconstruct` (≈ 855, "out must hold
+    `lines × samples_per_line`") and its per-sample predictor loop; `decode_into` (≈ 992,
+    length check `out.len() == X·Y` → `LjpegPlaneWrongLength`); `predict` (T.81 Table H.1);
+    `HuffTable` (one DC table today).
+  - `src/plane.rs` — SPEC-043's Compression-7 route already sizes the strip `out` slice as
+    `rows × sensor.width` (the FULL width = `Nf·X`); confirm the Nf=2 decode fills it.
+  - `STAGE-011`, `DEC-037`, `brief.md`.
+- **§12 probe (done at design, parsing the real strips' SOF3 + DHT + SOS):** both held
+  files are **one interleaved scan, `Ns=2`**, identical structure —
+  - Typ246: P=12, Y=4000, X(per-component)=2992, Nf=2. K3III: P=14, Y=4224, X=3152, Nf=2.
+  - Both component specs **H=1 V=1**, Tq=0; a **single** DC Huffman table (Tc=0 Th=0),
+    shared — both components reference **Td=0** in the SOS; `Ss`(predictor)=**1** (Ra = left
+    neighbour), Se=0, Ah=0, **Al(Pt)=0**; **no DRI** (no restart).
+  - So each MCU is one comp0 sample then one comp1 sample at the same grid position; the two
+    components are the two column phases of the `2·X`-wide monochrome plane.
+- **Related code paths:** `src/ljpeg.rs` (decoder), `src/plane.rs` (the route that calls it).
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **`src/ljpeg.rs` modified:**
+  - `Frame` gains a component count (e.g. `components: u8`, 1 or 2).
+  - `parse_frame_header`: accept `Nf ∈ {1, 2}` (read `Nf` component specs; `Lf == 8 + 3·Nf`);
+    reject `Nf` outside `{1,2}` with `LjpegUnsupportedComponentCount` (Bayer/CFA 3+ stays
+    rejected — DEC-037).
+  - `parse_scan_header`: accept `Ns ∈ {1, 2}` (read `Ns` selectors, each with its `Td`;
+    `Ls == 6 + 2·Ns`); require `Ns == Nf`; keep `Ss`(predictor) / `Al`(Pt) scan-level.
+    Build up to two DC Huffman tables keyed by `Td` and have each component select its own
+    (both held files use `Td=0` — one shared table — but do not hard-code "one table").
+  - `reconstruct`: for `Nf == 2`, decode the **interleaved** scan — at each `(x, y)` decode
+    comp0 then comp1 — with **per-component** predictor state (each component's own
+    `Ra`/`Rb`/`Rc` neighbours and the §H.2.1 boundary / initial-prediction `2^(P−Pt−1)` rules
+    applied independently), writing into a `2·X`-wide row in column-interleave order
+    (`out[y·2X + 2x] = comp0`, `out[y·2X + 2x + 1] = comp1` — the natural MCU order). The
+    `Nf == 1` path stays **byte-for-byte unchanged**.
+  - `decode_into`: the length check becomes `out.len() == Nf · samples_per_line · lines`
+    (`LjpegPlaneWrongLength` otherwise).
+- **No new `Error` variant** (reuse `LjpegUnsupportedComponentCount` for `Nf>2`,
+  `LjpegPlaneWrongLength`, and the existing `Ljpeg*`); `decode_into` stays `pub(crate)`;
+  **no new runtime dependency**, no CLI change.
+- **The in-harness encoder** (`encode_lj92` in `mod tests`) gains a two-component
+  interleaved encode so the analytic round-trip covers Nf=2.
+- **De-interleave caveat (record it):** the analytic two-component round-trip CANNOT
+  confirm the real-file column-interleave *mapping* (encode and decode share the
+  convention — `shared-path-oracle-tautology`); it proves the decode self-consistent and
+  per-component prediction correct. The exact mapping (component order + column phase) on a
+  real file is confirmed by **SPEC-044's `dnglab --raw-checksum`** oracle.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] `parse_headers` accepts a two-component (`Nf=2`, `Ns=2`, both `H=V=1`) interleaved
+  SOF-3 frame and sets `Frame.components = 2`; `Nf` outside `{1,2}` still returns
+  `LjpegUnsupportedComponentCount`.
+- [ ] `decode_into` on a hand-built two-component interleaved scan fills a `2·X × Y` `u16`
+  plane **bit-exact** against the known samples, column-interleaved (`out[2x]=comp0`,
+  `out[2x+1]=comp1`), each component using its own predictor-1 neighbour state; exercised at
+  P=12 and P=14.
+- [ ] The analytic **two-component encode→decode round-trip** is bit-identical on honest
+  input and goes **RED** on a perturbed predictor / Huffman table / swapped-component encode
+  (`oracle-must-be-shown-red`).
+- [ ] The **single-component (`Nf=1`) path is byte-for-byte unchanged** — every shipped
+  `ljpeg` test stays green, pinned by a characterization decode identical pre/post.
+- [ ] `decode_into` returns a typed `Error`, never a panic, on a malformed two-component
+  scan — `Ns ≠ Nf`, a component referencing an undefined `Td`, a scan truncated
+  mid-second-component, and `out.len() != Nf·X·Y` (`LjpegPlaneWrongLength`).
+- [ ] `#![forbid(unsafe_code)]` + the five-lint deny policy hold; `just test`, `just
+  lint-ci`, `just fmt-check`, `just validate` green; no new runtime dependency.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+Tier-A only (hand-built two-component SOF-3 via the extended encoder; no corpus). SPEC-044's
+`dnglab` real-file check confirms the de-interleave mapping.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`src/ljpeg.rs` (`mod tests`):**
+  - `"two_component_interleaved_decodes_bit_exact"` — encode a small known `2·X × Y` plane
+    as a two-component interleaved scan (comp0 = even columns, comp1 = odd), decode, assert
+    the `2·X`-wide plane is bit-identical; at P=12 and P=14.
+  - `"two_component_round_trip_red_on_perturbed_predictor"` — mutating a predictor / the
+    Huffman table / swapping the component order turns the round-trip RED (shown red, then
+    reverted).
+  - `"single_component_decode_unchanged"` — an `Nf=1` scan decodes identically to the
+    shipped behaviour (characterization).
+  - `"nf_three_still_unsupported"` — `Nf=3` → `LjpegUnsupportedComponentCount { nf: 3 }`.
+  - `"two_component_wrong_out_length_is_typed_error"` — `out.len() != 2·X·Y` →
+    `LjpegPlaneWrongLength`, no panic.
+  - `"two_component_truncated_scan_is_typed_error"` — a scan truncated mid-second-component
+    returns a typed `Error`, no panic.
 
 ## Non-Goals
 
@@ -147,8 +213,32 @@ expand this one.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **The interleave is regular** (both components `H=V=1`): each MCU is exactly one comp0
+  sample then one comp1 sample, no subsampling. Decode order per row `y`: for `x` in
+  `0..X` → decode comp0[x], decode comp1[x]; write `out[y·2X + 2x] = comp0`,
+  `out[y·2X + 2x + 1] = comp1`.
+- **Per-component predictor state is the crux.** Predictor 1 (Ra) is the *same component's*
+  left neighbour — `comp_k[y][x-1]`, i.e. `out[y·2X + 2(x-1) + k]`, two output columns back.
+  The §H.2.1 first-column / first-line / initial-prediction (`2^(P−Pt−1)`) rules apply
+  **independently per component**. Leave the `Nf=1` path on its existing single-state code
+  so it stays byte-for-byte identical.
+- **Td lookup:** both held files share one DC table at `Td=0`, but build the DC table(s) by
+  `Td` and have each component select its own — do not hard-code a single table.
+- **`decode_into` length check keys on `Nf`:** `out.len() == Nf · samples_per_line · lines`.
+  SPEC-043's route already sizes `out` as `rows × sensor.width` with `sensor.width == Nf·X`,
+  so the binding is already compatible — confirm it, don't change the routing.
+- **The de-interleave mapping is NOT provable by the analytic round-trip** (encode and
+  decode share the convention — `shared-path-oracle-tautology`). This spec proves the decode
+  self-consistent + per-component prediction; **SPEC-044's `dnglab --raw-checksum`** pins the
+  exact component order + column phase on the real files. If SPEC-044 later shows the mapping
+  is left/right halves rather than even/odd columns, that is a one-line change to the
+  write-index, not a decode-logic change — note it, don't pre-engineer for it.
+- **Scope:** `Nf=2` interleaved, `H=V=1`, Td-keyed DC table(s), `Pt=0`, no restart — exactly
+  what both held files use (§12 probe in `## Inputs`). `Nf>2`, subsampled components
+  (`H`/`V`≠1), and Bayer/CFA colour stay out (DEC-037). Don't touch SPEC-043's routing or the
+  container.
+- **Patent/clean-room:** still DEC-035 (T.81 Annex H, clean-room); two-component interleave
+  is the same standard, no new algorithm family.
 
 ---
 
