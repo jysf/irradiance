@@ -655,6 +655,18 @@ pub enum Error {
         predictor: u8,
     },
 
+    /// `SPEC-045`. The SOF-3 scan's point transform `Pt` (the `Al` field of the
+    /// scan header) is not below the frame's sample precision `P`. ITU-T T.81
+    /// Annex H.1.2.1 requires `Pt < P` for a lossless scan: a transform at or
+    /// above the precision would leave no significant bits (and an out-of-range
+    /// shift in reconstruction), so it is this typed error rather than a guess.
+    LjpegInvalidPointTransform {
+        /// The `Pt` (point transform) value found.
+        point_transform: u8,
+        /// The frame's sample precision `P` it must stay below.
+        precision: u8,
+    },
+
     /// `SPEC-036`. A DHT (define-Huffman-table) segment is internally
     /// inconsistent: its `BITS` counts do not sum to the `HUFFVAL` length the
     /// segment length allows, or the code lengths over-subscribe the 16-bit
@@ -971,6 +983,15 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "lossless JPEG: predictor {predictor} is outside the defined range (Ss in 1..=7)"
+                )
+            }
+            Error::LjpegInvalidPointTransform {
+                point_transform,
+                precision,
+            } => {
+                write!(
+                    f,
+                    "lossless JPEG: point transform {point_transform} is not below the sample precision {precision} (Pt < P)"
                 )
             }
             Error::LjpegInvalidHuffmanTable => f.write_str(

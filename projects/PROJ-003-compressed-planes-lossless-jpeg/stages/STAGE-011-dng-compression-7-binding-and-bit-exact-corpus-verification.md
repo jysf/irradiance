@@ -177,7 +177,7 @@ SPEC-043 → SPEC-046 → SPEC-044 → SPEC-045.
   de-interleave mapping on both files AND caught that K3III needs an **APPn/COM header-skip**
   (APP0 between DHT and SOS) to decode at all — folded in as one bounded `parse_headers` arm
   (**DEC-039**), no re-plan. HANDOFF-095 (build) + HANDOFF-096 (verify).
-- [ ] SPEC-045 (build) — [M] Binding capstone: a provenance-ledger entry for the DNG
+- [x] SPEC-045 (build ✓ 2026-11-06, PR #129, FLOOR 226,796 tok; now at verify) — [M] Binding capstone: a provenance-ledger entry for the DNG
   Compression-7 binding, a plane-level macOS/Linux determinism pin, container→decoder
   hardening + continuous fuzzing of the PUBLIC Compression-7 route, and the external review's
   §2.4 `Pt<P`/`Tc,Th` + §2.1 later-DHT-replaces. **Designed 2026-11-06** ([S]→[M] with the
@@ -188,7 +188,7 @@ SPEC-043 → SPEC-046 → SPEC-044 → SPEC-045.
   HANDOFF-097 + `prompts/SPEC-045-build.md`. depends_on SPEC-044. **Last STAGE-011 spec.**
 
 **Count:** 3 shipped / 1 active / 0 pending (SPEC-043 + SPEC-046 + SPEC-044 shipped;
-SPEC-045 at build — the last spec before STAGE-011 and PROJ-003 close)
+SPEC-045 built (#129), at verify — the last spec before STAGE-011 and PROJ-003 close)
 
 *The Nf=2 finding (SPEC-043 build, DEC-037) re-opened the single-component scope for the
 held files' monochrome column-interleave; SPEC-046 was the inserted decode spec. The

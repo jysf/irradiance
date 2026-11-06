@@ -14,6 +14,11 @@
 //!     fuzz/corpus/plane fuzz/seeds/plane -- -max_total_time=60
 //! ```
 //!
+//! Since `SPEC-045` it also drives the DNG `Compression = 7` route
+//! (`unpack_into` -> `ljpeg::decode_into`) from a synthetic SOF-3 seed
+//! (`compression7-sof3.tiff`), so the public lossless-JPEG path is fuzzed
+//! through the container, not only via the direct `ljpeg` target.
+//!
 //! Seeds are hand-built tier-A fixtures written by `cargo run --example
 //! fuzz-seeds` (`examples/fuzz-seeds.rs`) — no corpus file is used as a seed
 //! (`DEC-003`).
@@ -44,9 +49,10 @@ fuzz_target!(|data: &[u8]| {
     let Ok(sensor) = container.sensor() else {
         return;
     };
-    if sensor.require_uncompressed().is_err() {
-        return;
-    }
+    // No `require_uncompressed` gate (`SPEC-045`): a DNG `Compression = 7`
+    // plane goes through `unpack_into`'s SOF-3 route like any other, so the
+    // PUBLIC Compression-7 path is fuzzed end to end. `unpack_into` itself
+    // returns `UnsupportedCompression` for every other code.
 
     let Some(pixel_count) = u64::from(sensor.width).checked_mul(u64::from(sensor.height)) else {
         return;

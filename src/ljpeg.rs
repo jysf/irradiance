@@ -333,7 +333,9 @@ impl HuffTable {
 /// scan's `Ns` not equal to the frame's `Nf`),
 /// [`Error::LjpegUnsupportedPrecision`] (`P` outside `2..=16`),
 /// [`Error::LjpegUnsupportedPredictor`] (`Ss` outside `1..=7`),
-/// [`Error::LjpegInvalidHuffmanTable`] (a malformed DHT),
+/// [`Error::LjpegInvalidPointTransform`] (`Pt >= P`),
+/// [`Error::LjpegInvalidHuffmanTable`] (a malformed DHT, including a table
+/// class `Tc != 0` or a destination `Th > 3`),
 /// [`Error::LjpegUnexpectedMarker`] (a marker where none belongs), and
 /// [`Error::Truncated`] (EOF inside a segment).
 pub(crate) fn parse_headers(data: &[u8]) -> Result<(Frame, Vec<HuffTable>, usize), Error> {
@@ -368,6 +370,15 @@ pub(crate) fn parse_headers(data: &[u8]) -> Result<(Frame, Vec<HuffTable>, usize
                 let precision = precision.ok_or(Error::LjpegMissingMarker {
                     marker: MARKER_SOF3,
                 })?;
+                // T.81 H.1.2.1: a lossless scan's point transform must stay
+                // below the sample precision (`SPEC-045`). Checked here, where
+                // both the frame's `P` and the scan's `Pt` are known.
+                if point_transform >= precision {
+                    return Err(Error::LjpegInvalidPointTransform {
+                        point_transform,
+                        precision,
+                    });
+                }
                 // The scan's component count `Ns` must equal the frame's `Nf`.
                 if tds.len() != usize::from(components) {
                     return Err(Error::LjpegUnsupportedComponentCount {
@@ -409,6 +420,9 @@ pub(crate) fn parse_headers(data: &[u8]) -> Result<(Frame, Vec<HuffTable>, usize
 /// Return a reference to the DC table with destination `th`, if present. The
 /// table is cloned by the caller rather than removed, so two components in a
 /// two-component scan may both select one shared destination (`SPEC-046`).
+/// Each destination holds at most one entry: [`parse_dht`] overwrites a
+/// redefined `Th` in place, so the table found is always the latest one
+/// (`SPEC-045`).
 fn find_table(tables: &[(u8, HuffTable)], th: u8) -> Option<&HuffTable> {
     tables.iter().find(|(t, _)| *t == th).map(|(_, tbl)| tbl)
 }
@@ -462,8 +476,11 @@ fn parse_frame_header(data: &[u8], pos: &mut usize) -> Result<(u8, u16, u16, u8)
 
 /// Parse a DHT segment (ITU-T T.81 B.2.4.2): one or more `Tc/Th | BITS[16] |
 /// HUFFVAL` tables within the declared length. DC (class 0) tables are built
-/// and stored by destination; any AC table (class 1), which lossless does not
-/// use, is consumed and ignored.
+/// and stored by destination. Lossless (T.81 Annex H) uses only DC tables in
+/// destinations `0..=3`, so a table class `Tc != 0` or a destination `Th > 3`
+/// is [`Error::LjpegInvalidHuffmanTable`] (`SPEC-045`). A later table for a
+/// destination already defined REPLACES the earlier one (T.81 B.2.4.2: a
+/// table stays in force until redefined).
 fn parse_dht(
     data: &[u8],
     pos: &mut usize,
@@ -489,6 +506,10 @@ fn parse_dht(
         let tc_th = read_u8(data, pos)?;
         let tc = tc_th.checked_div(16).unwrap_or(0); // high nibble: table class
         let th = tc_th.checked_rem(16).unwrap_or(0); // low nibble: destination
+                                                     // Lossless uses DC (class 0) tables only, in destinations 0..=3.
+        if tc != 0 || th > 3 {
+            return Err(Error::LjpegInvalidHuffmanTable);
+        }
 
         let mut bits = [0u8; 16];
         let mut total: usize = 0;
@@ -514,12 +535,13 @@ fn parse_dht(
             huffval.push(read_u8(data, pos)?);
         }
 
-        if tc == 0 {
-            let table = HuffTable::build(&bits, huffval)?;
-            dc_tables.push((th, table));
+        let table = HuffTable::build(&bits, huffval)?;
+        // A redefinition of a destination replaces the earlier table, so the
+        // scan decodes with the table most recently defined for its `Td`.
+        match dc_tables.iter_mut().find(|(t, _)| *t == th) {
+            Some(slot) => slot.1 = table,
+            None => dc_tables.push((th, table)),
         }
-        // tc == 1 (AC) is unused by lossless; its bytes are consumed above and
-        // the table is dropped rather than built.
     }
 
     // The tables must consume the segment exactly.
@@ -3069,5 +3091,193 @@ mod tests {
         let mut out2 = [0u16; 6];
         decode_into(&with_app, &mut out2).unwrap();
         assert_eq!(out2, samples);
+    }
+
+    // ══ SPEC-045: header hardening (external 0.2.0 review §2.1 / §2.4) ═════
+    //
+    // Three T.81 conformance guards at parse level, each a typed error and
+    // never a panic: `Pt < P` (H.1.2.1), DC-only tables in destinations 0..=3
+    // (Annex H uses class-0 tables; B.2.4.2 bounds `Th`), and a redefined table
+    // replacing the earlier one (B.2.4.2).
+
+    /// A DHT segment with a caller-chosen raw `Tc/Th` byte, so a test can name
+    /// a class or destination the normal helper would mask off.
+    fn dht_segment_raw(tc_th: u8, bits: &[u8; 16], huffval: &[u8]) -> Vec<u8> {
+        let lh = (2 + 1 + 16 + huffval.len()) as u16;
+        let mut seg = vec![0xFF, MARKER_DHT];
+        seg.extend_from_slice(&lh.to_be_bytes());
+        seg.push(tc_th);
+        seg.extend_from_slice(bits);
+        seg.extend_from_slice(huffval);
+        seg
+    }
+
+    /// SOI + SOF3 (P, 1x1) + one DHT (Th=0) + SOS with the given `Al`, then a
+    /// one-byte scan and EOI.
+    fn stream_with_point_transform(precision: u8, al: u8) -> Vec<u8> {
+        let (bits, huffval) = minimal_table_bytes();
+        let mut data = vec![0xFF, MARKER_SOI];
+        data.extend(sof3_segment(precision, 1, 1));
+        data.extend(dht_segment(0, &bits, &huffval));
+        data.extend(sos_segment(1, al, 0));
+        data.extend_from_slice(&[0x00, 0xFF, MARKER_EOI]);
+        data
+    }
+
+    #[test]
+    fn point_transform_at_or_above_precision_is_a_typed_error() {
+        // Pt == P and Pt > P (up to the 4-bit field's maximum) are rejected at
+        // parse time, by both parse_headers and the decode entry point.
+        for &(precision, al) in &[(8u8, 8u8), (8, 15), (2, 2), (12, 12), (12, 13)] {
+            let data = stream_with_point_transform(precision, al);
+            let is_expected = |e: &Error| {
+                matches!(
+                    e,
+                    Error::LjpegInvalidPointTransform { point_transform, precision: p }
+                        if *point_transform == al && *p == precision
+                )
+            };
+            let err = parse_headers(&data).err().unwrap();
+            assert!(is_expected(&err), "P={precision} Pt={al}: got {err:?}");
+            let mut out = [0u16; 1];
+            let err = decode_into(&data, &mut out).err().unwrap();
+            assert!(is_expected(&err), "P={precision} Pt={al}: got {err:?}");
+        }
+        // The boundary Pt = P - 1 is legal and still parses.
+        for &(precision, al) in &[(8u8, 7u8), (2, 1), (16, 15)] {
+            let data = stream_with_point_transform(precision, al);
+            let (frame, _, _) = parse_headers(&data).unwrap();
+            assert_eq!(frame.point_transform, al);
+        }
+        // And the shipped point-transform round-trip is untouched.
+        let samples = [4u16, 8, 12, 4092]; // 2x2, P=12, Pt=2 (multiples of 4)
+        let stream = encode_lj92(&samples, 2, 2, 12, 1, 2, 0);
+        let mut out = [0u16; 4];
+        decode_into(&stream, &mut out).unwrap();
+        assert_eq!(out, samples);
+    }
+
+    #[test]
+    fn dht_with_nonzero_class_or_bad_destination_is_a_typed_error() {
+        let (bits, huffval) = minimal_table_bytes();
+        // 0x10: AC class, Th 0. 0x13: AC class, Th 3. 0x04 / 0x0F: DC class,
+        // destination past 3. 0xF0: a class beyond AC.
+        for &tc_th in &[0x10u8, 0x13, 0x04, 0x0F, 0xF0] {
+            let mut data = vec![0xFF, MARKER_SOI];
+            data.extend(sof3_segment(8, 1, 1));
+            data.extend(dht_segment_raw(tc_th, &bits, &huffval));
+            data.extend(sos_segment(1, 0, 0));
+            data.extend_from_slice(&[0x00, 0xFF, MARKER_EOI]);
+            assert!(
+                matches!(parse_headers(&data), Err(Error::LjpegInvalidHuffmanTable)),
+                "Tc/Th byte {tc_th:#04x} must be rejected"
+            );
+        }
+        // A rejected table in the middle of a multi-table segment is still
+        // caught (the guard runs per table, not per segment).
+        let mut data = vec![0xFF, MARKER_SOI];
+        data.extend(sof3_segment(8, 1, 1));
+        let mut seg = vec![0xFF, MARKER_DHT];
+        let lh = (2 + 2 * (1 + 16 + huffval.len())) as u16;
+        seg.extend_from_slice(&lh.to_be_bytes());
+        seg.push(0x00);
+        seg.extend_from_slice(&bits);
+        seg.extend_from_slice(&huffval);
+        seg.push(0x11);
+        seg.extend_from_slice(&bits);
+        seg.extend_from_slice(&huffval);
+        data.extend(seg);
+        assert!(matches!(
+            parse_headers(&data),
+            Err(Error::LjpegInvalidHuffmanTable)
+        ));
+        // Destination 3 is the highest legal one and still parses.
+        let mut ok = vec![0xFF, MARKER_SOI];
+        ok.extend(sof3_segment(8, 1, 1));
+        ok.extend(dht_segment_raw(0x03, &bits, &huffval));
+        ok.extend(sos_segment(1, 0, 3));
+        ok.extend_from_slice(&[0x00, 0xFF, MARKER_EOI]);
+        assert!(parse_headers(&ok).is_ok());
+    }
+
+    #[test]
+    fn a_later_dht_with_the_same_th_replaces_the_earlier() {
+        // A real stream from the encoder, with a BOGUS Th=0 table inserted
+        // right after SOI — before the encoder's own (valid) Th=0 table. The
+        // scan must decode with the later, valid table. With first-wins
+        // resolution the bogus one-symbol table is used and the plane either
+        // misdecodes or errors, which turns this test red.
+        let samples = [100u16, 140, 90, 255, 0, 17]; // 3x2, P=8
+        let stream = encode_lj92(&samples, 3, 2, 8, 1, 0, 0);
+        let (bits, _) = minimal_table_bytes();
+        let bogus = dht_segment(0, &bits, &[0x07]); // one 1-bit code -> category 7
+        let mut data = stream[..2].to_vec(); // SOI
+        data.extend(bogus);
+        data.extend_from_slice(&stream[2..]);
+
+        let mut out = [0u16; 6];
+        decode_into(&data, &mut out).unwrap();
+        assert_eq!(out, samples, "the later Th=0 table must win");
+
+        // Repeated redefinitions keep only one table per destination.
+        let (_frame, tables, _) = parse_headers(&data).unwrap();
+        assert_eq!(tables.len(), 1);
+    }
+
+    #[test]
+    fn single_table_and_shared_td_two_component_decode_unchanged() {
+        // Characterization: the shipped single-table Nf=1 decode and the
+        // shared-Td (both components select Td=0) Nf=2 decode are bit-exact
+        // after the SPEC-045 header guards.
+        let one = [10u16, 4095, 2000, 7, 1234, 4094]; // 3x2, P=12
+        for &predictor in &[1u8, 2, 7] {
+            let stream = encode_lj92(&one, 3, 2, 12, predictor, 0, 0);
+            let mut out = [0u16; 6];
+            let frame = decode_into(&stream, &mut out).unwrap();
+            assert_eq!(frame.components, 1);
+            assert_eq!(out, one, "Nf=1 predictor {predictor}");
+        }
+
+        // Nf=2, both components on Td=0 (the held files' shape), with and
+        // without a restart interval.
+        let x = 3usize;
+        let rows = 2usize;
+        let two: Vec<u16> = (0..(2 * x * rows) as u16)
+            .map(|i| i.wrapping_mul(977) % 16384)
+            .collect();
+        for &ri in &[0usize, x] {
+            let stream = encode_lj92_two_component(&two, x, rows, 14, 1, 0, ri);
+            let mut out = vec![0u16; two.len()];
+            let frame = decode_into(&stream, &mut out).unwrap();
+            assert_eq!(frame.components, 2);
+            assert_eq!(out, two, "Nf=2 shared Td=0, ri={ri}");
+        }
+    }
+
+    #[test]
+    fn two_component_restart_is_pinned() {
+        // External review §2.3 (restart must reset BOTH components) is already
+        // implemented by `reconstruct_two_component` (SPEC-046) and covered by
+        // the `ri = x` case of `two_component_interleaved_decodes_bit_exact`.
+        // This pins it at the tightest intervals too -- a restart after EVERY
+        // MCU and after every two -- so a reset of only one component, or a
+        // reset at the wrong MCU, breaks the round-trip.
+        let x = 4usize;
+        let rows = 3usize;
+        let samples: Vec<u16> = (0..(2 * x * rows) as u32)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 18) as u16 % 4096)
+            .collect();
+        for &ri in &[1usize, 2, 3] {
+            let stream = encode_lj92_two_component(&samples, x, rows, 12, 1, 0, ri);
+            let rst_count = stream
+                .windows(2)
+                .filter(|w| w[0] == 0xFF && (0xD0..=0xD7).contains(&w[1]))
+                .count();
+            assert!(rst_count > 0, "ri={ri}: the stream must carry RSTm markers");
+            let mut out = vec![0u16; samples.len()];
+            let frame = decode_into(&stream, &mut out).unwrap();
+            assert_eq!(frame.restart_interval as usize, ri);
+            assert_eq!(out, samples, "two-component restart at ri={ri} MCU(s)");
+        }
     }
 }

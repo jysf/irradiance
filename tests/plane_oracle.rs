@@ -1239,3 +1239,59 @@ fn the_ljpeg_red_proof_control_is_green() {
         );
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-045 -- plane-level determinism for the held Compression-7 files
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// SPEC-044 already pins the develop-level byte-identity of a held
+// Compression-7 file (`tests/develop_oracle.rs`); this is the PLANE-level
+// counterpart, one layer down, on the decoder's own output.
+//
+// The cross-platform basis is by construction, not by luck: the whole
+// Compression-7 route (`plane::unpack_into` -> `ljpeg::decode_into`) is
+// integer-only -- Huffman decode, `EXTEND`, the seven predictors and the
+// two-component de-interleave are `u16`/`i32` arithmetic with `u16` modular
+// wrap (`DEC-018`), and there is no floating point, no hashing of addresses,
+// no threading, and no platform-dependent type on the path. The same bytes
+// therefore yield the same plane on macOS and Linux; the pinned `dnglab`
+// digest (`raw_checksum`, asserted below and by
+// `plane_md5_matches_the_pinned_raw_checksum`) is the cross-implementation
+// ground truth that CI on Linux and a local run on macOS both have to hit.
+
+#[test]
+fn compression7_plane_is_byte_identical_across_two_decodes() {
+    let files = present_compression7_files();
+    if files.is_empty() {
+        return; // SKIP already announced by CorpusFile::require
+    }
+    for (path, file_path, pinned) in files {
+        let bytes = std::fs::read(&file_path).unwrap_or_else(|e| panic!("{path}: read: {e}"));
+        let container = Container::parse(&bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let sensor = container.sensor().unwrap_or_else(|e| panic!("{path}: {e}"));
+        let pixels = usize::try_from(u64::from(sensor.width) * u64::from(sensor.height))
+            .expect("plane fits this host");
+
+        // Two INDEPENDENT decodes into separately-allocated buffers, the second
+        // pre-filled with a different pattern, so an output that depended on a
+        // buffer's prior contents (an unwritten sample) could not agree by
+        // accident.
+        let mut first = vec![0u16; pixels];
+        unpack_into(&sensor, container.byte_order(), &bytes, &mut first)
+            .unwrap_or_else(|e| panic!("{path}: first decode: {e}"));
+        let mut second = vec![0xFFFFu16; pixels];
+        unpack_into(&sensor, container.byte_order(), &bytes, &mut second)
+            .unwrap_or_else(|e| panic!("{path}: second decode: {e}"));
+
+        assert!(
+            first == second,
+            "{path}: two decodes of the same Compression-7 plane are not byte-identical"
+        );
+        let digest = md5::to_hex(&plane_md5(&first));
+        assert_eq!(
+            digest, pinned,
+            "{path}: the deterministic plane must also be the pinned dnglab digest"
+        );
+        eprintln!("COMPRESSION-7 PLANE ({path}): two decodes byte-identical, md5 {digest}");
+    }
+}

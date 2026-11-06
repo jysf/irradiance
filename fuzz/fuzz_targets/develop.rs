@@ -43,9 +43,10 @@ fuzz_target!(|data: &[u8]| {
     let Ok(sensor) = container.sensor() else {
         return;
     };
-    if sensor.require_uncompressed().is_err() {
-        return;
-    }
+    // No `require_uncompressed` gate (`SPEC-045`): a DNG `Compression = 7`
+    // plane goes through `unpack_into`'s SOF-3 route like any other, so the
+    // PUBLIC Compression-7 path is fuzzed end to end. `unpack_into` itself
+    // returns `UnsupportedCompression` for every other code.
 
     let Some(pixel_count) = u64::from(sensor.width).checked_mul(u64::from(sensor.height)) else {
         return;
