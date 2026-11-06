@@ -318,6 +318,173 @@ pub fn cfa_dng_16bit(order: Order, width: u32, height: u32, samples: &[u16]) -> 
     data
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-045 — a synthetic DNG `Compression = 7` (SOF-3 lossless JPEG) container
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The library's round-trip encoder (`ljpeg::encode_lj92`) lives in a
+// `cfg(test)` module of the crate and is not visible to integration tests or
+// examples, so this is a small, separate SOF-3 encoder: own work from ITU-T
+// T.81 Annex B/C/F/H (`DEC-003`, `DEC-035`), single component, predictor 1
+// (the held files' predictor), point transform 0, no restart interval. It uses
+// the same flat 17-symbol / 5-bit DC Huffman table as the in-crate oracle (the
+// canonical code of category `s` is the 5-bit value `s`), so it is a
+// trivially-correct inverse of the decoder.
+
+/// A single-component SOF-3 datastream (SOI, SOF3, DHT, SOS, scan, EOI) that
+/// decodes to exactly `samples` (`cols * rows`, row-major, each below
+/// `2^precision`). Predictor 1, `Pt = 0`.
+pub fn lj92_strip(samples: &[u16], cols: usize, rows: usize, precision: u8) -> Vec<u8> {
+    assert_eq!(samples.len(), cols * rows, "samples must be cols * rows");
+    assert!((2..=16).contains(&precision), "precision must be 2..=16");
+
+    // Prediction per T.81 H.1.2.1 with predictor 1: the first sample of the
+    // image predicts 2^(P-1); the rest of the first row predicts from the left
+    // (Ra); the first column of later rows predicts from above (Rb); everything
+    // else uses Ra. The difference is taken modulo 2^16 (`DEC-018`).
+    let initial = 1i32 << (precision - 1);
+    let mut writer = BitWriter::default();
+    for r in 0..rows {
+        for c in 0..cols {
+            let idx = r * cols + c;
+            let px = if idx == 0 {
+                initial
+            } else if c == 0 {
+                i32::from(samples[idx - cols])
+            } else {
+                i32::from(samples[idx - 1])
+            };
+            let raw = (i32::from(samples[idx]) - px).rem_euclid(65536);
+            let diff = if raw >= 32768 { raw - 65536 } else { raw };
+            // Category SSSS: the bit length of |diff|; 16 is the lone -32768
+            // case, which carries no additional bits (T.81 H.1.2.2).
+            let ssss = if diff == -32768 {
+                16
+            } else {
+                32 - diff.unsigned_abs().leading_zeros()
+            };
+            writer.put(ssss, 5);
+            if (1..16).contains(&ssss) {
+                let extra = if diff > 0 {
+                    diff as u32
+                } else {
+                    (diff + (1 << ssss) - 1) as u32
+                };
+                writer.put(extra, ssss);
+            }
+        }
+    }
+    let entropy = writer.finish();
+
+    let mut data = vec![0xFF, 0xD8]; // SOI
+                                     // SOF3: Lf = 11, P, Y, X, Nf = 1, then one component spec (Ci, H/V, Tq).
+    data.extend_from_slice(&[0xFF, 0xC3, 0x00, 0x0B, precision]);
+    data.extend_from_slice(&(rows as u16).to_be_bytes());
+    data.extend_from_slice(&(cols as u16).to_be_bytes());
+    data.extend_from_slice(&[0x01, 0x00, 0x11, 0x00]);
+    // DHT: one DC table (Tc = 0, Th = 0), 17 codes of length 5, symbols 0..=16.
+    data.extend_from_slice(&[0xFF, 0xC4, 0x00, 2 + 1 + 16 + 17, 0x00]);
+    let mut bits = [0u8; 16];
+    bits[4] = 17;
+    data.extend_from_slice(&bits);
+    data.extend((0u8..=16).collect::<Vec<u8>>());
+    // SOS: Ls = 8, Ns = 1, Cs = 0, Td/Ta = 0, Ss = 1 (predictor), Se = 0, Ah/Al = 0.
+    data.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x08, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00]);
+    data.extend(entropy);
+    data.extend_from_slice(&[0xFF, 0xD9]); // EOI
+    data
+}
+
+/// MSB-first bit packer with JPEG `0xFF 0x00` byte stuffing; the final byte is
+/// padded with 1-bits (T.81 F.1.2.3).
+#[derive(Default)]
+struct BitWriter {
+    out: Vec<u8>,
+    acc: u32,
+    nbits: u32,
+}
+
+impl BitWriter {
+    fn put(&mut self, value: u32, count: u32) {
+        for i in (0..count).rev() {
+            self.acc = (self.acc << 1) | ((value >> i) & 1);
+            self.nbits += 1;
+            if self.nbits == 8 {
+                self.emit();
+            }
+        }
+    }
+    fn emit(&mut self) {
+        let byte = (self.acc & 0xFF) as u8;
+        self.out.push(byte);
+        if byte == 0xFF {
+            self.out.push(0x00);
+        }
+        self.acc = 0;
+        self.nbits = 0;
+    }
+    fn finish(mut self) -> Vec<u8> {
+        while self.nbits != 0 {
+            self.put(1, 1);
+        }
+        self.out
+    }
+}
+
+/// A single-strip DNG whose IFD0 is a `Compression = 7` LinearRaw sensor plane:
+/// the strip is [`lj92_strip`] of `samples` (`width * height`, each below
+/// `2^precision`), so `plane::unpack_into` routes it through the SOF-3 decoder
+/// and recovers `samples` exactly. The hardening tests corrupt the strip or the
+/// strip tags of this container; the fuzz seeds start from it. `SPEC-045`.
+pub fn compression7_dng(
+    order: Order,
+    width: u32,
+    height: u32,
+    precision: u8,
+    samples: &[u16],
+) -> Vec<u8> {
+    let strip = lj92_strip(samples, width as usize, height as usize, precision);
+    compression7_dng_with_strip(order, width, height, precision, &strip)
+}
+
+/// [`compression7_dng`] with a caller-supplied strip — a truncated or hostile
+/// SOF-3 datastream; `StripByteCounts` is the strip's own length.
+pub fn compression7_dng_with_strip(
+    order: Order,
+    width: u32,
+    height: u32,
+    precision: u8,
+    strip: &[u8],
+) -> Vec<u8> {
+    let strip_offset: u32 = 256; // clear of the 8-byte header + IFD0
+    let mut entries = compression7_entries(order, width, height, precision);
+    entries.push(long(STRIP_OFFSETS, strip_offset));
+    entries.push(long(STRIP_BYTE_COUNTS, strip.len() as u32));
+    entries.sort_by_key(|e| e.tag); // TIFF 6.0 §2: entries in ascending tag order
+    let mut data = tiff(order, 8, &[Ifd::new(8, entries, 0)]);
+    let at = strip_offset as usize;
+    if data.len() < at {
+        data.resize(at, 0);
+    }
+    data.truncate(at);
+    data.extend_from_slice(strip);
+    data
+}
+
+/// The IFD0 entries of a `Compression = 7` LinearRaw plane, without any strip
+/// (or tile) location tags — a tiled plane omits `StripOffsets`.
+pub fn compression7_entries(order: Order, width: u32, height: u32, precision: u8) -> Vec<Entry> {
+    vec![
+        long(NEW_SUBFILE_TYPE, 0),
+        long(IMAGE_WIDTH, width),
+        long(IMAGE_LENGTH, height),
+        short(BITS_PER_SAMPLE, u16::from(precision), order),
+        short(COMPRESSION, 7, order),
+        short(PHOTOMETRIC, LINEAR_RAW, order),
+        short(SAMPLES_PER_PIXEL, 1, order),
+    ]
+}
+
 /// A CFA plane whose `CFAPattern` payload points far past EOF with an absurd
 /// count. Per `DEC-012` the malformed *interpretation* tag is COSTED — the file
 /// still parses, `sensor()` returns with `color_filter == None` and `CFAPattern`

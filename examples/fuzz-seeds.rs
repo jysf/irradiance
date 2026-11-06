@@ -83,6 +83,19 @@ fn plane_fixture(
     data
 }
 
+/// A VALID synthetic DNG `Compression = 7` plane (`SPEC-045`): own-work SOF-3
+/// (`tests/support/tiff.rs::compression7_dng`, predictor 1, 14-bit,
+/// little-endian), so the plane / develop / demosaic targets start from a file
+/// that decodes through the PUBLIC `unpack_into` -> `ljpeg` route and mutate
+/// from there. Not derived from any corpus file (`DEC-003`).
+fn compression7_seed() -> Vec<u8> {
+    let (width, height, precision) = (8u32, 4u32, 14u8);
+    let samples: Vec<u16> = (0..width * height)
+        .map(|i| ((i * 977 + 4000) % (1 << precision)) as u16)
+        .collect();
+    tiff::compression7_dng(tiff::Order::Little, width, height, precision, &samples)
+}
+
 /// Seeds for `fuzz/fuzz_targets/plane.rs` — reaching BOTH of `DEC-008`'s
 /// paths is the point (a target that only ever drives one recreates
 /// `SPIKE-001`'s exact blind spot), plus the hostile shapes `SPEC-012`
@@ -141,9 +154,21 @@ fn plane_seeds() -> Vec<(&'static str, Vec<u8>)> {
             plane_fixture(tiff::Order::Little, 4, 2, 10, 512, 10, &[0u8; 10]),
         ),
         (
-            // AC6: Compression = 7 must never reach the unpack path at all.
+            // SPEC-012 AC6 named this as the Compression-7 gate seed. Since
+            // SPEC-043 the plane reaches the SOF-3 decoder, and its strip (14
+            // zero bytes, no SOI) is a typed decode error — still a useful
+            // hostile shape.
             "compressed-plane",
             compressed,
+        ),
+        (
+            // SPEC-045: a VALID synthetic Compression-7 DNG (own-work SOF-3,
+            // predictor 1, 14-bit, little-endian) so the fuzzer starts from a
+            // plane that decodes through the PUBLIC route and mutates from
+            // there. Reused by the develop and demosaic targets (a mono plane
+            // is a rejected CFA there, after a full Compression-7 unpack).
+            "compression7-sof3",
+            compression7_seed(),
         ),
     ]
 }
@@ -288,7 +313,7 @@ fn develop_fixture(
 /// develop successfully (unrotated and rotated), so the target exercises the
 /// happy path as well as the hostile one.
 fn develop_seeds() -> Vec<(&'static str, Vec<u8>)> {
-    vec![
+    let mut seeds = vec![
         (
             "unrotated-full-plane",
             develop_fixture(
@@ -396,7 +421,11 @@ fn develop_seeds() -> Vec<(&'static str, Vec<u8>)> {
             "black-level-at-white-level",
             develop_fixture(8, 6, None, None, None, None, Some(30_000), Some(30_000)),
         ),
-    ]
+    ];
+    // SPEC-045: a valid Compression-7 plane, so develop is fuzzed past the
+    // public SOF-3 unpack too.
+    seeds.push(("compression7-sof3", compression7_seed()));
+    seeds
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -448,6 +477,9 @@ fn demosaic_seeds() -> Vec<(&'static str, Vec<u8>)> {
         ),
         // A real-strip DNG truncated mid-strip.
         ("truncated-cfa-strip", truncated_cfa_dng),
+        // SPEC-045: a valid Compression-7 (mono) plane — the public SOF-3
+        // unpack runs in full, then the demosaic is a typed rejection.
+        ("compression7-sof3", compression7_seed()),
     ]
 }
 

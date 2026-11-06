@@ -1047,3 +1047,174 @@ fn the_canon_5d_iii_plane_unpacks_with_its_above_white_sample_preserved() {
     );
     eprintln!("CANON {CANON}: unpacked with above-white max {max} > WhiteLevel {WHITE_LEVEL}");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-045 — hardening the public Compression-7 route (tier A)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A synthetic `Compression = 7` DNG (`tiff::compression7_dng`, own-work SOF-3
+// from T.81 — `DEC-003` / `DEC-035`) drives the PUBLIC `plane::unpack_into`
+// route end to end, so a truncated or hostile strip is proven to come back as a
+// typed `Error` through the same path a real file takes, not only through the
+// crate-internal decoder.
+
+/// A deterministic `width * height` plane below `2^precision`.
+fn compression7_samples(width: u32, height: u32, precision: u8) -> Vec<u16> {
+    let modulo = 1u32 << precision;
+    let mut state = 0x5eed_u32 ^ u32::from(precision);
+    (0..width * height)
+        .map(|_| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            ((state >> 9) % modulo) as u16
+        })
+        .collect()
+}
+
+/// Parse `data` and run the public `unpack_into` into a `width * height` plane.
+fn unpack_synthetic(data: &[u8], width: u32, height: u32) -> Result<Vec<u16>, Error> {
+    let container = Container::parse(data).expect("the synthetic container parses");
+    let sensor = container.sensor().expect("IFD0 is the sensor plane");
+    let mut dst = vec![0u16; (width * height) as usize];
+    unpack_into(&sensor, container.byte_order(), data, &mut dst).map(|()| dst)
+}
+
+#[test]
+fn compression7_synthetic_container_round_trips_through_unpack_into() {
+    // The helper's own sanity check: the synthetic container decodes bit-exact
+    // through the public route, in both byte orders and at the held files'
+    // precisions (12-bit Leica, 14-bit Pentax) plus 16.
+    for order in [Order::Little, Order::Big] {
+        for precision in [12u8, 14, 16] {
+            let (width, height) = (6u32, 4u32);
+            let samples = compression7_samples(width, height, precision);
+            let data = tiff::compression7_dng(order, width, height, precision, &samples);
+            let plane = unpack_synthetic(&data, width, height)
+                .unwrap_or_else(|e| panic!("{order:?} P={precision}: {e:?}"));
+            assert_eq!(plane, samples, "{order:?} P={precision}");
+        }
+    }
+}
+
+#[test]
+fn truncated_compression7_strip_through_unpack_into_is_a_typed_error() {
+    let (width, height, precision) = (6u32, 4u32, 14u8);
+    let samples = compression7_samples(width, height, precision);
+    let strip = tiff::lj92_strip(&samples, width as usize, height as usize, precision);
+
+    // Every proper prefix of the strip (cut in the header, the tables, or
+    // mid-scan) is a typed error through the public route — never a panic (a
+    // panic fails the test outright) and never a silent Ok.
+    for cut in 0..strip.len() - 2 {
+        let data = tiff::compression7_dng_with_strip(
+            Order::Little,
+            width,
+            height,
+            precision,
+            &strip[..cut],
+        );
+        let result = unpack_synthetic(&data, width, height);
+        assert!(
+            result.is_err(),
+            "a strip cut at {cut} of {} must not decode",
+            strip.len()
+        );
+    }
+
+    // A strip whose StripByteCounts promises bytes the file does not hold is
+    // Truncated before the decoder runs.
+    let mut data = tiff::compression7_dng(Order::Little, width, height, precision, &samples);
+    data.truncate(data.len() - 10);
+    let err = unpack_synthetic(&data, width, height).expect_err("strip runs past EOF");
+    assert!(matches!(err, Error::Truncated { .. }), "got {err:?}");
+
+    // The SPEC-045 header guards are reached through the public route too.
+    // Strip layout (from `lj92_strip`): SOI(2) SOF3(13) DHT(4 + 1 + 16 + 17) SOS.
+    let dht_tc_th = 2 + 13 + 4;
+    let sos_ah_al = dht_tc_th + 1 + 16 + 17 + 9;
+    assert_eq!(strip[sos_ah_al - 9], 0xFF, "SOS marker where expected");
+
+    let mut bad_pt = strip.clone();
+    bad_pt[sos_ah_al] = 0x0E; // Pt = 14 = P
+    let data = tiff::compression7_dng_with_strip(Order::Little, width, height, precision, &bad_pt);
+    let err = unpack_synthetic(&data, width, height).expect_err("Pt >= P");
+    assert!(
+        matches!(
+            err,
+            Error::LjpegInvalidPointTransform {
+                point_transform: 14,
+                precision: 14
+            }
+        ),
+        "got {err:?}"
+    );
+
+    for tc_th in [0x10u8, 0x04] {
+        let mut bad_dht = strip.clone();
+        bad_dht[dht_tc_th] = tc_th;
+        let data =
+            tiff::compression7_dng_with_strip(Order::Little, width, height, precision, &bad_dht);
+        let err = unpack_synthetic(&data, width, height).expect_err("bad Tc/Th");
+        assert!(
+            matches!(err, Error::LjpegInvalidHuffmanTable),
+            "{tc_th:#04x}: got {err:?}"
+        );
+    }
+}
+
+#[test]
+fn tiled_compression7_plane_is_unsupported_strip_layout() {
+    // A tiled Compression-7 plane: TileWidth/TileLength/TileOffsets/
+    // TileByteCounts (TIFF 6.0 §15) and no StripOffsets. Tiles are a stated
+    // non-goal; the route refuses the plane with a clean typed error rather
+    // than guessing at a layout.
+    const TILE_WIDTH: u16 = 322;
+    const TILE_LENGTH: u16 = 323;
+    const TILE_OFFSETS: u16 = 324;
+    const TILE_BYTE_COUNTS: u16 = 325;
+    let (width, height, precision) = (16u32, 16u32, 12u8);
+    let samples = compression7_samples(width, height, precision);
+    let strip = tiff::lj92_strip(&samples, width as usize, height as usize, precision);
+
+    let mut entries = tiff::compression7_entries(Order::Little, width, height, precision);
+    entries.extend([
+        tiff::long(TILE_WIDTH, width),
+        tiff::long(TILE_LENGTH, height),
+        tiff::long(TILE_OFFSETS, 256),
+        tiff::long(TILE_BYTE_COUNTS, strip.len() as u32),
+    ]);
+    let mut data = tiff::tiff(Order::Little, 8, &[tiff::Ifd::new(8, entries, 0)]);
+    data.resize(256, 0);
+    data.extend_from_slice(&strip);
+
+    let err = unpack_synthetic(&data, width, height).expect_err("tiles are unsupported");
+    assert!(
+        matches!(
+            err,
+            Error::UnsupportedStripLayout {
+                strip_offsets: 0,
+                strip_byte_counts: 0
+            }
+        ),
+        "got {err:?}"
+    );
+}
+
+#[test]
+fn the_compression7_fuzz_seed_decodes_through_the_public_route() {
+    // The committed fuzz seed (`examples/fuzz-seeds.rs::compression7_seed`)
+    // must be a VALID Compression-7 plane, so the plane / develop / demosaic
+    // targets start inside the SOF-3 route rather than at another rejection.
+    // Regenerate with `cargo run --example fuzz-seeds` if this drifts.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("fuzz/seeds/plane/compression7-sof3.tiff");
+    let data = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let container = Container::parse(&data).expect("the seed parses");
+    let sensor = container.sensor().expect("the seed has a sensor plane");
+    assert_eq!((sensor.width, sensor.height), (8, 4));
+    let plane = unpack_synthetic(&data, sensor.width, sensor.height)
+        .unwrap_or_else(|e| panic!("the Compression-7 seed must decode: {e:?}"));
+    let expected: Vec<u16> = (0..32u32)
+        .map(|i| ((i * 977 + 4000) % (1 << 14)) as u16)
+        .collect();
+    assert_eq!(plane, expected);
+}
