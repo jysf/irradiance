@@ -47,7 +47,7 @@ handback:
   estimated_usd: null
   duration_minutes: 55
   branch: claude/spec-043-build-5bc7e8
-  pr: null
+  pr: 112
   completed_at: 2026-11-05         # YYYY-MM-DD
   notes: "tokens_total is a FLOOR: context-occupancy from ccd_session_mgmt get_usage (306,881 tokens, 31 percent of 1M), not a cumulative. The Claude Code desktop Code tab exposes no interactive per-cycle meter, same as HANDOFF-085..090; the orchestrator supersedes this from the transcript at ship. estimated_usd left null on purpose: a USD figure on the occupancy floor would understate the real cumulative by roughly two orders of magnitude. pr is filled by the bookkeeping commit once the PR opens."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -174,7 +174,7 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-043-build-5bc7e8` → PR filled by the bookkeeping commit.
+- **Branch / PR:** `claude/spec-043-build-5bc7e8` → PR #112 (against `main`).
 - **Completed at:** 2026-11-05
 - **All acceptance criteria met?** Yes — all six:
   1. Single-strip Compression-7 fills `dst` bit-exact via `decode_into` for both
