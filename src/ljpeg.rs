@@ -1,5 +1,6 @@
 //! SOF-3 lossless-JPEG decoder — `SPEC-036` (entropy front-end) +
-//! `SPEC-037` (reconstruction); `DEC-035`.
+//! `SPEC-037` (single-component reconstruction) + `SPEC-046` (two-component
+//! `Nf=2` column-interleave decode + de-interleave; `DEC-037`); `DEC-035`.
 //!
 //! A DNG `Compression 7` sensor plane is a lossless-JPEG (SOF-3, ITU-T T.81
 //! Annex H) bitstream. This module decodes it in two layers:
@@ -183,16 +184,18 @@ fn next_marker(data: &[u8], pos: &mut usize) -> Result<u8, Error> {
 // Parsed frame/scan parameters
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The single-component SOF-3 frame parameters plus the scan parameters this
-/// front-end needs. `SPEC-037` reads these to reconstruct samples; `SPEC-036`
-/// only populates them.
+/// The SOF-3 frame parameters plus the scan parameters this front-end needs.
+/// `SPEC-037` reads these to reconstruct a single-component plane; `SPEC-046`
+/// adds the two-component (`Nf=2`) column-interleave case (`DEC-037`).
+/// `SPEC-036` only populates them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Frame {
     /// Sample precision `P` (bits per sample), `2..=16` for lossless.
     pub(crate) precision: u8,
     /// Number of lines `Y` (image height).
     pub(crate) lines: u16,
-    /// Samples per line `X` (image width).
+    /// Samples per line `X` (image width) — **per component**. For `Nf=2` the
+    /// de-interleaved monochrome plane is `2·X` wide (`SPEC-046`).
     pub(crate) samples_per_line: u16,
     /// Point transform `Pt` (= `Al` from SOS, `0..=15`); the right shift
     /// `SPEC-037` applies during reconstruction.
@@ -202,6 +205,11 @@ pub(crate) struct Frame {
     pub(crate) predictor: u8,
     /// Restart interval `Ri` from DRI (`0` = no restart markers).
     pub(crate) restart_interval: u16,
+    /// Number of frame components `Nf` (`1` or `2`). `SPEC-037` decodes the
+    /// single-component case; `SPEC-046` decodes the two-component
+    /// column-interleave case (both held Compression-7 files — `DEC-037`).
+    /// `Nf` outside `{1,2}` is rejected at parse time.
+    pub(crate) components: u8,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -302,9 +310,11 @@ impl HuffTable {
 // parse_headers — walk the marker/segment structure (Annex B)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Parse a single-component SOF-3 header: walk `SOI → {DHT | DRI | SOF3} → SOS`
-/// and return the [`Frame`], the DC [`HuffTable`] the scan selects, and the
-/// byte offset into `data` where the entropy-coded scan begins.
+/// Parse a one- or two-component SOF-3 header: walk `SOI → {DHT | DRI | SOF3} →
+/// SOS` and return the [`Frame`], one DC [`HuffTable`] **per component** (in
+/// component order — each component selects its own table by `Td`), and the
+/// byte offset into `data` where the entropy-coded scan begins. The returned
+/// `Vec` has `frame.components` entries (`SPEC-046`); for `Nf=1` that is one.
 ///
 /// # Errors
 ///
@@ -312,13 +322,14 @@ impl HuffTable {
 /// [`Error::LjpegMissingMarker`] (no SOI, a scan with no frame/table, EOI
 /// before a scan, or a segment length that does not fit),
 /// [`Error::LjpegUnsupportedProcess`] (a SOF that is not SOF3),
-/// [`Error::LjpegUnsupportedComponentCount`] (`Nf != 1`),
+/// [`Error::LjpegUnsupportedComponentCount`] (`Nf` outside `{1,2}`, or the
+/// scan's `Ns` not equal to the frame's `Nf`),
 /// [`Error::LjpegUnsupportedPrecision`] (`P` outside `2..=16`),
 /// [`Error::LjpegUnsupportedPredictor`] (`Ss` outside `1..=7`),
 /// [`Error::LjpegInvalidHuffmanTable`] (a malformed DHT),
 /// [`Error::LjpegUnexpectedMarker`] (a marker where none belongs), and
 /// [`Error::Truncated`] (EOF inside a segment).
-pub(crate) fn parse_headers(data: &[u8]) -> Result<(Frame, HuffTable, usize), Error> {
+pub(crate) fn parse_headers(data: &[u8]) -> Result<(Frame, Vec<HuffTable>, usize), Error> {
     // SOI must open the stream.
     if !matches!(data.first(), Some(&0xFF)) || !matches!(data.get(1), Some(&MARKER_SOI)) {
         return Err(Error::LjpegMissingMarker { marker: MARKER_SOI });
@@ -326,6 +337,7 @@ pub(crate) fn parse_headers(data: &[u8]) -> Result<(Frame, HuffTable, usize), Er
     let mut pos: usize = 2;
 
     let mut precision: Option<u8> = None;
+    let mut components: u8 = 1;
     let mut lines: u16 = 0;
     let mut samples_per_line: u16 = 0;
     let mut restart_interval: u16 = 0;
@@ -336,20 +348,35 @@ pub(crate) fn parse_headers(data: &[u8]) -> Result<(Frame, HuffTable, usize), Er
         let marker = next_marker(data, &mut pos)?;
         match marker {
             MARKER_SOF3 => {
-                let (p, y, x) = parse_frame_header(data, &mut pos)?;
+                let (p, y, x, nf) = parse_frame_header(data, &mut pos)?;
                 precision = Some(p);
                 lines = y;
                 samples_per_line = x;
+                components = nf;
             }
             MARKER_DHT => parse_dht(data, &mut pos, &mut dc_tables)?,
             MARKER_DRI => restart_interval = parse_dri(data, &mut pos)?,
             MARKER_SOS => {
-                let (predictor, point_transform, td) = parse_scan_header(data, &mut pos)?;
+                let (predictor, point_transform, tds) = parse_scan_header(data, &mut pos)?;
                 let precision = precision.ok_or(Error::LjpegMissingMarker {
                     marker: MARKER_SOF3,
                 })?;
-                let table = take_table(&mut dc_tables, td)
-                    .ok_or(Error::LjpegMissingMarker { marker: MARKER_DHT })?;
+                // The scan's component count `Ns` must equal the frame's `Nf`.
+                if tds.len() != usize::from(components) {
+                    return Err(Error::LjpegUnsupportedComponentCount {
+                        nf: u8::try_from(tds.len()).unwrap_or(u8::MAX),
+                    });
+                }
+                // Resolve each component's DC table by its own `Td`. A table is
+                // cloned, not removed, so two components may share one
+                // destination (both held Compression-7 files reference `Td=0`
+                // for both components — `SPEC-046` / `DEC-037`).
+                let mut component_tables: Vec<HuffTable> = Vec::with_capacity(tds.len());
+                for td in tds {
+                    let table = find_table(&dc_tables, td)
+                        .ok_or(Error::LjpegMissingMarker { marker: MARKER_DHT })?;
+                    component_tables.push(table.clone());
+                }
                 let frame = Frame {
                     precision,
                     lines,
@@ -357,8 +384,9 @@ pub(crate) fn parse_headers(data: &[u8]) -> Result<(Frame, HuffTable, usize), Er
                     point_transform,
                     predictor,
                     restart_interval,
+                    components,
                 };
-                return Ok((frame, table, pos));
+                return Ok((frame, component_tables, pos));
             }
             MARKER_EOI => return Err(Error::LjpegMissingMarker { marker: MARKER_SOS }),
             m if is_other_sof(m) => return Err(Error::LjpegUnsupportedProcess { sof: m }),
@@ -367,25 +395,30 @@ pub(crate) fn parse_headers(data: &[u8]) -> Result<(Frame, HuffTable, usize), Er
     }
 }
 
-/// Remove and return the DC table with destination `th`, if present.
-fn take_table(tables: &mut Vec<(u8, HuffTable)>, th: u8) -> Option<HuffTable> {
-    let idx = tables.iter().position(|(t, _)| *t == th)?;
-    Some(tables.swap_remove(idx).1)
+/// Return a reference to the DC table with destination `th`, if present. The
+/// table is cloned by the caller rather than removed, so two components in a
+/// two-component scan may both select one shared destination (`SPEC-046`).
+fn find_table(tables: &[(u8, HuffTable)], th: u8) -> Option<&HuffTable> {
+    tables.iter().find(|(t, _)| *t == th).map(|(_, tbl)| tbl)
 }
 
 /// Parse a SOF3 frame header (ITU-T T.81 B.2.2): `Lf P Y X Nf` then `Nf`
-/// component specifications. Returns `(precision, lines, samples_per_line)`.
-fn parse_frame_header(data: &[u8], pos: &mut usize) -> Result<(u8, u16, u16), Error> {
+/// component specifications. Accepts `Nf ∈ {1, 2}` — the single-component case
+/// (`SPEC-037`) and the two-component column-interleave case both held
+/// Compression-7 files use (`SPEC-046` / `DEC-037`); `Nf` outside `{1,2}`
+/// (Bayer/CFA 3+) is rejected with [`Error::LjpegUnsupportedComponentCount`].
+/// Returns `(precision, lines, samples_per_line, nf)`.
+fn parse_frame_header(data: &[u8], pos: &mut usize) -> Result<(u8, u16, u16, u8), Error> {
     let lf = read_u16_be(data, pos)?;
     let precision = read_u8(data, pos)?;
     let y = read_u16_be(data, pos)?;
     let x = read_u16_be(data, pos)?;
     let nf = read_u8(data, pos)?;
 
-    if nf != 1 {
+    if nf != 1 && nf != 2 {
         return Err(Error::LjpegUnsupportedComponentCount { nf });
     }
-    // Lf must equal `8 + 3*Nf` (header fields + one 3-byte component spec).
+    // Lf must equal `8 + 3*Nf` (header fields + Nf 3-byte component specs).
     let expected_lf = 3usize
         .checked_mul(usize::from(nf))
         .and_then(|c| c.checked_add(8))
@@ -401,14 +434,19 @@ fn parse_frame_header(data: &[u8], pos: &mut usize) -> Result<(u8, u16, u16), Er
         return Err(Error::LjpegUnsupportedPrecision { precision });
     }
 
-    // The single component's spec: Ci, Hi/Vi, Tqi. The front-end stores none of
-    // them (a single component has no sampling-factor or quantisation meaning
-    // for lossless), but it must consume the bytes to reach the next marker.
-    let _ci = read_u8(data, pos)?;
-    let _hv = read_u8(data, pos)?;
-    let _tq = read_u8(data, pos)?;
+    // Each component's spec: Ci, Hi/Vi, Tqi. The front-end stores none of them:
+    // for lossless there is no quantisation, and both held two-component files
+    // are `H=V=1` (the §12 probe / `DEC-037`), so the interleave is one comp0
+    // then one comp1 sample per grid position — no subsampling to track.
+    // (Subsampled `H`/`V`≠1 is out of scope — `DEC-037` — and no held file uses
+    // it.) The bytes are consumed to reach the next marker.
+    for _ in 0..nf {
+        let _ci = read_u8(data, pos)?;
+        let _hv = read_u8(data, pos)?;
+        let _tq = read_u8(data, pos)?;
+    }
 
-    Ok((precision, y, x))
+    Ok((precision, y, x, nf))
 }
 
 /// Parse a DHT segment (ITU-T T.81 B.2.4.2): one or more `Tc/Th | BITS[16] |
@@ -492,11 +530,15 @@ fn parse_dri(data: &[u8], pos: &mut usize) -> Result<u16, Error> {
 
 /// Parse a SOS scan header (ITU-T T.81 B.2.3): `Ls Ns {Csj Tdj/Taj} Ss Se
 /// Ah/Al`. For lossless, `Ss` is the predictor selector and `Al` is the point
-/// transform. Returns `(predictor, point_transform, dc_table_destination)`.
-fn parse_scan_header(data: &[u8], pos: &mut usize) -> Result<(u8, u8, u8), Error> {
+/// transform. Accepts `Ns ∈ {1, 2}` (the caller requires `Ns == Nf`); reads
+/// each component's own DC table destination `Td`. `Ss`/`Al` stay scan-level
+/// (one predictor and one point transform shared by the interleaved
+/// components, as both held files use — `SPEC-046`). Returns `(predictor,
+/// point_transform, td_per_component)`, the `Td` list in component order.
+fn parse_scan_header(data: &[u8], pos: &mut usize) -> Result<(u8, u8, Vec<u8>), Error> {
     let ls = read_u16_be(data, pos)?;
     let ns = read_u8(data, pos)?;
-    if ns != 1 {
+    if ns != 1 && ns != 2 {
         return Err(Error::LjpegUnsupportedComponentCount { nf: ns });
     }
     // Ls must equal `6 + 2*Ns`.
@@ -508,9 +550,17 @@ fn parse_scan_header(data: &[u8], pos: &mut usize) -> Result<(u8, u8, u8), Error
         return Err(Error::LjpegMissingMarker { marker: MARKER_SOS });
     }
 
-    let _cs = read_u8(data, pos)?; // scan component selector
-    let td_ta = read_u8(data, pos)?;
-    let td = td_ta.checked_div(16).unwrap_or(0); // DC table destination (high nibble)
+    // One selector per component: Csj then Tdj/Taj. Each component chooses its
+    // own DC table (high nibble of the Td/Ta byte); collect them in component
+    // order so `parse_headers` resolves one table per component rather than
+    // hard-coding a single shared table.
+    let mut tds: Vec<u8> = Vec::with_capacity(usize::from(ns));
+    for _ in 0..ns {
+        let _cs = read_u8(data, pos)?; // scan component selector
+        let td_ta = read_u8(data, pos)?;
+        let td = td_ta.checked_div(16).unwrap_or(0); // DC table destination (high nibble)
+        tds.push(td);
+    }
     let ss = read_u8(data, pos)?; // predictor
     let _se = read_u8(data, pos)?; // 0 in lossless
     let ah_al = read_u8(data, pos)?;
@@ -520,7 +570,7 @@ fn parse_scan_header(data: &[u8], pos: &mut usize) -> Result<(u8, u8, u8), Error
         return Err(Error::LjpegUnsupportedPredictor { predictor: ss });
     }
 
-    Ok((ss, al, td))
+    Ok((ss, al, tds))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -987,11 +1037,209 @@ pub(crate) fn reconstruct(
     Ok(())
 }
 
-/// One-call single-component SOF-3 decode: [`parse_headers`] → length check →
-/// [`ScanReader`] over the entropy bytes → [`reconstruct`], returning the
-/// parsed [`Frame`]. This is the entry point STAGE-011 (SPEC-043) wires
-/// `Compression 7` to, through `plane::unpack_into`; `out` is the caller-owned
-/// `u16` plane (`DEC-016`).
+/// The loop-invariant prediction parameters of a two-component reconstruction:
+/// the de-interleaved plane width `2·X`, the shared predictor selector, and the
+/// initial prediction `2^(P−Pt−1)`. Grouped so [`predict_component`] stays
+/// within the crate's argument-count lint.
+#[derive(Clone, Copy)]
+struct CompPredict {
+    /// `2 · samples_per_line` — the width of the de-interleaved plane.
+    plane_width: usize,
+    /// The scan's predictor selector `Ss` (shared by both components).
+    selector: u8,
+    /// The initial prediction `2^(P−Pt−1)`.
+    initial: i32,
+}
+
+/// The lossless prediction `Px` for one component of a two-component
+/// column-interleave scan (`SPEC-046`), applying the §H.2.1 boundary rules
+/// **independently per component**. `slot` is the component's own linear index
+/// in the `2·X`-wide plane; its same-component neighbours are two output
+/// columns back (`Ra`), one plane row back (`Rb`), and one of each (`Rc`). This
+/// is the per-component counterpart of the single-sample selection inside
+/// [`reconstruct`].
+///
+/// - the first sample of the scan (and of each restart interval, when
+///   `is_interval_start`) uses the initial prediction `2^(P−Pt−1)`;
+/// - the rest of the first line (`row == 0`) uses `Ra` (same-component left);
+/// - the first column of a later line (`col == 0`) uses `Rb` (same-component
+///   above);
+/// - every other sample uses the selected predictor ([`predict`]).
+fn predict_component(
+    out: &[u16],
+    cfg: CompPredict,
+    slot: usize,
+    is_interval_start: bool,
+    row: usize,
+    col: usize,
+) -> i32 {
+    if is_interval_start {
+        cfg.initial
+    } else if row == 0 {
+        // Ra: same-component left neighbour, two output columns back.
+        neighbour(out, slot, 2)
+    } else if col == 0 {
+        // Rb: same-component sample directly above, one plane row back.
+        neighbour(out, slot, cfg.plane_width)
+    } else {
+        let ra = neighbour(out, slot, 2);
+        let rb = neighbour(out, slot, cfg.plane_width);
+        let rc = neighbour(out, slot, cfg.plane_width.wrapping_add(2));
+        predict(cfg.selector, ra, rb, rc)
+    }
+}
+
+/// Reconstruct a two-component (`Nf=2`) column-interleave SOF-3 plane from
+/// `reader`'s interleaved difference stream into the caller-owned `out`
+/// (`SPEC-046` / `DEC-037`, ITU-T T.81 Annex H.1).
+///
+/// The two SOF-3 components are the two column phases of one monochrome plane.
+/// `out` must hold exactly `2 × frame.samples_per_line × frame.lines` samples
+/// (else [`Error::LjpegPlaneWrongLength`]). It is filled MCU by MCU in scan
+/// order: at each grid position `(x, y)` component 0 is decoded, then component
+/// 1, and written column-interleaved —
+/// `out[y·2X + 2x] = comp0`, `out[y·2X + 2x + 1] = comp1`.
+///
+/// Prediction state is held **per component**: predictor 1's `Ra` is the same
+/// component's own left neighbour (two output columns back), and the §H.2.1
+/// first-line / first-column / initial-prediction rules apply to each component
+/// independently ([`predict_component`]). `tables[k]` is component `k`'s DC
+/// Huffman table (both held files share one `Td=0` table, but each component
+/// selects its own). The reconstructed value is `(Px + difference) mod 2^16`
+/// (`wrapping_*`, `DEC-018`) in the point-transformed domain; the stored output
+/// is that value `<< Pt` (both held files use `Pt=0`, a no-op). When
+/// `frame.restart_interval > 0`, [`ScanReader::restart`] is called at each
+/// interval boundary (counted in MCUs) and both components' prediction resets.
+/// No allocation occurs (`DEC-016`).
+///
+/// # Errors
+///
+/// [`Error::LjpegPlaneWrongLength`] if `out` is the wrong length, or any typed
+/// [`Error`] surfaced by `reader` (a truncated scan, a bad code, a missing
+/// table, a wrong restart marker). Never a panic on malformed input.
+fn reconstruct_two_component(
+    frame: &Frame,
+    tables: &[HuffTable],
+    reader: &mut ScanReader<'_>,
+    out: &mut [u16],
+) -> Result<(), Error> {
+    let width = usize::from(frame.samples_per_line); // X, per component
+    let height = usize::from(frame.lines);
+
+    // The de-interleaved plane is `2·X` wide. The length precondition (the one
+    // check a caller-owned, no-alloc path makes before writing) keys on `Nf=2`:
+    // `out.len() == 2 · X · Y`. `checked_mul` keeps the lint happy and treats
+    // the (unreachable on real buffers) overflow as a length that cannot match.
+    let plane_width = match width.checked_mul(2) {
+        Some(w) => w,
+        None => {
+            return Err(Error::LjpegPlaneWrongLength {
+                expected: usize::MAX,
+                got: out.len(),
+            });
+        }
+    };
+    let expected = match plane_width.checked_mul(height) {
+        Some(e) => e,
+        None => {
+            return Err(Error::LjpegPlaneWrongLength {
+                expected: usize::MAX,
+                got: out.len(),
+            });
+        }
+    };
+    if out.len() != expected {
+        return Err(Error::LjpegPlaneWrongLength {
+            expected,
+            got: out.len(),
+        });
+    }
+    if expected == 0 {
+        return Ok(());
+    }
+
+    // One DC table per component (resolved by `Td` in `parse_headers`). A
+    // malformed `tables` shorter than two components is a typed error, never an
+    // index panic.
+    let table0 = tables.first().ok_or(Error::LjpegInvalidHuffmanTable)?;
+    let table1 = tables.get(1).ok_or(Error::LjpegInvalidHuffmanTable)?;
+
+    // Initial prediction `2^(P − Pt − 1)`, as in the single-component path.
+    let p = i32::from(frame.precision);
+    let pt = frame.point_transform;
+    let initial: i32 = {
+        let exp = p.wrapping_sub(i32::from(pt)).wrapping_sub(1);
+        if exp < 0 {
+            0
+        } else {
+            i32::try_from(pow2(u32::try_from(exp).unwrap_or(0))).unwrap_or(0)
+        }
+    };
+
+    let restart_interval = usize::from(frame.restart_interval);
+    let cfg = CompPredict {
+        plane_width,
+        selector: frame.predictor,
+        initial,
+    };
+
+    // `idx` is component 0's slot for the current MCU; component 1 is `idx + 1`.
+    // `count_in_interval` counts MCUs in the current restart interval; `== 0`
+    // marks the MCU whose two components both take the initial prediction (the
+    // scan start and each sample after a restart).
+    let mut idx: usize = 0;
+    let mut count_in_interval: usize = 0;
+
+    for y in 0..height {
+        for x in 0..width {
+            if restart_interval > 0 && count_in_interval == restart_interval {
+                reader.restart()?;
+                count_in_interval = 0;
+            }
+            let is_interval_start = count_in_interval == 0;
+
+            // Component 0, then component 1 — the natural MCU order. Each
+            // difference is decoded with the component's own table; each
+            // prediction reads only the component's own neighbours.
+            let diff0 = reader.decode_difference(table0)?;
+            let px0 = predict_component(out, cfg, idx, is_interval_start, y, x);
+            let sample0 = px0.wrapping_add(diff0) & 0xFFFF;
+            if let Some(slot) = out.get_mut(idx) {
+                *slot = u16::try_from(sample0).unwrap_or(0);
+            }
+
+            let idx1 = idx.wrapping_add(1);
+            let diff1 = reader.decode_difference(table1)?;
+            let px1 = predict_component(out, cfg, idx1, is_interval_start, y, x);
+            let sample1 = px1.wrapping_add(diff1) & 0xFFFF;
+            if let Some(slot) = out.get_mut(idx1) {
+                *slot = u16::try_from(sample1).unwrap_or(0);
+            }
+
+            idx = idx.wrapping_add(2);
+            count_in_interval = count_in_interval.wrapping_add(1);
+        }
+    }
+
+    // Point transform: stored output is `reconstructed << Pt`, a modular `2^16`
+    // multiply (both held files use `Pt == 0`, a no-op). Mirrors `reconstruct`.
+    if pt > 0 {
+        let factor = u16::try_from(pow2(u32::from(pt))).unwrap_or(1);
+        for slot in out.iter_mut() {
+            *slot = slot.wrapping_mul(factor);
+        }
+    }
+
+    Ok(())
+}
+
+/// One-call SOF-3 decode: [`parse_headers`] → [`ScanReader`] over the entropy
+/// bytes → reconstruction (single-component [`reconstruct`] for `Nf=1`,
+/// [`reconstruct_two_component`] for `Nf=2`), returning the parsed [`Frame`].
+/// This is the entry point STAGE-011 (SPEC-043) wires `Compression 7` to,
+/// through `plane::unpack_into`; `out` is the caller-owned `u16` plane
+/// (`DEC-016`), sized `Nf · samples_per_line · lines`. The length check lives
+/// in the chosen reconstruction function.
 ///
 /// # Errors
 ///
@@ -999,7 +1247,7 @@ pub(crate) fn reconstruct(
 /// ([`Error::LjpegPlaneWrongLength`]), or reconstruction — never a panic on
 /// malformed input.
 pub(crate) fn decode_into(data: &[u8], out: &mut [u16]) -> Result<Frame, Error> {
-    let (frame, table, offset) = parse_headers(data)?;
+    let (frame, tables, offset) = parse_headers(data)?;
     // `offset` is `<= data.len()` (parse_headers only advances through
     // bounds-checked reads), so this slice is always present; the `ok_or`
     // keeps the path total without an index.
@@ -1007,7 +1255,16 @@ pub(crate) fn decode_into(data: &[u8], out: &mut [u16]) -> Result<Frame, Error> 
         .get(offset..)
         .ok_or(Error::Truncated { at: offset, len: 0 })?;
     let mut reader = ScanReader::new(entropy);
-    reconstruct(&frame, &table, &mut reader, out)?;
+    if frame.components == 2 {
+        reconstruct_two_component(&frame, &tables, &mut reader, out)?;
+    } else {
+        // `Nf=1`: the single-component path, byte-for-byte unchanged. `tables`
+        // holds exactly one entry for a well-formed single-component header.
+        let table = tables
+            .first()
+            .ok_or(Error::LjpegMissingMarker { marker: MARKER_DHT })?;
+        reconstruct(&frame, table, &mut reader, out)?;
+    }
     Ok(frame)
 }
 
@@ -1371,11 +1628,13 @@ mod tests {
         let offset = data.len();
         data.extend_from_slice(&[0x00, 0xFF, MARKER_EOI]);
 
-        let (_frame, table, off) = parse_headers(&data).unwrap();
+        let (_frame, tables, off) = parse_headers(&data).unwrap();
         assert_eq!(off, offset);
+        // One table for the single component; it is the scan-selected Td=1.
+        let table = &tables[0];
         let mut r = ScanReader::new(&data[off..]);
         // Code "0" → symbol 0 → category 0 → difference 0.
-        assert_eq!(r.decode_difference(&table).unwrap(), 0);
+        assert_eq!(r.decode_difference(table).unwrap(), 0);
     }
 
     // ══ SPEC-037: reconstruction ══════════════════════════════════════════
@@ -1570,6 +1829,141 @@ mod tests {
         data
     }
 
+    // ══ SPEC-046: two-component (Nf=2) column-interleave encode ════════════
+    //
+    // The two-component counterpart of the helpers above, so the analytic
+    // round-trip covers Nf=2. A two-component SOF-3 frame carries two 3-byte
+    // component specs (Lf = 8 + 3·2 = 14) and the SOS two selectors
+    // (Ls = 6 + 2·2 = 10), both H=V=1, both referencing their own Td. The
+    // entropy scan is the single-component `encode_scan` over an MCU-interleaved
+    // difference list (comp0 diff then comp1 diff per MCU), which is exactly
+    // what `reconstruct_two_component` decodes.
+
+    /// A two-component SOF3 frame segment: Nf=2, both components H=V=1, Tq=0.
+    fn sof3_segment_nf2(precision: u8, lines: u16, samples: u16) -> Vec<u8> {
+        let mut seg = vec![0xFF, MARKER_SOF3];
+        seg.extend_from_slice(&14u16.to_be_bytes()); // Lf = 8 + 3*2
+        seg.push(precision);
+        seg.extend_from_slice(&lines.to_be_bytes());
+        seg.extend_from_slice(&samples.to_be_bytes()); // X, per component
+        seg.push(2); // Nf
+        seg.extend_from_slice(&[0x00, 0x11, 0x00]); // comp0: Ci=0, Hi/Vi=1/1, Tqi=0
+        seg.extend_from_slice(&[0x01, 0x11, 0x00]); // comp1: Ci=1, Hi/Vi=1/1, Tqi=0
+        seg
+    }
+
+    /// A two-component SOS scan segment: Ns=2, one predictor (`ss`) and one
+    /// point transform (`al`) shared by both components, each selecting its own
+    /// DC table destination (`td0` / `td1`).
+    fn sos_segment_nf2(ss: u8, al: u8, td0: u8, td1: u8) -> Vec<u8> {
+        let mut seg = vec![0xFF, MARKER_SOS];
+        seg.extend_from_slice(&10u16.to_be_bytes()); // Ls = 6 + 2*2
+        seg.push(2); // Ns
+        seg.push(0x00); // Cs0
+        seg.push(td0 << 4); // Td0 (high nibble), Ta0 = 0
+        seg.push(0x01); // Cs1
+        seg.push(td1 << 4); // Td1 (high nibble), Ta1 = 0
+        seg.push(ss); // Ss (predictor)
+        seg.push(0x00); // Se
+        seg.push(al & 0x0F); // Ah = 0 (high nibble), Al (point transform, low)
+        seg
+    }
+
+    /// The two-component in-harness LJ92 encoder (`SPEC-046`). Given the final
+    /// `2·X`-wide monochrome plane (`samples`, row-major, `2·x_per_comp · rows`)
+    /// it produces a complete two-component SOF-3 stream that `decode_into`
+    /// reconstructs bit-for-bit. Component 0 is the even columns, component 1
+    /// the odd; prediction mirrors `reconstruct_two_component` exactly (shared
+    /// production `predict`), computing each component's differences in the
+    /// point-transformed domain from its own two-columns-back / one-row-back
+    /// neighbours, interleaved one comp0 then one comp1 per MCU. Restart (if
+    /// `restart_interval > 0`) is counted in MCUs: `encode_scan` with interval
+    /// `restart_interval·2` inserts an `RSTm` after exactly that many MCUs, where
+    /// `reconstruct_two_component` resets prediction.
+    pub(crate) fn encode_lj92_two_component(
+        samples: &[u16],
+        x_per_comp: usize,
+        rows: usize,
+        precision: u8,
+        predictor: u8,
+        point_transform: u8,
+        restart_interval: usize,
+    ) -> Vec<u8> {
+        let plane_width = x_per_comp * 2;
+        assert_eq!(
+            samples.len(),
+            plane_width * rows,
+            "samples must be 2*x_per_comp*rows"
+        );
+        let pt = point_transform;
+        // Pre-shift reconstructed values (the point-transformed domain).
+        let v: Vec<i32> = samples.iter().map(|&s| i32::from(s >> pt)).collect();
+        let initial = {
+            let e = i32::from(precision) - i32::from(pt) - 1;
+            if e < 0 {
+                0
+            } else {
+                1i32 << e
+            }
+        };
+        // Same-component neighbour in the pre-shift domain, or 0 out of range.
+        let nb = |slot: usize, back: usize| -> i32 {
+            match slot.checked_sub(back) {
+                Some(j) => v.get(j).copied().unwrap_or(0),
+                None => 0,
+            }
+        };
+
+        let mut diffs: Vec<i32> = Vec::with_capacity(samples.len());
+        let mut idx = 0usize; // comp0 slot of the current MCU
+        let mut count = 0usize; // MCUs since the scan start / last restart
+        for y in 0..rows {
+            for xcol in 0..x_per_comp {
+                if restart_interval > 0 && count == restart_interval {
+                    count = 0;
+                }
+                let is_interval_start = count == 0;
+                for k in 0..2 {
+                    let slot = idx + k;
+                    let px = if is_interval_start {
+                        initial
+                    } else if y == 0 {
+                        nb(slot, 2)
+                    } else if xcol == 0 {
+                        nb(slot, plane_width)
+                    } else {
+                        predict(
+                            predictor,
+                            nb(slot, 2),
+                            nb(slot, plane_width),
+                            nb(slot, plane_width + 2),
+                        )
+                    };
+                    let raw = (v[slot] - px).rem_euclid(65536);
+                    let d = if raw >= 32768 { raw - 65536 } else { raw };
+                    diffs.push(d);
+                }
+                idx += 2;
+                count += 1;
+            }
+        }
+
+        // Restart interval is per-MCU; each MCU is two diffs, so an RSTm every
+        // `restart_interval` MCUs is every `restart_interval*2` diffs.
+        let entropy = encode_scan(&diffs, restart_interval * 2);
+        let (bits, huffval) = flat_table_bytes();
+        let mut data = vec![0xFF, MARKER_SOI];
+        data.extend(sof3_segment_nf2(precision, rows as u16, x_per_comp as u16));
+        if restart_interval > 0 {
+            data.extend(dri_segment(restart_interval as u16));
+        }
+        data.extend(dht_segment(0, &bits, &huffval));
+        data.extend(sos_segment_nf2(predictor, point_transform, 0, 0));
+        data.extend(entropy);
+        data.extend_from_slice(&[0xFF, MARKER_EOI]);
+        data
+    }
+
     /// An INDEPENDENT re-implementation of the lossless predictor set (using the
     /// native `>>` arithmetic shift rather than production's `floor_div2`), for
     /// the red-proof's reference decoder. A match here cross-checks production's
@@ -1596,7 +1990,8 @@ mod tests {
         out: &mut [u16],
         predict_fn: &dyn Fn(u8, i32, i32, i32) -> i32,
     ) {
-        let (frame, table, offset) = parse_headers(data).unwrap();
+        let (frame, tables, offset) = parse_headers(data).unwrap();
+        let table = &tables[0];
         let mut reader = ScanReader::new(&data[offset..]);
         let width = frame.samples_per_line as usize;
         let height = frame.lines as usize;
@@ -1620,7 +2015,7 @@ mod tests {
                     reader.restart().unwrap();
                     count = 0;
                 }
-                let diff = reader.decode_difference(&table).unwrap();
+                let diff = reader.decode_difference(table).unwrap();
                 let px = if count == 0 {
                     initial
                 } else if r == 0 {
@@ -1681,6 +2076,7 @@ mod tests {
                 point_transform: 0,
                 predictor: sel,
                 restart_interval: 0,
+                components: 1,
             };
             let entropy = encode_scan(&diffs, 0);
             let mut reader = ScanReader::new(&entropy);
@@ -1718,6 +2114,7 @@ mod tests {
             point_transform: 0,
             predictor: 5,
             restart_interval: 0,
+            components: 1,
         };
         let entropy = encode_scan(&diffs, 0);
         let mut reader = ScanReader::new(&entropy);
@@ -1750,6 +2147,7 @@ mod tests {
             point_transform: 0,
             predictor: 2,
             restart_interval: 0,
+            components: 1,
         };
         let entropy = encode_scan(&diffs, 0);
         let mut reader = ScanReader::new(&entropy);
@@ -1779,6 +2177,7 @@ mod tests {
             point_transform: 2,
             predictor: 1,
             restart_interval: 0,
+            components: 1,
         };
         let entropy = encode_scan(&diffs, 0);
         let mut reader = ScanReader::new(&entropy);
@@ -1808,6 +2207,7 @@ mod tests {
             point_transform: 0,
             predictor: 1,
             restart_interval: 2,
+            components: 1,
         };
         let entropy = encode_scan(&diffs, 2);
         let mut reader = ScanReader::new(&entropy);
@@ -1952,6 +2352,7 @@ mod tests {
             point_transform: 0,
             predictor: 1,
             restart_interval: 0,
+            components: 1,
         };
         let (bits, huffval) = flat_table_bytes();
         let table = HuffTable::build(&bits, huffval).unwrap();
@@ -1982,7 +2383,11 @@ mod tests {
     fn decode_seed_bounded(data: &[u8]) -> Result<(), Error> {
         const MAX_PIXELS: usize = 4_000_000;
         let (frame, _table, _offset) = parse_headers(data)?;
-        let pixels = usize::from(frame.lines) * usize::from(frame.samples_per_line);
+        // Size the plane by `Nf · X · Y` so a two-component seed reaches the
+        // decode path rather than tripping the length check (SPEC-046).
+        let pixels = usize::from(frame.components)
+            * usize::from(frame.lines)
+            * usize::from(frame.samples_per_line);
         let len = pixels.min(MAX_PIXELS);
         let mut out = vec![0u16; len];
         decode_into(data, &mut out).map(|_| ())
@@ -2109,5 +2514,353 @@ mod tests {
             decode_into(&wrong_rst, &mut out_rst),
             Err(Error::LjpegUnexpectedMarker { .. })
         ));
+    }
+
+    // ══ SPEC-046: two-component (Nf=2) column-interleave decode ════════════
+    //
+    // Tier-A only (hand-built two-component SOF-3 via `encode_lj92_two_component`;
+    // no corpus). The analytic round-trip proves the decode is self-consistent
+    // and per-component prediction is correct, but it CANNOT confirm the
+    // real-file column-interleave MAPPING — encode and decode share the
+    // convention (`shared-path-oracle-tautology`). SPEC-044's `dnglab
+    // --raw-checksum` oracle pins the exact component order + column phase on
+    // the two real files.
+
+    /// An INDEPENDENT two-component reconstruction driver (its own MCU loop, not
+    /// production's), parameterised by a predictor function and a
+    /// `swap_components` flag. With `honest_predict` and `swap=false` it must
+    /// agree with `decode_into`; a perturbed predictor, or writing the two
+    /// components to swapped column phases, makes it diverge — those are the
+    /// red-proof. Each component predicts only from its own stored-column
+    /// neighbours (two output columns back, one plane row back), so swapping the
+    /// write phase is a pure relabelling that yields the per-MCU-swapped plane.
+    fn reference_decode_two_component(
+        data: &[u8],
+        out: &mut [u16],
+        predict_fn: &dyn Fn(u8, i32, i32, i32) -> i32,
+        swap_components: bool,
+    ) {
+        let (frame, tables, offset) = parse_headers(data).unwrap();
+        assert_eq!(frame.components, 2);
+        let table0 = &tables[0];
+        let table1 = &tables[1];
+        let mut reader = ScanReader::new(&data[offset..]);
+        let x = frame.samples_per_line as usize;
+        let height = frame.lines as usize;
+        let plane_width = x * 2;
+        assert_eq!(out.len(), plane_width * height);
+        let pt = frame.point_transform;
+        let initial = {
+            let e = frame.precision as i32 - pt as i32 - 1;
+            if e < 0 {
+                0
+            } else {
+                1i32 << e
+            }
+        };
+        let ri = frame.restart_interval as usize;
+        let sel = frame.predictor;
+
+        let nb = |out: &[u16], slot: usize, back: usize| -> i32 {
+            match slot.checked_sub(back) {
+                Some(j) => out[j] as i32,
+                None => 0,
+            }
+        };
+        let px_of = |out: &[u16], slot: usize, is_start: bool, y: usize, xcol: usize| -> i32 {
+            if is_start {
+                initial
+            } else if y == 0 {
+                nb(out, slot, 2)
+            } else if xcol == 0 {
+                nb(out, slot, plane_width)
+            } else {
+                predict_fn(
+                    sel,
+                    nb(out, slot, 2),
+                    nb(out, slot, plane_width),
+                    nb(out, slot, plane_width + 2),
+                )
+            }
+        };
+
+        let mut idx = 0usize;
+        let mut count = 0usize;
+        for y in 0..height {
+            for xcol in 0..x {
+                if ri > 0 && count == ri {
+                    reader.restart().unwrap();
+                    count = 0;
+                }
+                let is_start = count == 0;
+                // Scan order is always comp0 then comp1; only the WRITE phase
+                // and the neighbour reads swap.
+                let d0 = reader.decode_difference(table0).unwrap();
+                let d1 = reader.decode_difference(table1).unwrap();
+                let pos0 = idx + usize::from(swap_components);
+                let pos1 = idx + usize::from(!swap_components);
+                let px0 = px_of(out, pos0, is_start, y, xcol);
+                out[pos0] = ((px0 + d0) & 0xFFFF) as u16;
+                let px1 = px_of(out, pos1, is_start, y, xcol);
+                out[pos1] = ((px1 + d1) & 0xFFFF) as u16;
+                idx += 2;
+                count += 1;
+            }
+        }
+        if pt > 0 {
+            let factor = 1u16 << pt;
+            for s in out.iter_mut() {
+                *s = s.wrapping_mul(factor);
+            }
+        }
+    }
+
+    #[test]
+    fn two_component_interleaved_decodes_bit_exact() {
+        // A known 2·X × Y monochrome plane (comp0 = even columns, comp1 = odd)
+        // encoded as a two-component interleaved SOF-3 scan, decoded, and
+        // compared bit-for-bit. At P=12 (Leica Typ246) and P=14 (Pentax K3III);
+        // predictor 1 (both held files) plus two interior predictors (4, 6) to
+        // exercise the per-component Ra/Rb/Rc neighbour math; with and without a
+        // per-MCU restart interval.
+        let x = 3usize; // per component
+        let rows = 3usize;
+        let plane_width = x * 2;
+        for &precision in &[12u8, 14] {
+            let modulo: u32 = 1u32 << precision;
+            for &predictor in &[1u8, 4, 6] {
+                for &ri in &[0usize, x] {
+                    let mut state = 0x2468u32
+                        ^ (u32::from(precision) << 3)
+                        ^ (u32::from(predictor) << 10)
+                        ^ (ri as u32);
+                    let mut samples = vec![0u16; plane_width * rows];
+                    for s in samples.iter_mut() {
+                        state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+                        *s = ((state >> 9) % modulo) as u16;
+                    }
+                    let stream =
+                        encode_lj92_two_component(&samples, x, rows, precision, predictor, 0, ri);
+                    let mut out = vec![0u16; plane_width * rows];
+                    let frame = decode_into(&stream, &mut out).unwrap_or_else(|e| {
+                        panic!("decode Nf=2 P={precision} pred={predictor} ri={ri}: {e}")
+                    });
+                    assert_eq!(
+                        frame.components, 2,
+                        "P={precision} pred={predictor} ri={ri}"
+                    );
+                    assert_eq!(frame.precision, precision);
+                    assert_eq!(frame.samples_per_line as usize, x);
+                    assert_eq!(frame.lines as usize, rows);
+                    assert_eq!(frame.restart_interval as usize, ri);
+                    assert_eq!(
+                        out, samples,
+                        "two-component round-trip must be bit-exact (P={precision} pred={predictor} ri={ri})"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn two_component_round_trip_red_on_perturbed_predictor() {
+        // oracle-must-be-shown-red for the two-component path. Three mutations
+        // each break the round-trip while the honest control stays green:
+        //   (a) a perturbed predictor, (b) swapping which column phase each
+        //   component is written to, (c) a mutated DC Huffman table.
+        let x = 3usize;
+        let rows = 3usize;
+        let plane_width = x * 2;
+        let precision = 12u8;
+        let max: u32 = 1u32 << precision;
+        // Values in [1, 2^P) so every Rc is non-zero and the predictor
+        // perturbation provably moves an interior sample.
+        let mut state = 0xBEEFu32;
+        let mut samples = vec![0u16; plane_width * rows];
+        for s in samples.iter_mut() {
+            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            *s = (((state >> 11) % (max - 1)) + 1) as u16;
+        }
+        let stream = encode_lj92_two_component(&samples, x, rows, precision, 4, 0, 0);
+
+        // Honest control: production decodes bit-exactly.
+        let mut honest = vec![0u16; plane_width * rows];
+        let frame = decode_into(&stream, &mut honest).unwrap();
+        assert_eq!(frame.components, 2);
+        assert_eq!(honest, samples, "honest control must round-trip");
+
+        // The independent reference (honest predictor, no swap) agrees — ties
+        // the reference driver to production so the REDs below are the mutations.
+        let mut reference = vec![0u16; plane_width * rows];
+        reference_decode_two_component(&stream, &mut reference, &honest_predict, false);
+        assert_eq!(
+            reference, samples,
+            "independent honest reference must agree"
+        );
+
+        // (a) RED — perturb predictor 4 to Ra+Rb+Rc.
+        let mutant = |sel: u8, ra: i32, rb: i32, rc: i32| -> i32 {
+            if sel == 4 {
+                ra + rb + rc
+            } else {
+                honest_predict(sel, ra, rb, rc)
+            }
+        };
+        let mut mutated = vec![0u16; plane_width * rows];
+        reference_decode_two_component(&stream, &mut mutated, &mutant, false);
+        assert_ne!(
+            mutated, samples,
+            "a perturbed predictor MUST break the round-trip"
+        );
+
+        // (b) RED — swap the two components' column phases. The result is the
+        // per-MCU-swapped plane, which differs from the original.
+        let mut swapped_expected = vec![0u16; plane_width * rows];
+        for mcu in 0..(x * rows) {
+            swapped_expected[mcu * 2] = samples[mcu * 2 + 1];
+            swapped_expected[mcu * 2 + 1] = samples[mcu * 2];
+        }
+        assert_ne!(
+            swapped_expected, samples,
+            "test premise: comp0 and comp1 differ somewhere"
+        );
+        let mut swapped = vec![0u16; plane_width * rows];
+        reference_decode_two_component(&stream, &mut swapped, &honest_predict, true);
+        assert_eq!(
+            swapped, swapped_expected,
+            "swapping the write phase yields the swapped plane"
+        );
+        assert_ne!(
+            swapped, samples,
+            "swapping component order MUST break the round-trip"
+        );
+
+        // (c) RED — mutate the DC Huffman table so categories 1 and 2 are
+        // swapped. A deterministic X=2, Y=1 probe whose diffs are [0,0,1,2]
+        // (comp0: initial 2048 then Ra+1; comp1: initial 2048 then Ra+2).
+        let probe = [2048u16, 2048, 2049, 2050]; // out[0..4]: c0_0 c1_0 c0_1 c1_1
+        let probe_stream = encode_lj92_two_component(&probe, 2, 1, 12, 1, 0, 0);
+        let mut probe_out = [0u16; 4];
+        assert_eq!(
+            decode_into(&probe_stream, &mut probe_out)
+                .unwrap()
+                .components,
+            2
+        );
+        assert_eq!(probe_out, probe, "probe honest control");
+        let mut mutated_table = probe_stream.clone();
+        let dht = mutated_table
+            .windows(2)
+            .position(|w| w == [0xFF, MARKER_DHT])
+            .unwrap();
+        // DHT: FF C4 | Lh(2) | Tc/Th(1) | BITS(16) | HUFFVAL... — symbols start
+        // at dht + 2 + 2 + 1 + 16 = dht + 21.
+        let huffval = dht + 21;
+        mutated_table.swap(huffval + 1, huffval + 2); // symbols 1 <-> 2
+        let mut mut_out = [0u16; 4];
+        let diverged = match decode_into(&mutated_table, &mut mut_out) {
+            Ok(_) => mut_out != probe,
+            Err(_) => true,
+        };
+        assert!(
+            diverged,
+            "a mutated Huffman table MUST break the round-trip"
+        );
+    }
+
+    #[test]
+    fn single_component_decode_unchanged() {
+        // Characterization: the Nf=1 path still decodes identically after the
+        // two-component extension. A fixed plane encoded with the unchanged
+        // single-component encoder decodes to exactly those samples, and the
+        // frame reports one component.
+        let samples = [100u16, 110, 120, 130]; // 2x2, P=8, predictor 1
+        let stream = encode_lj92(&samples, 2, 2, 8, 1, 0, 0);
+        let mut out = [0u16; 4];
+        let frame = decode_into(&stream, &mut out).unwrap();
+        assert_eq!(frame.components, 1, "Nf=1 header must report one component");
+        assert_eq!(out, samples, "single-component decode must be unchanged");
+
+        // A wider spot check through the same dispatch (P=12, predictor 2).
+        let wider = [10u16, 4095, 2000, 7, 1234, 4094]; // 3x2
+        let s2 = encode_lj92(&wider, 3, 2, 12, 2, 0, 0);
+        let mut o2 = [0u16; 6];
+        let f2 = decode_into(&s2, &mut o2).unwrap();
+        assert_eq!(f2.components, 1);
+        assert_eq!(o2, wider);
+    }
+
+    #[test]
+    fn nf_three_still_unsupported() {
+        // A SOF3 frame with Nf=3 (Bayer/CFA colour) stays rejected (DEC-037).
+        let mut data = vec![0xFF, MARKER_SOI, 0xFF, MARKER_SOF3];
+        data.extend_from_slice(&17u16.to_be_bytes()); // Lf = 8 + 3*3
+        data.push(0x08); // P
+        data.extend_from_slice(&2u16.to_be_bytes()); // Y
+        data.extend_from_slice(&2u16.to_be_bytes()); // X
+        data.push(0x03); // Nf = 3
+        data.extend_from_slice(&[0x00, 0x11, 0x00, 0x01, 0x11, 0x00, 0x02, 0x11, 0x00]);
+        assert!(matches!(
+            parse_headers(&data),
+            Err(Error::LjpegUnsupportedComponentCount { nf: 3 })
+        ));
+        let mut out = [0u16; 4];
+        assert!(matches!(
+            decode_into(&data, &mut out),
+            Err(Error::LjpegUnsupportedComponentCount { nf: 3 })
+        ));
+    }
+
+    #[test]
+    fn two_component_wrong_out_length_is_typed_error() {
+        // X=2, Y=2, Nf=2 → the de-interleaved plane is 2·2·2 = 8 samples.
+        let samples = [10u16, 20, 30, 40, 50, 60, 70, 80];
+        let stream = encode_lj92_two_component(&samples, 2, 2, 8, 1, 0, 0);
+
+        let mut too_short = [0u16; 7];
+        assert!(matches!(
+            decode_into(&stream, &mut too_short),
+            Err(Error::LjpegPlaneWrongLength {
+                expected: 8,
+                got: 7
+            })
+        ));
+        let mut too_long = [0u16; 9];
+        assert!(matches!(
+            decode_into(&stream, &mut too_long),
+            Err(Error::LjpegPlaneWrongLength {
+                expected: 8,
+                got: 9
+            })
+        ));
+        // The exact `Nf · X · Y` length decodes cleanly.
+        let mut exact = [0u16; 8];
+        let frame = decode_into(&stream, &mut exact).unwrap();
+        assert_eq!(frame.components, 2);
+        assert_eq!(exact, samples);
+    }
+
+    #[test]
+    fn two_component_truncated_scan_is_typed_error() {
+        // A single-MCU two-component scan (X=1, Y=1). comp0's difference fills
+        // exactly one entropy byte; truncating the scan to that one byte leaves
+        // the decoder mid-second-component (comp1), which must return a typed
+        // error, not panic. P=12, Pt=0, predictor 1 → both components use the
+        // initial prediction 2048. comp0 = 2053 (diff 5, category 3 → one byte);
+        // comp1 = 2055 (diff 7) begins in the next byte.
+        let samples = [2053u16, 2055]; // out[0]=comp0, out[1]=comp1
+        let stream = encode_lj92_two_component(&samples, 1, 1, 12, 1, 0, 0);
+        let (_f, _t, offset) = parse_headers(&stream).unwrap();
+        assert!(
+            stream.len() > offset + 1,
+            "the full scan has >1 entropy byte"
+        );
+        let truncated = &stream[..offset + 1]; // headers + exactly one entropy byte
+        let mut out = [0u16; 2];
+        let result = decode_into(truncated, &mut out);
+        assert!(
+            matches!(result, Err(Error::Truncated { .. })),
+            "a scan truncated mid-second-component must be a typed error, got {result:?}"
+        );
     }
 }
