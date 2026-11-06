@@ -13,7 +13,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-06
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-045
@@ -30,14 +30,14 @@ repo:
 # from your interface (Claude Code: `/cost`). If your platform exposes NO token
 # count, set tokens_total: null AND say why in `notes`. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null
-  estimated_usd: null
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 226796             # FLOOR — context-window occupancy, not /cost (see notes)
+  estimated_usd: null              # no rate applied to a floor figure
+  duration_minutes: 75
+  branch: claude/spec-045-build-5277f4
+  pr: 129                          # build PR against main
+  completed_at: 2026-11-06         # YYYY-MM-DD
+  notes: "No interactive /cost in the Claude Code desktop app's Code tab (same as HANDOFF-089..096). 226796 is this build session's context-window token occupancy at handback, read via ccd_session_mgmt get_usage (226,796 of 1,000,000, 23%), on claude-opus-5-5. A snapshot / lower bound: true cumulative input+output across turns is higher. Not invented, but not a /cost number — treat as a FLOOR; the orchestrator supersedes it from the transcript at ship. Tier-B determinism pin hit both pinned digests (Typ246 c72e7d95…ac1d, K3III 98bae133…3189); fuzz smoke plane 7.46M runs/61s + develop 4.32M runs/31s, zero crashes; later-DHT test red-proven against first-wins."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -138,39 +138,48 @@ Already covered — do NOT rebuild, just pin/cite: determinism at develop level
 ## Return Criteria — how to hand back
 
 On success: fill the `handback:` front-matter (real `tokens_total`, or an explicit FLOOR with
-a note if your interface has none, as HANDOFF-089..096 did), fill `## Handback` (reflection
-included, and the DEC-036-keep reasoning), set both statuses `completed`, run
-`just advance-cycle SPEC-045 verify`, open the PR, and mark build `[x]` in the timeline. If
-blocked: fill `## Handback`, set `handoff.status: rejected` / `handback.status: blocked`, still
-report tokens, set `task.blocked: true`, and add a question to `guidance/questions.yaml`.
-
-Keep commit-message bodies PLAIN PROSE — this repo's push ruleset rejects code tokens (arrows,
-attribute brackets, dash-dash flags, dense backticks) in commit messages; put rich detail in
-the PR body and files.
-
----
-
-## Handback
+a note if your interface has none, as HANDOFF-089..096 did), fill `## Handback
 
 *Filled in by the receiving agent.*
 
 ### Execution notes
-- **Branch / PR:** <branch> / PR #<n>
-- **Completed at:** <YYYY-MM-DD>
-- **All acceptance criteria met?** <yes/no — walk each SPEC-045 acceptance criterion>
+- **Branch / PR:** `claude/spec-045-build-5277f4` / PR #129
+- **Completed at:** 2026-11-06
+- **All acceptance criteria met?** Yes:
+  - Provenance: new DNG Compression-7 **binding** row; the `src/plane.rs` row's "never decoded" note corrected (superseded by SPEC-043; only `K3III.PEF` is still `UnsupportedCompression`). Also removed a pre-existing blank line that split the ledger table so the two `ljpeg` rows were rendering outside it. `just validate` green.
+  - Plane-level determinism: `tests/plane_oracle.rs::compression7_plane_is_byte_identical_across_two_decodes` — two independent decodes (second buffer pre-filled `0xFFFF`) byte-identical on both held files, and equal to the pinned `dnglab` digest; the integer-only / cross-platform basis is documented in the test's section comment and the ledger row. Corpus-gated, skips loudly. **Runs only locally — CI has no corpus.**
+  - `Pt >= P` → new `Error::LjpegInvalidPointTransform` (the one additive variant; nothing existing fitted). Checked in `parse_headers` where both `P` and `Pt` are known.
+  - `Tc != 0` / `Th > 3` → reused `Error::LjpegInvalidHuffmanTable`, per table (also inside a multi-table DHT segment).
+  - Later DHT replaces: `parse_dht` overwrites the destination in place (bounded to one entry per `Th`); red-proven — restoring first-wins makes `a_later_dht_with_the_same_th_replaces_the_earlier` fail. Single-table + shared-`Td` two-component decodes pinned unchanged.
+  - Public route hardening: every proper prefix of a synthetic strip, plus Pt/Tc/Th corruptions, are typed errors through `plane::unpack_into`; a tiled Compression-7 plane is `UnsupportedStripLayout { 0, 0 }`.
+  - Fuzz: `require_uncompressed` early-return dropped from plane/develop/demosaic; valid `compression7-sof3.tiff` seed in all three seed dirs (all other seeds regenerate byte-identically); a tier-A test asserts the committed seed decodes through the public route. Smoke: plane 7,464,709 runs/61s, develop 4,319,426 runs/31s, 0 crashes. `__fuzz_ljpeg` + `fuzzing` feature + `fuzz_targets/ljpeg.rs` kept.
+  - Gates: `cargo test --lib ljpeg::` 36/36, `--test plane_unpack` 23/23, `--test plane_oracle` 17/17, `--test develop_oracle` 10/10 (corpus set); `just fmt-check`, `just lint-ci`, `just validate` green. No new dependency; `#![forbid(unsafe_code)]` + five-lint policy hold.
+
+### DEC-036 Validation — KEEP the direct hook (dispositioned here, no new DEC)
+The public Compression-7 route is now fuzzed end to end, and the direct `__fuzz_ljpeg` hook stays. Reasons:
+1. **Depth.** The direct hook mutates the SOF-3 bytes themselves, so every mutation lands in the decoder (header walk, DHT build, entropy reader, predictors, restart). Through the container, most mutations land in TIFF/IFD bytes and are rejected before the strip is read, so decoder states are reached far less often per run.
+2. **Zero public surface.** It is `#[doc(hidden)]`, behind the dev-only `fuzzing` feature, absent from `cargo doc` and the published crate; `ljpeg` stays `pub(crate)`. Keeping it costs nothing a user can see.
+3. **A hardening capstone should not shrink fuzz coverage.** Removing it would trade a deep target for a shallow one; the two are complementary (public route = binding + container correctness, direct hook = decoder depth).
+Reversing this is a future decision, not this spec.
 
 ### Cost self-report
-- **Tokens (total):** <real /cost number, or an explicit FLOOR with its source>
-- **Estimated USD:** <or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** <interface>
+- **Tokens (total):** 226,796 — explicit **FLOOR** (context-window occupancy via `ccd_session_mgmt get_usage`), not `/cost`
+- **Estimated USD:** null (no rate applied to a floor)
+- **Duration (minutes):** ~75
+- **Source of the number:** Claude Code desktop app (Code tab), claude-opus-5-5; no `/cost` meter in this interface
 
 ### Drift and new artifacts
-- **New decisions emitted:** <none expected — DEC-036 Validation dispositioned in prose, not a new DEC>
-- **Deviations from spec:** <none, or what and why>
-- **Follow-up work identified:** <e.g. the deferred §4 items, if worth a spec>
+- **New decisions emitted:** none — DEC-036 Validation dispositioned in prose above.
+- **Deviations from spec:**
+  - The spec/handoff said to wrap a strip from the "`cfg(test)`-reexported `encode_lj92`". That encoder is inside the crate's `cfg(test)` module and is **not visible** to integration tests or examples, so `tests/support/tiff.rs` carries its own small SOF-3 encoder (`lj92_strip`: single component, predictor 1, `Pt = 0`, flat 17-symbol/5-bit table — own work from T.81). Its correctness is proven by the round-trip test through the public route in both byte orders at P = 12/14/16.
+  - `two_component_restart_is_pinned` lives in `src/ljpeg.rs` (tier A, ri = 1/2/3 MCUs), not `plane_oracle.rs`, because the two-component encoder is crate-internal.
+  - The Compression-7 seed was added to the develop and demosaic seed dirs too, not only `fuzz/seeds/plane/`, since each target runs from its own seed dir.
+  - Fixed a pre-existing blank line splitting the provenance-ledger table.
+- **Follow-up work identified:**
+  - There are now three hand-kept SOF-3 encoders (`src/ljpeg.rs` tests, `examples/fuzz-seeds.rs`, `tests/support/tiff.rs`). A shared `tests/support/lj92.rs` used by the examples and integration tests would remove one copy (the crate-internal one must stay). Small chore.
+  - Stale text outside scope: `Error::LjpegUnsupportedComponentCount`'s Display still says "only single-component (Nf = 1)", and the comment in `tests/plane_unpack.rs::compression7_planes_route_to_the_decoder` still describes the pre-SPEC-046 state. Cosmetic.
 
 ### Reflection (3 questions, short answers)
-1. **What was unclear in the spec or handoff that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec or handoff that slowed you down?** — "the `cfg(test)`-reexported `encode_lj92`" implied integration tests could call it; they can't. Cost a few minutes to confirm and write a small support encoder instead.
+2. **Was there a constraint or decision that should have been listed but wasn't?** — That each fuzz target reads its own seed dir, so a seed "in `fuzz/seeds/plane/` reused by develop/demosaic" has to be written into all three via `examples/fuzz-seeds.rs`.
+3. **If you did this task again, what would you do differently?** — Start the long tier-B suites and the fuzz smoke in the background as soon as the code compiles, so they finish while the ledger and handback are written.
