@@ -6,7 +6,7 @@
 task:
   id: SPEC-045
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -18,7 +18,7 @@ task:
                                    #   a clean UnsupportedStripLayout), so no single leg is large.
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
 
@@ -56,6 +56,14 @@ cost:
       duration_minutes: 50
       recorded_at: 2026-11-06
       notes: "main-session design (un-metered); §12 probe found the determinism develop-level test already exists (SPEC-044, develop_oracle.rs), the two-component restart reset is already done + tested (SPEC-046), and tiled Compression-7 is already a clean UnsupportedStripLayout — so the NEW work is the provenance binding row, a plane-level determinism pin, the ljpeg header-hardening gaps (parse_scan_header does NOT check Pt<P; parse_dht does NOT reject Tc!=0/Th>3; find_table returns the FIRST same-Th table), and fuzzing the PUBLIC Compression-7 route (drop the require_uncompressed early-return in the plane/develop/demosaic fuzz targets + a synthetic SOF-3 seed built from tests/support/tiff.rs + encode_lj92), keeping the direct __fuzz_ljpeg hook (DEC-036 Validation). Acceptance + failing tests + HANDOFF-097 + build prompt."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 200000
+      estimated_usd: null
+      duration_minutes: 40
+      recorded_at: 2026-11-06
+      notes: "Verdict APPROVED (HANDOFF-098). 200000 is a FLOOR — context-window occupancy via ccd_session_mgmt get_usage (188,916 of 1,000,000 before the bookkeeping writes), not a /cost number (no /cost meter in the Claude Code Code tab); the orchestrator supersedes it from the transcript at ship. The build was already merged to main (PR #129, a2d6376), so the verify PR is a thin bookkeeping superset. All seven acceptance criteria and all nine failing tests confirmed: plane-level determinism ran on both held files (corpus 9/9, no skip); the three header guards + later-DHT rule pass with the build's red-proof; truncated/hostile/tiled strips are typed errors through the public unpack_into; plane/develop/demosaic fuzz smokes 4.63M/3.73M/5.00M runs panic-free; just test / lint-ci / fmt-check / validate green; PR #129 CI green for the no-corpus broad sweep. NOTE: the build session (HANDOFF-097, FLOOR 226,796 tok, claude-opus-5-5) is not yet a cost.sessions entry — the orchestrator recovers it from the transcript at ship, as SPEC-044 did."
   totals:
     tokens_total: 0
     estimated_usd: 0
