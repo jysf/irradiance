@@ -35,7 +35,7 @@ handback:
   estimated_usd: null              # no rate applied to a floor figure
   duration_minutes: 50
   branch: claude/spec-044-build-ab78fc
-  pr: PRNUM
+  pr: 124                          # build PR against main
   completed_at: 2026-11-06         # YYYY-MM-DD
   notes: "No interactive /cost in the Claude Code desktop app's Code tab (same as HANDOFF-089..094). 185963 is this build session's context-window token occupancy near handback, read via ccd_session_mgmt get_usage (185,963 of 1,000,000, 19%). A snapshot / lower bound: true cumulative input+output across turns is higher (per-turn context resends not captured; a few bookkeeping writes follow this read). Not invented, but not a /cost number — treat as a FLOOR; the orchestrator supersedes it from the transcript at ship. Both pinned MD5s hit exactly on the real corpus (Typ246 c72e7d95…ac1d, K3III 98bae133…3189); ljpeg red-proof RED on both files, control green; develop smoke green on both."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -159,7 +159,7 @@ PR body and files.
 *Filled in by the receiving agent.*
 
 ### Execution notes
-- **Branch / PR:** `claude/spec-044-build-ab78fc` / PR #PRNUM
+- **Branch / PR:** `claude/spec-044-build-ab78fc` / PR #124
 - **Completed at:** 2026-11-06
 - **All acceptance criteria met?** yes —
   - **Both planes bit-exact:** `plane_md5_matches_the_pinned_raw_checksum` now loops
