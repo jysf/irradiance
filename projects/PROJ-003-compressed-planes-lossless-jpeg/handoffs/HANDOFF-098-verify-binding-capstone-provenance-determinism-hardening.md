@@ -36,7 +36,7 @@ handback:
   estimated_usd: null              # no rate applied to a floor figure
   duration_minutes: 40
   branch: claude/spec-045-verify-039bc9
-  pr: null                         # verify PR against main — filled below after the PR opens
+  pr: 130                          # verify PR against main (thin bookkeeping superset)
   completed_at: 2026-11-06         # YYYY-MM-DD
   notes: "Verdict APPROVED. The build is already merged to main (PR #129, squash commit a2d6376); this verify PR is a thin bookkeeping superset cut from the current main tip (the handback, the verify prompt, the timeline + cost-session update). No interactive /cost in the Claude Code desktop app's Code tab (same as HANDOFF-089..097). 200000 is a rounded-up reading of this verify session's context-window occupancy near handback via ccd_session_mgmt get_usage (188,916 of 1,000,000, 19% before the bookkeeping writes). A snapshot / lower bound: per-turn context resends are not captured. Not invented, but not a /cost number — treat as a FLOOR; the orchestrator supersedes it from the transcript at ship. All gates green locally with the real corpus (9/9 present, no tier-B skip): the plane-level determinism pin ran on both held files, the three header guards and the later-DHT rule pass with the build's own red-proof, the truncated/hostile/tiled strips are typed errors through the public unpack route, and the plane/develop/demosaic fuzz smokes (4.63M/3.73M/5.00M runs, 31s each) are panic-free from the committed Compression-7 seed. PR #129's CI is green on its exact head for the broad sweep that has no corpus."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
