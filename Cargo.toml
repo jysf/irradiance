@@ -43,6 +43,16 @@ path = "src/lib.rs"
 name = "irr"
 path = "src/bin/irr.rs"
 
+# Dev-only exposure, NOT a runtime dependency (DEC-036). An empty feature that,
+# when enabled, compiles in the doc-hidden `__fuzz_ljpeg` entry (src/lib.rs) so
+# the separate `irradiance-fuzz` crate can drive the otherwise `pub(crate)`
+# SOF-3 decoder. The published crate (default features) leaves it off, so the
+# decoder stays fully internal until STAGE-010 decides the real public surface.
+# Carries no dependency, so `no-new-top-level-deps-without-decision` holds (the
+# `[dependencies]` table below is still empty). SPEC-038.
+[features]
+fuzzing = []
+
 # Zero dependencies by design (SPIKE-001; this spec's handoff). Adding one
 # needs a DEC — see guidance/constraints.yaml `no-new-top-level-deps-without-decision`.
 [dependencies]

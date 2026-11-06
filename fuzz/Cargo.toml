@@ -18,6 +18,12 @@ libfuzzer-sys = "0.4"
 
 [dependencies.irradiance]
 path = ".."
+# Turns on the doc-hidden `__fuzz_ljpeg` entry so the `ljpeg` target can drive
+# the otherwise `pub(crate)` SOF-3 decoder. A cargo FEATURE, not `cfg(fuzzing)`:
+# the `clippy — fuzz graph` gate builds this manifest with plain `cargo clippy`
+# (no `--cfg fuzzing`), so a `cfg(fuzzing)` entry would be absent there and the
+# target would fail to compile. See DEC-036.
+features = ["fuzzing"]
 
 [[bin]]
 name = "ifd"
@@ -57,6 +63,13 @@ bench = false
 [[bin]]
 name = "demosaic"
 path = "fuzz_targets/demosaic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ljpeg"
+path = "fuzz_targets/ljpeg.rs"
 test = false
 doc = false
 bench = false

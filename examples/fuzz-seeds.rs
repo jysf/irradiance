@@ -3,9 +3,12 @@
 //! `fuzz/fuzz_targets/warp_opcode.rs`, `fuzz/fuzz_targets/opcode.rs`
 //! (`SPEC-017`'s own target — `OpcodeList1`'s `FixBadPixelsConstant`, real
 //! bytes plus adversarial variants from `tests/support/opcode.rs::
-//! fix_bad_pixels_fuzz_seed_corpus`), and `fuzz/fuzz_targets/demosaic.rs`
+//! fix_bad_pixels_fuzz_seed_corpus`), `fuzz/fuzz_targets/demosaic.rs`
 //! (`SPEC-032`'s own target — the Bayer demosaic, seeded in [`demosaic_seeds`]
-//! from `SPEC-027`'s CFA builders).
+//! from `SPEC-027`'s CFA builders), and `fuzz/fuzz_targets/ljpeg.rs`
+//! (`SPEC-038`'s own target — the single-component SOF-3 lossless-JPEG decoder,
+//! seeded in [`ljpeg_seeds`] from a local LJ92 builder mirroring the oracle's
+//! `encode_lj92`).
 //!
 //! `SPEC-003`, extended by `SPEC-012` and `SPEC-014`. The `ifd` seeds are the
 //! hand-built tier-A fixtures in `tests/support/tiff.rs` — the same list
@@ -22,7 +25,7 @@
 //! would still be a Leica frame.
 //!
 //! ```text
-//! cargo run --example fuzz-seeds     # rewrite fuzz/seeds/{ifd,plane,develop}/
+//! cargo run --example fuzz-seeds     # rewrite every fuzz/seeds/<target>/
 //! ```
 //!
 //! The output directories are committed, and `fuzz/corpus/*` — where
@@ -448,6 +451,379 @@ fn demosaic_seeds() -> Vec<(&'static str, Vec<u8>)> {
     ]
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Seeds for `fuzz/fuzz_targets/ljpeg.rs` (SPEC-038)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A local SOF-3 (lossless JPEG) builder mirroring `src/ljpeg.rs mod tests`'s
+// in-harness `encode_lj92` round-trip oracle — kept in sync BY HAND, the same
+// way `plane_fixture` above mirrors `tests/plane_unpack.rs::Fixture::build`
+// (the test module's encoder cannot be imported here — it is test-only code in a
+// different compilation unit). Both are exercised by `just test` (the in-crate
+// panic-free replay) and `just fuzz-*` / the manual `cargo +nightly fuzz run`
+// (the seed), so drift surfaces as a test failure or a fuzz crash, not silently.
+//
+// It is the INVERSE of the decoder: given the final `u16` samples it emits a
+// complete single-component SOF-3 stream (SOI / SOF3 / DHT / optional DRI / SOS /
+// a Huffman-coded, EXTENDed, 0xFF-stuffed scan / EOI) that `ljpeg::decode_into`
+// reconstructs bit-for-bit. Like the oracle it uses a flat 17-symbol / 5-bit DC
+// Huffman table (canonical code of symbol `s` is the 5-bit value `s`), so the
+// encoder is a trivially-correct inverse. Everything here is own work built from
+// ITU-T T.81 Annex B/C/F/H (`DEC-003`, `DEC-035`); no corpus file is a seed.
+
+// Markers (ITU-T T.81 Annex B.1).
+const LJ_MARKER_SOI: u8 = 0xD8;
+const LJ_MARKER_EOI: u8 = 0xD9;
+const LJ_MARKER_SOF3: u8 = 0xC3;
+const LJ_MARKER_DHT: u8 = 0xC4;
+const LJ_MARKER_SOS: u8 = 0xDA;
+const LJ_MARKER_DRI: u8 = 0xDD;
+const LJ_MARKER_RST0: u8 = 0xD0;
+
+/// Canonical code length of the flat table's codes (and the symbol count).
+const LJ_SYMBOL_BITS: u32 = 5;
+
+/// A SOF3 frame header (ITU-T T.81 B.2.2) for a single component: `Lf P Y X Nf`
+/// then the one 3-byte component spec. `Lf = 8 + 3*1 = 11`.
+fn lj_sof3_segment(precision: u8, lines: u16, samples: u16) -> Vec<u8> {
+    let mut seg = vec![0xFF, LJ_MARKER_SOF3];
+    seg.extend_from_slice(&11u16.to_be_bytes());
+    seg.push(precision);
+    seg.extend_from_slice(&lines.to_be_bytes());
+    seg.extend_from_slice(&samples.to_be_bytes());
+    seg.push(1); // Nf
+    seg.extend_from_slice(&[0x00, 0x11, 0x00]); // Ci, Hi/Vi, Tqi
+    seg
+}
+
+/// A DHT segment (ITU-T T.81 B.2.4.2) carrying one DC (class 0) table.
+fn lj_dht_segment(th: u8, bits: &[u8; 16], huffval: &[u8]) -> Vec<u8> {
+    let lh = (2 + 1 + 16 + huffval.len()) as u16;
+    let mut seg = vec![0xFF, LJ_MARKER_DHT];
+    seg.extend_from_slice(&lh.to_be_bytes());
+    seg.push(th & 0x0F); // Tc = 0 (DC/lossless) high nibble, Th = th
+    seg.extend_from_slice(bits);
+    seg.extend_from_slice(huffval);
+    seg
+}
+
+/// A DRI segment (ITU-T T.81 B.2.4.4): `Lr` (= 4) then the restart interval.
+fn lj_dri_segment(ri: u16) -> Vec<u8> {
+    let mut seg = vec![0xFF, LJ_MARKER_DRI];
+    seg.extend_from_slice(&4u16.to_be_bytes());
+    seg.extend_from_slice(&ri.to_be_bytes());
+    seg
+}
+
+/// A SOS scan header (ITU-T T.81 B.2.3) for lossless: `Ss` is the predictor,
+/// `Al` the point transform, `Td` the DC table destination. `Ls = 6 + 2*1 = 8`.
+fn lj_sos_segment(ss: u8, al: u8, td: u8) -> Vec<u8> {
+    let mut seg = vec![0xFF, LJ_MARKER_SOS];
+    seg.extend_from_slice(&8u16.to_be_bytes());
+    seg.push(1); // Ns
+    seg.push(0x00); // Cs
+    seg.push(td << 4); // Td high nibble, Ta = 0
+    seg.push(ss); // Ss (predictor)
+    seg.push(0x00); // Se
+    seg.push(al & 0x0F); // Ah = 0 high nibble, Al (point transform) low
+    seg
+}
+
+/// The flat DC table's `BITS`/`HUFFVAL`: 17 codes all of length 5, symbols
+/// `0..=16` in order (so the canonical code of symbol `s` equals `s`).
+fn lj_flat_table_bytes() -> ([u8; 16], Vec<u8>) {
+    let mut bits = [0u8; 16];
+    bits[4] = 17; // 17 codes of length 5 (index 4 == length 5)
+    let huffval: Vec<u8> = (0u8..=16).collect();
+    (bits, huffval)
+}
+
+/// Floor division by two (the sign-preserving `>> 1` of T.81 Table H.1
+/// predictors 5/6/7). `>>` on `i32` is an arithmetic shift, i.e. a floor toward
+/// negative infinity — matching production's `floor_div2`.
+fn lj_floor_div2(x: i32) -> i32 {
+    x >> 1
+}
+
+/// T.81 Table H.1 lossless predictor `Px` for selector `sel` (`1..=7`), from
+/// the point-transformed neighbours `Ra`/`Rb`/`Rc`. Mirrors production's
+/// `predict` exactly, so encode→decode round-trips.
+fn lj_predict(sel: u8, ra: i32, rb: i32, rc: i32) -> i32 {
+    match sel {
+        1 => ra,
+        2 => rb,
+        3 => rc,
+        4 => ra + rb - rc,
+        5 => ra + lj_floor_div2(rb - rc),
+        6 => rb + lj_floor_div2(ra - rc),
+        7 => lj_floor_div2(ra + rb),
+        _ => ra,
+    }
+}
+
+/// MSB-first bit sink with JPEG `0xFF 0x00` stuffing (the encoder's counterpart
+/// to `ScanReader`), padding the final partial byte with 1-bits.
+struct LjBitWriter {
+    bytes: Vec<u8>,
+    acc: u32,
+    nbits: u32,
+}
+
+impl LjBitWriter {
+    fn new() -> LjBitWriter {
+        LjBitWriter {
+            bytes: Vec::new(),
+            acc: 0,
+            nbits: 0,
+        }
+    }
+
+    fn put_bits(&mut self, value: u32, count: u32) {
+        let mut i = count;
+        while i > 0 {
+            i -= 1;
+            let bit = (value >> i) & 1;
+            self.acc = (self.acc << 1) | bit;
+            self.nbits += 1;
+            if self.nbits == 8 {
+                self.emit_acc();
+            }
+        }
+    }
+
+    fn emit_acc(&mut self) {
+        let b = (self.acc & 0xFF) as u8;
+        self.bytes.push(b);
+        if b == 0xFF {
+            self.bytes.push(0x00); // stuff a literal 0xFF data byte
+        }
+        self.acc = 0;
+        self.nbits = 0;
+    }
+
+    fn flush_to_byte(&mut self) {
+        if self.nbits > 0 {
+            let pad = 8 - self.nbits;
+            self.acc = (self.acc << pad) | ((1u32 << pad) - 1);
+            self.nbits = 8;
+            self.emit_acc();
+        }
+    }
+
+    fn emit_marker(&mut self, code: u8) {
+        self.bytes.push(0xFF);
+        self.bytes.push(code);
+    }
+}
+
+/// Inverse of `RECEIVE`+`EXTEND` (ITU-T T.81 §F.1.2.1 / Annex H.1.2.1): map a
+/// signed difference `d` to its category `SSSS` and the `SSSS`-bit value.
+fn lj_encode_diff(d: i32) -> (u32, u32) {
+    if d == 0 {
+        return (0, 0);
+    }
+    if d == -32768 {
+        return (16, 0);
+    }
+    let mag = d.unsigned_abs(); // 1..=32767
+    let ssss = 32 - mag.leading_zeros(); // bit length, 1..=15
+    let mask = (1u32 << ssss) - 1;
+    let raw = if d > 0 { d as u32 } else { (d - 1) as u32 };
+    (ssss, raw & mask)
+}
+
+/// Encode an ordered difference list into a Huffman-coded, `0xFF`-stuffed
+/// entropy scan, inserting an `RSTm` marker (cycling `D0..D7`) before every
+/// `restart_interval` samples, byte-aligning first.
+fn lj_encode_scan(diffs: &[i32], restart_interval: usize) -> Vec<u8> {
+    let mut w = LjBitWriter::new();
+    let mut rst: u8 = 0;
+    for (i, &d) in diffs.iter().enumerate() {
+        if restart_interval > 0 && i > 0 && i % restart_interval == 0 {
+            w.flush_to_byte();
+            w.emit_marker(LJ_MARKER_RST0 + rst);
+            rst = (rst + 1) % 8;
+        }
+        let (ssss, value) = lj_encode_diff(d);
+        w.put_bits(ssss, LJ_SYMBOL_BITS); // flat table: code == symbol
+        if (1..=15).contains(&ssss) {
+            w.put_bits(value, ssss);
+        }
+    }
+    w.flush_to_byte();
+    w.bytes
+}
+
+/// The round-trip LJ92 encoder: final `u16` samples (row-major, `cols*rows`) in,
+/// a complete single-component SOF-3 stream out. Prediction mirrors
+/// `reconstruct` exactly, computing each difference in the point-transformed
+/// domain.
+fn lj_encode(
+    samples: &[u16],
+    cols: usize,
+    rows: usize,
+    precision: u8,
+    predictor: u8,
+    point_transform: u8,
+    restart_interval: usize,
+) -> Vec<u8> {
+    assert_eq!(samples.len(), cols * rows, "samples must be cols*rows");
+    let pt = point_transform;
+    let v: Vec<i32> = samples.iter().map(|&s| i32::from(s >> pt)).collect();
+    let initial = {
+        let e = i32::from(precision) - i32::from(pt) - 1;
+        if e < 0 {
+            0
+        } else {
+            1i32 << e
+        }
+    };
+    let mut diffs: Vec<i32> = Vec::with_capacity(samples.len());
+    let mut idx = 0usize;
+    let mut count = 0usize;
+    for r in 0..rows {
+        for c in 0..cols {
+            if restart_interval > 0 && count == restart_interval {
+                count = 0;
+            }
+            let px = if count == 0 {
+                initial
+            } else if r == 0 {
+                v[idx - 1]
+            } else if c == 0 {
+                v[idx - cols]
+            } else {
+                lj_predict(predictor, v[idx - 1], v[idx - cols], v[idx - cols - 1])
+            };
+            let raw = (v[idx] - px).rem_euclid(65536);
+            let d = if raw >= 32768 { raw - 65536 } else { raw };
+            diffs.push(d);
+            idx += 1;
+            count += 1;
+        }
+    }
+
+    let entropy = lj_encode_scan(&diffs, restart_interval);
+    let (bits, huffval) = lj_flat_table_bytes();
+    let mut data = vec![0xFF, LJ_MARKER_SOI];
+    data.extend(lj_sof3_segment(precision, rows as u16, cols as u16));
+    if restart_interval > 0 {
+        data.extend(lj_dri_segment(restart_interval as u16));
+    }
+    data.extend(lj_dht_segment(0, &bits, &huffval));
+    data.extend(lj_sos_segment(predictor, point_transform, 0));
+    data.extend(entropy);
+    data.extend_from_slice(&[0xFF, LJ_MARKER_EOI]);
+    data
+}
+
+/// A valid sample plane in `[0, 2^P)`, aligned to `Pt` (stored = reconstructed
+/// `<< Pt`, so `reconstructed < 2^(P-Pt)`), from a deterministic LCG — the same
+/// shape the oracle's round-trip test draws, so each plane decodes cleanly.
+fn lj_gen_samples(count: usize, precision: u8, pt: u8, seed: u32) -> Vec<u16> {
+    let modulo: u32 = 1u32 << (precision - pt); // 2^(P - Pt)
+    let mut state = seed;
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+        let recon = (state >> 8) % modulo;
+        out.push((recon << pt) as u16);
+    }
+    out
+}
+
+/// Seeds for `fuzz/fuzz_targets/ljpeg.rs` — valid single-component SOF-3 streams
+/// across the full predictor set (`1..=7`), precisions {8, 12, 16}, a point
+/// transform, and a restart interval, plus the hostile shapes `SPEC-038` names:
+/// a truncated header, a valid header then a truncated scan, an over-subscribed
+/// DHT, `Nf != 1`, and a bad marker. Every one must `decode_into` to a typed
+/// result (the valid ones to `Ok`, the hostile ones to a typed `Error`) and
+/// never panic — the in-crate replay test in `src/ljpeg.rs` asserts exactly that
+/// over this directory.
+fn ljpeg_seeds() -> Vec<(&'static str, Vec<u8>)> {
+    let mut seeds: Vec<(&'static str, Vec<u8>)> = Vec::new();
+
+    // Valid: every predictor 1..=7, spread across the three precisions.
+    let valid: &[(&'static str, usize, usize, u8, u8, u8, usize)] = &[
+        // (name, cols, rows, precision, predictor, point_transform, restart)
+        ("valid-pred1-p8", 4, 3, 8, 1, 0, 0),
+        ("valid-pred2-p8", 4, 3, 8, 2, 0, 0),
+        ("valid-pred3-p8", 4, 3, 8, 3, 0, 0),
+        ("valid-pred4-p12", 4, 3, 12, 4, 0, 0),
+        ("valid-pred5-p12", 4, 3, 12, 5, 0, 0),
+        ("valid-pred6-p16", 4, 3, 16, 6, 0, 0),
+        ("valid-pred7-p16", 4, 3, 16, 7, 0, 0),
+        ("valid-pt2-p12", 4, 3, 12, 1, 2, 0),
+        ("valid-restart-p8", 4, 4, 8, 1, 0, 4),
+    ];
+    for &(name, cols, rows, precision, predictor, pt, ri) in valid {
+        let samples = lj_gen_samples(cols * rows, precision, pt, 0x1357 ^ u32::from(predictor));
+        seeds.push((
+            name,
+            lj_encode(&samples, cols, rows, precision, predictor, pt, ri),
+        ));
+    }
+
+    let (flat_bits, flat_huffval) = lj_flat_table_bytes();
+
+    // Hostile: a SOF3 header cut mid-segment (ends after the Y field — X never
+    // reads). parse_headers → Truncated.
+    seeds.push((
+        "truncated-header",
+        vec![
+            0xFF,
+            LJ_MARKER_SOI,
+            0xFF,
+            LJ_MARKER_SOF3,
+            0x00,
+            0x0B, // Lf = 11
+            0x08, // P = 8
+            0x00,
+            0x02, // Y = 2
+        ],
+    ));
+
+    // Hostile: a complete, valid header then a single entropy byte — the
+    // 16-sample scan runs out mid-stream. decode_into → Truncated.
+    seeds.push(("truncated-scan", {
+        let mut d = vec![0xFF, LJ_MARKER_SOI];
+        d.extend(lj_sof3_segment(8, 4, 4));
+        d.extend(lj_dht_segment(0, &flat_bits, &flat_huffval));
+        d.extend(lj_sos_segment(1, 0, 0));
+        d.push(0x00); // one entropy byte, then EOF
+        d
+    }));
+
+    // Hostile: a DHT whose BITS over-subscribe the code space — three 1-bit
+    // codes cannot exist. HuffTable::build → LjpegInvalidHuffmanTable.
+    seeds.push(("oversized-dht", {
+        let mut d = vec![0xFF, LJ_MARKER_SOI];
+        d.extend(lj_sof3_segment(8, 2, 2));
+        let oversub_bits = [3u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        d.extend(lj_dht_segment(0, &oversub_bits, &[1u8, 2, 3]));
+        d
+    }));
+
+    // Hostile: a SOF3 frame declaring three components. parse_frame_header →
+    // LjpegUnsupportedComponentCount { nf: 3 }.
+    seeds.push(("nf-not-one", {
+        let mut d = vec![0xFF, LJ_MARKER_SOI, 0xFF, LJ_MARKER_SOF3];
+        d.extend_from_slice(&17u16.to_be_bytes()); // Lf = 8 + 3*3
+        d.push(0x08); // P
+        d.extend_from_slice(&2u16.to_be_bytes()); // Y
+        d.extend_from_slice(&2u16.to_be_bytes()); // X
+        d.push(0x03); // Nf = 3
+        d.extend_from_slice(&[0x00, 0x11, 0x00, 0x01, 0x11, 0x00, 0x02, 0x11, 0x00]);
+        d
+    }));
+
+    // Hostile: a reserved/unexpected marker where a header segment belongs.
+    // next_marker reads it; parse_headers → LjpegUnexpectedMarker { marker: 1 }.
+    seeds.push(("bad-marker", vec![0xFF, LJ_MARKER_SOI, 0xFF, 0x01]));
+
+    seeds
+}
+
 fn write_seeds(
     subdir: &str,
     extension: &str,
@@ -492,6 +868,10 @@ fn main() {
         std::process::exit(1);
     }
     if let Err(e) = write_seeds("demosaic", "tiff", demosaic_seeds()) {
+        eprintln!("fuzz-seeds: {e}");
+        std::process::exit(1);
+    }
+    if let Err(e) = write_seeds("ljpeg", "lj92", ljpeg_seeds()) {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);
     }

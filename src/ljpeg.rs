@@ -1957,4 +1957,148 @@ mod tests {
             })
         ));
     }
+
+    // ══ SPEC-038: panic-free replay over the fuzz surface ═════════════════════
+    //
+    // The libFuzzer run itself is manual (`cargo +nightly fuzz run ljpeg`, see
+    // DEC-036 and the target's header); `just test` carries the panic-free
+    // guarantee as these two in-crate UNIT tests. They reach `pub(crate)
+    // decode_into` directly — NOT through the `fuzzing`-feature `__fuzz_ljpeg`
+    // entry — so the guarantee holds regardless of that feature.
+
+    /// Decode a seed into a dimension-bounded destination, mirroring
+    /// `__fuzz_ljpeg` (`src/lib.rs`): parse the header to learn the plane size,
+    /// cap it, allocate, and decode. A rejected header is itself a typed error
+    /// — a "return", which is all the guarantee asks.
+    fn decode_seed_bounded(data: &[u8]) -> Result<(), Error> {
+        const MAX_PIXELS: usize = 4_000_000;
+        let (frame, _table, _offset) = parse_headers(data)?;
+        let pixels = usize::from(frame.lines) * usize::from(frame.samples_per_line);
+        let len = pixels.min(MAX_PIXELS);
+        let mut out = vec![0u16; len];
+        decode_into(data, &mut out).map(|_| ())
+    }
+
+    #[test]
+    fn fuzz_seed_corpus_decodes_without_panic() {
+        use std::path::PathBuf;
+
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("fuzz")
+            .join("seeds")
+            .join("ljpeg");
+        let entries = std::fs::read_dir(&dir).unwrap_or_else(|e| {
+            panic!(
+                "read {}: {e} — run `cargo run --example fuzz-seeds`",
+                dir.display()
+            )
+        });
+
+        let mut count = 0usize;
+        for entry in entries {
+            let path = entry.unwrap().path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if !path.is_file() || name.starts_with('.') {
+                continue;
+            }
+            let bytes = std::fs::read(&path).unwrap();
+            // The guarantee is "returns, never panics" — a panic here fails the
+            // test. Valid seeds decode to `Ok`, hostile ones to a typed `Error`.
+            let _ = decode_seed_bounded(&bytes);
+            count += 1;
+        }
+
+        assert!(
+            count > 0,
+            "no seeds in {} — run `cargo run --example fuzz-seeds` (the seed-gen must have run)",
+            dir.display()
+        );
+    }
+
+    #[test]
+    fn hostile_bitstreams_are_typed_errors_not_panics() {
+        // A table of crafted inputs, each asserted to be a typed Error through
+        // the full `decode_into` pipeline — never a panic (a panic fails the
+        // test). Where the dimensions parse, the destination is the exact
+        // length, so the error is the hostile shape's own, not a length
+        // mismatch.
+
+        // Empty input — no SOI.
+        let mut out = [0u16; 1];
+        assert!(matches!(
+            decode_into(&[], &mut out),
+            Err(Error::LjpegMissingMarker { marker: MARKER_SOI })
+        ));
+
+        // A valid header then a truncated scan — the 16-sample scan runs out
+        // after one entropy byte.
+        let (bits, huffval) = flat_table_bytes();
+        let mut truncated = vec![0xFF, MARKER_SOI];
+        truncated.extend(sof3_segment(8, 4, 4));
+        truncated.extend(dht_segment(0, &bits, &huffval));
+        truncated.extend(sos_segment(1, 0, 0));
+        truncated.push(0x00);
+        let mut out_trunc = [0u16; 16];
+        assert!(matches!(
+            decode_into(&truncated, &mut out_trunc),
+            Err(Error::Truncated { .. })
+        ));
+
+        // A SOF3 frame with Nf = 3.
+        let mut nf3 = vec![0xFF, MARKER_SOI, 0xFF, MARKER_SOF3];
+        nf3.extend_from_slice(&17u16.to_be_bytes()); // Lf = 8 + 3*3
+        nf3.push(0x08);
+        nf3.extend_from_slice(&2u16.to_be_bytes());
+        nf3.extend_from_slice(&2u16.to_be_bytes());
+        nf3.push(0x03); // Nf = 3
+        nf3.extend_from_slice(&[0x00, 0x11, 0x00, 0x01, 0x11, 0x00, 0x02, 0x11, 0x00]);
+        let mut out_nf3 = [0u16; 1];
+        assert!(matches!(
+            decode_into(&nf3, &mut out_nf3),
+            Err(Error::LjpegUnsupportedComponentCount { nf: 3 })
+        ));
+
+        // A DHT whose BITS over-subscribe the code space — three 1-bit codes.
+        let mut oversub = vec![0xFF, MARKER_SOI];
+        oversub.extend(sof3_segment(8, 2, 2));
+        let oversub_bits = [3u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        oversub.extend(dht_segment(0, &oversub_bits, &[1u8, 2, 3]));
+        let mut out_ov = [0u16; 1];
+        assert!(matches!(
+            decode_into(&oversub, &mut out_ov),
+            Err(Error::LjpegInvalidHuffmanTable)
+        ));
+
+        // A forged 65535 x 65535 frame — the dimensions parse, but reconstruct
+        // refuses the length against a real buffer before reading the scan
+        // (nothing allocates the forged plane).
+        let mut huge = vec![0xFF, MARKER_SOI];
+        huge.extend(sof3_segment(8, 65535, 65535));
+        huge.extend(dht_segment(0, &bits, &huffval));
+        huge.extend(sos_segment(1, 0, 0));
+        huge.push(0x00);
+        let mut out_small = [0u16; 4];
+        assert!(matches!(
+            decode_into(&huge, &mut out_small),
+            Err(Error::LjpegPlaneWrongLength { .. })
+        ));
+
+        // A wrong RSTm — a valid restart stream whose RST0 marker is bumped to
+        // RST1. The only `FF D0` in the stream is the restart marker (the header
+        // markers are D8/C3/C4/DD/DA, EOI is FF D9; entropy `FF` bytes are always
+        // stuffed `FF 00`), so this rewrite hits exactly it.
+        let samples = [10u16, 20, 30, 40]; // 2x2
+        let mut wrong_rst = encode_lj92(&samples, 2, 2, 8, 1, 0, 2);
+        for i in 0..wrong_rst.len().saturating_sub(1) {
+            if wrong_rst[i] == 0xFF && wrong_rst[i + 1] == MARKER_RST0 {
+                wrong_rst[i + 1] = 0xD1;
+                break;
+            }
+        }
+        let mut out_rst = [0u16; 4];
+        assert!(matches!(
+            decode_into(&wrong_rst, &mut out_rst),
+            Err(Error::LjpegUnexpectedMarker { .. })
+        ));
+    }
 }

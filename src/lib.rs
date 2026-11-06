@@ -140,6 +140,48 @@ use core::fmt;
 /// cannot (docs, tests, refactors that are bit-identical). See `DEC-028`.
 pub const DEVELOP_VERSION: &str = "1";
 
+/// libFuzzer entry for the single-component SOF-3 lossless-JPEG decoder
+/// (`ljpeg::decode_into`) — `SPEC-038`, `DEC-036`.
+///
+/// Compiled in **only** under the `fuzzing` cargo feature, which the separate
+/// `irradiance-fuzz` crate turns on (`fuzz/Cargo.toml`). A default `cargo
+/// build` and the published crate leave it out, so `ljpeg` stays `pub(crate)`
+/// and the real public decode surface remains STAGE-010's call. `#[doc(hidden)]`
+/// because it is a fuzz hook, not API — it never appears in `cargo doc`.
+///
+/// It parses the header to learn the plane dimensions, bounds `lines ×
+/// samples_per_line` with checked arithmetic against a cap (mirroring
+/// `fuzz/fuzz_targets/plane.rs`: declining to chase an OOM on a forged `65535 ×
+/// 65535` is this harness's choice, not a weakened library guarantee —
+/// `ljpeg::decode_into` would reject such a buffer with
+/// [`Error::LjpegPlaneWrongLength`] in any case), allocates a capped `u16`
+/// plane, drives the decoder, and drops the typed `Result`. Every byte string
+/// returns; nothing panics (`no-panics-on-untrusted-input`). It is held to the
+/// five-lint panic-free policy because it is compiled under `--all-features`.
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub fn __fuzz_ljpeg(data: &[u8]) {
+    // The allocation THIS ENTRY is willing to make (see the `plane.rs` note).
+    const MAX_PIXELS: u64 = 4_000_000;
+
+    let Ok((frame, _table, _offset)) = ljpeg::parse_headers(data) else {
+        // A rejected header is a success for the target: a typed error, never
+        // a panic.
+        return;
+    };
+    let Some(pixels) = u64::from(frame.lines).checked_mul(u64::from(frame.samples_per_line)) else {
+        return;
+    };
+    if pixels > MAX_PIXELS {
+        return;
+    }
+    let Ok(len) = usize::try_from(pixels) else {
+        return;
+    };
+    let mut out = vec![0u16; len];
+    let _ = ljpeg::decode_into(data, &mut out);
+}
+
 /// Errors produced while reading or developing a RAW file.
 ///
 /// Every fallible path in this crate returns this type rather than
