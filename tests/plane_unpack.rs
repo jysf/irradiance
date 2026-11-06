@@ -457,18 +457,68 @@ fn unpacks_sixteen_bit_in_file_byte_order() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AC6 — the three compressed files are rejected without allocating a plane
+// Compression dispatch (SPEC-043): a truly-unsupported vendor code is still
+// rejected without allocating a plane; a Compression-7 (SOF-3) plane now routes
+// to the decoder instead of returning UnsupportedCompression.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn compressed_files_are_rejected_without_decoding() {
+fn unsupported_vendor_compression_is_rejected_without_decoding() {
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
+    let root = CorpusRoot::resolve();
+
+    // Pentax PEF carries Compression 65535 — a vendor-private scheme this library
+    // does not decode. The dispatch's `other =>` arm fires BEFORE any length
+    // check, so an EMPTY destination still proves the rejection happens before a
+    // plane-sized buffer would even need to exist. (The two Compression-7 DNGs
+    // used to live here too; SPEC-043 routes them to the decoder — see
+    // `compression7_planes_route_to_the_decoder` below.)
+    let path = "PENTAX-K3III-MONO/K3III.PEF";
+    let entry = manifest
+        .get(path)
+        .unwrap_or_else(|| panic!("{path} must be in the manifest"));
+    let Some(file_path) = entry.require(&root) else {
+        return; // SKIP already announced by CorpusFile::require
+    };
+    let bytes = std::fs::read(&file_path).expect("read corpus file");
+    let container = Container::parse(&bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let sensor = container.sensor().unwrap_or_else(|e| panic!("{path}: {e}"));
+
+    let mut dst: [u16; 0] = [];
+    let err = unpack_into(&sensor, container.byte_order(), &bytes, &mut dst)
+        .expect_err("vendor-compressed data must never reach the unpack path");
+    assert!(
+        matches!(err, Error::UnsupportedCompression { compression: 65535 }),
+        "{path}: expected UnsupportedCompression(65535) before any length check, got {err:?}"
+    );
+}
+
+#[test]
+fn compression7_planes_route_to_the_decoder() {
+    // SPEC-043 flips these two from the compression GATE to the decoder:
+    // `unpack_into` now routes each Compression-7 (SOF-3 lossless JPEG) sensor
+    // plane through `ljpeg::decode_into` instead of returning
+    // `UnsupportedCompression`. Tier-B — the real held files.
+    //
+    // SURPRISE from the real bytes (not in the design's §12 probe, which measured
+    // strip layout only): BOTH held files carry a TWO-component (`Nf = 2`) SOF-3
+    // frame — the column-interleave trick (Leica 12-bit `X = 2992`, Pentax 14-bit
+    // `X = 3152`, each ~half the plane width). Multi-component SOF-3 is a
+    // documented STAGE-011 non-goal, so today the shipped single-component decoder
+    // returns the typed `LjpegUnsupportedComponentCount` for each — which is the
+    // point of this test: the plane REACHES the decoder (not the gate) and the
+    // binding stays panic-free. The routing is what SPEC-043 delivers; decoding
+    // the two-component frame and the bit-exact `dnglab` proof are follow-ups
+    // (SPEC-044/045 must grow multi-component support first — see
+    // `guidance/questions.yaml`). The assertion is deliberately
+    // forward-compatible: once multi-component lands it will decode to `Ok` and a
+    // non-empty plane, which this still accepts.
     let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
     let root = CorpusRoot::resolve();
 
     for path in [
-        "LEICA-M-MONOCHROM-TYP246/M2462362.DNG", // Compression 7 (JPEG)
-        "PENTAX-K3III-MONO/K3III.DNG",           // Compression 7 (JPEG)
-        "PENTAX-K3III-MONO/K3III.PEF",           // Compression 65535
+        "LEICA-M-MONOCHROM-TYP246/M2462362.DNG", // big-endian, 12-bit, Nf=2
+        "PENTAX-K3III-MONO/K3III.DNG",           // little-endian, 14-bit, Nf=2
     ] {
         let entry = manifest
             .get(path)
@@ -480,17 +530,28 @@ fn compressed_files_are_rejected_without_decoding() {
         let container = Container::parse(&bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
         let sensor = container.sensor().unwrap_or_else(|e| panic!("{path}: {e}"));
 
-        // An EMPTY destination: if this ever reached the length check (or
-        // beyond) instead of the compression check, it would fail on
-        // PlaneBufferWrongLength instead — proving compression is rejected
-        // BEFORE any plane-sized buffer would even need to exist.
-        let mut dst: [u16; 0] = [];
-        let err = unpack_into(&sensor, container.byte_order(), &bytes, &mut dst)
-            .expect_err("compressed data must never reach the unpack path");
+        let pixels = sensor.width as usize * sensor.height as usize;
+        let mut plane = vec![0u16; pixels];
+        let result = unpack_into(&sensor, container.byte_order(), &bytes, &mut plane);
+
+        // The SPEC-043 claim: the Compression-7 gate now PASSES to the decoder —
+        // whatever the outcome, it is never the old `UnsupportedCompression`
+        // rejection, and never a panic (a panic would fail the test outright).
         assert!(
-            matches!(err, Error::UnsupportedCompression { .. }),
-            "{path}: expected UnsupportedCompression before any length check, got {err:?}"
+            !matches!(result, Err(Error::UnsupportedCompression { .. })),
+            "{path}: Compression 7 must route to the decoder, not reject at the gate"
         );
+        match result {
+            // Once multi-component SOF-3 lands (SPEC-044/045), the plane decodes.
+            Ok(()) => assert!(
+                plane.iter().any(|&s| s != 0),
+                "{path}: decoded plane is all zero — decode did not fill the buffer"
+            ),
+            // Today: both held frames are two-component, a documented non-goal —
+            // a clean typed error from the decoder, inside the routing.
+            Err(Error::LjpegUnsupportedComponentCount { .. }) => {}
+            Err(e) => panic!("{path}: unexpected decode error (not a routing failure): {e:?}"),
+        }
     }
 }
 
