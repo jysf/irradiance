@@ -169,21 +169,31 @@ SPEC-043 → SPEC-046 → SPEC-044 → SPEC-045.
   (DEC-037): extend `ljpeg` to decode the two column components of the held files'
   Nf=2 frames into one monochrome `u16` plane, with an analytic two-component
   round-trip red-proof; the Nf=1 path stays byte-identical. depends_on SPEC-043.
-- [ ] SPEC-044 (frame) — [M] Bit-exact corpus oracle: both held Compression-7 DNGs
+- [ ] SPEC-044 (build) — [M] Bit-exact corpus oracle: both held Compression-7 DNGs
   (Leica M Typ 246 big-endian + Pentax K-3 III little-endian) decode to a `u16` plane
   whose MD5 equals `dnglab analyze --raw-checksum`, proven red; an end-to-end develop
   smoke proves the decoded plane flows through the existing develop/tone path
   unchanged. **depends_on SPEC-046** (the held files are Nf=2 — they do not decode
-  until SPEC-046 lands).
+  until SPEC-046 lands). **Designed 2026-11-06.** The design §12 probe decoded both
+  real files: Typ 246 matched `dnglab --raw-checksum` **unmodified** (de-interleave
+  mapping confirmed), but K3III has an **APP0 segment between DHT and SOS** that the
+  decoder rejects — so SPEC-044 absorbs one bounded decoder change (skip APPn/COM header
+  segments by length), proven by the same real-file oracle (**DEC-039**). HANDOFF-095 +
+  `prompts/SPEC-044-build.md`.
 - [ ] SPEC-045 (frame) — [S] Binding capstone: a provenance-ledger entry for the DNG
   Compression-7 binding, a macOS/Linux byte-identical determinism assertion, and
-  container→decoder truncation / hostile-strip hardening. depends_on SPEC-044.
+  container→decoder truncation / hostile-strip hardening (now also carrying the external
+  review's §2.1 later-DHT-replaces, §2.3 restart-MCU reset, §2.4 `Pt<P`/`Tc/Th` — none
+  exercised by a held file; triage `docs/reviews/2026-11-06-staff-review-0.2.0-triage.md`).
+  depends_on SPEC-044.
 
-**Count:** 2 shipped / 2 active / 0 pending (SPEC-043 + SPEC-046 shipped; SPEC-044/045 framed)
+**Count:** 2 shipped / 2 active / 0 pending (SPEC-043 + SPEC-046 shipped; SPEC-044 at
+build, SPEC-045 framed)
 
-*The Nf=2 finding (SPEC-043 build, DEC-037) re-opened the single-component scope for
-the held files' monochrome column-interleave; SPEC-046 is the inserted decode spec. No
-entry is flagged L, though SPEC-046 may prove L at design.*
+*The Nf=2 finding (SPEC-043 build, DEC-037) re-opened the single-component scope for the
+held files' monochrome column-interleave; SPEC-046 was the inserted decode spec. The
+APP0 finding (SPEC-044 design §12 probe, DEC-039) adds a one-arm header-skip to SPEC-044
+without a re-plan — unlike the Nf=2 case it needs no new spec. No entry is flagged L.*
 
 ## Design Notes
 
