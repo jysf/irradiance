@@ -177,15 +177,18 @@ SPEC-043 → SPEC-046 → SPEC-044 → SPEC-045.
   de-interleave mapping on both files AND caught that K3III needs an **APPn/COM header-skip**
   (APP0 between DHT and SOS) to decode at all — folded in as one bounded `parse_headers` arm
   (**DEC-039**), no re-plan. HANDOFF-095 (build) + HANDOFF-096 (verify).
-- [ ] SPEC-045 (frame) — [S] Binding capstone: a provenance-ledger entry for the DNG
-  Compression-7 binding, a macOS/Linux byte-identical determinism assertion, and
-  container→decoder truncation / hostile-strip hardening (now also carrying the external
-  review's §2.1 later-DHT-replaces, §2.3 restart-MCU reset, §2.4 `Pt<P`/`Tc/Th` — none
-  exercised by a held file; triage `docs/reviews/2026-11-06-staff-review-0.2.0-triage.md`).
-  depends_on SPEC-044.
+- [ ] SPEC-045 (build) — [M] Binding capstone: a provenance-ledger entry for the DNG
+  Compression-7 binding, a plane-level macOS/Linux determinism pin, container→decoder
+  hardening + continuous fuzzing of the PUBLIC Compression-7 route, and the external review's
+  §2.4 `Pt<P`/`Tc,Th` + §2.1 later-DHT-replaces. **Designed 2026-11-06** ([S]→[M] with the
+  review folding). The §12 probe found determinism (develop level, SPEC-044), §2.3 restart
+  (SPEC-046) and tiled rejection already groundwork-covered; new work is the binding
+  provenance row, the three ljpeg header guards, and dropping the `require_uncompressed`
+  early-return in the fuzz targets (keeping the `__fuzz_ljpeg` hook — DEC-036 Validation).
+  HANDOFF-097 + `prompts/SPEC-045-build.md`. depends_on SPEC-044. **Last STAGE-011 spec.**
 
 **Count:** 3 shipped / 1 active / 0 pending (SPEC-043 + SPEC-046 + SPEC-044 shipped;
-SPEC-045 framed — the last spec before STAGE-011 and PROJ-003 close)
+SPEC-045 at build — the last spec before STAGE-011 and PROJ-003 close)
 
 *The Nf=2 finding (SPEC-043 build, DEC-037) re-opened the single-component scope for the
 held files' monochrome column-interleave; SPEC-046 was the inserted decode spec. The
