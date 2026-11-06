@@ -177,8 +177,8 @@ fn cmd_ifd(args: &[&str]) -> ExitCode {
         sensor.compression.code(),
         match sensor.compression {
             Compression::Uncompressed => "uncompressed",
-            Compression::Jpeg => "JPEG — not decodable by PROJ-001",
-            Compression::Other(_) => "vendor/other — not decodable by PROJ-001",
+            Compression::Jpeg => "JPEG — SOF-3 lossless, decoded (STAGE-011 / SPEC-043)",
+            Compression::Other(_) => "vendor/other — not decodable",
         }
     );
     println!("rows_per_strip  {:?}", sensor.rows_per_strip);
@@ -224,9 +224,19 @@ fn cmd_ifd(args: &[&str]) -> ExitCode {
         _ => println!("layer0          <not applicable>"),
     }
 
-    match sensor.require_uncompressed() {
-        Ok(()) => println!("unpackable      yes"),
-        Err(e) => println!("unpackable      no — {e}"),
+    // SPEC-043: `unpack_into` now routes `Compression 7` (SOF-3 lossless JPEG)
+    // through the decoder, so the uncompressed path is no longer the only
+    // unpackable one — report the dispatch set directly rather than via
+    // `require_uncompressed` (which is specifically the uncompressed classifier).
+    match sensor.compression {
+        Compression::Uncompressed => println!("unpackable      yes (uncompressed)"),
+        Compression::Jpeg => {
+            println!("unpackable      yes (Compression 7 — SOF-3 lossless JPEG)")
+        }
+        other => println!(
+            "unpackable      no — UnsupportedCompression {{ compression: {} }}",
+            other.code()
+        ),
     }
 
     ExitCode::SUCCESS

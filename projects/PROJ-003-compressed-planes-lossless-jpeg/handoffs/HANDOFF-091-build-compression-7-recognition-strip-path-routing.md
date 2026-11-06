@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-05
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-043
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: pending                  # completed | blocked | rejected
-  tokens_total: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 306881
   estimated_usd: null
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null
+  duration_minutes: 55
+  branch: claude/spec-043-build-5bc7e8
+  pr: 112
+  completed_at: 2026-11-05         # YYYY-MM-DD
+  notes: "tokens_total is a FLOOR: context-occupancy from ccd_session_mgmt get_usage (306,881 tokens, 31 percent of 1M), not a cumulative. The Claude Code desktop Code tab exposes no interactive per-cycle meter, same as HANDOFF-085..090; the orchestrator supersedes this from the transcript at ship. estimated_usd left null on purpose: a USD figure on the occupancy floor would understate the real cumulative by roughly two orders of magnitude. pr is filled by the bookkeeping commit once the PR opens."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -174,25 +174,76 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** <fill>
-- **Completed at:** <YYYY-MM-DD>
-- **All acceptance criteria met?** <yes/no — walk each of SPEC-043's six>
+- **Branch / PR:** `claude/spec-043-build-5bc7e8` → PR #112 (against `main`).
+- **Completed at:** 2026-11-05
+- **All acceptance criteria met?** Yes — all six:
+  1. Single-strip Compression-7 fills `dst` bit-exact via `decode_into` for both
+     container byte orders — `compression7_single_strip_decodes_bit_exact` (tier-A).
+  2. Uncompressed path byte-for-byte unchanged — whole existing suite green, plus
+     `uncompressed_path_unchanged_after_routing` pins the 14-bit sub-byte path to
+     the measured Q2M samples.
+  3. Multi-strip (N>1) decodes each strip into its row band, bit-exact —
+     `compression7_multi_strip_decodes_each_band` (tier-A, 2 strips).
+  4. Frame-dimension mismatch → `LjpegPlaneWrongLength`, no panic —
+     `compression7_frame_dimension_mismatch_is_typed_error`.
+  5. Truncated strip → typed error, no panic — `compression7_truncated_strip_is_typed_error`.
+  6. Non-1/7 code → `UnsupportedCompression`; `#![forbid(unsafe_code)]` + the
+     five-lint deny policy hold; `just test` / `lint-ci` / `fmt-check` / `validate`
+     all green — `non_jpeg_compression_still_rejected`.
 
 ### Cost self-report
 
-- **Tokens (total):** <real `/cost` cumulative, or a FLOOR with a note>
-- **Estimated USD:** <or null>
-- **Duration (minutes):** <n>
-- **Source of the number:** <interface>
+- **Tokens (total):** 306,881 — a **FLOOR**, not a cumulative (context-occupancy
+  from `ccd_session_mgmt get_usage`, 31% of a 1M window).
+- **Estimated USD:** null (see front-matter notes — a USD figure on the floor
+  would badly understate the real cumulative; orchestrator computes it at ship).
+- **Duration (minutes):** ~55.
+- **Source of the number:** `ccd_session_mgmt get_usage` context-occupancy; the
+  Claude Code desktop Code tab has no interactive `/cost` (same as HANDOFF-085..090).
 
 ### Drift and new artifacts
 
-- **New decisions emitted:** <none expected>
-- **Deviations from spec:** <...>
-- **Follow-up work identified:** <SPEC-044 is next (the corpus oracle); note anything surprising about the real-file strip layout if you probed it>
+- **New decisions emitted:** none (DEC-036/016/012/003 sufficed).
+- **Deviations from spec:**
+  - Tests live in `src/plane.rs mod tests` (the spec's first-listed option), reusing
+    the real `ljpeg::encode_lj92` via a `#[cfg(test)]`-only crate re-export rather
+    than a hand-synced copy — single source of truth, no encoder drift; `decode_into`
+    and the non-test surface are untouched (DEC-036 holds).
+  - Two **in-scope test/diagnostic updates** the spec implied but did not enumerate:
+    (a) the pre-existing tier-B `compressed_files_are_rejected_without_decoding`
+    (`tests/plane_unpack.rs`) was split — the PEF still rejects, the two C7 DNGs now
+    route to the decoder; (b) `src/bin/irr.rs`'s `ifd` diagnostics no longer claim C7
+    is "not decodable" (§11 "ship the reader with the field" / no stale readers). The
+    four `unpack_into` call sites in `irr.rs` had no pre-gate, so develop/demosaic/
+    color/unpack decode C7 transparently, as the spec's Outputs require.
+- **Follow-up work identified / SURPRISE from the real files:** **Both** held
+  Compression-7 files are **two-component (`Nf = 2`) SOF-3** frames (Leica P=12
+  X=2992, Pentax P=14 X=3152 — the column-interleave trick; each `samples_per_line`
+  is ~half the plane width). The design's §12 probe measured strip LAYOUT only, not
+  the frame header, so this is new. The shipped single-component decoder returns the
+  typed `LjpegUnsupportedComponentCount { nf: 2 }` for each (panic-free), so **neither
+  real file decodes today**. SPEC-043 is unaffected (multi-component is an explicit
+  non-goal; both files now REACH the decoder, and tier-A bit-exactness is proven),
+  **but SPEC-044's premise is now false** — there is no decodable single-component
+  held file to run `dnglab --raw-checksum` against. Raised as
+  `stage-011-held-files-are-two-component-sof3` (priority high) in
+  `guidance/questions.yaml`; **SPEC-044/045 need re-planning before build** (grow
+  multi-component + de-interleave support, or acquire a single-component C7 file).
 
 ### Reflection (3 questions, short answers)
 
-1. **What was unclear in the spec or handoff that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec or handoff that slowed you down?** — Nothing in
+   SPEC-043's own contract; it was precise and the build transcribed cleanly. The
+   lost time was discovering the real files are `Nf=2`: the spec's probe asserted
+   "single-strip corpus-verified path" (true of the strip count) but implied the
+   files were single-component, which they are not.
+2. **Was there a constraint or decision that should have been listed but wasn't?** —
+   A design-time **SOF-3 frame-header** probe (precision/lines/samples_per_line/`Nf`)
+   belonged in §12 alongside the strip-layout probe. Reading `Nf` at design would
+   have caught the two-component reality before SPEC-044 was planned around it. This
+   is the §12 "measure the real thing" lesson applied one layer deeper than the
+   strip table.
+3. **If you did this task again, what would you do differently?** — Probe the SOF-3
+   headers of the held files first thing, before writing the tier-B expectations, so
+   the real-file test asserts the true routing outcome from the start instead of
+   over-claiming `Ok` and then correcting. (The routing code itself needed no change.)

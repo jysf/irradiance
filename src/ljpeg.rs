@@ -60,16 +60,24 @@
 //! coding is patent-clean (`DEC-035`: the lossy-DCT and arithmetic-coding
 //! patents expired and never read on it). See `docs/provenance-ledger.md`.
 
-// Nothing in the crate calls this module yet — STAGE-010 wires `Compression 7`
-// to [`decode_into`]. Both the SPEC-036 front-end and the SPEC-037
-// reconstruction below are `pub(crate)` and are exercised by this module's own
-// `mod tests` (every function and every `Frame` field is read there), but the
-// non-test library build sees no caller, so `dead_code` would fire. This allow
-// is scoped to exactly this pre-consumer module and comes off when STAGE-010
-// wires it in.
+// As of STAGE-011 / SPEC-043, `plane::unpack_into` routes a DNG `Compression 7`
+// plane through [`decode_into`], so this module finally has a real caller. The
+// allow stays until SPEC-045 settles the module's public surface (DEC-036): some
+// `pub(crate)` surface here is still reached only from this module's own `mod
+// tests` or, under the `fuzzing` feature, the `__fuzz_ljpeg` hook in `lib.rs`, so
+// `dead_code` would still fire in the default build without it. It is scoped to
+// exactly this module.
 #![allow(dead_code)]
 
 use crate::Error;
+
+// SPEC-043: `plane`'s own `mod tests` builds its tier-A Compression-7 fixtures
+// with the STAGE-009 round-trip encoder, so the one `encode_lj92` helper is
+// re-exported crate-wide under `cfg(test)` only. This is test-only glue — it does
+// not widen the module's non-test surface (DEC-036); `decode_into` stays the
+// single `pub(crate)` entry point.
+#[cfg(test)]
+pub(crate) use tests::encode_lj92;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Markers (ITU-T T.81 Annex B.1) — the subset this front-end recognises.
@@ -981,8 +989,9 @@ pub(crate) fn reconstruct(
 
 /// One-call single-component SOF-3 decode: [`parse_headers`] → length check →
 /// [`ScanReader`] over the entropy bytes → [`reconstruct`], returning the
-/// parsed [`Frame`]. This is the entry point STAGE-010 wires `Compression 7`
-/// to; `out` is the caller-owned `u16` plane (`DEC-016`).
+/// parsed [`Frame`]. This is the entry point STAGE-011 (SPEC-043) wires
+/// `Compression 7` to, through `plane::unpack_into`; `out` is the caller-owned
+/// `u16` plane (`DEC-016`).
 ///
 /// # Errors
 ///
@@ -1501,7 +1510,7 @@ mod tests {
     /// bit-for-bit. Prediction mirrors `reconstruct` exactly (it shares the
     /// production `predict`), computing each difference in the point-transformed
     /// domain; the differences are the inverse of the decoder's.
-    fn encode_lj92(
+    pub(crate) fn encode_lj92(
         samples: &[u16],
         cols: usize,
         rows: usize,

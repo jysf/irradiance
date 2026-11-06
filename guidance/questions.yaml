@@ -35,3 +35,34 @@ questions:
     raised_by: human
     raised_at: 2026-04-19
     assigned_to: null
+
+  - id: stage-011-held-files-are-two-component-sof3
+    question: "Both held Compression-7 files are TWO-component (Nf=2) SOF-3 frames, which the single-component decoder cannot decode — how should SPEC-044/SPEC-045 proceed given STAGE-011 has no single-component held file?"
+    priority: high
+    status: open
+    raised_by: claude-opus-4-8
+    raised_at: 2026-11-05
+    assigned_to: null
+    notes: |
+      Found during SPEC-043 build by probing the real strip bytes (the design's
+      §12 probe measured strip LAYOUT only, not the SOF-3 frame header). Both
+      held Compression-7 DNGs carry a two-component SOF-3 frame — the
+      column-interleave trick:
+        - LEICA-M-MONOCHROM-TYP246/M2462362.DNG: P=12, lines=4000,
+          samples_per_line=2992, Nf=2 (crop width ~5976 ≈ 2*2992).
+        - PENTAX-K3III-MONO/K3III.DNG: P=14, lines=4224,
+          samples_per_line=3152, Nf=2 (crop width ~6192 ≈ 2*3152).
+      The shipped STAGE-009 decoder is single-component only and returns the
+      typed `LjpegUnsupportedComponentCount { nf: 2 }` for each (panic-free).
+      SPEC-043's deliverable (recognise Compression 7 and route the strip to the
+      decoder) is unaffected and complete — both files now REACH the decoder
+      instead of the gate, tier-A single-strip bit-exactness is proven by the
+      hand-built encoder, and multi-component is an explicit STAGE-011 non-goal.
+      But SPEC-044's premise — "both held files are the single-strip
+      corpus-verified path, bit-exact vs dnglab" — is now false: neither file is
+      decodable without multi-component (Nf≥2) SOF-3 support with de-interleave
+      of the two column components back into one plane. SPEC-044/045 need
+      re-planning: either grow multi-component support first (two independent
+      scans per restart-less frame, de-interleaved by component) so the oracle
+      has something to check, or acquire a genuinely single-component
+      Compression-7 held file. Decision needed before SPEC-044 build starts.
