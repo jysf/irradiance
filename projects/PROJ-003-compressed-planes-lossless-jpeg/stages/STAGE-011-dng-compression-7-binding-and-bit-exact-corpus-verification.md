@@ -159,7 +159,7 @@ onto the spec as `task.complexity`. **Minted 2026-11-05** as a linear chain
 (SPEC-043 → SPEC-044 → SPEC-045; `depends_on` set, scope filled). **Next = design
 SPEC-043** (Prompt 2b) in the main session; build/verify delegate to cold sessions.
 
-- [ ] SPEC-043 (frame) — [M] Compression-7 recognition + strip-path routing:
+- [ ] SPEC-043 (build) — [M] Compression-7 recognition + strip-path routing:
   accept `Compression == 7` on the sensor IFD and route strip/tile bytes through
   `ljpeg::decode_into` (reuse SPEC-028 multi-strip assembly), for both byte
   orders; the uncompressed / monochrome / Bayer paths stay byte-identical; tier-A

@@ -6,7 +6,7 @@
 task:
   id: SPEC-043
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -27,8 +27,8 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # HANDOFF-091 (build) → tier_map.build
+  created_at: 2026-11-05
 
 references:
   decisions: [DEC-036, DEC-016, DEC-012]   # ljpeg visibility — the dev-only fuzzing feature may retire once this adds a real caller (DEC-036); caller-owned no-alloc buffer (DEC-016); malformed-tag / structural-gate rule for Compression recognition (DEC-012)
@@ -62,8 +62,16 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 28000000        # ~28M — routing dispatch + tier-A SOF-3 fixtures (single + 2-strip) + characterization; [M], comparable to SPEC-037
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 40
+      recorded_at: 2026-11-05
+      notes: "main-session design (un-metered); §12 probe of the two held files (both single-strip, 12/14-bit, MM/II) + the unpack_into routing seam + the Frame/decode_into contract; acceptance + failing tests + HANDOFF-091 + build prompt"
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -100,40 +108,112 @@ paths stay byte-for-byte unchanged and the binding path stays panic-free.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:**
+  - `src/plane.rs` — `unpack_into(sensor, byte_order, file, dst)` (≈ line 261) and
+    its per-strip assembly loop; `sensor.require_uncompressed()?` is the first line
+    (≈ 267) and today rejects Compression 7. **This is the routing seam.**
+  - `src/ljpeg.rs` — `pub(crate) fn decode_into(data: &[u8], out: &mut [u16]) ->
+    Result<Frame, Error>` (≈ 992) and the `Frame` struct (≈ 182: `precision`,
+    `lines` = Y/height, `samples_per_line` = X/width, `point_transform`,
+    `predictor`, `restart_interval`). The decoder this spec feeds. **Do not change
+    its algorithm.**
+  - `src/ifd.rs` — the `Compression` enum (`Uncompressed=1`, `Jpeg=7`,
+    `Other(u32)`; ≈ 480), `Sensor::require_uncompressed` (≈ 758), and the `Sensor`
+    fields `compression`, `width`, `height`, `bits_per_sample`, `strip_offsets`,
+    `strip_byte_counts`, `rows_per_strip`.
+  - `src/bin/irr.rs` — the four `plane::unpack_into` call sites (ifd / develop /
+    demosaic / color subcommands) that must transparently get a decoded plane.
+  - `STAGE-011` stage file + `brief.md`.
+- **§12 probe (done at design, on the REAL held files via `irr ifd --entries`):**
+  - `LEICA-M-MONOCHROM-TYP246/M2462362.DNG`: big-endian (MM), `bits_per_sample 12`,
+    `compression 7`, **single strip** (`strip_offsets [10686]`,
+    `strip_bytes [21311750]`), `rows_per_strip 4000`, crop 5976×3992.
+  - `PENTAX-K3III-MONO/K3III.DNG`: little-endian (II), `bits_per_sample 14`,
+    `compression 7`, **single strip** (`strip_offsets [181248]`,
+    `strip_bytes [31047287]`), `rows_per_strip 4224`, crop 6192×4128.
+  - **Both held Compression-7 files are single-strip** → the single-strip route is
+    the corpus-verified path (SPEC-044). Multi-strip SOF-3 (N>1) has **no held
+    file**, so it is tier-A-only.
+- **Related code paths:** `src/plane.rs`, `src/ljpeg.rs`, `src/ifd.rs`,
+  `src/bin/irr.rs`.
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:**
+  - `src/plane.rs` — `unpack_into` dispatches on `sensor.compression` in place of
+    the unconditional `require_uncompressed()?`: `Compression::Uncompressed` → the
+    existing sub-byte path **unchanged**; `Compression::Jpeg` → the new per-strip
+    SOF-3 route; anything else → `Error::UnsupportedCompression` (unchanged). The
+    SOF-3 route reuses the existing strip iteration + row-band slicing but
+    **skips** the sub-byte unpack and the layer-0 packed-byte-count check
+    (meaningless for a compressed strip — the probe shows declared bytes ≪ packed
+    bits), decoding each strip with `ljpeg::decode_into(strip_bytes, strip_dst)`
+    into its `rows_in_strip × width` row-band slice.
+  - `src/ljpeg.rs` — update only the stale doc comment ("the entry point STAGE-010
+    wires `Compression 7` to") to name STAGE-011 / this spec. `decode_into` is
+    already `pub(crate)` (same crate) — no visibility change; the public-surface /
+    `fuzzing`-hook-retirement decision stays SPEC-045's (DEC-036).
+- **New functions:** a private helper in `plane.rs` (e.g. `decode_jpeg_strip`) or
+  an inline `Jpeg` arm — single-component SOF-3 strip → row band via `decode_into`.
+  **No new public API; `unpack_into`'s signature is unchanged** — a Compression-7
+  file now returns `Ok(())` with a decoded plane instead of `UnsupportedCompression`.
+- **New `Error` variants:** **none** — `decode_into`'s typed `Ljpeg*` /
+  `LjpegPlaneWrongLength` / `Truncated` cover decode failures; `UnsupportedCompression`
+  still covers non-1/7 codes.
+- **No new flags, no new runtime dependency, no CLI change** — the `irr`
+  subcommands gain Compression-7 support transparently through `unpack_into`.
+- **Strip-count scope (pinned at design):** route **per strip, N≥1 uniform** — a
+  Compression-7 strip is an independent SOF-3 datastream decoded into its own row
+  band (the same independent-per-strip rule as SPEC-028). Single-strip is
+  corpus-verified (both held files; SPEC-044); N>1 is covered **tier-A only** (a
+  synthetic 2-strip fixture) and flagged, since no held file is multi-strip. Tiled
+  Compression-7 stays a non-goal, as tiles already are for the uncompressed path.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] `plane::unpack_into` on a **single-strip Compression-7** sensor fills `dst`
+  with the decoded `u16` plane via `ljpeg::decode_into` instead of returning
+  `UnsupportedCompression` — exercised on a tier-A hand-built single-strip SOF-3
+  fixture (emitted by the STAGE-009 encoder) for **both** container byte orders,
+  **bit-exact** against the known samples.
+- [ ] The **uncompressed path is byte-for-byte unchanged** — every existing
+  `plane` / `develop` / `demosaic` / `color` test stays green, and a
+  characterization test pins that a `Compression::Uncompressed` plane is identical
+  before/after this change.
+- [ ] A **multi-strip (N>1) Compression-7** plane decodes each strip independently
+  into its row band — exercised on a tier-A 2-strip synthetic fixture, bit-exact.
+- [ ] A Compression-7 strip whose **SOF-3 frame dimensions disagree** with its
+  `rows_in_strip × width` slice returns a typed `Error` (`LjpegPlaneWrongLength`),
+  never a panic.
+- [ ] A **truncated / malformed Compression-7 strip** returns a typed `Error` (the
+  `Ljpeg*` / `Truncated` family), never a panic — the binding inherits the
+  decoder's panic-freedom.
+- [ ] A non-1/7 `Compression` code still returns `Error::UnsupportedCompression`
+  with the code (unchanged); `#![forbid(unsafe_code)]` + the five-lint deny policy
+  hold; `just test`, `just lint-ci`, `just fmt-check`, `just validate` all green.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+Tier-A only (hand-built SOF-3 bitstreams via the STAGE-009 encoder; no corpus).
+The tier-B `dnglab --raw-checksum` bit-exact proof on the two real files is
+**SPEC-044**, not here.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`src/plane.rs` (`mod tests`), or `tests/plane_compression7.rs`:**
+  - `"compression7_single_strip_decodes_bit_exact"` — a small known plane encoded
+    as one SOF-3 strip; a minimal `Sensor { compression: Jpeg, one strip }`;
+    assert `unpack_into` fills `dst` bit-exact with the known samples, for both
+    byte orders.
+  - `"uncompressed_path_unchanged_after_routing"` — an uncompressed `Sensor`
+    unpacks identically to the pre-change behaviour (characterization).
+  - `"compression7_multi_strip_decodes_each_band"` — two independent SOF-3
+    datastreams as two strips decode into their respective row bands, bit-exact.
+  - `"compression7_frame_dimension_mismatch_is_typed_error"` — a SOF-3 strip whose
+    `samples_per_line × lines` ≠ the sized slice returns `LjpegPlaneWrongLength`,
+    no panic.
+  - `"compression7_truncated_strip_is_typed_error"` — a truncated SOF-3 strip
+    returns a typed `Error`, no panic.
+  - `"non_jpeg_compression_still_rejected"` — `Compression::Other(65535)` →
+    `UnsupportedCompression { compression: 65535 }`.
 
 ## Non-Goals
 
@@ -151,8 +231,34 @@ expand this one.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **The routing seam is the top of `unpack_into`:** replace the unconditional
+  `sensor.require_uncompressed()?` with a `match sensor.compression`. Keep the
+  `Uncompressed` arm byte-for-byte identical (same sub-byte path, same per-strip
+  layer-0 check). Add a `Jpeg` arm; keep `other =>` returning
+  `UnsupportedCompression { compression: other.code() }`.
+- **A Compression-7 strip is an independent SOF-3 datastream** (DNG/TIFF JPEG):
+  decode each strip's bytes with `decode_into(strip_bytes, strip_dst)` into its
+  `rows_in_strip × width` row-band slice — the same independent-per-strip rule
+  SPEC-028 established. **Do NOT run the layer-0 packed-byte-count check or the
+  sub-byte unpack on a Compression-7 strip** — the probe shows declared compressed
+  bytes ≪ `width × rows × bits / 8`; that check is uncompressed-only.
+- `decode_into` already length-checks `out.len() == X·Y` → `LjpegPlaneWrongLength`,
+  so sizing the row-band slice to `rows_in_strip × width` makes the
+  frame-dimension consistency check free. Asserting `frame.samples_per_line ==
+  width` as well only buys a clearer error; optional.
+- **`bits_per_sample` for a Compression-7 plane is the SOF-3 precision** (12 for
+  Typ246, 14 for K3III), which `decode_into` reads from the frame — do **not** gate
+  the Compression-7 path on `SUPPORTED_BITS` (that is the sub-byte unpacker's
+  table). Size `dst` as `u16` × width × height regardless.
+- **Both held files are single-strip** (the §12 probe). Keep the N>1 route a thin
+  loop over the existing strip iteration — not a new mechanism — and cover it with
+  the tier-A 2-strip fixture; it has no real-file oracle.
+- `decode_into` stays `pub(crate)`; do not widen it. The public-surface decision
+  and retiring the `fuzzing` hook (DEC-036) are **SPEC-045's** call, not this spec's.
+- Bit-exactness against the real files (`dnglab --raw-checksum`), the determinism
+  assertion, provenance, and binding-path fuzz are **SPEC-044 / SPEC-045**.
+- `git grep "STAGE-010"` in `src/` will surface the stale "STAGE-010 wires
+  Compression 7" comment in `src/ljpeg.rs`; update it to STAGE-011 / this spec.
 
 ---
 
