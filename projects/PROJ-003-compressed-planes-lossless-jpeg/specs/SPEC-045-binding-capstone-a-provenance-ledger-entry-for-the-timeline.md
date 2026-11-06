@@ -7,4 +7,9 @@ Cycle prompts live in `prompts/SPEC-045-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **design** — completed 2026-11-06
+- [ ] **build** — prompt: `prompts/SPEC-045-build.md`
+- [ ] **verify** — prompt: pending (waiting on build)
+- [ ] **ship** — prompt: pending (waiting on verify)
+
+Markers: `[ ]` not started · `[~]` in progress · `[x]` complete · `[?]` blocked (one-line reason, needs human or external unblock).
