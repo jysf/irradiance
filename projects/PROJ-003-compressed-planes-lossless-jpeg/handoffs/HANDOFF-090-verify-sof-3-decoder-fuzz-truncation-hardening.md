@@ -38,7 +38,7 @@ handback:
   estimated_usd: null              # no rate applied to a floor figure
   duration_minutes: 50
   branch: claude/spec-038-verify-862e91
-  pr: null                         # verify PR opened from this branch; number recorded post-open
+  pr: 107                          # verify PR against main (carries the build commits + verify bookkeeping)
   completed_at: 2026-11-05         # YYYY-MM-DD
   notes: "Verdict APPROVED at commit d6b73ad. No interactive /cost in the Claude Code desktop app's Code tab (same as HANDOFF-085/086/087/089). 185694 is this verify session's context-window token occupancy at handback, read via the app usage tool (ccd_session_mgmt get_usage: 185,694 of 1,000,000, 19%). It is a snapshot / lower bound: true cumulative input+output across the verify's turns is higher (per-turn context resends not captured, and some bookkeeping writes follow this read). Not invented, but not a /cost number — treat as a FLOOR in rollups; the orchestrator supersedes it from the transcript at ship. Gate confirmation rests on PR #106's green CI on this exact commit (d6b73ad == HEAD: rust/test, clippy -D warnings, clippy — fuzz graph, fmt --check, license policy, license policy — fuzz graph all pass) plus a local `just validate` (46 artifacts) and the local test binaries that finished ok; my own local full-suite run was still in flight and was stopped as redundant. Nightly cargo-fuzz spot-run: 3,098,220 runs in 31 s, no crash, on top of the build's 2.55M."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
