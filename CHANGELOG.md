@@ -10,6 +10,24 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **DNG `Compression 7` sensor planes now route through the lossless-JPEG decoder**
+  (`irradiance::plane`, SPEC-043, PROJ-003) — `plane::unpack_into` dispatches on the
+  `Compression` tag: a `Compression 7` (SOF-3 lossless JPEG) plane now decodes each
+  strip through the internal `ljpeg` decoder instead of being rejected at the gate
+  with `Error::UnsupportedCompression`, while **uncompressed planes take the existing
+  path byte-for-byte unchanged** (pinned by a characterization test) and any other
+  compression code stays the clean typed `UnsupportedCompression` it always was. **No
+  new public API, no new `Error` variant, no new dependency** (`ljpeg` stays
+  `pub(crate)`; the only new surface is a `#[cfg(test)]` encoder re-export).
+  Single-component SOF-3 decodes **bit-exact** (single- and multi-strip, both container
+  byte orders), proven by six tier-A tests (hand-built via the STAGE-009 encoder). The
+  two held monochrome files (Leica M Typ 246, Pentax K-3 III) are **two-component
+  (`Nf=2`) column-interleave** SOF-3, so they now **reach** the decoder and defer
+  cleanly with a typed `LjpegUnsupportedComponentCount`; end-to-end decode of them lands
+  with SPEC-046 (the two-component decode, DEC-037) plus SPEC-044's bit-exact `dnglab`
+  check. The binding is panic-free under `#![forbid(unsafe_code)]` + the five-lint deny
+  policy.
+
 - **Colour matrix is now scene-adaptive — dual-illuminant interpolation**
   (`irradiance::color`, SPEC-034, PROJ-002) — for a DNG carrying **two** colour
   calibrations (`ColorMatrix1/2`, and usually `ForwardMatrix1/2`, at

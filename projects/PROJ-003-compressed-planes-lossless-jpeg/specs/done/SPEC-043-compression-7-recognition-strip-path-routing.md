@@ -11,7 +11,11 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
+                                   #   Expected M held: a routing dispatch reusing SPEC-028's
+                                   #   strip assembly + tier-A SOF-3 fixtures, built whole and
+                                   #   approved first pass (the Nf=2 finding was a stage-level
+                                   #   discovery, not a SPEC-043 defect).
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -72,18 +76,38 @@ cost:
       duration_minutes: 40
       recorded_at: 2026-11-05
       notes: "main-session design (un-metered); §12 probe of the two held files (both single-strip, 12/14-bit, MM/II) + the unpack_into routing seam + the Frame/decode_into contract; acceptance + failing tests + HANDOFF-091 + build prompt"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 23356742
+      estimated_usd: 51.28
+      duration_minutes: 55
+      recorded_at: 2026-11-05
+      notes: "HANDOFF-091, PR #112. Built whole, approved first pass. RECOVERED from the cold build transcript (session local_270f32aa, transcript d4639f2f in the REUSED worktree slug spec-038-verify-862e91), deduped by message.id at Opus list rates: 23,356,742 tok (98.1% cache-read) / $51.28. The handback's 306,881 was a context-occupancy FLOOR; this cumulative supersedes it."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 8269098
+      estimated_usd: 19.41
+      duration_minutes: 45
+      recorded_at: 2026-11-05
+      notes: "HANDOFF-092, PR #114. Cold verify returned APPROVED first pass (the Nf=2 finding was a stage-level discovery, not a SPEC-043 defect). RECOVERED from the verify transcript (session local_05300691, transcript 7653c340 in the REUSED worktree slug spec-038-build-a93ad6): 8,269,098 tok (97.0% cache-read) / $19.41. The handback's ~205K was a context-occupancy FLOOR; this cumulative supersedes it."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 30
+      recorded_at: 2026-11-05
+      notes: "main-session ship (un-metered); reflection + cost recovery from both cold transcripts (reused worktree slugs, identified by record-timestamp range) + archive + brag; STAGE-011 stays active (first spec, not last)"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 31625840
+    estimated_usd: 70.69
+    session_count: 4
+shipped_at: 2026-11-05
 ---
 
 # SPEC-043: Compression-7 recognition + strip-path routing
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-043]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
 
 ## Context
 
@@ -267,25 +291,38 @@ expand this one.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The §12 probe read the container tags (`irr ifd`: strip layout, bit depth,
+   `Compression`) but not the SOF-3 frame header inside the strip, so the
+   two-component (`Nf=2`) reality of both held files surfaced only at build. Next
+   time, when the spec's premise is about the data a decoder consumes, probe that
+   inner layer at design (parse the SOF marker), not just the container metadata —
+   logged as `probe-the-decode-input-not-just-the-container`. The routing
+   deliverable itself was correct and needed no rework.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — Recorded `probe-the-decode-input-not-just-the-container` (signals.yaml,
+   `watch`, N=1); it codifies into the §12 step if a second instance appears.
+   DEC-037 captured the two-component re-scope the finding forced. No template
+   change this ship.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Already written. SPEC-046 (two-component `Nf=2` decode + column de-interleave,
+   DEC-037) was minted and is now built + verified; it decodes what SPEC-043's
+   routing delivers to `decode_into`. SPEC-044 (bit-exact `dnglab` oracle) and
+   SPEC-045 (capstone) remain, re-scoped around the `Nf=2` reality. Nothing further
+   to write.
 
 4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
    the defect-escape distribution is greppable across specs:
    `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
    `none` (clean first try).
-   — <one word>
+   — none
    *(Runtime/operational defects — the escape-prone class — only exist once the
    artifact meets its real host. `escaped` here is a signal to strengthen the
    §12 behavioral pre-flight for that surface.)*
+   *(The `Nf=2` two-component discovery was a real-file **finding** — the decoder
+   correctly defers with a typed `LjpegUnsupportedComponentCount` — not a defect in
+   SPEC-043's routing deliverable.)*
 
 5. **What can a user do now that they couldn't before?** — one sentence,
    before → after; quote the confirming number if one exists, name the outcome
@@ -294,4 +331,22 @@ expand this one.
    `impact` field is transcribed from, and both halves are already written above
    (## Context is the before, ## Goal is the after): confirm the prediction,
    don't reconstruct it from memory.
-   — <answer | none>
+   — A DNG whose sensor IFD carries `Compression == 7` (SOF-3 lossless JPEG) now
+   **routes through the decoder** via `plane::unpack_into` instead of returning
+   `UnsupportedCompression` at the compression gate: a single-component
+   Compression-7 plane decodes bit-exact (single- or multi-strip, both byte
+   orders), and the two held monochrome files — both two-component (`Nf=2`) — now
+   **reach** the decoder and defer cleanly with a typed
+   `LjpegUnsupportedComponentCount` rather than being rejected at the gate.
+   End-to-end bit-exact decode of a held file lands once SPEC-046 (the `Nf=2`
+   decode, now built + verified) ships and SPEC-044's `dnglab` oracle confirms it —
+   a real, greppable partial result, not a blank.
+
+## Follow-ups
+
+SPEC-043 raised **no** `SB-N` / `FU-N` at verify (✅ APPROVED, no punch list). One
+carried finding, already dispositioned — it did not cross this ship undecided:
+
+| id | finding | disposition |
+|----|---------|-------------|
+| `stage-011-held-files-are-two-component-sof3` | Both held Compression-7 files are two-component (`Nf=2`) SOF-3, which the single-component decoder cannot decode (the build's real-file probe). | **Resolved by the re-plan (DEC-037):** new SPEC-046 (two-component `Nf=2` decode + column de-interleave) inserted before the oracle; built + verified. SPEC-044 re-scoped to depend on it. Answered in `guidance/questions.yaml`. |
