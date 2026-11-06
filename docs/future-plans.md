@@ -14,7 +14,9 @@ planning sessions and folded in here (see [Open questions](#open-questions--to-r
 > ([`projects/PROJ-001-monochrome-dng-develop/brief.md`](../projects/PROJ-001-monochrome-dng-develop/brief.md));
 > this doc is the readable narrative over it.
 
-_Last reconstructed: 2026-10-27; PROJ-003/004/005 and sequencing added 2026-11-02._
+_Last reconstructed: 2026-10-27; PROJ-003/004/005 and sequencing added 2026-11-02;
+reconciled to current status (PROJ-001 published, PROJ-002 colour shipped, PROJ-003
+closing) and the post-PROJ-003 sequence 2026-11-06._
 
 ## The through-line
 
@@ -33,35 +35,35 @@ for every algorithm and decoder** naming its source and that source's licence.
 
 ## Where we are now
 
-`PROJ-001 — Monochrome DNG develop` is the active wave. The pixel pipeline
-(container → plane → develop → tone) is shipped; the project is not yet closed.
+Three waves are in flight or shipped, and the crate is published to crates.io.
 
-| Stage | Status | Delivers |
-|---|---|---|
-| STAGE-001 Foundations | ✅ shipped | Corpus, TIFF/IFD reader, DNG tag model, metadata oracle |
-| STAGE-002 Monochrome plane | ✅ shipped | 14-bit→u16 unpack, bit-exact plane oracle, levels + geometry |
-| STAGE-003 Opcodes & output | ✅ shipped | `FixBadPixelsConstant`, `WarpRectilinear`, sRGB tone curve, develop oracle |
-| STAGE-004 crustyimg integration | ⏳ proposed | `raw-develop` feature, `Image` adapter, metadata-truthfulness fixes |
-| STAGE-005 Harden the harness | ⏳ in flight | Absent-vs-unparseable tag oracle, fuzz crate under `-D warnings`, gate-audit tests |
+- **`PROJ-001 — Monochrome DNG develop`** — the pixel pipeline (container → plane →
+  develop → tone) is shipped and published as **`0.1.1`** (`0.1.0` yanked). Foundations,
+  the monochrome plane, and opcodes + output (STAGE-001/002/003) shipped; harness
+  hardening (STAGE-005) and crustyimg integration landed.
+- **`PROJ-002 — Bayer develop (colour)`** — well advanced: the CFA model, the clean-room
+  Malvar–He–Cutler demosaic, and the colour transform + dual-illuminant interpolation
+  (SPEC-033/SPEC-034) have shipped; the ColorChecker ΔE oracle (SPEC-035) is the one spec
+  left, **blocked on a physical chart**. A reconciled downstream wave (STAGE-010) carries
+  the `0.2.0` release prep.
+- **`PROJ-003 — Compressed planes (SOF-3)`** — the single-component decoder (STAGE-009)
+  shipped; the DNG `Compression 7` binding (STAGE-011) is **one spec from closing**. Both
+  held compressed monochrome files (Leica M Typ 246, Pentax K-3 III) now decode bit-exact
+  against `dnglab`; only the capstone (SPEC-045: provenance, determinism, container
+  hardening) remains.
 
-STAGE-005 was not in the original four-stage brief — it was added 2026-08-30
-after STAGE-001 shipped having revealed a gate that had never run and an oracle
-that could not tell a missing tag from an unreadable one. Finishing **004** and
-**005** is what remains to close PROJ-001.
+## Near-term: close PROJ-003, then review and release
 
-## Near-term: finish PROJ-001
+- **Close PROJ-003.** Ship SPEC-045 (the STAGE-011 capstone — a provenance-ledger
+  binding row, a plane-level determinism pin, and lossless-JPEG header hardening), then
+  the STAGE-011 stage-ship and the PROJ-003 project-ship.
+- **Full code review AT the PROJ-003 close** (maintainer decision, 2026-11-06). A
+  whole-crate review — pointed hard at the new `ljpeg` decoder and the Compression-7
+  binding — on a clean slate, before PROJ-004/005 build on top of it. User-triggered
+  (`/code-review ultra`); the orchestrator prepares the scope and acts on the findings.
+- **Cut `0.2.0`.** The next workstream after the close — see Sequencing below.
 
-- **crustyimg integration (STAGE-004).** Wire irradiance into crustyimg behind a
-  `raw-develop` feature, provide the `Image` adapter, and fix the
-  metadata-truthfulness gaps so `crustyimg web q2m.dng -o photo.avif` produces a
-  publishable image and `info` reports real sensor data, not the embedded
-  preview's.
-- **Harness hardening (STAGE-005).** The open specs: lint the fuzz crate (the
-  second cargo graph currently sits outside every `-D warnings` gate),
-  make the gates stop reporting green on checks they never ran, and narrow the
-  develop-oracle's scope around warp-bearing pixels.
-
-## PROJ-002 — Bayer develop (colour) · *next, largest wave*
+## PROJ-002 — Bayer develop (colour) · *active — demosaic + colour transform shipped; ΔE oracle (SPEC-035) blocked on a chart*
 
 The colour pipeline that PROJ-001 deliberately omits (a Monochrom sensor has no
 colour filter array, so there is nothing to demosaic). Planned content:
@@ -77,34 +79,40 @@ colour filter array, so there is nothing to demosaic). Planned content:
   ColorChecker target breaks that dependency.
 
 Rough size signal from the brief: the Bayer path is ~1,300–1,600 lines vs.
-~550–700 for the monochrome path. Resumes once PROJ-001 ships and a colour
-camera's files are in the corpus.
+~550–700 for the monochrome path. **Status (2026-11-06):** STAGE-006/007 and the
+STAGE-008 colour transform + dual-illuminant interpolation (SPEC-033/SPEC-034) have
+shipped; `DEC-038` corrected the ColorMatrix-only white-balance path. The ColorChecker
+ΔE oracle (SPEC-035) is the one spec left and is blocked on a physical chart; a
+colour-geometry spec (crop/orient + `ActiveArea`-relative mosaic phase, from the external
+0.2.0 review §3B) is a likely addition. A parallel session owns the live colour thread.
 
-## Sequencing — `0.1.1` is live; `0.2.0` next
+## Sequencing — `0.1.1` is live; close PROJ-003, review, then `0.2.0`
 
-**Correction (2026-11-02).** An earlier version of this section said to "cut and
-publish `0.1.0` first". That was written without checking crates.io. As of
-2026-11-03 (`curl https://crates.io/api/v1/crates/irradiance/versions`):
-**`0.1.1` is published** (2026-10-29, `rust_version` 1.90) and `0.1.0` is
-**yanked**. Both predate all demosaic work, so the next release is a minor,
-**`0.2.0`**, carrying what is under `[Unreleased]` in `CHANGELOG.md`
-(`demosaic`, colour metadata, `to_linear_f32_into`) plus whatever of the
-downstream `pyirradiance` asks lands first (`feedback/2026-11-02-pyirradiance-requests.md`).
-Whether `0.2.0` waits for STAGE-008 colour is a maintainer call. The additions
-below land after it, as `0.3.0`+.
+`0.1.1` is published (2026-10-29, `rust_version` 1.90); `0.1.0` is yanked. Both predate
+all demosaic and compressed-plane work, so the next release is a minor, **`0.2.0`**,
+carrying what is under `[Unreleased]` in `CHANGELOG.md` (demosaic, colour metadata, the
+SOF-3 compressed-plane binding) plus the downstream `pyirradiance` asks
+(`feedback/2026-11-02-pyirradiance-requests.md`) and the external 0.2.0 review's
+semver-urgent `#[non_exhaustive]`.
 
-1. `0.2.0` — a release spec (`just new-release-spec`) under the `DEC-028` publish
-   checks. The crate docs, README and CHANGELOG must say exactly what the surface
-   is: monochrome and Bayer planes, demosaic, but **not** the colour transform
-   until STAGE-008 ships.
-2. Then, independent of each other: **PROJ-004 Stage A** (forensics) and
-   **PROJ-003** (SOF-3 core). STAGE-008 continues on its own thread.
-3. A bounded **spike** before PROJ-004 Stage B is designed (see below).
-4. **PROJ-005** after SPEC-033 (WB) and SPEC-034.
+**Reconciled order (maintainer decision, 2026-11-06):**
+
+1. **Close PROJ-003** — ship SPEC-045, then the STAGE-011 stage-ship and the PROJ-003
+   project-ship.
+2. **Full code review** at that close — whole crate, clean slate, before new project work
+   (user-triggered `/code-review ultra`; the orchestrator preps scope and acts on findings).
+3. **`0.2.0`** — a release spec (`just new-release-spec`) under the `DEC-028` publish
+   checks, coordinated with the PROJ-002 colour thread: what colour surface `0.2.0`
+   exposes is a maintainer call that depends on where SPEC-035 and the colour-geometry
+   work land. The crate docs, README and CHANGELOG must say exactly what the surface is.
+4. **Then, order TBD:** **PROJ-004** (instrument layer — starts with the opcode-inventory
+   spike, which also covers the `GainMap` deferred out of PROJ-003), **PROJ-005** (now
+   unblocked — SPEC-033/034 shipped), and the **adoption push** (an `image`-crate adapter +
+   outreach to zenraw/oculante, `DEC-028`).
 5. Any M10 / M11 / Q3 Monochrom conformance claim waits for real Tier-B files and
    their rows in `docs/conformance-matrix.md`.
 
-## PROJ-003 — Compressed planes: lossless JPEG (SOF-3) + GainMap · *next*
+## PROJ-003 — Compressed planes: lossless JPEG (SOF-3) · *closing — STAGE-009 core shipped; STAGE-011 binding one spec from close*
 
 The compressed-plane decoder. The Q2M is uncompressed so PROJ-001 does not need
 it, but it is the **keystone shared by roughly eight vendor decoders** — most
@@ -124,13 +132,16 @@ people actually have."
   or bypass. Not parsed today (it arrives as `Opcode::Unknown`). dnglab applies no
   DNG opcodes (DEC-024 F2), so **analytic fixtures only**, each with a red-proof.
   First check which held files carry `OpcodeList2` at all (the spike).
+  **Deferred (2026-11-06):** `GainMap` was scoped out of STAGE-011 (the binding stage);
+  it lands with PROJ-004's opcode-inventory spike, which already inventories
+  `OpcodeList1/2/3` across the held files.
 - **Out of scope:** lossy-DCT DNG, Nikon NEF-lossless (a different Huffman-
   difference scheme + linearization curve), Pentax PEF (`65535`).
 - **Targets:** Leica M Monochrom Typ 246 and Pentax K-3 III DNG (held, both
   currently `UnsupportedCompression`); M10 / M11 / Q3 Monochrom and the Nikon
   D750 DNG **only once files are held**.
 
-## PROJ-004 — Instrument layer: sensor forensics, optical black, geometry · *next*
+## PROJ-004 — Instrument layer: sensor forensics, optical black, geometry · *after 0.2.0*
 
 The telemetry and calibration surface the Monochrom app's `[ I. SENSITOMETER ]`
 and `[ II. OPTICS & PLANE ]` benches need (companion docs:
@@ -204,7 +215,7 @@ A bounded `SPIKE-NNN` on the held Q2M files (and the rest of the corpus):
   median over ~32 columns **removes banding or injects its own row noise** (and
   whether smoothing in y is then needed — which contradicts "zero blur").
 
-## PROJ-005 — Post-WB spectral monochrome mixer (Bayer → mono) · *after SPEC-033/034*
+## PROJ-005 — Post-WB spectral monochrome mixer (Bayer → mono) · *unblocked — SPEC-033/034 shipped*
 
 A scene-linear monochrome formation for **colour** Bayer DNGs (Leica Q2/Q3,
 M10/M11, SL2/SL3) — the PROJ-002 bridge for the monochrome app.
