@@ -165,7 +165,7 @@ SPEC-043 → SPEC-046 → SPEC-044 → SPEC-045.
   `Compression` — uncompressed unchanged, `Compression 7` routed per-strip to
   `ljpeg::decode_into`, else `UnsupportedCompression`. Both held files now REACH the
   decoder (and hit the Nf=2 finding below).
-- [ ] SPEC-046 (frame) — [M] Two-component (Nf=2) SOF-3 decode + column de-interleave
+- [ ] SPEC-046 (build) — [M] Two-component (Nf=2) SOF-3 decode + column de-interleave
   (DEC-037): extend `ljpeg` to decode the two column components of the held files'
   Nf=2 frames into one monochrome `u16` plane, with an analytic two-component
   round-trip red-proof; the Nf=1 path stays byte-identical. depends_on SPEC-043.
