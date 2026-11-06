@@ -13,7 +13,11 @@ task:
                                    #   two-component scan + per-component predictor state + column
                                    #   de-interleave; could prove L — confirm at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
+                                   #   Expected M held: two-component interleaved decode +
+                                   #   per-component predictor state + the extended encoder +
+                                   #   reference decoder + six tests; built whole, approved
+                                   #   first pass.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -74,10 +78,35 @@ cost:
       duration_minutes: 45
       recorded_at: 2026-11-05
       notes: "main-session design (un-metered); §12 probe parsing both real strips' SOF3+DHT+SOS (one interleaved scan, Ns=2, both H=V=1, one Td=0 table, predictor 1, Pt=0, no DRI) + the ljpeg extension seam (parse_frame_header/parse_scan_header/Frame/reconstruct/decode_into); acceptance + failing tests + HANDOFF-093 + build prompt"
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 15641899
+      estimated_usd: 36.89
+      duration_minutes: 40
+      recorded_at: 2026-11-05
+      notes: "HANDOFF-093, PR #117. Built whole, approved first pass. RECOVERED from the cold build transcript (session local_47012b20, transcript e630f469 in worktree slug spec-046-build-88e024), deduped by message.id at Opus list rates: 15,641,899 tok (97.6% cache-read) / $36.89. The handback's 276,963 was a context-occupancy FLOOR; this cumulative supersedes it."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 6846595
+      estimated_usd: 16.72
+      duration_minutes: 45
+      recorded_at: 2026-11-05
+      notes: "HANDOFF-094, PR #118. Cold verify returned APPROVED first pass (no defect). RECOVERED from the verify transcript (session local_6a7cc6b6, transcript 17b3f382 in worktree slug spec-046-verify-0ab12e): 6,846,595 tok (96.6% cache-read) / $16.72. The handback's 215,327 was a context-occupancy FLOOR; this cumulative supersedes it."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 30
+      recorded_at: 2026-11-05
+      notes: "main-session ship (un-metered); reflection + cost recovery from both cold transcripts + archive + brag; STAGE-011 stays active (SPEC-044/045 remain, no stage-ship)"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 22488494
+    estimated_usd: 53.61
+    session_count: 4
+shipped_at: 2026-11-05
 ---
 
 # SPEC-046: Two-component Nf2 SOF-3 decode and column de-interleave
@@ -247,31 +276,42 @@ expand this one.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little. This time the §12 probe read the actual scan structure (SOF3 + DHT +
+   SOS) — the layer the SPEC-043 miss taught me to read — so the design pinned the
+   interleave, the per-component predictor strides, the shared Td table and the
+   restart/Pt facts correctly, and the build landed whole. The design also called
+   out up front that the de-interleave *mapping* can't be proven by the analytic
+   round-trip (it shares the convention), which held true and is SPEC-044's job.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No new one. DEC-037 governs the two-component scope; the
+   `shared-path-oracle-tautology` lesson is reinforced (the round-trip cannot
+   confirm the real-file mapping) and already recorded. The red-proof's
+   independent reference decoder (own loop, native shift) is the right pattern
+   against that tautology — good practice, but below the bar for a new signal.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — SPEC-044 (bit-exact `dnglab` oracle — now with a real two-component decode to
+   check, and the owner of the de-interleave-mapping confirmation) is next and
+   already framed; SPEC-045 (capstone) follows. Nothing new to write here. (An
+   external architectural review arrived at ship with hardening/perf follow-ups —
+   being triaged separately, not folded into this spec.)
 
 4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
    the defect-escape distribution is greppable across specs:
    `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
    `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+   — none
+   *(Clean build, approved first pass, no punch list.)*
 
 5. **What can a user do now that they couldn't before?** — one sentence,
    before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+   if not.
+   — none — `ljpeg` stays `pub(crate)` and the real-file de-interleave mapping is
+   not yet confirmed (SPEC-044), so no consumer-visible surface changed. This is
+   the **decode-capability** half: both held Compression-7 DNGs are now decodable
+   by the internal decoder — a two-component (`Nf=2`) column-interleave SOF-3 frame
+   decodes with genuine per-component prediction into one `2·X`-wide monochrome
+   plane, **bit-exact on the analytic round-trip at P=12 and P=14** with an
+   `oracle-must-be-shown-red` red-proof; the user-facing payoff (both files decode
+   bit-exact vs `dnglab`) lands when SPEC-044 confirms the mapping.
