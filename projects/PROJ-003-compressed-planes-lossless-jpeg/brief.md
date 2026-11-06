@@ -163,16 +163,18 @@ maintainer reviews before the next begins.
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [ ] STAGE-009 (framed) — **SOF-3 lossless-JPEG core decoder** (single
+- [x] STAGE-009 (shipped 2026-11-05) — **SOF-3 lossless-JPEG core decoder** (single
   component): Huffman DC tables, predictors 1–7, point transform, restart
   markers, 8–16-bit; a pure compressed-bytes→`u16`-samples function, verified by
   an analytic encode→decode round-trip oracle + a red-proof, fuzzed panic-free
-- [ ] STAGE-010 (proposed) — **DNG `Compression 7` binding + bit-exact corpus
+- [ ] STAGE-011 (framed 2026-11-05) — **DNG `Compression 7` binding + bit-exact corpus
   verification**: wire the decoder into the strip/tile plane path for both byte
   orders, and verify both held files bit-exact vs `dnglab --raw-checksum`; the
-  decoded plane flows through the existing develop/tone path unchanged
+  decoded plane flows through the existing develop/tone path unchanged.
+  *(Was planned as "STAGE-010"; that id went to PROJ-002's 0.2.0 reconcile (#95),
+  so this wave is STAGE-011 — stage ids are globally sequential.)*
 
-**Count:** 0 shipped / 0 active / 2 pending
+**Count:** 1 shipped / 0 active / 1 pending
 
 *(These two could collapse into one stage with two specs if the maintainer
 prefers the roadmap's "core + binding are one work item" framing — decided at

@@ -29,8 +29,8 @@ value_contribution:
     - "A pure-Rust single-component SOF-3 (lossless JPEG, T.81 Annex H) decoder: compressed bytes + frame params → a u16 sample array, panic-free and deterministic"
     - "An analytic encode→decode round-trip oracle (independent of dnglab) with a red-proof, plus a fuzz target over the decoder"
   explicitly_does_not:
-    - "No DNG container binding (recognise Compression 7, feed the strip/tile plane path) — that is STAGE-010"
-    - "No real-file dnglab --raw-checksum verification — STAGE-010"
+    - "No DNG container binding (recognise Compression 7, feed the strip/tile plane path) — that is STAGE-011"
+    - "No real-file dnglab --raw-checksum verification — STAGE-011"
     - "No multi-component / Bayer-in-LJ92 interleave (no held file) and no GainMap / opcode work"
 
 # Orchestration cost — the spend that has no spec to attach to (roadmap:
@@ -52,7 +52,7 @@ orchestration_cost:
     - tokens_total: 191124332
       estimated_usd: 402.28
       recorded_at: 2026-11-05
-      notes: "Stage grain (DEC-013 §5), not split across specs. ONE orchestrator session (work-status-next-steps, scratchpad uuid c0b7ec9b-2be4-41ad-9dea-77f3b6690343) ran STAGE-009 end to end in the main session: the PROJ-003 brief + STAGE-009 frame + the ID-collision resolution it triggered (a full PROJ-002 renumber to STAGE-010/SPEC-039-042, #95) + the design AND ship of all three specs + dispatching/reconciling their 6 cold build/verify sessions + this stage close. Measured FLOOR from that session's OWN transcript (scratchpad-uuid anchored, NOT text grep), deduped by message.id, all claude-opus-4-8, 98.1% cache-read: 410 usage-bearing messages dated >= 2026-11-04T00:00Z -> in 820 / out 923,539 / cache-write 2,765,435 / cache-read 187,434,538 = 191,124,332 tokens, priced per-component at Opus list rates (15/75/18.75-write/1.50-read per MTok) = 402.28 USD. SCOPED: STAGE-007's entry already claimed this file through its 2026-11-01 close; STAGE-008's colour work (SPEC-033/034, 11-02/03) is EXCLUDED here (STAGE-008 is not yet shipped and will claim it). INCLUDES the STAGE-009-framing-induced PROJ-002 0.2.0 reconcile (#95) as framing overhead rather than orphan it (PROJ-002 STAGE-010's own close must NOT re-claim #95). Floor: the push + ship-PR turns post-date the measurement. RATIO: 191.1M orchestration against 72.9M delegated spec cost (SPEC-036 28.5M + SPEC-037 19.4M + SPEC-038 25.0M grand totals) = ~72% of the stage's total spend is orchestration no spec recorded — higher than STAGE-006 (40%) / STAGE-007 (61%) because the ID-collision reconcile + the PROJ-003 project brief + all three specs' un-metered design AND ship cycles all ran in this main session."
+      notes: "Stage grain (DEC-013 §5), not split across specs. ONE orchestrator session (work-status-next-steps, scratchpad uuid c0b7ec9b-2be4-41ad-9dea-77f3b6690343) ran STAGE-009 end to end in the main session: the PROJ-003 brief + STAGE-009 frame + the ID-collision resolution it triggered (a full PROJ-002 renumber to STAGE-011/SPEC-039-042, #95) + the design AND ship of all three specs + dispatching/reconciling their 6 cold build/verify sessions + this stage close. Measured FLOOR from that session's OWN transcript (scratchpad-uuid anchored, NOT text grep), deduped by message.id, all claude-opus-4-8, 98.1% cache-read: 410 usage-bearing messages dated >= 2026-11-04T00:00Z -> in 820 / out 923,539 / cache-write 2,765,435 / cache-read 187,434,538 = 191,124,332 tokens, priced per-component at Opus list rates (15/75/18.75-write/1.50-read per MTok) = 402.28 USD. SCOPED: STAGE-007's entry already claimed this file through its 2026-11-01 close; STAGE-008's colour work (SPEC-033/034, 11-02/03) is EXCLUDED here (STAGE-008 is not yet shipped and will claim it). INCLUDES the STAGE-009-framing-induced PROJ-002 0.2.0 reconcile (#95) as framing overhead rather than orphan it (PROJ-002 STAGE-011's own close must NOT re-claim #95). Floor: the push + ship-PR turns post-date the measurement. RATIO: 191.1M orchestration against 72.9M delegated spec cost (SPEC-036 28.5M + SPEC-037 19.4M + SPEC-038 25.0M grand totals) = ~72% of the stage's total spend is orchestration no spec recorded — higher than STAGE-006 (40%) / STAGE-007 (61%) because the ID-collision reconcile + the PROJ-003 project brief + all three specs' un-metered design AND ship cycles all ran in this main session."
 ---
 
 # STAGE-009: SOF-3 lossless-JPEG core decoder
@@ -70,14 +70,14 @@ magnitude category and difference, and reconstructs samples through predictors
 verified not against a real file yet but against an **analytic encode→decode
 round-trip** — the corpus-free independent oracle — and fuzzed for
 panic-freedom. When it ships, irradiance can turn LJ92 bytes into a plane;
-STAGE-010 then wires it to real DNG strips.
+STAGE-011 then wires it to real DNG strips.
 
 ## Why Now
 
 It is the decode engine the whole project rests on, and the part with **no
 container entanglement** — so it can be built and proven in isolation, against
 an oracle (the round-trip) that needs no corpus file at all. Building the pure
-decoder first and binding it second (STAGE-010) keeps the hard algorithm
+decoder first and binding it second (STAGE-011) keeps the hard algorithm
 separate from the DNG plumbing and gives each a distinct oracle (round-trip vs
 `dnglab --raw-checksum`) — the same algorithm-then-integration split PROJ-002
 used for demosaic (analytic) then colour (real-file). It is fully
@@ -116,8 +116,8 @@ ColorChecker chart.
 
 ### Explicitly out of scope
 - The DNG `Compression 7` binding (strip/tile assembly, byte order, feeding the
-  plane path) — **STAGE-010**
-- Real-file `dnglab --raw-checksum` verification — **STAGE-010**
+  plane path) — **STAGE-011**
+- Real-file `dnglab --raw-checksum` verification — **STAGE-011**
 - Multi-component / Bayer-in-LJ92 interleave (no held file) and GainMap / opcode
   work
 - Lossy DCT JPEG (SOF-0/2), arithmetic coding (SOF-9/10/11), Nikon NEF-lossless,
@@ -151,7 +151,7 @@ the spec as `task.complexity`.
   cast.
 - **The analytic oracle is a tiny LJ92 encoder in the test harness:** encode a
   known sample array with a chosen predictor / `Pt` / precision, decode, assert
-  bit-identical — the corpus-free independent check (STAGE-010 adds the real-file
+  bit-identical — the corpus-free independent check (STAGE-011 adds the real-file
   `dnglab --raw-checksum`). Cross-read `oxideav-mjpeg` (MIT) and `photocraft-raw`
   (MIT/Apache) for structure only; never copy (clean-room, and their claims are
   unverified).
@@ -182,7 +182,7 @@ the spec as `task.complexity`.
   `photocraft-raw` (MIT/Apache)
 
 ### Enables
-- **STAGE-010** — the DNG `Compression 7` binding feeds this decoder real strip
+- **STAGE-011** — the DNG `Compression 7` binding feeds this decoder real strip
   bytes and verifies its output bit-exact vs `dnglab --raw-checksum`
 
 ## Stage-Level Reflection
@@ -200,7 +200,7 @@ the spec as `task.complexity`.
   on hostile input (3,098,220+ fuzz runs, no crash; typed `Ljpeg*` errors on every
   truncated / oversized-table / forged-dimension bitstream). No DNG container
   binding and no real-file `dnglab --raw-checksum` — both correctly deferred to
-  STAGE-010, as framed.
+  STAGE-011, as framed.
 - **How many specs did it actually take?** **3, exactly as framed**
   (SPEC-036/037/038). The pre-named L-risk split on SPEC-036 (marker/frame parse
   as one spec, Huffman build+decode as the other) was **not** needed — it designed

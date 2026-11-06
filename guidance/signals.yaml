@@ -805,7 +805,7 @@ signals:
       (SPEC-036 entropy front-end, SPEC-037 reconstruction) and a fuzz target
       (SPEC-038) — none was a FIX that hardened failing logic while silently keeping
       the assumption that let it fail, so the "third instance ON DIFFERENT CODE"
-      trigger was not exercised. Carries into STAGE-010 at N=2; the DNG container
+      trigger was not exercised. Carries into STAGE-011 at N=2; the DNG container
       binding there (feeding real strip bytes into a decoder specced corpus-free) is
       the first STAGE-009+ work likely to HARDEN an existing path, so watch it there.
       ══ STAGE-007 CLOSE, 2026-11-01: DEFERRED, trigger unchanged, still N=2. ══
@@ -1202,7 +1202,7 @@ signals:
       are non-tautological (each hostile input asserts a distinct typed `Ljpeg*` variant
       that exists in `lib.rs`; the corpus test asserts non-empty), the same "show it can
       fail" check this lesson generalises. Bar is N=2; the convention lands at a confirmed
-      second instance (watch STAGE-010, which adds the real-file `dnglab --raw-checksum`
+      second instance (watch STAGE-011, which adds the real-file `dnglab --raw-checksum`
       oracle — a different shape, but still a check that must be shown red).
       ──
       Same family as the `plane_oracle.rs` no-op lesson and
