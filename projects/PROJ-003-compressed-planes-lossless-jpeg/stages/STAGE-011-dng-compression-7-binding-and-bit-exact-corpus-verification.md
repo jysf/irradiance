@@ -160,8 +160,8 @@ after SPEC-043's build found both held files are two-component (Nf=2) SOF-3 — 
 SPEC-046 (Nf=2 decode, DEC-037) is inserted before the oracle, so the chain is now
 SPEC-043 → SPEC-046 → SPEC-044 → SPEC-045.
 
-- [~] SPEC-043 (verify) — [M] Compression-7 recognition + strip-path routing: build
-  merged (PR #112); cold verify in flight. `plane::unpack_into` dispatches on
+- [x] SPEC-043 (shipped 2026-11-05) — [M] Compression-7 recognition + strip-path routing: build
+  merged (#112), verified (#114), shipped. `plane::unpack_into` dispatches on
   `Compression` — uncompressed unchanged, `Compression 7` routed per-strip to
   `ljpeg::decode_into`, else `UnsupportedCompression`. Both held files now REACH the
   decoder (and hit the Nf=2 finding below).
@@ -179,7 +179,7 @@ SPEC-043 → SPEC-046 → SPEC-044 → SPEC-045.
   Compression-7 binding, a macOS/Linux byte-identical determinism assertion, and
   container→decoder truncation / hostile-strip hardening. depends_on SPEC-044.
 
-**Count:** 0 shipped / 4 active / 0 pending (SPEC-043 at verify; SPEC-046/044/045 framed)
+**Count:** 1 shipped / 3 active / 0 pending (SPEC-043 shipped; SPEC-046 at ship; SPEC-044/045 framed)
 
 *The Nf=2 finding (SPEC-043 build, DEC-037) re-opened the single-component scope for
 the held files' monochrome column-interleave; SPEC-046 is the inserted decode spec. No
