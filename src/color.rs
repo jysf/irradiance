@@ -17,14 +17,15 @@
 //! 2. **camera → XYZ(D50)**: `ForwardMatrix1` (`FM1`) already maps white-balanced
 //!    camera values to XYZ(D50), so `cam2xyz = FM1 · D`. When no `ForwardMatrix`
 //!    is present (the Nikon D300S), `ColorMatrix1` (`CM1`) maps XYZ→camera, so
-//!    `cam2xyz = inv(CM1) · D` — a single-illuminant simplification that treats
-//!    the `ColorMatrix` output as XYZ(D50) directly (`DEC-033`; refined by
-//!    `SPEC-034`, judged by `SPEC-035`'s ΔE).
+//!    `cam2xyz = CA(W→D50) · inv(CM1)` with scene white `W = inv(CM1)·asn`,
+//!    Bradford-adapted to D50 (DNG spec ch. 6). **No `D`** on this path: `inv(CM)`
+//!    expects raw camera values, and `D` already counted white balance (the
+//!    original `inv(CM1)·D` tinted grey magenta; fixed in `DEVELOP_VERSION` 2).
 //! 3. **XYZ(D50) → linear sRGB**: the committed constant `C = S · B`, where
 //!    [`BRADFORD_D50_TO_D65`] (`B`) is the Bradford chromatic adaptation and
 //!    [`SRGB_FROM_XYZ_D65`] (`S`) is IEC 61966-2-1's linear-sRGB-from-XYZ(D65).
 //!
-//! `M = C · cam2xyz` (`= C · FM1 · D`, or `C · inv(CM1) · D`).
+//! `M = C · cam2xyz` (`= C · FM1 · D`, or `C · CA · inv(CM1)`).
 //!
 //! # Scene-adaptive interpolation (`SPEC-034`, `DEC-034`)
 //!
@@ -325,8 +326,8 @@ fn build_camera_to_srgb_linear(sensor: &Sensor) -> Result<[[f64; 3]; 3], Error> 
     // found once per image. `None` ⇒ the single-illuminant fallback, which is
     // byte-identical to `SPEC-033` (the regression guard).
     let cam2xyz = match interpolation_weight(sensor) {
-        Some(g) => cam_to_xyz_interpolated(sensor, &wb, g)?,
-        None => cam_to_xyz_single_illuminant(sensor, &wb)?,
+        Some(g) => cam_to_xyz_interpolated(sensor, &wb, asn, g)?,
+        None => cam_to_xyz_single_illuminant(sensor, &wb, asn)?,
     };
 
     let c = mat_mul(SRGB_FROM_XYZ_D65, BRADFORD_D50_TO_D65);
@@ -342,6 +343,7 @@ fn build_camera_to_srgb_linear(sensor: &Sensor) -> Result<[[f64; 3]; 3], Error> 
 fn cam_to_xyz_single_illuminant(
     sensor: &Sensor,
     wb: &[[f64; 3]; 3],
+    asn: &[Rational],
 ) -> Result<[[f64; 3]; 3], Error> {
     if let Some(fm1) = sensor.forward_matrix_1.as_ref() {
         let fm = matrix_from_rationals(fm1)?;
@@ -349,7 +351,7 @@ fn cam_to_xyz_single_illuminant(
     } else if let Some(cm1) = sensor.color_matrix_1.as_ref() {
         let cm = matrix_from_rationals(cm1)?;
         let inv_cm = inv(cm).ok_or(Error::MissingColorCalibration)?;
-        Ok(mat_mul(inv_cm, *wb))
+        cm_path_cam_to_xyz(&inv_cm, asn)
     } else {
         Err(Error::MissingColorCalibration)
     }
@@ -368,6 +370,7 @@ fn cam_to_xyz_single_illuminant(
 fn cam_to_xyz_interpolated(
     sensor: &Sensor,
     wb: &[[f64; 3]; 3],
+    asn: &[Rational],
     g: f64,
 ) -> Result<[[f64; 3]; 3], Error> {
     if let (Some(fm1), Some(fm2)) = (
@@ -394,7 +397,50 @@ fn cam_to_xyz_interpolated(
     )?;
     let cm = lerp_matrix(cm1, cm2, g);
     let inv_cm = inv(cm).ok_or(Error::MissingColorCalibration)?;
-    Ok(mat_mul(inv_cm, *wb))
+    cm_path_cam_to_xyz(&inv_cm, asn)
+}
+
+/// Bradford cone-response matrix (XYZ → sharpened RGB), the `M_A` of the
+/// Bradford chromatic-adaptation transform. A committed `f64` constant
+/// (`DEC-033`), transcribed once from the standard (Lindbloom / CIE).
+const BRADFORD_CONE: [[f64; 3]; 3] = [
+    [0.8951, 0.2664, -0.1614],
+    [-0.7502, 1.7135, 0.0367],
+    [0.0389, -0.0685, 1.0296],
+];
+
+/// CIE XYZ of the D50 white (the DNG profile connection space white), `Y = 1`.
+const D50_WHITE: [f64; 3] = [0.96422, 1.0, 0.82521];
+
+/// `cam2xyz` for the **ColorMatrix** path: `CA(W → D50) · inv(CM)`, where the
+/// scene white is `W = inv(CM) · AsShotNeutral` (DNG spec ch. 6, "Mapping Camera
+/// Color Space to CIE XYZ Space"). `ColorMatrix` maps XYZ **under the
+/// calibration illuminant** to camera values, so `inv(CM)` already yields XYZ
+/// of the scene as lit; no white-balance diagonal `D` may be applied (it would
+/// count white balance twice and tint neutral magenta). Instead the scene white
+/// is Bradford-adapted to D50, so a raw neutral `c = AsShotNeutral` lands on D50
+/// white (`Y = 1`), which the committed `C = S · B` maps to linear sRGB
+/// `(1, 1, 1)`. Basic `f64` ops only (`DEC-033`): the cone matrix, its inverse
+/// and a diagonal of ratios.
+///
+/// [`Error::MissingColorCalibration`] if the neutral is malformed, or the white
+/// is degenerate (non-positive cone responses) or the cone matrix fails to invert.
+fn cm_path_cam_to_xyz(inv_cm: &[[f64; 3]; 3], asn: &[Rational]) -> Result<[[f64; 3]; 3], Error> {
+    let neutral = neutral_vector(asn).ok_or(Error::MissingColorCalibration)?;
+    let white = mul_mat_vec(inv_cm, neutral);
+    let rho_src = mul_mat_vec(&BRADFORD_CONE, white);
+    let rho_dst = mul_mat_vec(&BRADFORD_CONE, D50_WHITE);
+    if !(rho_src[0] > 0.0 && rho_src[1] > 0.0 && rho_src[2] > 0.0) {
+        return Err(Error::MissingColorCalibration);
+    }
+    let scale = [
+        [rho_dst[0] / rho_src[0], 0.0, 0.0],
+        [0.0, rho_dst[1] / rho_src[1], 0.0],
+        [0.0, 0.0, rho_dst[2] / rho_src[2]],
+    ];
+    let cone_inv = inv(BRADFORD_CONE).ok_or(Error::MissingColorCalibration)?;
+    let ca = mat_mul(cone_inv, mat_mul(scale, BRADFORD_CONE));
+    Ok(mat_mul(ca, *inv_cm))
 }
 
 /// Find the scene interpolation weight `g ∈ [0, 1]` by the DNG
@@ -838,9 +884,31 @@ mod tests {
             color_matrix_1: Some(cm1_entries.clone()),
             as_shot_neutral: Some(asn.clone()),
         });
+        // cam2xyz = CA(W→D50) · inv(CM1) with W = inv(CM1)·asn — no `D` (it would
+        // double-count white balance). Re-derive CA by explicit Bradford steps.
         let inv_cm = inv(reference_matrix(&cm1_entries)).expect("invertible");
-        let expected = reference_mat_mul(c, reference_mat_mul(inv_cm, wb));
-        assert_eq!(build_camera_to_srgb_linear(&sensor).unwrap(), expected);
+        let asn_v = [0.5, 1.0, 0.5];
+        let w = ref_mul_vec(inv_cm, asn_v);
+        let (rs, rd) = (
+            ref_mul_vec(BRADFORD_CONE, w),
+            ref_mul_vec(BRADFORD_CONE, D50_WHITE),
+        );
+        let scale = [
+            [rd[0] / rs[0], 0.0, 0.0],
+            [0.0, rd[1] / rs[1], 0.0],
+            [0.0, 0.0, rd[2] / rs[2]],
+        ];
+        let ca = reference_mat_mul(
+            inv(BRADFORD_CONE).expect("cone invertible"),
+            reference_mat_mul(scale, BRADFORD_CONE),
+        );
+        let expected = reference_mat_mul(c, reference_mat_mul(ca, inv_cm));
+        let built = build_camera_to_srgb_linear(&sensor).unwrap();
+        assert_eq!(built, expected);
+        // Defining property: a raw neutral develops to linear-sRGB (1, 1, 1).
+        for v in ref_mul_vec(built, asn_v) {
+            assert!((v - 1.0).abs() < 1e-6, "grey must map to white, got {v}");
+        }
     }
 
     #[test]
