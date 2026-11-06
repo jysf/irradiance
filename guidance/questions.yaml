@@ -39,11 +39,19 @@ questions:
   - id: stage-011-held-files-are-two-component-sof3
     question: "Both held Compression-7 files are TWO-component (Nf=2) SOF-3 frames, which the single-component decoder cannot decode — how should SPEC-044/SPEC-045 proceed given STAGE-011 has no single-component held file?"
     priority: high
-    status: open
+    status: answered
     raised_by: claude-opus-4-8
     raised_at: 2026-11-05
     assigned_to: null
     notes: |
+      RESOLVED 2026-11-05 (DEC-037): grow the decoder to two-component (Nf=2)
+      column-interleave — new SPEC-046, inserted before the oracle, so the chain is
+      SPEC-043 (routing, merged) → SPEC-046 (Nf=2 decode) → SPEC-044 (bit-exact
+      dnglab oracle on the de-interleaved plane) → SPEC-045. The Bayer/CFA colour
+      multi-component path stays out (no held colour file). The orchestrator
+      re-parsed both SOF3 markers to confirm Nf=2 before deciding, and SPEC-043
+      itself is complete (routing only). See DEC-037 and the re-scoped SPEC-044.
+      ──
       Found during SPEC-043 build by probing the real strip bytes (the design's
       §12 probe measured strip LAYOUT only, not the SOF-3 frame header). Both
       held Compression-7 DNGs carry a two-component SOF-3 frame — the

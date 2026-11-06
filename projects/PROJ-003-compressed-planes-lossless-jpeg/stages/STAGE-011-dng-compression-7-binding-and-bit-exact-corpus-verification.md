@@ -32,9 +32,9 @@ value_contribution:
     - "A DNG Compression 7 (SOF-3 lossless JPEG) file stops returning UnsupportedCompression and decodes to a monochrome u16 plane through the existing strip/tile plane path, for both container byte orders (big-endian Leica M Typ 246 + little-endian Pentax K-3 III)"
     - "Bit-exact verification of both held Compression-7 DNGs against `dnglab analyze --raw-checksum`, with the decoded plane flowing through the existing develop/tone pipeline unchanged — a source swap, not a second pipeline"
   explicitly_does_not:
-    - "No multi-component / Bayer-in-LJ92 interleave — no held file carries it, so no bit-exact oracle; deferred (PROJ-003 roadmap)"
+    - "No Bayer / CFA COLOUR multi-component (3+ colour components in one frame) — no held colour file, no bit-exact oracle; deferred (DEC-037, PROJ-003 roadmap). NOTE: the held files' monochrome TWO-component column-interleave IS now in scope (SPEC-046, DEC-037)."
     - "No OpcodeList2 GainMap, no lossy-DCT JPEG (SOF-0/2), no arithmetic coding (SOF-9/10/11), no Nikon NEF-lossless, no Pentax PEF (Compression 65535) — other waves"
-    - "No change to the SOF-3 decoder algorithm itself (STAGE-009, shipped) — this stage only feeds it real strip bytes"
+    - "SPEC-046 extends the shipped SOF-3 decoder to two-component column-interleave (DEC-037); otherwise this stage does not change STAGE-009's single-component reconstruction algorithm"
     - "No public CLI — `irr` stays the internal dev/oracle binary"
 
 # Orchestration cost — the spend that has no spec to attach to (roadmap:
@@ -155,30 +155,35 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 `just frame-stage STAGE-011 PROJ-003` promotes every `(not yet written)` line
 below into a real spec at `cycle: frame` with a stable ID (so `depends_on:` can
 point at it) and rewrites the line in place. The `[S]`/`[M]`/`[L]` tag is carried
-onto the spec as `task.complexity`. **Minted 2026-11-05** as a linear chain
-(SPEC-043 → SPEC-044 → SPEC-045; `depends_on` set, scope filled). **Next = design
-SPEC-043** (Prompt 2b) in the main session; build/verify delegate to cold sessions.
+onto the spec as `task.complexity`. **Minted 2026-11-05; re-planned 2026-11-05**
+after SPEC-043's build found both held files are two-component (Nf=2) SOF-3 — a new
+SPEC-046 (Nf=2 decode, DEC-037) is inserted before the oracle, so the chain is now
+SPEC-043 → SPEC-046 → SPEC-044 → SPEC-045.
 
-- [ ] SPEC-043 (build) — [M] Compression-7 recognition + strip-path routing:
-  accept `Compression == 7` on the sensor IFD and route strip/tile bytes through
-  `ljpeg::decode_into` (reuse SPEC-028 multi-strip assembly), for both byte
-  orders; the uncompressed / monochrome / Bayer paths stay byte-identical; tier-A
-  analytic Compression-7 fixtures (the STAGE-009 round-trip encoder can emit
-  strips) + the panic-free binding contract
-- [ ] SPEC-044 (frame) — [M] Bit-exact corpus oracle: both held Compression-7
-  DNGs (Leica M Typ 246 big-endian + Pentax K-3 III little-endian) decode to a
-  `u16` plane whose MD5 equals `dnglab analyze --raw-checksum`, proven red
-  (perturbed plane/predictor); an end-to-end develop smoke proves the decoded
-  plane flows through the existing develop/tone path unchanged
-- [ ] SPEC-045 (frame) — [S] Binding capstone: a provenance-ledger entry for the
-  DNG Compression-7 binding, a macOS/Linux byte-identical determinism assertion,
-  and container→decoder truncation / hostile-strip hardening over the strip
-  boundary (if not already covered by specs 1–2)
+- [~] SPEC-043 (verify) — [M] Compression-7 recognition + strip-path routing: build
+  merged (PR #112); cold verify in flight. `plane::unpack_into` dispatches on
+  `Compression` — uncompressed unchanged, `Compression 7` routed per-strip to
+  `ljpeg::decode_into`, else `UnsupportedCompression`. Both held files now REACH the
+  decoder (and hit the Nf=2 finding below).
+- [ ] SPEC-046 (frame) — [M] Two-component (Nf=2) SOF-3 decode + column de-interleave
+  (DEC-037): extend `ljpeg` to decode the two column components of the held files'
+  Nf=2 frames into one monochrome `u16` plane, with an analytic two-component
+  round-trip red-proof; the Nf=1 path stays byte-identical. depends_on SPEC-043.
+- [ ] SPEC-044 (frame) — [M] Bit-exact corpus oracle: both held Compression-7 DNGs
+  (Leica M Typ 246 big-endian + Pentax K-3 III little-endian) decode to a `u16` plane
+  whose MD5 equals `dnglab analyze --raw-checksum`, proven red; an end-to-end develop
+  smoke proves the decoded plane flows through the existing develop/tone path
+  unchanged. **depends_on SPEC-046** (the held files are Nf=2 — they do not decode
+  until SPEC-046 lands).
+- [ ] SPEC-045 (frame) — [S] Binding capstone: a provenance-ledger entry for the DNG
+  Compression-7 binding, a macOS/Linux byte-identical determinism assertion, and
+  container→decoder truncation / hostile-strip hardening. depends_on SPEC-044.
 
-**Count:** 0 shipped / 3 active / 0 pending
+**Count:** 0 shipped / 4 active / 0 pending (SPEC-043 at verify; SPEC-046/044/045 framed)
 
-*Specs 1 and 2 could collapse into one if the binding proves a thin dispatch swap
-— decided at mint / first design. No entry looks L; nothing flagged for a split.*
+*The Nf=2 finding (SPEC-043 build, DEC-037) re-opened the single-component scope for
+the held files' monochrome column-interleave; SPEC-046 is the inserted decode spec. No
+entry is flagged L, though SPEC-046 may prove L at design.*
 
 ## Design Notes
 

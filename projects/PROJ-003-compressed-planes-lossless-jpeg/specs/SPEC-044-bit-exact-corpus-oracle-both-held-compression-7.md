@@ -33,12 +33,12 @@ handoff:
 references:
   decisions: [DEC-003, DEC-030]    # corpus files never committed / own-work (DEC-003); exact oracle, no tolerance — i128 cross-check discipline (DEC-030)
   constraints: [oracle-must-be-shown-red]
-  related_specs: [SPEC-043, SPEC-037]   # the Compression-7 routing this verifies (043) + the decoder it exercises (037)
+  related_specs: [SPEC-043, SPEC-046, SPEC-037]   # the routing (043) + the two-component Nf=2 decode this verifies on real files (046, DEC-037) + the decoder (037)
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
 # (`just ready`) and safe fan-out. Optional; [] = no blockers.
-depends_on: [SPEC-043]             # the Compression-7 routing (043) must ship before the corpus oracle can run on real files
+depends_on: [SPEC-046]             # the held files are two-component Nf=2 (DEC-037) and do not decode until SPEC-046 lands; SPEC-046 itself depends on the SPEC-043 routing
 
 # Fan-out lease — who/what holds this spec now (`just claim` / `just unclaim`).
 # Advisory; null = free. The hard lock for parallel agents is the worktree/branch.
@@ -79,12 +79,15 @@ cost:
 
 ## Context
 
-STAGE-011's bit-exact contract: once SPEC-043 routes a Compression-7 plane
-through `ljpeg::decode_into`, the decoded `u16` samples must be proven **exactly**
-correct against an independent implementation — the real-file counterpart to
-STAGE-009's analytic round-trip oracle. This is the second spec of `STAGE-011`
-(`PROJ-003`) and depends on SPEC-043's routing. The oracle is tier-B
-(`dnglab analyze --raw-checksum` on the two held Compression-7 DNGs) and
+STAGE-011's bit-exact contract: the decoded `u16` samples of both held
+Compression-7 DNGs must be proven **exactly** correct against an independent
+implementation — the real-file counterpart to STAGE-009's analytic round-trip
+oracle. **Re-scoped 2026-11-05 (DEC-037):** both held files are two-component
+(`Nf=2`) column-interleave SOF-3, so they do not decode until SPEC-046 lands; this
+spec now runs **after** SPEC-046 and verifies the **de-interleaved** monochrome
+plane (not a single-component decode). It is the fourth spec of `STAGE-011`
+(`PROJ-003`), depending on SPEC-046 (which depends on SPEC-043's routing). The
+oracle is tier-B (`dnglab analyze --raw-checksum` on the two held DNGs) and
 chart-independent; it is a different, **independent** shape from STAGE-009's
 round-trip (see the stage-born lesson `shared-path-oracle-tautology`), which is
 exactly why it is load-bearing here.

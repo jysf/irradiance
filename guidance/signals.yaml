@@ -1214,3 +1214,25 @@ signals:
       each shared helper's sign/edge branch, and the design's failing-tests should name
       it. Related: the `oracle-must-be-shown-red` constraint and SPEC-030's
       perturbed-kernel red-proof pattern.
+
+  # --- lesson: probe the decode input, not just the container -----------------
+  - id: probe-the-decode-input-not-just-the-container
+    type: lesson
+    summary: "A design §12 probe must read the DATA THE DECODER WILL SEE (the bitstream / frame header), not just the container metadata around it — probing the container tags can confirm a false premise while the real header says otherwise."
+    evidence: "N=1, SPEC-043 (STAGE-011, 2026-11-05). The design probed `irr ifd` (container tags: Compression=7, strip offsets/counts, bits_per_sample) and confirmed both held files single-strip, then recorded them as the single-component corpus-verified path. The build probed the real SOF3 FRAME HEADER inside the strip and found both are two-component (Nf=2) column-interleave — which the single-component decoder cannot decode. The container probe was correct but answered the wrong question: the load-bearing fact (Nf) lives in the JPEG frame header, one layer below the TIFF tags. Forced a mid-stage re-plan (DEC-037 + a new SPEC-046). The PROJ-003 brief's own premise ('both held files single-component') had the same shape — a monochrome SENSOR assumed to mean a single-component JPEG."
+    bar: "N=2 paired-opposing"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-05
+    last_touched: 2026-11-05
+    raised_by: claude
+    notes: |
+      Capture, N=1. Sibling of [[probe-the-hard-assumption-at-frame-time]] — same
+      family (a load-bearing assumption left unprobed at design) but a sharper rule:
+      when the assumption is about the DATA a decoder/parser will consume, probe at
+      that layer (parse the actual bytes / header), not the metadata wrapping it.
+      The falsifier was cheap and available at design — parse the SOF3 SOF marker
+      from the strip (~15 lines, which the orchestrator ran to confirm the build's
+      finding). Codify into the §12 step if a second instance appears: "probe the
+      innermost load-bearing layer the work depends on, not the outer container."
+      Related: [[unrun-docs-carry-errors]] (run the tool — here, run the RIGHT read).

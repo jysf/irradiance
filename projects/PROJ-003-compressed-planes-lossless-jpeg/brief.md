@@ -38,7 +38,7 @@ value:
     - "The SOF-3 codec and its DNG binding each carry a provenance-ledger entry naming ITU-T T.81 Annex H and its licence"
     - "The same compressed DNG produces byte-identical plane output on macOS and Linux — determinism survives the bitstream decoder"
   risks_to_thesis:
-    - "Both held SOF-3 files are MONOCHROME single-component; there is NO held Bayer-in-LJ92 file, so the multi-component CFA-interleave path has no bit-exact oracle — it is scoped OUT and gated on acquiring such a file (the SPEC-035 corpus trap, pre-empted not repeated)"
+    - "Both held SOF-3 files are monochrome but encoded as TWO-component (Nf=2) column-interleave — confirmed by parsing their SOF3 markers during SPEC-043 build (Typ246 X=2992/Nf=2, K3III X=3152/Nf=2, each ≈ half the crop width), NOT the single-component the framing assumed. STAGE-011 must therefore decode two-component to realize the thesis (SPEC-046, DEC-037). The Bayer / CFA COLOUR multi-component path (3+ colour components in one frame) still has no held file and no bit-exact oracle — scoped OUT, gated on acquiring one (the SPEC-035 corpus trap, pre-empted not repeated)"
     - "The bit-exact oracle is `dnglab --raw-checksum`, single-sourced on rawler — a decoder bug that happens to match a rawler bug would pass; the analytic encode→decode round-trip and the published T.81 spec are the independent counterweights"
     - "LJ92 is old but edge-case-rich (restart markers, 16-bit precision, point transform, per-row predictor selection, the big-endian container) that a two-file corpus may not fully exercise — the analytic oracle must cover what the corpus does not"
     - "Patent: lossless Huffman JPEG is T.81 / 1992 and believed unencumbered, but the check is load-bearing to the permissive thesis and must be done AT DESIGN, before building (DEC-031 lesson: patent-check named algorithms at frame time)"
@@ -69,7 +69,7 @@ plane — DNG `Compression 7`, the lossless JPEG **SOF-3** coding of ITU-T T.81
 Annex H — into the same `u16` sensor plane an uncompressed file yields, verified
 **bit-exact** against an independent implementation. It delivers a clean-room
 SOF-3 bitstream decoder (Huffman DC tables, predictors 1–7, point transform,
-restart markers, 8–16-bit precision, single component) and the DNG binding that
+restart markers, 8–16-bit precision, single-component and two-component column-interleave) and the DNG binding that
 feeds it through the existing strip/tile plane path, for **both** container byte
 orders.
 
@@ -129,8 +129,10 @@ claims); both are read-as-reference only.
 
 ### In scope
 - The **SOF-3 lossless-JPEG bitstream decoder** (ITU-T T.81 Annex H),
-  **single component**: DC Huffman tables (DHT), predictors 1–7, point transform
-  (`Pt`), restart markers (`DRI` / `RSTn`), sample precision 8–16 bit
+  **single component AND two-component column-interleave** (both held files are
+  Nf=2 — DEC-037): DC Huffman tables (DHT), predictors 1–7, point transform
+  (`Pt`), restart markers (`DRI` / `RSTn`), sample precision 8–16 bit, with the
+  two column components de-interleaved back into one `u16` plane
 - The **DNG `Compression 7` binding**: recognise `Compression == 7` on the sensor
   IFD, feed the existing strip/tile plane assembly (reuse SPEC-028), and handle
   **both** byte orders (big-endian Typ 246 + little-endian Pentax K-3 III)
@@ -143,8 +145,10 @@ claims); both are read-as-reference only.
 - **Provenance-ledger** entries for the SOF-3 codec and the DNG binding
 
 ### Explicitly out of scope
-- **Multi-component / Bayer-in-LJ92 interleave** — no held file carries it, so it
-  has no bit-exact oracle; deferred until one is acquired (roadmap)
+- **Bayer / CFA *colour* multi-component interleave** (3+ colour components in one
+  LJ92 frame) — distinct from the monochrome two-component column-interleave the
+  held files use (now IN scope, DEC-037); no held colour file carries it, so it has
+  no bit-exact oracle; deferred until one is acquired (roadmap)
 - **OpcodeList2 `GainMap`** (flat-field / vignetting) — opcode *application*, not
   plane *decode*; no held file carries one (inventory confirmed: the corpus has
   OpcodeList1/3 only). A separate later stage/project
