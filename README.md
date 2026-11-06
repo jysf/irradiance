@@ -9,6 +9,8 @@ develops them into images: **sensor data in, pixels and metadata out.**
 RAW bytes ──► ifd ──► plane ──► develop ──► tone ──► displayable image
            (container)  (unpack)  (levels +     (sRGB
                                    geometry)     encode)
+
+Bayer DNG:  plane ──► demosaic ──► color ──► linear sRGB   (develop_color_into)
 ```
 
 ## What it is
@@ -16,7 +18,9 @@ RAW bytes ──► ifd ──► plane ──► develop ──► tone ──�
 `irradiance` turns a camera's raw sensor capture into an image. It parses the
 TIFF/IFD container, locates and unpacks the sensor plane, normalizes levels and
 applies the DNG geometry pipeline (defect correction, warp, crop, orientation),
-and can display-encode the result to sRGB.
+and can display-encode the result to sRGB. Monochrome DNGs go through
+`develop`; Bayer DNGs are additionally demosaiced and colour-transformed
+(camera RGB → linear sRGB, with dual-illuminant interpolation).
 
 It is deliberately a **library, not an application**
 (constraint `library-not-application`):
@@ -35,9 +39,11 @@ It is deliberately a **library, not an application**
 - **Edition 2021**, MSRV `1.90` (the measured floor; the true floor is lower
   but unmeasured — see [`Cargo.toml`](Cargo.toml)).
 
-> **Status:** early. The current wave (`PROJ-001`) develops **monochrome DNG**.
-> Compressed-plane decode and signed/ASCII tag types are intentionally not yet
-> implemented. See [Scope](#scope-and-roadmap).
+> **Status:** early (0.1.x, on crates.io). Uncompressed **monochrome** and
+> **Bayer** DNG develop work end to end. A bit-exact lossless-JPEG (SOF-3)
+> decoder exists internally but is not yet wired to DNG `Compression 7`, so
+> compressed planes are not decodable through the public API yet. See
+> [Scope](#scope-and-roadmap).
 
 ## The pipeline
 
@@ -48,16 +54,17 @@ It is deliberately a **library, not an application**
 | [`develop`](src/develop.rs) | Plane → image: bad-pixel fix, black/white levels normalization, `WarpRectilinear`, then `DefaultCrop` → `Orientation`. Output stays scene-linear. |
 | [`opcode`](src/opcode.rs) | `OpcodeList` byte-stream parser (DNG 1.7.0.0 Chapter 7): `FixBadPixelsConstant`, `WarpRectilinear`. |
 | [`warp`](src/warp.rs) | The `WarpRectilinear` geometric resampler. |
+| [`demosaic`](src/demosaic.rs) | Bayer (RGGB family) → camera-space linear RGB, Hamilton-Adams directional kernel. |
+| [`color`](src/color.rs) | Camera RGB → linear sRGB via the DNG colour matrices (dual-illuminant interpolation); `develop_color_into` runs levels → demosaic → colour in one call. |
 | [`tone`](src/tone.rs) | Display-encode layer: the sRGB OETF (IEC 61966-2-1) as table-driven encoders to linear `f32` or 8-/16-bit sRGB. |
 
 ## Usage
 
-Add the crate (this repo is not yet published to crates.io; use a path or git
-dependency):
+Add the crate from crates.io:
 
 ```toml
 [dependencies]
-irradiance = { path = "../irradiance" }
+irradiance = "0.1"
 ```
 
 End to end — read a DNG's bytes, develop, and display-encode to 8-bit sRGB:
@@ -93,6 +100,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 `develop_into` leaves the image **scene-linear** (`DEC-018`); the `tone`
 encoders are the additive, display-referred layer on top.
 
+For a **Bayer** DNG, replace step 3 with `develop_color_into`, which takes the
+`width × height` mosaic and writes `width × height × 3` linear-sRGB `u16`
+(it reports `Error::NotAColorFilterArray` for a monochrome plane):
+
+```rust
+let mut rgb = vec![0u16; sensor.width as usize * sensor.height as usize * 3];
+irradiance::color::develop_color_into(&sensor, &raw, &mut rgb)?;
+```
+
+The colour path does not yet apply the `develop` geometry pipeline (warp, crop,
+orientation).
+
 ## Building and testing
 
 The toolchain *is* the dependency — there is nothing to install beyond Rust:
@@ -123,16 +142,21 @@ directory of sample files to enable them.
 ## Scope and roadmap
 
 `irradiance` is developed as a series of **projects** (waves of work). The
-current wave:
+waves:
 
-- **`PROJ-001` — monochrome DNG develop** *(in progress)*: read, unpack,
-  normalize levels, apply the DNG geometry/opcode pipeline, and sRGB-encode a
-  monochrome DNG end to end.
+- **`PROJ-001` — monochrome DNG develop**: read, unpack, normalize levels,
+  apply the DNG geometry/opcode pipeline, and sRGB-encode a monochrome DNG end
+  to end.
+- **`PROJ-002` — Bayer colour develop** *(in progress)*: demosaic and the
+  camera→sRGB colour transform are shipped; ColorChecker ΔE validation and the
+  0.2.0 release are pending.
+- **`PROJ-003` — compressed planes** *(in progress)*: a clean-room lossless-JPEG
+  (SOF-3) decoder is built and fuzzed; binding it to DNG `Compression 7` is the
+  active stage.
 
-Intentionally **not** implemented yet (by design, not omission): compressed-plane
-decode (`PROJ-003`), and the `ASCII`/signed DNG tag types (no tag `PROJ-001`
-reads needs them). The long view — colour/Bayer (`PROJ-002`), lossless JPEG
-(`PROJ-003`), and more vendor formats — is in
+Intentionally **not** implemented yet (by design, not omission): public
+compressed-plane decode (until `PROJ-003` binds it), and the `ASCII`/signed DNG
+tag types. The long view — more vendor formats and beyond — is in
 [`docs/future-plans.md`](docs/future-plans.md); see [`projects/`](projects/)
 for active briefs.
 
