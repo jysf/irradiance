@@ -48,6 +48,24 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **SOF-3 decoder proven panic-free on hostile input — internal, completes
+  STAGE-009** (`irradiance` `ljpeg`, SPEC-038, PROJ-003) — a `ljpeg` libFuzzer
+  target now drives the full single-component SOF-3 decoder (SPEC-036 + SPEC-037)
+  through a dev-only `fuzzing` cargo feature (an empty `[features] fuzzing = []` +
+  a `#[cfg(feature = "fuzzing")] #[doc(hidden)]` entry, **DEC-036** — a feature,
+  not `cfg(fuzzing)`, so the plain-`cargo clippy` fuzz-graph CI gate still compiles
+  it), and ran **3,098,220+ executions with no crash**. 14 own-work SOF-3 seeds (9
+  valid across predictors 1..7 / 8-12-16-bit / point-transform / restart, 5 hostile:
+  truncated header, truncated scan, oversized DHT, `Nf≠1`, bad marker) plus two
+  in-crate replay unit tests assert every truncated / oversized-table /
+  forged-dimension bitstream returns a typed `Ljpeg*` `Error` rather than panicking,
+  under `#![forbid(unsafe_code)]` + the five-lint deny policy. **No public API change
+  and no new `Error` variant** — `ljpeg` stays `pub(crate)` (STAGE-010 owns the real
+  surface) and no new runtime dependency. This is the safety half of STAGE-009; with
+  it the single-component SOF-3 lossless-JPEG core decoder is **complete** (bytes →
+  u16 plane, bit-exact and panic-free), with the DNG `Compression 7` container
+  binding + `dnglab` bit-exact check left to STAGE-010.
+
 - **SOF-3 single-component decoder completed — internal** (`irradiance` `ljpeg`,
   SPEC-037, PROJ-003) — `ljpeg::reconstruct` / `decode_into` turn the SOF-3 entropy
   front-end's per-sample differences into the `u16` sensor plane: predictors 1–7,
