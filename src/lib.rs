@@ -138,7 +138,7 @@ use core::fmt;
 /// the one signal a lockfile cannot carry. Bump it (`"2"`, `"3"`, …) in the
 /// same change that alters develop output; leave it alone for changes that
 /// cannot (docs, tests, refactors that are bit-identical). See `DEC-028`.
-pub const DEVELOP_VERSION: &str = "1";
+pub const DEVELOP_VERSION: &str = "2";
 
 /// libFuzzer entry for the SOF-3 lossless-JPEG decoder (`ljpeg::decode_into`,
 /// one- or two-component — `SPEC-046`) — `SPEC-038`, `DEC-036`.

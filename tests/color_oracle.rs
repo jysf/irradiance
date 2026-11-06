@@ -192,6 +192,40 @@ fn ref_weight(sensor: &Sensor) -> Option<f64> {
     Some(g)
 }
 
+/// Reference ColorMatrix-path `cam2xyz = CA(W→D50) · inv(CM)`, `W = inv(CM)·asn`
+/// (DNG spec ch. 6); the Bradford CA is written out separately from the shipped
+/// code. No white-balance diagonal on this path.
+fn cm_cam2xyz(inv_cm: [[f64; 3]; 3], sensor: &Sensor) -> [[f64; 3]; 3] {
+    const CONE: [[f64; 3]; 3] = [
+        [0.8951, 0.2664, -0.1614],
+        [-0.7502, 1.7135, 0.0367],
+        [0.0389, -0.0685, 1.0296],
+    ];
+    let asn: Vec<f64> = sensor
+        .as_shot_neutral
+        .as_ref()
+        .expect("asn")
+        .iter()
+        .map(|r| f64::from(r.num) / f64::from(r.den))
+        .collect();
+    let mv = |m: [[f64; 3]; 3], v: [f64; 3]| -> [f64; 3] {
+        let mut o = [0.0f64; 3];
+        for i in 0..3 {
+            o[i] = m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2];
+        }
+        o
+    };
+    let w = mv(inv_cm, [asn[0], asn[1], asn[2]]);
+    let (rs, rd) = (mv(CONE, w), mv(CONE, [0.96422, 1.0, 0.82521]));
+    let scale = [
+        [rd[0] / rs[0], 0.0, 0.0],
+        [0.0, rd[1] / rs[1], 0.0],
+        [0.0, 0.0, rd[2] / rs[2]],
+    ];
+    let ca = mm(inv(CONE).expect("cone invertible"), mm(scale, CONE));
+    mm(ca, inv_cm)
+}
+
 /// Reference build of `M = C · cam2xyz`. When the dual-calibration preconditions
 /// hold (`ref_weight` is `Some`), `cam2xyz` is the illuminant-interpolated
 /// `FM(g) · D` (both FMs present) else `inv(CM(g)) · D`; otherwise it is the
@@ -217,7 +251,7 @@ fn reference_matrix(sensor: &Sensor) -> [[f64; 3]; 3] {
                     matrix_of(sensor.color_matrix_2.as_ref().expect("cm2")),
                     g,
                 );
-                mm(inv(cm).expect("interpolated CM invertible"), wb)
+                cm_cam2xyz(inv(cm).expect("interpolated CM invertible"), sensor)
             }
         }
         None => {
@@ -225,7 +259,7 @@ fn reference_matrix(sensor: &Sensor) -> [[f64; 3]; 3] {
                 mm(matrix_of(fm1), wb)
             } else {
                 let cm = matrix_of(sensor.color_matrix_1.as_ref().expect("cm1"));
-                mm(inv(cm).expect("invertible"), wb)
+                cm_cam2xyz(inv(cm).expect("invertible"), sensor)
             }
         }
     };
@@ -892,4 +926,121 @@ fn a_perturbed_second_matrix_turns_the_oracle_red() {
     );
     // And the honest reference rejects the mutant — the oracle goes red.
     assert_ne!(mutant_dst, reference_to_srgb(&honest, &camera_rgb));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Neutral invariance — a grey subject must develop to R = G = B.
+//
+// Regression for the ColorMatrix-only path double-counting white balance
+// (`inv(CM) · diag(1/asn)`), which developed grey to (1.0, 0.49, 0.78) on the
+// Nikon D300S. A flat mosaic whose every site reads `black + k·(white−black)·asn`
+// is a grey subject; the developed image must be neutral on every path.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Nikon D300S tags (CM1 = A, CM2 = D65, no ForwardMatrix), `num/10000`.
+fn nikon_cm1() -> Vec<Rational> {
+    matrix_rationals([
+        [10354, -3401, 54],
+        [-7111, 14628, 2702],
+        [-1350, 2011, 8528],
+    ])
+}
+
+fn nikon_cm2() -> Vec<Rational> {
+    matrix_rationals([
+        [7471, -1017, -1087],
+        [-8285, 15951, 2357],
+        [-1210, 1801, 7387],
+    ])
+}
+
+/// Nikon D300S `AsShotNeutral` (0.64, 1, 0.76417).
+fn nikon_asn() -> Vec<Rational> {
+    vec![
+        Rational {
+            num: 64000,
+            den: 100000,
+        },
+        Rational { num: 1, den: 1 },
+        Rational {
+            num: 76417,
+            den: 100000,
+        },
+    ]
+}
+
+/// Develop a 16×16 flat grey mosaic (black 1000, white 65535, brightness `k`) and
+/// return the largest per-pixel channel spread, in `u16` counts.
+fn grey_spread(sensor: &Sensor, k: f64) -> u16 {
+    let (black, white) = (1000.0f64, 65535.0f64);
+    let asn: Vec<f64> = sensor
+        .as_shot_neutral
+        .as_ref()
+        .expect("asn")
+        .iter()
+        .map(|r| f64::from(r.num) / f64::from(r.den))
+        .collect();
+    // RGGB: site colour index 0=R,1=G,2=B.
+    let site = |x: usize, y: usize| match (y % 2, x % 2) {
+        (0, 0) => 0,
+        (1, 1) => 2,
+        _ => 1,
+    };
+    let (w, h) = (sensor.width as usize, sensor.height as usize);
+    let mut mosaic = vec![0u16; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let v = black + k * (white - black) * asn[site(x, y)];
+            mosaic[y * w + x] = v.round() as u16;
+        }
+    }
+    let mut out = vec![0u16; w * h * 3];
+    develop_color_into(sensor, &mosaic, &mut out).expect("develops");
+    out.as_chunks::<3>()
+        .0
+        .iter()
+        .map(|p| p.iter().max().unwrap() - p.iter().min().unwrap())
+        .max()
+        .unwrap()
+}
+
+fn grey_sensor() -> Sensor {
+    let mut s = fixture_sensor(16, 16);
+    s.color_filter = Some(rggb());
+    s.black_level = Some(1000);
+    s.white_level = Some(65535);
+    s
+}
+
+#[test]
+fn grey_is_neutral_on_the_forward_matrix_path() {
+    let mut s = grey_sensor();
+    s.forward_matrix_1 = Some(forward_matrix_d50());
+    s.as_shot_neutral = Some(nikon_asn());
+    // ≤ 8 counts of 65535 ≈ quantisation from the 12-bit input and the 7-digit
+    // sRGB constants.
+    assert!(grey_spread(&s, 0.5) <= 8);
+}
+
+#[test]
+fn grey_is_neutral_on_the_color_matrix_only_path() {
+    // Single calibration.
+    let mut s = grey_sensor();
+    s.color_matrix_1 = Some(nikon_cm1());
+    s.as_shot_neutral = Some(nikon_asn());
+    let spread = grey_spread(&s, 0.5);
+    assert!(
+        spread <= 8,
+        "single-illuminant CM path tinted grey: spread {spread}"
+    );
+
+    // Dual calibration (interpolated), as on the real D300S.
+    s.color_matrix_2 = Some(nikon_cm2());
+    s.calibration_illuminant_1 = Some(17); // Standard light A
+    s.calibration_illuminant_2 = Some(21); // D65
+    let spread = grey_spread(&s, 0.5);
+    assert!(
+        spread <= 8,
+        "interpolated CM path tinted grey: spread {spread}"
+    );
 }
