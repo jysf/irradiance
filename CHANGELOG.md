@@ -60,11 +60,11 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   in-crate replay unit tests assert every truncated / oversized-table /
   forged-dimension bitstream returns a typed `Ljpeg*` `Error` rather than panicking,
   under `#![forbid(unsafe_code)]` + the five-lint deny policy. **No public API change
-  and no new `Error` variant** — `ljpeg` stays `pub(crate)` (STAGE-010 owns the real
+  and no new `Error` variant** — `ljpeg` stays `pub(crate)` (STAGE-011 owns the real
   surface) and no new runtime dependency. This is the safety half of STAGE-009; with
   it the single-component SOF-3 lossless-JPEG core decoder is **complete** (bytes →
   u16 plane, bit-exact and panic-free), with the DNG `Compression 7` container
-  binding + `dnglab` bit-exact check left to STAGE-010.
+  binding + `dnglab` bit-exact check left to STAGE-011.
 
 - **SOF-3 single-component decoder completed — internal** (`irradiance` `ljpeg`,
   SPEC-037, PROJ-003) — `ljpeg::reconstruct` / `decode_into` turn the SOF-3 entropy
@@ -72,7 +72,7 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   the §H.2.1 boundary rules, the point transform (`out = reconstructed << Pt`), and
   restart reset (T.81 Annex H.1), proven by an in-harness encode→decode round-trip
   oracle with a perturbed-decoder red-proof. Adds one more additive `Error` variant
-  (`LjpegPlaneWrongLength`). Still `pub(crate)` and not reachable until STAGE-010
+  (`LjpegPlaneWrongLength`). Still `pub(crate)` and not reachable until STAGE-011
   wires `Compression 7`; SPEC-038 (fuzz) remains.
 
 - **SOF-3 lossless-JPEG entropy front-end — internal** (`irradiance` `ljpeg`,
@@ -84,7 +84,7 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   `DECODE`+`RECEIVE`+`EXTEND`s each sample to a signed difference. It adds **seven
   additive `Ljpeg*` variants** to the public `#[non_exhaustive]` `Error` —
   **additive, non-breaking, and not yet producible** (nothing in the crate
-  constructs them until STAGE-010 routes `Compression 7`). No public API or
+  constructs them until STAGE-011 routes `Compression 7`). No public API or
   runtime behaviour is reachable yet; this is the first half of STAGE-009's
   compressed-bytes→`u16` decoder (SPEC-037 adds predictor reconstruction, SPEC-038
   the fuzz target). Implemented **clean-room** from the published T.81 standard
