@@ -155,26 +155,27 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 `just frame-stage STAGE-011 PROJ-003` promotes every `(not yet written)` line
 below into a real spec at `cycle: frame` with a stable ID (so `depends_on:` can
 point at it) and rewrites the line in place. The `[S]`/`[M]`/`[L]` tag is carried
-onto the spec as `task.complexity`. **Not yet minted — framing stops here for
-maintainer review (Prompt 1c).**
+onto the spec as `task.complexity`. **Minted 2026-11-05** as a linear chain
+(SPEC-043 → SPEC-044 → SPEC-045; `depends_on` set, scope filled). **Next = design
+SPEC-043** (Prompt 2b) in the main session; build/verify delegate to cold sessions.
 
-- [ ] (not yet written) — [M] Compression-7 recognition + strip-path routing:
+- [ ] SPEC-043 (frame) — [M] Compression-7 recognition + strip-path routing:
   accept `Compression == 7` on the sensor IFD and route strip/tile bytes through
   `ljpeg::decode_into` (reuse SPEC-028 multi-strip assembly), for both byte
   orders; the uncompressed / monochrome / Bayer paths stay byte-identical; tier-A
   analytic Compression-7 fixtures (the STAGE-009 round-trip encoder can emit
   strips) + the panic-free binding contract
-- [ ] (not yet written) — [M] Bit-exact corpus oracle: both held Compression-7
+- [ ] SPEC-044 (frame) — [M] Bit-exact corpus oracle: both held Compression-7
   DNGs (Leica M Typ 246 big-endian + Pentax K-3 III little-endian) decode to a
   `u16` plane whose MD5 equals `dnglab analyze --raw-checksum`, proven red
   (perturbed plane/predictor); an end-to-end develop smoke proves the decoded
   plane flows through the existing develop/tone path unchanged
-- [ ] (not yet written) — [S] Binding capstone: a provenance-ledger entry for the
+- [ ] SPEC-045 (frame) — [S] Binding capstone: a provenance-ledger entry for the
   DNG Compression-7 binding, a macOS/Linux byte-identical determinism assertion,
   and container→decoder truncation / hostile-strip hardening over the strip
   boundary (if not already covered by specs 1–2)
 
-**Count:** 0 shipped / 0 active / 3 pending (outlines; not yet minted)
+**Count:** 0 shipped / 3 active / 0 pending
 
 *Specs 1 and 2 could collapse into one if the binding proves a thin dispatch swap
 — decided at mint / first design. No entry looks L; nothing flagged for a split.*
