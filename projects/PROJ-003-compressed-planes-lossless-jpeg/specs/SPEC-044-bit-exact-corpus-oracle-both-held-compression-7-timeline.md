@@ -9,7 +9,7 @@ Cycle prompts live in `prompts/SPEC-044-<cycle>.md`.
 
 - [x] **design** — completed 2026-11-06
 - [x] **build** — completed 2026-11-06 — PR #124; cost FLOOR 185,963 tokens (context occupancy, no /cost in the Code tab)
-- [ ] **verify** — prompt: pending (waiting on build)
-- [ ] **ship** — prompt: pending (waiting on verify)
+- [x] **verify** — completed 2026-11-06 — ✅ APPROVED (HANDOFF-096); prompt: `prompts/SPEC-044-verify.md`; cost FLOOR 165,000 tokens (context occupancy, no /cost in the Code tab)
+- [ ] **ship** — prompt: pending (orchestrator)
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` complete · `[?]` blocked (one-line reason, needs human or external unblock).
