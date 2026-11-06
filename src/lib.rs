@@ -140,8 +140,8 @@ use core::fmt;
 /// cannot (docs, tests, refactors that are bit-identical). See `DEC-028`.
 pub const DEVELOP_VERSION: &str = "1";
 
-/// libFuzzer entry for the single-component SOF-3 lossless-JPEG decoder
-/// (`ljpeg::decode_into`) — `SPEC-038`, `DEC-036`.
+/// libFuzzer entry for the SOF-3 lossless-JPEG decoder (`ljpeg::decode_into`,
+/// one- or two-component — `SPEC-046`) — `SPEC-038`, `DEC-036`.
 ///
 /// Compiled in **only** under the `fuzzing` cargo feature, which the separate
 /// `irradiance-fuzz` crate turns on (`fuzz/Cargo.toml`). A default `cargo
@@ -169,7 +169,14 @@ pub fn __fuzz_ljpeg(data: &[u8]) {
         // a panic.
         return;
     };
-    let Some(pixels) = u64::from(frame.lines).checked_mul(u64::from(frame.samples_per_line)) else {
+    // `Nf · X · Y`: the two-component column-interleave plane is `2·X` wide
+    // (SPEC-046), so a two-component header must size `out` by its component
+    // count or `decode_into` would always reject it with a length error before
+    // the decode path is fuzzed at all.
+    let Some(pixels) = u64::from(frame.lines)
+        .checked_mul(u64::from(frame.samples_per_line))
+        .and_then(|p| p.checked_mul(u64::from(frame.components)))
+    else {
         return;
     };
     if pixels > MAX_PIXELS {
