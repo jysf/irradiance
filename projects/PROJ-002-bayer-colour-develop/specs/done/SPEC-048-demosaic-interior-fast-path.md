@@ -6,14 +6,14 @@
 task:
   id: SPEC-048
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M              # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved         # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -63,11 +63,44 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 15000000
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 35
+      recorded_at: 2026-11-07
+      notes: "Main-session design (un-metered; no /cost meter in the Claude Code Code tab). Formalized DEC-041 (row-wise interior fast path over per-row slices, border kept reflecting, kernel arithmetic verbatim so output is bit-identical) plus the STAGE-012 perf discipline; wrote the equivalence/bit-identity failing test, HANDOFF-101 and the build prompt."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 12177062
+      estimated_usd: 29.99
+      duration_minutes: 40
+      recorded_at: 2026-11-07
+      notes: "Built whole, APPROVED by verify first pass (HANDOFF-101, PR #142, b760613). 24 MP median demosaic 533.0 → 316.2 ms (~1.69x), bit-identical (full-buffer checksum unchanged, equivalence test + golden hashes green). Recovered 12,177,062 tok / $29.99 (claude-opus-4-8, from transcript 7c0299e2, 57 deduped assistant messages, 97.4% cache reads); the handback was a floor, superseded by the deduped transcript sum."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 11812130
+      estimated_usd: 25.07
+      duration_minutes: 45
+      recorded_at: 2026-11-07
+      notes: "Verdict APPROVED at b760613 (HANDOFF-102, PR #143). Proved the equivalence test non-tautological by injecting an interior off-by-one and watching it go red; all gates green (just test 425/0 with the Tier-B corpus). Recovered 11,812,130 tok / $25.07 (claude-opus-4-8, from transcript ae01a0bd, 61 deduped assistant messages, 97.9% cache reads); the HANDOFF-102 handback 217,733 was a context-window floor, superseded."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-11-07
+      notes: "Orchestrator ship bookkeeping (un-metered main session). Recovered the build and verify true costs from their transcripts, wrote the reflection and totals, archived the spec, flipped the STAGE-012 backlog, and logged the brag + changelog."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 23989192
+    estimated_usd: 55.06
+    session_count: 4
+shipped_at: 2026-11-07
 ---
 
 # SPEC-048: demosaic interior fast path
@@ -172,31 +205,29 @@ expand this one.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Little about the spec itself: framing the perf change as output-invariant
+   (an equivalence proof against a reflecting reference + the golden hashes) made
+   it low-risk and it was APPROVED first pass. The one friction was process, not
+   code — each docs PR in this chain hit a squash-merge conflict because the
+   branch carried the prior PR's pre-squash commit; basing each new cycle's
+   branch on a freshly-updated `main` (which this ship did) avoids it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No new rule. `DEC-041` captured the fast-path structure and the STAGE-012
+   perf discipline (bit-identical + measured + a DEC per optimisation), which now
+   governs P2 and P3.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Already in the `STAGE-012` backlog: P2 (fuse `develop_color_into`'s scratch
+   buffers + add `develop_color_f32_into`), the colour-geometry crop follow-up,
+   and P3 (opt-in threading).
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — none
+   *(APPROVED on the first verify pass; the verify's adversarial interior
+   off-by-one confirmed the equivalence test is load-bearing rather than finding
+   a real defect.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Develop about 1.69× faster: 24 MP median `demosaic_into` fell from 533.0 ms
+   to 316.2 ms, with byte-identical output (the full-buffer checksum is unchanged).

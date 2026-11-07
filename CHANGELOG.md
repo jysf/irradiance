@@ -10,6 +10,16 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **Demosaic is about 1.69× faster, output unchanged** (`irradiance::demosaic`,
+  SPEC-048, PROJ-002) — `demosaic_into` gained a row-wise **interior fast path**:
+  interior pixels read their neighbours by direct index into per-row slices,
+  skipping edge reflection and per-read bounds checks, while the 2-pixel border
+  keeps the reflecting path. The kernel arithmetic is unchanged, so the output is
+  **bit-identical** — the demosaic golden hashes plus a byte-for-byte equivalence
+  test against a reflecting reference are the gate. Measured 24 MP median
+  `demosaic_into` 533.0 → 316.2 ms (`DEC-041`). No public API, no dependency, no
+  `unsafe`; per-row slices keep the interior panic-free by construction.
+
 - **Colour develop now honours the DNG `ActiveArea` origin** (`irradiance::color` /
   `irradiance::demosaic`, SPEC-047, PROJ-002) — `develop_color_into` and `demosaic_into`
   now index each pixel's Bayer colour and its BlackLevel/WhiteLevel 2×2 slot from the
