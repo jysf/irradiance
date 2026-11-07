@@ -26,9 +26,13 @@
 #      makes closed_reason load-bearing rather than decorative.
 #   2. An empty Project-Level Reflection — the direct analogue of spike.outcome.
 #      The reflection is the artifact close exists to produce.
-#   3. Open signals owned by project-close. The v0.5.18 ritual says these get
+#   3. OPEN signals owned by project-close. The v0.5.18 ritual says these get
 #      dispositioned at close and nothing enforced it. `defer-with-trigger` is a
-#      legal disposition, so the refusal always has an honest escape hatch.
+#      legal disposition, so the refusal always has an honest escape hatch. Only
+#      `open` blocks: `watch` is itself a disposition ("keep observing" — a risk
+#      indefinitely, a lesson or golden-path while it accumulates toward its bar),
+#      and refusing on it would force a live risk dropped or a pattern codified
+#      below its evidence bar just to close. See the gather step for the full why.
 #
 # Everything else warns: a missing closed_reason, an empty value.thesis. Refusing
 # on a null thesis would punish exploratory projects, which the value model
@@ -141,13 +145,23 @@ reflection_filled=$(awk '
     END { print found ? "yes" : "no" }
 ' "$BRIEF")
 
-# Signals this close owns, still awaiting disposition.
+# Signals this close owns, still awaiting a FIRST disposition.
+#
+# Only `open` blocks. `watch` is itself a recorded disposition — "keep
+# observing" — which the ritual already blesses: a risk watches indefinitely,
+# and a lesson or golden-path watches while it accumulates toward its codify
+# bar. Refusing on `watch` forced the close to either drop a live risk or
+# codify a pattern below its evidence bar just to go green — the exact
+# distortions the signal model exists to prevent. So `watch` is treated as the
+# standing disposition it is, and only `open` (logged, nobody has decided yet)
+# blocks. `defer-with-trigger`, `accepted` and a move to `watch` are all honest
+# ways to clear it.
 open_signals=""; open_signal_count=0
 while IFS=$'\t' read -r sid sty sst sda sbar ssum; do
     [ -n "$sid" ] || continue
     [ "$sda" = "project-close" ] || continue
     case "$sst" in
-        open|watch)
+        open)
             open_signal_count=$((open_signal_count + 1))
             open_signals="${open_signals}    ${sid} (${sty}, ${sst}) — ${ssum}"$'\n'
             ;;
@@ -159,6 +173,11 @@ done < <(emit_signals_tsv)
 # computed here and not on a dashboard.
 
 spec_count=0; shipped_specs=0; proj_tokens=0; proj_usd="0.00"
+# find_all_specs already recurses into specs/done, so it alone yields both the
+# active and the archived specs exactly once. A second explicit pass over
+# specs/done would double-count every shipped spec — and with it the token and
+# dollar totals and the decision-density denominator, the three numbers this
+# rollup exists to get right.
 while IFS= read -r f; do
     [ -n "$f" ] || continue
     case "$f" in */prompts/*|*-timeline.md) continue ;; esac
@@ -166,7 +185,7 @@ while IFS= read -r f; do
     [ "$(get_spec_cycle "$f")" = "ship" ] && shipped_specs=$((shipped_specs + 1))
     proj_tokens=$((proj_tokens + $(sum_cost_tokens_for_spec "$f")))
     proj_usd=$(awk -v a="$proj_usd" -v b="$(sum_cost_usd_for_spec "$f")" 'BEGIN{printf "%.2f", a+b}')
-done < <(find_all_specs "$PDIR" ; find "${PDIR}/specs/done" -maxdepth 1 -type f -name 'SPEC-*.md' 2>/dev/null)
+done < <(find_all_specs "$PDIR")
 
 orch_tokens=0
 for s in "${PDIR}"/stages/STAGE-*.md; do
@@ -333,7 +352,10 @@ if [ -n "$thesis" ]; then
 fi
 
 if [ "$DRY_RUN" = 1 ]; then
-    printf "${DIM}--dry-run: nothing written. Would stamp shipped_at: %s%s.${RESET}\n" \
+    # `printf --` ends option parsing: with colors off (non-TTY), ${DIM} is empty
+    # and the format would otherwise begin with a literal `--`, which printf reads
+    # as a flag ("invalid option") and aborts under set -e.
+    printf -- "${DIM}--dry-run: nothing written. Would stamp shipped_at: %s%s.${RESET}\n" \
         "$today_str" "${closed_reason:+ and keep closed_reason: $closed_reason}"
     exit 0
 fi

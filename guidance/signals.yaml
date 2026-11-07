@@ -61,9 +61,14 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-08-18
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: REVIEWED — kept at watch (N=1) ══
+      Still N=1 (SPIKE-001); below its N=3 bar. The PROJ-003-close gate fix stops a
+      watch golden-path from blocking a project close, so it need not be forced
+      terminal. Watch for N=2 in a future tolerance-bearing spec.
+      ─── earlier notes ───
       Capture, do NOT promote — signals.yaml's own rule is that a wrong paved road
       is worse than no road, and this is N=1. What made it work: the falsifier was
       registered alongside the threshold, so the metric had to prove it could FAIL
@@ -108,9 +113,14 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-09-06
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: STANDING RISK — watch ══
+      CI cannot run tier-B corpus tests (DEC-003 keeps corpus files uncommitted), so a
+      green badge does not prove bit-exactness; the bit-exact oracles run locally.
+      Kept at watch indefinitely per DEC-003. No action.
+      ─── earlier notes ───
       Accepted deliberately, not overlooked — the alternative was unlicensed
       redistribution. Revisit at each close: has a real regression reached main
       because CI could not see it? If yes, the fix is a self-hosted or scheduled
@@ -122,12 +132,18 @@ signals:
     summary: "Cost figures from different execution modes are not comparable, but `just calibration` averages them anyway."
     evidence: "SPEC-001 — build reported 197,940 (Agent-result subagent_tokens, unknown cache composition); verify reported 5,242,951 (summed from its own transcript, ~97% cache-read). A 26x spread that says nothing about effort."
     bar: null
-    status: open
+    status: done
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-09-08
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: DONE — resolved in practice ══
+      Cost is now recovered per session from the cold-session transcript at Opus
+      list rates, deduped by message id, and each session records its own model, so
+      figures are comparable across execution modes. The mode-mixing hazard is
+      superseded by transcript recovery (used throughout STAGE-009 and STAGE-011).
+      ─── earlier notes ───
       ⚠ MEASURED 2026-08-20 (SPEC-002 build), and it is worse than "not
       comparable" — the transcript-sum figures are WRONG, roughly 1.7x too high.
       A Claude Code transcript writes ONE jsonl line PER CONTENT BLOCK, and every
@@ -309,12 +325,17 @@ signals:
     summary: "AGENTS.md §15 tells the agent to write cost.sessions; DEC-013 says handback-sync transcribes it."
     evidence: "N=3. (1) SPEC-006 F-5 — cost.sessions was empty after verify because each side could assume the other had it. (2) SPEC-007/FU-7 — HANDOFF-017's whole `handback:` block was null while handoff.status was `completed`; the number survived only because the build wrote cost.sessions directly, i.e. the same ambiguity firing from the OTHER side. (3) SPEC-009/FU-2 — a THIRD direction: the build wrote a null-numeric build session AND handback-sync appended the orchestrator-recovered figure BESIDE it, so one cycle carried two sessions. Unlike SPEC-010's duplicate the total was right (one entry was null) and the record was still wrong. SPEC-014/FU-10 (2026-09-05): a THIRD owner appeared — the delegated ship round wrote cost.totals itself, despite HANDOFF-034 listing cost.totals under Out of Scope in as many words, and wrote it WRONG: 58,245,024 across 3 sessions, omitting its own 30,600,000 ship session because handback-sync had not run yet. handback-sync's write_cost_totals (scripts/handback-sync.sh:123) then silently overwrote it with the correct 88,845,024 / 4. The error was invisible and self-correcting ONLY because the orchestrator happened to sync after the agent wrote; in the other order the shipped total ships 34% low with nothing to catch it. The field has two documented owners and one undocumented last-writer-wins tiebreak."
     bar: null
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-09-04
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: ACCEPTED — tooling pass ══
+      Both AGENTS.md section 15 and archive-spec write cost fields, so ownership is
+      ambiguous. Fix: make archive-spec the sole writer of cost totals and have the
+      prose defer to it. Accepted into the post-PROJ-003 tooling-hardening pass (template-side), scheduled before or alongside the 0.2.0 cut.
+      ─── earlier notes ───
       ⚠ N=3 as of 2026-09-04, and the third instance shows the fix is narrower
       than "pick an owner". SPEC-009's build could not self-report, wrote a
       null-with-note entry (correct, per AGENTS.md §4), and handback-sync then
@@ -347,12 +368,16 @@ signals:
     summary: "The ship cycle's accomplishment-logging step was skipped on every shipped artifact until a human asked."
     evidence: "SPIKE-001, SPIKE-002, SPEC-001, SPEC-002, SPEC-003, SPEC-006 all shipped with cost.totals, reflections and archive done, and zero brag entries. brag_list for this project returned [] after six ships."
     bar: null
-    status: open
+    status: done
     disposition_at: project-close
     first_flagged: 2026-08-21
-    last_touched: 2026-08-21
+    last_touched: 2026-11-06
     raised_by: human
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: DONE — resolved in practice ══
+      The brag-at-ship step is now part of every ship and was logged for the
+      STAGE-009 and STAGE-011 ships. Standing practice, no scheduled tooling work.
+      ─── earlier notes ───
       DEC-010 makes it on-by-default and AGENTS.md §15 lists it, but nothing
       SURFACES its absence: `just status`, `just validate` and `just cost-audit`
       are all silent, and archive-spec succeeds regardless. It is the "ship the
@@ -392,9 +417,16 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-21
-    last_touched: 2026-08-21
+    last_touched: 2026-11-06
     raised_by: human
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: REVIEWED — kept at watch; write up for the template ══
+      The ship-blocking/follow-up split stays codified in AGENTS.md section 15 and
+      carried its weight across all of PROJ-003 (SB-N / FU-N used throughout). The
+      narrow id-crosses-a-boundary claim is still the unproven part; promote only on
+      N=3. Recommended follow-up: write the convention up for the spec-driven-template
+      repo, which has no follow-up convention at all. Kept at watch.
+      ─── earlier notes ───
       Codified in AGENTS.md §15 on 2026-08-21 as SB-N / FU-N, numbered PER SPEC.
       NOT in the template -- invented by SPEC-003's verify session, adopted without
       question, and it reached a decision record and a framed spec before anyone
@@ -433,12 +465,17 @@ signals:
     summary: "A delegated session reading its own project transcript directory finds the ORCHESTRATOR's live transcript beside it, and the natural inference — 'a prior attempt on a different model' — is wrong."
     evidence: "SPEC-014/FU-8 (2026-09-05, HANDOFF-034's ship round). Every handback in this repo is required to compute tokens_total from ~/.claude/projects/<slug>/<session-id>.jsonl. That directory also holds the ORCHESTRATOR's transcript, which is live at the same moment, runs a different model, and text-matches the delegation on every distinctive term — because the orchestrator WROTE the handoff. The implementer found e078417d-f832-4765-bc7b-2b8493e01419.jsonl (claude-opus-5, 120 messages, 20,263,224 tokens) next to its own 1600fcb0 (claude-sonnet-5, 149 messages), and concluded 'a prior attempt at this same delegation, predating a /clear + /model reset'. There was no /clear and no prior attempt: e078417d is the orchestrator session, confirmed by its uuid matching the orchestrator's scratchpad (holding develop.rs.orig/.v2/.v3, the three mutation backups) and by timestamps that ENCLOSE the implementer's — 16:57:57->22:22:54 UTC around 21:16:59->21:51:16. A prior attempt cannot still be writing 31 minutes after its replacement finished. THE EXCLUSION WAS CORRECT AND THE NUMBER IS RIGHT; only the recorded reasoning was wrong, and it shipped into a handback until the orchestrator caught it. The cheap discriminator nobody is told to use: compare the transcript's time span against your own, and check whether its uuid is your scratchpad path or someone else's."
     bar: 2
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-09-05
-    last_touched: 2026-09-05
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: ACCEPTED — tooling pass ══
+      A cold session reading its own orchestrator transcript can mistake it for a
+      prior attempt. Fix: tag transcript lineage so a cold session can tell its own
+      context from a previous run. Accepted into the post-PROJ-003 tooling-hardening pass (template-side), scheduled before or alongside the 0.2.0 cut.
+      ─── earlier notes ───
       N=1. Filed at bar 2 rather than acted on, because one instance cannot tell
       a repeatable trap from a one-off misreading — the same discipline
       `measurement-over-generalised` asks for. But the STRUCTURE says it will
@@ -571,12 +608,17 @@ signals:
     summary: "`just new-spec` mints the next ID by scanning the WORKING TREE, so an ID created while a branch is in flight silently collides with one created on that branch."
     evidence: "2026-08-22. SPEC-010 was framed during SPEC-005's ship and committed on feat/spec-005-metadata-oracle. Later the same day, on main (PR not yet merged), `just new-spec` assigned SPEC-010 AGAIN — for a different spec. Caught by hand because the collision was visible in the same session; it would not have been visible to either branch alone, and would have surfaced as a merge that produced two SPEC-010 files. FIRST OBSERVED INSTANCE, 2026-09-06 (PATCH-002/HANDOFF-039): `just new-handoff PATCH-002 verify` minted HANDOFF-038 while HANDOFF-038 already existed, committed and pushed, on the unmerged feat/spec-016 branch. The minter scans the working tree, and the working tree was on fix/patch-002, so the SPEC-016 handoff was invisible to it. Caught immediately only because the orchestrator happened to have created the other one an hour earlier and recognised the number; nothing in the tooling objected, and the two files have different slugs, so a `ls handoffs/` on either branch alone looks correct. Renumbered to HANDOFF-039 by hand, giving precedence to the already-pushed SPEC-016 handoff. N=2. The 2026-08-22 instance was REAL, not analytical - SPEC-010 was minted twice - and my first characterisation of it here was wrong. WHAT BOTH INSTANCES SHARE, and it is the finding: a `git log --all --diff-filter=A` search across the entire history returns ZERO collisions, because every time this fires it is caught in-session and renamed BEFORE the duplicate is ever committed. The defect is invisible to history by construction, so its true N can only ever be the number of times somebody happened to notice - which is exactly the argument for an ID index that is written at mint time rather than reconstructed from committed files. THIRD INSTANCE, 2026-09-06, same session as the second and MORE damning: `just new-patch` minted PATCH-003 while PATCH-003 already existed on the unmerged fix/patch-003 branch (PR #10, open). What makes it worse than the first two is that the orchestrator had ALREADY RUN the cross-ref check `git log --all --diff-filter=A | grep -oE 'PATCH-[0-9]+'` moments earlier, seen that 003 was taken, and written '-> next: PATCH-004' - and the tool minted 003 regardless, because the check and the mint are separate steps and nothing connects them. KNOWING ABOUT THE BUG DID NOT PREVENT IT. That is the argument against fix option (3) (an audit alongside the existing minter) and for option (1) (minting itself writes to a ledger): a discipline the human has to remember, on every mint, is the same shape as the documented-step-with-no-surface this repo has now measured four times. FOURTH INSTANCE, 2026-09-06, minutes after the third: `just new-handoff PATCH-004 verify` minted HANDOFF-040 while HANDOFF-040 AND HANDOFF-041 both existed on the unmerged fix/patch-003 branch. N=4 across two artifact kinds (SPEC, HANDOFF x2, PATCH) in a single day. THE RATE IS THE FINDING: three of the four fired within one session, because the session had 2-3 branches in flight at once - the working mode AGENTS.md section 13 actively prescribes. The orchestrator has now run the manual cross-ref check before EVERY mint and it has not prevented a single one, because the check informs a human and the mint reads the tree. Every instance so far was caught by someone recognising the number; none reached history; and none ever will, which is why an audit cannot find them."
     bar: 4
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-08-22
-    last_touched: 2026-09-06
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: ACCEPTED — tooling pass ══
+      new-spec mints the next id from merged state, so two unmerged branches can mint
+      the same id (we hit this as the globally-sequential-id drift). Fix: reserve or
+      scan across open branches. Accepted into the post-PROJ-003 tooling-hardening pass (template-side), scheduled before or alongside the 0.2.0 cut.
+      ─── earlier notes ───
       AGENTS.md §2 is explicit that IDs are "globally unique and continuous
       across the repo" and that `just new-stage` / `just new-spec` "assign the
       next number repo-wide". They assign the next number in the CHECKOUT, which
@@ -659,12 +701,18 @@ signals:
     summary: "CI runs `-D warnings` on `dtolnay/rust-toolchain@stable`, so every lint a new clippy release ADDS fails CI on code nobody touched."
     evidence: "PATCH-001, 2026-08-22, and CORRECTED by its independent verify (SB-2) — the first version of this line named the drift as root cause and was WRONG. Measured job-by-job across 22 runs: main was red for 17 CONSECUTIVE runs from 1964a7f (2026-08-20, ship(spec-001) — the first run that contained the Rust jobs) through 04aaf4b, spanning SIX shipped specs. The red-proof job failed in ALL 17; clippy in 14. THE FIRST THREE HAD CLIPPY GREEN, with the red-proof's ANSI defect the sole cause. So the toolchain drift is the LATER and SMALLER half: the gate enforcing a blocking constraint had never once run successfully in CI."
     bar: null
-    status: open
+    status: watch
     disposition_at: project-close
     first_flagged: 2026-08-22
-    last_touched: 2026-08-22
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: ACKNOWLEDGED RISK — watch ══
+      CI runs deny-warnings on a floating stable toolchain, so a new lint in a future
+      stable can turn CI red with no code change. Accepted as a known, low-cost-to-fix
+      risk and kept at watch (risks watch indefinitely). Mitigation if it bites: pin
+      the toolchain or downgrade the lint. No blocking action.
+      ─── earlier notes ───
       ⚠ SCOPE OF THIS SIGNAL, narrowed by PATCH-001's verify. This risk is about
       the FLOATING-TOOLCHAIN half only, and that half accounts for 14 of the 17
       red runs. The other, older and more serious half — a red-proof that had
@@ -713,12 +761,17 @@ signals:
     summary: "rate_per_mtok: 6.60 applied flat computes 2.7x the true cost on a 97.5%-cache-read session."
     evidence: "N=5, four sessions and two models before this one, always the same direction. (1) SPEC-007 verify: $19.35 per-component at published Opus rates vs $51.06 flat — 2.6x. (2) PATCH-001, SPEC-005's build on claude-sonnet-5: $13.55 actual vs $198.76 flat — 14.7x, because the flat rate ALSO ignores which model ran. (3) SPEC-010 verify: $21.33 vs $68.39 — 3.2x. (4) SPEC-012 verify, 2026-09-04: the reviewer reported $207 at a flat $15/MTok and SAID PLAINLY it was "a ceiling, not an estimate"; measured per-component on a 98.3% cache-read session it is $33.22 — 6.2x. Honest labelling, and still the wrong number to leave in a field named estimated_usd. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them. (5) SPEC-015 build, 2026-09-05, claude-sonnet-5: transcript summed 228 input / 212,083 output / 445,454 cache-write (all 1h) / 39,271,015 cache-read = 40,409,158 combined, 97.3% cache-read. Per-component at published Sonnet rates ($3/$15/$6/$0.30 per MTok input/output/1h-write/read): $17.80. AGENTS.md §4's own fallback (`tokens_total × input rate, no cache discount`) gives $121.23 — 6.8x, squarely inside the N=4 spread (2.6x-14.7x) this signal already names, not a new failure mode."
     bar: null
-    status: open
+    status: done
     disposition_at: project-close
     first_flagged: 2026-08-21
-    last_touched: 2026-09-05
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: DONE — resolved in practice ══
+      Recovery sums the four token classes at their separate list rates (input,
+      output, cache-write, cache-read) rather than one blended rate, so cached
+      sessions are no longer overstated. Superseded by per-class transcript recovery.
+      ─── earlier notes ───
       ⚠ FIFTH MEASUREMENT 2026-09-05 (SPEC-015 build), added by the implementer
       computing its own handback cost rather than by a verify/ship session
       auditing someone else's — the first data point from that angle, and it
@@ -765,12 +818,16 @@ signals:
     summary: "Specs and handoffs say ten / eleven / twelve gates and mean different sets; no named list exists, so every cycle re-derives it and some acceptance criteria are unsatisfiable as written."
     evidence: "SPEC-015/FU-11, raised at verify 2026-09-05, confirmed by the orchestrator at ship. TWO enumerations differing by FOUR members are both cited in SHIPPED artifacts. HANDOFF-013's ten: fmt, clippy, test, msrv, deny, lint-red-proof, lint-no-allow, cost-audit, decisions-index, deny-fuzz. SPEC-013's verify eleven: test, fmt, clippy, lint-no-allow, lint-red-proof, typecheck, build, msrv, deny, deny-fuzz, fuzz. The first counts cost-audit and decisions-index and omits typecheck, build and fuzz; the second does the reverse. Grep across specs/done: 'ten gates' in SPEC-004 (AC), SPEC-005 (AC9), SPEC-008 (verify handback) and AGENTS.md:314; 'eleven gates' in SPEC-009 (AC7), SPEC-013 and SPEC-014 (AC8). SPEC-015 made the contradiction unsatisfiable: its AC9 said 'eleven gates' while its own Non-Goals excluded fuzz, the eleventh — so the build correctly ran ten and marked the criterion met, and the handoff needed a paragraph to explain why that was not a miss. Its verify then ran the twelve-item UNION rather than adjudicate, which is the right move for a reviewer and the wrong state for a repo; its ship round ran the same union and said so. Three cycles in one spec each spent real effort deciding what the number meant."
     bar: 3
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-09-05
-    last_touched: 2026-09-06
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: ACCEPTED — tooling pass ══
+      Specs and handoffs cite ten, eleven or twelve gates with no single source.
+      Fix: define the gate set once, in a list the gates and the prose both read. Accepted into the post-PROJ-003 tooling-hardening pass (template-side), scheduled before or alongside the 0.2.0 cut.
+      ─── earlier notes ───
       Past bar on arrival (three cycles in one spec, plus seven shipped
       artifacts split across two counts), so filed open rather than watch.
 
@@ -849,12 +906,16 @@ signals:
     summary: "handback-sync silently truncates notes: at the first bare `#` character, treating it as a YAML comment marker even though the whole value was meant as prose."
     evidence: "N=1, filed 2026-09-07. SPEC-018 HANDOFF-046 round-1 build handback wrote notes: 12/14 ACs green; AC8/AC9 #[ignore]d — dnglab/rawler implement no DNG opcode processing at all (DEC-024), so SPEC-020's oracle cannot validate WarpRectilinear in either direction. handback-sync transcribed this into cost.sessions[build].notes but the archived value reads only `12/14 ACs green; AC8/AC9` — everything after the bare `#` (unquoted string), including the entire finding about the broken oracle, dropped silently. Round-2 verify (HANDOFF-047 FU-5) caught it. Sibling of handback-sync-truncates-multi-line-scalars: same script, same line-oriented extraction, different YAML corner case. Round-2 build fix was to require `notes:` be double-quoted in HANDOFF-046 going forward, but the round-1 archived entry remains truncated in cost.sessions and the tooling is unchanged."
     bar: 3
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-09-07
-    last_touched: 2026-09-07
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: ACCEPTED — tooling pass ══
+      handback-sync truncates a note at the first unquoted hash, reading it as a YAML
+      comment. Fix: quote or block-scalar the note field on write. Accepted into the post-PROJ-003 tooling-hardening pass (template-side), scheduled before or alongside the 0.2.0 cut.
+      ─── earlier notes ───
       Same fix as [[handback-sync-truncates-multi-line-scalars]]: emit a
       block scalar or double-quote the value in the sync output. A YAML parse
       on write would catch both.
@@ -864,12 +925,18 @@ signals:
     summary: "When behavior-check evidence for a foreign implementation is available (behavioural probe, source inspection), builds default to source inspection even though the repo forbids reading copyleft code for anything in the default build."
     evidence: "N=1, filed 2026-09-07. SPEC-018 HANDOFF-046 round-1 build's Finding 2 (dnglab does not implement DNG OpcodeList processing) was reached by reading dnglab source directly. HANDOFF-047 round-1 verify recognised the tension with provenance-recorded-per-algorithm and re-verified behaviourally instead (NCC-tile analysis against dnglab --srgb output, invariant to affine tone changes) — same conclusion, no copyleft-source reading. AGENTS.md §15 says dnglab's source is not a reference; the constraint is a hard rule for the default build but the discipline for feature-presence questions like Finding 2 was not codified before this instance. FU-9 raised at round-1 verify, dispositioned to signal at ship."
     bar: 3
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-09-07
-    last_touched: 2026-09-07
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: ACCEPTED — tooling pass ══
+      When behaviour-check evidence for a foreign implementation is scarce, reading
+      dnglab source tempts a behaviour rather than clean-room check. Fix: make the
+      clean-room boundary explicit in the verify prompt. Accepted into the post-PROJ-003 tooling-hardening pass (template-side), scheduled before or alongside the 0.2.0 cut.
+      Patent-clean posture (DEC-035) is unaffected.
+      ─── earlier notes ───
       Fix candidate: an explicit rule in AGENTS.md — "feature-presence
       questions about a copyleft implementation are settled by behavioural
       probe, not source inspection." The verifier's NCC-tile method is the
@@ -880,12 +947,16 @@ signals:
     summary: "handback-sync reads handoff.to_agent from the SAME handoff file for every round of a punch-list, so the actual model that ran a later round is mis-attributed in cost.sessions when the sub-agent tier changes."
     evidence: "N=2, filed 2026-09-07 (2 rounds of the same defect). SPEC-018 HANDOFF-046 round 2 and round 3 both ran on claude-opus-5 (per each round's own handback and independent transcript verification — 97 metered messages round 2, 51 round 3, priced at Opus rates in each handback), but scripts/handback-sync.sh reads to_agent from the handoff file, which was set to claude-sonnet-5 at round-1 dispatch and never updated. Result: both round-2 and round-3 build entries in cost.sessions[build] carry agent: claude-sonnet-5, mis-attributing 19.9M Opus tokens (~$50 at published rates) to a Sonnet-tier session. Just calibration reads these fields; the mis-attribution therefore reaches the token-per-cycle statistics silently. Round-2 verify (HANDOFF-048 FU-11) raised it and round-3 build explicitly flagged that its own entry would land the same way."
     bar: 2
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-09-07
-    last_touched: 2026-09-07
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: ACCEPTED — tooling pass ══
+      handback-sync reuses the to-agent field across punch-list rounds, so a stale
+      target carries forward. Fix: re-resolve it each round. Accepted into the post-PROJ-003 tooling-hardening pass (template-side), scheduled before or alongside the 0.2.0 cut.
+      ─── earlier notes ───
       At bar (N=2, same session). Two fix candidates:
 
       1. handback-sync snapshots to_agent per-round when it appends a new
@@ -901,12 +972,16 @@ signals:
     summary: "handback-sync transcribes only the FIRST physical line of a multi-line YAML scalar, leaving an unterminated quote that makes a spec's whole front matter unparseable — and every gate passes anyway."
     evidence: "SPEC-015/FU-4 and FU-5, raised at verify 2026-09-05; SPEC-015/FU-12 found the second instance during the orchestrator's reconciliation the same day. A handback may legally write `notes:` as a multi-line double-quoted YAML scalar (continuation lines indented) — HANDOFF-035 and HANDOFF-025 both did, and both are valid YAML in the handoff. scripts/handback-sync.sh's field extraction is line-based: it emits `notes: \"<first line only>\"` into the spec, leaving the quote open. The next key at a lower indent then makes the ENTIRE front matter unparseable. MEASURED, N=2: (1) SPEC-015 broke at c57f88d, the orchestrator's own sync commit, and stayed broken through two further commits; (2) SPEC-010 broke at its verify sync on 2026-09-03 and SHIPPED — through ship, `just archive-spec`, and three subsequent specs — undetected for two days. Ruby's Psych rejects both with `found unexpected end of stream while scanning a quoted scalar`. WHAT MAKES IT PROCESS DEBT RATHER THAN A BUG: `just validate` reports the file has `valid required front-matter`, `just cost-audit` passes, `just status` lists it, `archive-spec` moved it, and CI is green — because every one of those reads the front matter with line-oriented grep/sed rather than a YAML parser. The gate that exists to check front matter cannot see front matter that no parser can read. Both instances repaired by the orchestrator 2026-09-05; the tooling is unchanged, so instance 3 is a matter of the next multi-line handback note."
     bar: 2
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-09-05
-    last_touched: 2026-09-05
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: ACCEPTED — tooling pass ══
+      handback-sync transcribes only the first physical line of a multi-line scalar.
+      Fix: preserve block scalars on sync. Accepted into the post-PROJ-003 tooling-hardening pass (template-side), scheduled before or alongside the 0.2.0 cut.
+      ─── earlier notes ───
       At bar already (N=2, one of them shipped), so this is filed open rather
       than watch. Two independent fixes, either sufficient, both cheap:
 
@@ -932,9 +1007,13 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-09-05
-    last_touched: 2026-09-05
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: REVIEWED — kept at watch (N=1) ══
+      Still N=1 (SPEC-015). Below its N=3 bar. Gate fix lets a watch lesson stand
+      without blocking close. Watch for a second instance.
+      ─── earlier notes ───
       Capture, do NOT promote — N=1. The fix (`tests/support/oracle.rs::bound_check`,
       `DEC-020`) is a genuine O(n + 65536) alternative that IS correct: a
       two-pointer merge over RUNS (value, remaining count) in each frequency
@@ -1005,12 +1084,16 @@ signals:
     summary: "cost-audit.sh scopes to get_active_project, so parking a project (status != active) drops its shipped stages/specs from the cost gate — the 'invisible absence' the gate exists to prevent — and it breaks cost-audit-red-proof.sh, which hard-codes STAGE-002 as its subject."
     evidence: "PROJ-002 framing, 2026-10-29. Setting PROJ-001 -> on_hold to make PROJ-002 the default active wave made cost-audit (cost-audit.sh:41, project=$(get_active_project)) audit PROJ-002 only. Its red-proof mutates STAGE-002 (PROJ-001) to a shipped stage with sessions: [] and then found the gate 'decorative' (rc=0), because STAGE-002 was out of scope — the CI 'cost-capture audit' job went red. Reverted PROJ-001 to active to unblock, which is why it is not parked despite its remaining stages being blocked (STAGE-004 on crustyimg) / deferred (STAGE-005)."
     bar: "N=1"
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-10-29
-    last_touched: 2026-10-29
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: ACCEPTED — tooling pass ══
+      cost-audit scopes to the active project, so a parked stage's missing cost goes
+      unaudited. Fix: audit all non-terminal stages, not just the active project. Accepted into the post-PROJ-003 tooling-hardening pass (template-side), scheduled before or alongside the 0.2.0 cut.
+      ─── earlier notes ───
       Fix options: (a) make cost-audit repo-wide — audit every project's shipped
       stages/specs, not just the active one. This aligns with the gate's own
       stated purpose (STAGE-001 shipping with sessions: [] went unnoticed for 15
@@ -1028,12 +1111,17 @@ signals:
     summary: "A spec can ship and archive with its prose `## Reflection` body left as template placeholders — front-matter (`complexity_actual`, `verify_verdict`) is stamped but the reflection questions are never answered, and nothing catches it."
     evidence: "N=3, STAGE-006 close 2026-10-30. SPEC-024, SPEC-028 and SPEC-029 were all archived to specs/done/ with `complexity_actual` and `verify_verdict: approved` stamped but their `## Reflection` Q1-Q5 left as `— <answer>` / `— <one word>` placeholders. All three shipped in the rapid-fire 10-30 run (SPEC-024 'ship it, I merged early'; 028/029 back-to-back), where the front-matter step was done and the prose step skipped; SPEC-025/026/027 (same stage, less hurried) were filled. Backfilled at this stage close from each spec's timeline + verify handoff. Same shape as [[brag-step-skipped-at-ship]], [[named-tests-can-pass-vacuously]] and [[follow-up-disposition-has-no-surface]]: a documented ship step with no surface — `just validate` and `archive-spec` check front-matter KEYS but never that the reflection prose was answered, so an unfilled reflection looks identical to one whose ship turn has not come."
     bar: null
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-10-30
-    last_touched: 2026-10-30
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: ACCEPTED — tooling pass ══
+      A spec can ship and archive with its prose Reflection unfilled (archive-spec
+      checks cost, not reflection). Fix: have archive-spec refuse an empty reflection
+      on ship, the way close-project does for the project reflection. Accepted into the post-PROJ-003 tooling-hardening pass (template-side), scheduled before or alongside the 0.2.0 cut.
+      ─── earlier notes ───
       Cheap fix, same family as the siblings above and ideally sharing their one
       surface: `just validate` (or `archive-spec`) asserts a shipped spec's
       `## Reflection` contains no `— <answer>` / `— <one word>` / `<answer | none>`
@@ -1128,9 +1216,16 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-11-01
-    last_touched: 2026-11-01
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: REVIEWED — kept at watch (N=2) ══
+      PROJ-003 reused a bit-exact oracle harness in the same spirit (STAGE-009's
+      entropy-front-end foundation, STAGE-011's dnglab oracle under SPEC-044), which
+      strengthens the pattern toward N=3 without cleanly being a third instance of the
+      simple-then-quality shape. Kept at watch; the golden-path bar is deliberately
+      hard. Promote at a clean N=3, not before.
+      ─── earlier notes ───
       Capture, do NOT promote — N=2, and a wrong paved road is worse than none. The
       pattern: when a stage has a SIMPLE-correct and a QUALITY variant of the same
       operation, ship the simple one FIRST as the foundation spec, carrying the type +
@@ -1146,12 +1241,18 @@ signals:
     summary: "A Claude Code DESKTOP (Code tab) session cannot read `/cost` as a tool, so every delegated build/verify handback returns `tokens_total: null` and the orchestrator must recover each cost from the session transcript at ship."
     evidence: "N=8 and systematic. Every cold build/verify session in STAGE-006 (SPEC-030 build+verify) and STAGE-007 (SPEC-030/031/032 build+verify = 6 of the 8) handed back `tokens_total: null` with a note that /cost is not exposed to a desktop Code-tab session — correct per the contract (do not invent a number). The orchestrator recovered all of them at ship from each session's own transcript (scratchpad-uuid anchored, deduped by message.id): SPEC-030 build 93026a80 / verify eae8c836, SPEC-031 build 9b462a6e / verify 21f3a4a2, SPEC-032 build 0d68a8ef / verify 0b206331. The recovery works and is honest, but it is manual, per-session, and depends on the orchestrator holding each UUID — the handback cost contract (DEC-013) is effectively never satisfied by a desktop delegate."
     bar: null
-    status: open
+    status: done
     disposition_at: project-close
     first_flagged: 2026-11-01
-    last_touched: 2026-11-01
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE, 2026-11-06: DONE — resolved in practice ══
+      The desktop Code-tab cost tool reports only context-window occupancy, not
+      cumulative spend, so a null handback is expected; the standing practice is to
+      recover true cost from the cold-session transcript at ship. Used throughout
+      STAGE-009 and STAGE-011. No tooling change is owed here.
+      ─── earlier notes ───
       Not a defect in the sessions — they followed AGENTS.md §4 (null + a note, never
       a fabricated number). The friction is that recovery is manual and relies on the
       orchestrator capturing each delegate's scratchpad UUID (the verify/ship prompts

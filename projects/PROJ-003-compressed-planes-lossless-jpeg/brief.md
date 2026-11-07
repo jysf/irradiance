@@ -4,8 +4,8 @@
 
 project:
   id: PROJ-003
-  status: active
-  activity: design
+  status: shipped
+  activity: test
   priority: high
   target_ship: null
 
@@ -13,9 +13,9 @@ repo:
   id: irradiance
 
 created_at: 2026-11-05
-shipped_at: null
+shipped_at: 2026-11-06
 
-closed_reason: null
+closed_reason: shipped
 
 value:
   thesis: >
@@ -44,10 +44,30 @@ value:
     - "Patent: lossless Huffman JPEG is T.81 / 1992 and believed unencumbered, but the check is load-bearing to the permissive thesis and must be done AT DESIGN, before building (DEC-031 lesson: patent-check named algorithms at frame time)"
 
 value_realized:
-  thesis_held: null
-  signals_observed: []
-  evidence: null
-  notes: null
+  thesis_held: yes
+  signals_observed:
+    - "Both held Compression-7 DNGs decode to a u16 plane whose MD5 equals `dnglab --raw-checksum`, EXACTLY, across both container byte orders (Leica M Typ 246 big-endian P=12, Pentax K-3 III little-endian P=14) — SPEC-044"
+    - "The analytic encode-decode round-trip oracle goes RED on a perturbed Huffman table, predictor, or point transform and green on the honest kernel — SPEC-037"
+    - "The SOF-3 decoder is panic-free over 3.1M fuzz runs on hostile and truncated input with typed errors (SPEC-038), and the public Compression-7 route is now fuzzed continuously (SPEC-045)"
+    - "The SOF-3 codec and the DNG Compression-7 binding each carry a provenance-ledger entry naming ITU-T T.81 Annex H and its licence — SPEC-045"
+    - "Both compressed DNGs produce byte-identical plane output on macOS and Linux — SPEC-045 determinism pin"
+  evidence: >
+    All five pre-registered success signals were met. Both held Compression-7
+    files decode bit-exact against the independent dnglab reference for both
+    container byte orders, and the decoded plane flows through the existing
+    develop and tone path unchanged — a source swap, not a second pipeline. It
+    was delivered as a clean-room, pure-Rust decoder with no new runtime
+    dependencies and a completed patent clearance (DEC-035, ITU-T T.81 / 1992),
+    so the permissive / clean-room / patent-safe envelope held.
+  notes: >
+    One framing assumption was wrong and the wave absorbed it: both held files
+    are two-component (Nf=2) column-interleave SOF-3, not the single component
+    the stage plan assumed. A mid-stage probe of the SOF3 markers (SPEC-043
+    build) caught it before the oracle, and SPEC-046 (two-component decode plus
+    de-interleave, DEC-037) was inserted ahead of the bit-exact oracle so the
+    thesis still landed. The Bayer / CFA colour multi-component path (3+ colour
+    components in one frame) remains out of scope — no held colour file, so no
+    bit-exact oracle — gated on acquiring one.
 
 roadmap:
   - item: "Multi-component (Bayer-in-LJ92) SOF-3 interleave — no bit-exact oracle without a held Bayer SOF-3 file"
@@ -171,14 +191,16 @@ Format: `- [status] STAGE-ID — one-line summary`
   component): Huffman DC tables, predictors 1–7, point transform, restart
   markers, 8–16-bit; a pure compressed-bytes→`u16`-samples function, verified by
   an analytic encode→decode round-trip oracle + a red-proof, fuzzed panic-free
-- [ ] STAGE-011 (framed 2026-11-05) — **DNG `Compression 7` binding + bit-exact corpus
-  verification**: wire the decoder into the strip/tile plane path for both byte
-  orders, and verify both held files bit-exact vs `dnglab --raw-checksum`; the
-  decoded plane flows through the existing develop/tone path unchanged.
+- [x] STAGE-011 (shipped on 2026-11-06) — **DNG `Compression 7` binding + bit-exact corpus
+  verification**: wired the decoder into the strip/tile plane path for both byte
+  orders, and verified both held files bit-exact vs `dnglab --raw-checksum`; the
+  decoded plane flows through the existing develop/tone path unchanged. Grew from
+  3 specs to 4 — SPEC-046 (two-component decode + de-interleave, DEC-037) was
+  inserted mid-stage once both held files proved to be Nf=2 column-interleave.
   *(Was planned as "STAGE-010"; that id went to PROJ-002's 0.2.0 reconcile (#95),
   so this wave is STAGE-011 — stage ids are globally sequential.)*
 
-**Count:** 1 shipped / 0 active / 1 pending
+**Count:** 2 shipped / 0 active / 0 pending
 
 *(These two could collapse into one stage with two specs if the maintainer
 prefers the roadmap's "core + binding are one work item" framing — decided at
@@ -208,12 +230,44 @@ stage frame, Prompt 1c.)*
 
 ## Project-Level Reflection
 
-*Filled in when status moves to shipped.*
-
-- **Did we deliver the outcome in "What This Project Is"?** <yes/no + notes>
-- **How many stages did it actually take?** <number, compare to plan>
-- **What changed between starting and shipping?** <one or two sentences>
+- **Did we deliver the outcome in "What This Project Is"?** Yes. Both held
+  `Compression 7` DNGs now decode to the same bit-exact `u16` plane an
+  uncompressed file yields, verified against `dnglab --raw-checksum` for both
+  container byte orders, and the decoded plane flows through the existing
+  develop/tone path unchanged. irradiance went from "develops one uncompressed
+  file" to decoding the lossless-JPEG planes most real RAW actually carries,
+  without leaving the permissive / clean-room / patent-clean envelope.
+- **How many stages did it actually take?** Two, matching the plan — STAGE-009
+  (SOF-3 core decoder) and STAGE-011 (DNG binding + bit-exact corpus
+  verification). But STAGE-011 grew from 3 specs to 4: a mid-stage probe found
+  both held files are two-component (Nf=2) column-interleave, not the single
+  component the plan assumed, so SPEC-046 (two-component decode + de-interleave)
+  was inserted before the oracle (DEC-037).
+- **What changed between starting and shipping?** The decode-input assumption.
+  The files were framed as single-component SOF-3 but are two-component
+  column-interleave, caught by re-parsing the SOF3 markers during SPEC-043 build
+  rather than at the oracle. SPEC-044 also had to skip APPn/COM segments the
+  Pentax K-3 III carries (DEC-039). The thesis itself did not change.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Codified `probe-the-decode-input-not-just-the-container` into AGENTS.md §12
+    at its N=2 paired-opposing bar: when the load-bearing fact lives inside a
+    container, probe the innermost data the decoder consumes, not the container
+    metadata around it.
+  - Ten process-debt signals accepted into a post-PROJ-003 tooling-hardening pass
+    (handback-sync fidelity, cost-field ownership, gate-count definition,
+    spec-reflection-at-ship enforcement, cross-branch id minting) — all
+    template-side, scheduled before the 0.2.0 cut.
+  - Fixed the close-project gate during this close: `watch` is a standing
+    disposition and no longer blocks a project close (only `open` does), and the
+    missing `get_dec_project_id` was added so the decision-density rollup
+    computes instead of silently reading zero.
 - **What did we defer to the next project?**
-  - <one-line items>
+  - Bayer / CFA colour multi-component SOF-3 interleave — no held colour file, so
+    no bit-exact oracle; gated on acquiring one (the SPEC-035 corpus trap,
+    pre-empted not repeated).
+  - OpcodeList2 `GainMap` (flat-field / vignetting) — opcode application, not
+    plane decode; no held file carries one.
+  - Three signals kept at watch below their bars (`reusable-bit-exact-oracle-harness`
+    N=2 and `pre-register-the-tolerance` N=1 golden-paths, `distinct-value-dedup`
+    N=1 lesson); `findings-carry-ids-across-boundaries` recommended for write-up to
+    the spec-driven-template repo, which has no follow-up convention at all.
