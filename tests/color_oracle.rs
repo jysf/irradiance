@@ -694,49 +694,60 @@ fn fused_fixture(width: u32, height: u32, pattern: &[u8]) -> Sensor {
     sensor
 }
 
+/// The sizes the fuse tests sweep. 9×7 is odd in both dimensions and ≥ 5 each
+/// (interior fast path AND reflecting border). 20×24 is taller than the rolling
+/// normalised ring (RING = 8), so it exercises the ring wrap over many rows;
+/// 3×5 keeps one axis below the interior threshold (border-only rows). A tiny
+/// 2×2 and a degenerate 1×1 are covered by the panic tests above.
+const FUSE_SIZES: [(u32, u32); 3] = [(9, 7), (20, 24), (3, 5)];
+
 #[test]
 fn fused_develop_color_is_byte_identical_to_the_reference() {
-    // 9×7 is odd in both dimensions and ≥ 5 each, so the reference's demosaic_into
-    // runs its interior fast path AND its reflecting border — the fused path must
-    // match both. All four Bayer phases.
-    for pattern in BAYER_PHASES {
-        let sensor = fused_fixture(9, 7, &pattern);
-        let mosaic = varied_mosaic(9, 7);
+    // The fused develop_color_into must equal the pre-fuse
+    // normalize → demosaic_into → matrix output byte for byte, across all four
+    // Bayer phases and a spread of sizes (incl. one taller than the ring).
+    for (w, h) in FUSE_SIZES {
+        for pattern in BAYER_PHASES {
+            let sensor = fused_fixture(w, h, &pattern);
+            let mosaic = varied_mosaic(w, h);
 
-        let mut dst_after = vec![0u16; mosaic.len() * 3];
-        develop_color_into(&sensor, &mosaic, &mut dst_after).expect("fused develop");
+            let mut dst_after = vec![0u16; mosaic.len() * 3];
+            develop_color_into(&sensor, &mosaic, &mut dst_after).expect("fused develop");
 
-        let dst_before = reference_develop_color(&sensor, &mosaic);
+            let dst_before = reference_develop_color(&sensor, &mosaic);
 
-        assert_eq!(
-            dst_after, dst_before,
-            "phase {pattern:?}: the fused develop_color_into must equal the pre-fuse \
-             normalize → demosaic_into → matrix output byte for byte"
-        );
+            assert_eq!(
+                dst_after, dst_before,
+                "size {w}×{h} phase {pattern:?}: the fused develop_color_into must equal the \
+                 pre-fuse normalize → demosaic_into → matrix output byte for byte"
+            );
+        }
     }
 }
 
 #[test]
 fn develop_color_f32_equals_to_linear_of_u16() {
-    for pattern in BAYER_PHASES {
-        let sensor = fused_fixture(9, 7, &pattern);
-        let mosaic = varied_mosaic(9, 7);
+    for (w, h) in FUSE_SIZES {
+        for pattern in BAYER_PHASES {
+            let sensor = fused_fixture(w, h, &pattern);
+            let mosaic = varied_mosaic(w, h);
 
-        // The u16 render, then to_linear_f32_into — the exact definition the f32
-        // entry point must reproduce (quantise, then divide by 65535.0).
-        let mut u16_out = vec![0u16; mosaic.len() * 3];
-        develop_color_into(&sensor, &mosaic, &mut u16_out).expect("u16 develop");
-        let mut expected = vec![0.0f32; mosaic.len() * 3];
-        to_linear_f32_into(&u16_out, &mut expected).expect("to_linear_f32_into");
+            // The u16 render, then to_linear_f32_into — the exact definition the
+            // f32 entry point must reproduce (quantise, then divide by 65535.0).
+            let mut u16_out = vec![0u16; mosaic.len() * 3];
+            develop_color_into(&sensor, &mosaic, &mut u16_out).expect("u16 develop");
+            let mut expected = vec![0.0f32; mosaic.len() * 3];
+            to_linear_f32_into(&u16_out, &mut expected).expect("to_linear_f32_into");
 
-        let mut f32_out = vec![0.0f32; mosaic.len() * 3];
-        develop_color_f32_into(&sensor, &mosaic, &mut f32_out).expect("f32 develop");
+            let mut f32_out = vec![0.0f32; mosaic.len() * 3];
+            develop_color_f32_into(&sensor, &mosaic, &mut f32_out).expect("f32 develop");
 
-        assert_eq!(
-            f32_out, expected,
-            "phase {pattern:?}: develop_color_f32_into must equal \
-             to_linear_f32_into(develop_color_into(..)) to the bit"
-        );
+            assert_eq!(
+                f32_out, expected,
+                "size {w}×{h} phase {pattern:?}: develop_color_f32_into must equal \
+                 to_linear_f32_into(develop_color_into(..)) to the bit"
+            );
+        }
     }
 }
 

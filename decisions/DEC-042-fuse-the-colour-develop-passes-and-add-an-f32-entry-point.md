@@ -85,17 +85,30 @@ same neighbours), the same `f64` matrix and the same `quantize` (clamp to
 intermediate changes nothing the arithmetic sees. The existing colour goldens
 plus a byte-for-byte equivalence test against the pre-fuse path are the proof.
 
-## The normalise-on-read tradeoff
+## The normalise-on-read tradeoff — and why the build uses a rolling cache
 
-Removing the `normalized` buffer means each photosite is normalised **every time
-it is read as a neighbour** (up to ~9×), rather than once. `normalize_sample` is
-a cheap, deterministic integer map, so the result is bit-identical, but it is
-extra compute layered on P1's (SPEC-048) fast path. Memory is the goal here
-(peak-RSS), not speed: the build records **both** peak-RSS and `demosaic`/develop
-wall-time before and after in `docs/provenance-ledger.md`, and the RSS drop is
-what this spec is judged on. If the recompute regresses time materially, that is
-a design note for a later pass (e.g. a one-row normalised cache), not a reason to
-keep the full-plane buffer.
+The first design normalised each photosite **every time it is read as a
+neighbour** (up to ~9×) rather than once, on the theory that `normalize_sample`
+is a cheap integer map and memory, not speed, is the goal. The build measured it
+(2026-11-07): the memory win held (peak RSS −133.8 MiB at 23.4 MP) but develop
+regressed **≈2.76×** (243 ms → 671 ms). The measurement also showed *why that
+trade was a bad one*: the entire −134 MiB is the eliminated `camera_rgb` buffer;
+dropping the `normalized` scratch only swapped in a same-size `w·h` green plane,
+so the recompute bought no memory at all for its whole time cost.
+
+So the build takes this DEC's own flagged fallback — **the rolling normalised-row
+cache** — rather than deferring it. The fused develop sweeps one output row at a
+time, normalising each mosaic sample **once** into a small ring of recent rows
+(the ~5-row neighbourhood a single output row touches, held in an 8-row ring,
+~91 KB), and both the green pass and the red/blue pass read the cached value; the
+interior reads it by direct index (the `DEC-041` fast path, over normalised rows)
+and only the two-pixel border recomputes. Memory is unchanged (the ring is
+negligible beside the `w·h` green plane) and develop returns to **≈1.04×** the
+pre-fuse baseline (253 ms). The output stays bit-identical — same
+`normalize_sample`, same per-slot `[black, white]`, same kernel in the same order
+— and the f32 path is unchanged (quantise to `u16` first, then `/65535.0`). The
+build records both peak-RSS and develop wall-time, before and after, in
+`docs/provenance-ledger.md`.
 
 ## Scope and perf discipline
 

@@ -85,9 +85,10 @@
 //! [`crate::demosaic::demosaic_into`], the public functions here write a
 //! caller-owned `dst`. [`develop_color_into`] and [`develop_color_f32_into`]
 //! allocate one internal `width·height` green plane (`SPEC-049`'s fuse,
-//! `DEC-042`): level-normalise is done on read and the colour matrix is applied
-//! straight into `dst`, so neither a normalized mosaic nor a camera-RGB
-//! intermediate is allocated. The public `src`/`dst` stay caller-owned.
+//! `DEC-042`): the mosaic is level-normalised once into a small rolling row
+//! cache (not a full scratch plane) and the colour matrix is applied straight
+//! into `dst`, so neither a normalized mosaic nor a camera-RGB intermediate is
+//! allocated. The public `src`/`dst` stay caller-owned.
 //!
 //! # Float entry point (`SPEC-049`, `DEC-042`)
 //!
@@ -238,17 +239,19 @@ pub fn to_srgb_linear_into(
 /// each photosite is normalized by the `black_levels`/`white_levels` entry for
 /// its 2×2 position (scalar `black_level`/`white_level` fallback, then
 /// `0`/`2^bits-1`), clamped per `DEC-018`. Rather than materialise a normalized
-/// mosaic and a `camera_rgb` intermediate, the fused path (`DEC-042`) normalises
-/// **on read**: pass 1 writes the finalised green into a single `width·height`
-/// green plane, and pass 2 interpolates red/blue, assembles the camera-RGB triple
-/// in registers, and applies the colour matrix ([`build_camera_to_srgb_linear`])
-/// straight into `dst`. The `u16` output is **byte-identical** to the pre-fuse
-/// `normalize → demosaic_into → matrix` composition (the colour goldens and
-/// `tests/color_oracle.rs`'s byte-equivalence test are the gate).
+/// mosaic and a `camera_rgb` intermediate, the fused path (`DEC-042`) sweeps one
+/// output row at a time: it level-normalises each sample **once** into a small
+/// rolling cache of recent rows, writes the finalised green into a single
+/// `width·height` green plane, then interpolates red/blue, assembles the
+/// camera-RGB triple in registers, and applies the colour matrix
+/// ([`build_camera_to_srgb_linear`]) straight into `dst`. The `u16` output is
+/// **byte-identical** to the pre-fuse `normalize → demosaic_into → matrix`
+/// composition (the colour goldens and `tests/color_oracle.rs`'s byte-equivalence
+/// test are the gate).
 ///
-/// The public `src`/`dst` are caller-owned (`DEC-016`); the only internal scratch
-/// is the `width·height` green plane (`~47 MB` at 23 MP, down from the pre-fuse
-/// `~187 MB`).
+/// The public `src`/`dst` are caller-owned (`DEC-016`); the only `width·height`
+/// scratch is the green plane (`~47 MB` at 23 MP, down from the pre-fuse
+/// `~187 MB`); the rolling normalised-row cache is a few rows, negligible.
 ///
 /// # Errors
 ///
@@ -804,21 +807,23 @@ fn quantize(value: f64) -> u16 {
     (clamped + 0.5).floor() as u16
 }
 
-/// Build the **normalise-on-read** accessor the fused develop path
-/// ([`develop_color_fused`]) reads the mosaic through (`SPEC-049`, `DEC-042`).
-/// Given a mosaic cell `(col, row)` — already reflected into range by the
-/// demosaic border logic — it returns the per-channel level-normalized value
-/// for that cell: `[black, white] → [0, 65535]` by the `black_levels` /
+/// Build the per-cell level-normalize map the fused develop path
+/// ([`develop_color_fused`]) fills its rolling row cache from (`SPEC-049`,
+/// `DEC-042`). Given a mosaic cell `(col, row)` — already reflected into range by
+/// the demosaic logic — it returns the per-channel level-normalized value for
+/// that cell: `[black, white] → [0, 65535]` by the `black_levels` /
 /// `white_levels` entry for the cell's 2×2 position (scalar `black_level` /
 /// `white_level`, then `0` / `2^bits-1`, as the fallback), clamped per `DEC-018`.
 ///
 /// This is the per-photosite map the pre-fuse `normalize_mosaic` applied once
-/// over a whole scratch plane, now computed on demand so no normalized mosaic is
-/// allocated. The four slot `(black, white)` pairs are resolved **once** here;
-/// the returned closure then does no per-read division to find its slot. For a
-/// cell at `(col, row)` the value equals the pre-fuse `normalize_mosaic`'s output
-/// at plane index `row·width + col` — same slot, same [`normalize_sample`] — so
-/// the fused render stays byte-identical.
+/// over a whole scratch plane. The fuse calls it **once per row** as that row
+/// enters the rolling cache (not a full scratch plane, and not re-run per
+/// neighbour read), so each sample is normalised exactly once. The four slot
+/// `(black, white)` pairs are resolved **once** here; the returned closure then
+/// does no per-read division to find its slot. For a cell at `(col, row)` the
+/// value equals the pre-fuse `normalize_mosaic`'s output at plane index
+/// `row·width + col` — same slot, same [`normalize_sample`] — so the fused render
+/// stays byte-identical.
 ///
 /// The 2×2 slot is taken **relative to the `ActiveArea` origin** (`DEC-040`): in
 /// DNG the per-slot level pattern starts at the active area, not the plane's

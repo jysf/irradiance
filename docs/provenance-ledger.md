@@ -65,7 +65,7 @@ facts, so re-measure elsewhere.
 | Change | Frame | Before | After | Delta | Bit-identical? |
 |---|---|---|---|---|---|
 | `SPEC-048` / `DEC-041` — `demosaic_into` interior fast path | 6000×4000 RGGB (24.0 MP), deterministic LCG mosaic | 533.0 ms (min 528.7) | 316.2 ms (min 312.8) | **≈1.69× (≈41% faster)** | yes — full-buffer checksum unchanged (`2359785445034`), equivalence test + golden hashes green |
-| `SPEC-049` / `DEC-042` — `develop_color_into` fuse (normalise on read, colour matrix straight into `dst`, one `w·h` green plane) + `develop_color_f32_into` | 5712×4096 RGGB (23.4 MP), deterministic mosaic | peak RSS **376,143,872 B** (358.7 MiB); develop 243 ms (min 3) | peak RSS **235,749,376 B** (224.8 MiB); develop 671 ms (min 3) | **memory −140,394,496 B (−133.9 MiB)** — the whole eliminated `camera_rgb` buffer; **time ≈2.76× SLOWER** (the normalise-on-read recompute, an accepted tradeoff — `DEC-042`) | yes — first-9-sample checksum unchanged (`339852`), `fused_develop_color_is_byte_identical_to_the_reference` + the colour goldens green |
+| `SPEC-049` / `DEC-042` — `develop_color_into` fuse (normalise once into a rolling row cache, colour matrix straight into `dst`, one `w·h` green plane) + `develop_color_f32_into` | 5712×4096 RGGB (23.4 MP), deterministic mosaic | peak RSS **376,143,872 B** (358.7 MiB); develop 243 ms (min 3) | peak RSS **235,864,064 B** (224.9 MiB); develop 253 ms (min 3) | **memory −140,279,808 B (−133.8 MiB)** — the whole eliminated `camera_rgb` buffer; **time ≈1.04×** (within ~4%, essentially baseline) | yes — first-9-sample checksum unchanged (`339852`), `fused_develop_color_is_byte_identical_to_the_reference` (9×7, 20×24, 3×5 × 4 phases) + the colour goldens green |
 
 The interior (every pixel ≥ 2 rows and ≥ 2 columns from each edge) now reads its
 neighbours by direct index into per-row slices, skipping the per-pixel
@@ -80,32 +80,39 @@ is the external yardstick that motivated this — reference only, never linked.
 
 `SPEC-049` / `DEC-042` fused `develop_color_into` from three buffered passes
 (level-normalise into a scratch mosaic → demosaic into a `camera_rgb`
-intermediate → matrix into `dst`) into two: pass 1 writes the finalised green
-into one `w·h` plane, normalising each mosaic sample on read; pass 2 interpolates
-red/blue, assembles the camera-RGB triple in registers, and applies the colour
-matrix straight into `dst`. Only the `w·h` green plane remains as scratch, so the
-`camera_rgb` buffer is gone — the measured peak RSS falls by **140,394,496 B**,
-within ~16 KiB of the eliminated buffer's exact size (`5712·4096·3·2 =
-140,378,112 B`). The `u16` render is byte-identical: `make_normalizer` reproduces
-the pre-fuse `normalize_mosaic`'s per-slot map at each cell, and the fused
-traversal feeds the **same** Hamilton-Adams kernel helpers the reflecting path of
-`demosaic_into` uses (itself bit-identical to the interior fast path, `DEC-041`),
-so the output cannot move — pinned by the first-9-sample checksum (`339852`,
-unchanged across the fuse) and `tests/color_oracle.rs`'s byte-equivalence test
-over all four Bayer phases. The cost is time: removing the normalised scratch
-means each photosite is re-normalised every time it is read as a neighbour (up to
-~9×), and the fused path uses the reflecting border logic for every pixel (not
-the interior fast path), so develop runs ≈2.76× slower on this frame. This is the
-tradeoff `DEC-042` names explicitly — memory, not speed, is the goal here, and
-the one-row normalised cache that would recover the time is deliberately left to
-a later pass, not built in this spec. `develop_color_f32_into` shares the fused
-pipeline and writes scene-linear `f32` directly (quantise to `u16`, then
-`/65535.0` — bit-equal to `to_linear_f32_into(develop_color_into(..))`), so a
-float caller no longer holds the `u16` result and its `f32` copy at once (the
-double-copy the pyirradiance benchmark flags); its peak RSS on the same frame is
-**235,749,376 B of scratch+green plus the `f32` dst** rather than the `u16` dst,
-the develop scratch, and the `f32` copy together. Measured 2026-11-07,
-`/usr/bin/time -l` on `aarch64-apple-darwin`; host facts, re-measure elsewhere.
+intermediate → matrix into `dst`) into a single output-row sweep: each mosaic
+sample is level-normalised **once** into a small rolling cache of recent rows
+(eight rows, ~91 KB), the finalised green is written into one `w·h` plane, and
+red/blue are interpolated, assembled into the camera-RGB triple in registers, and
+run through the colour matrix straight into `dst`. The `camera_rgb` intermediate
+is gone, so the measured peak RSS falls by **140,279,808 B**, essentially the
+eliminated buffer's exact size (`5712·4096·3·2 = 140,378,112 B`; the few-row cache
+is the ~98 KiB difference). The `u16` render is byte-identical: `make_normalizer`
+reproduces the pre-fuse `normalize_mosaic`'s per-slot map at each cell, and the
+fused traversal feeds the **same** Hamilton-Adams kernel helpers `demosaic_into`
+uses — the interior reads the cache by direct index (the `DEC-041` fast path over
+normalised rows), the two-pixel border reflects — so the output cannot move,
+pinned by the first-9-sample checksum (`339852`, unchanged across the fuse) and
+`tests/color_oracle.rs`'s byte-equivalence test over three sizes (incl. one taller
+than the cache) × all four Bayer phases.
+
+The first cut of this fuse normalised on every neighbour read (up to ~9× per
+photosite) and used the reflecting path for every pixel, which kept the memory win
+but regressed develop ≈2.76× (671 ms). The measurement showed the recompute bought
+no memory — the whole −134 MiB is the eliminated `camera_rgb`, while dropping the
+normalised scratch only swapped in the same-size green plane — so `DEC-042`'s own
+flagged fallback, the rolling normalised-row cache, was built: each sample is
+normalised once and both the green and the red/blue reads hit the cache. Develop
+is back to **253 ms, ≈1.04×** the pre-fuse baseline (within ~4%, the residual being
+the border recompute and cache bookkeeping) with the memory win intact.
+`develop_color_f32_into` shares the pipeline and writes scene-linear `f32` directly
+(quantise to `u16`, then `/65535.0` — bit-equal to
+`to_linear_f32_into(develop_color_into(..))`), so a float caller no longer holds
+the `u16` result and its `f32` copy at once (the double-copy the pyirradiance
+benchmark flags); its peak RSS on the same frame is **376,242,176 B** (the green
+plane + cache + the `f32` dst, no `u16` result), develop 273 ms. Measured
+2026-11-07, `/usr/bin/time -l` on `aarch64-apple-darwin`; host facts, re-measure
+elsewhere.
 
 ## ⚠ The distinction runs BOTH ways — measured 2026-08-20
 
