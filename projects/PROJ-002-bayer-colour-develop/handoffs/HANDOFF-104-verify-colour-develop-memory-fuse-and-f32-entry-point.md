@@ -47,7 +47,7 @@ handback:
   estimated_usd: 3.5               # tokens_total × your rate, or your harness's number
   duration_minutes: 40
   branch: claude/spec-049-verify
-  pr: null                         # stamped after the PR opens
+  pr: 149                          # stamped after the PR opens
   completed_at: 2026-11-07         # YYYY-MM-DD
   notes: "Verdict APPROVED at main 212eb985cb5a3cfc7335f6db78733fde8d350be9 (the rolling-cache state, #147 then #148 merged). Cold verify (this spec skipped verify before #147/#148 merged directly). tokens_total is this verify session's get_usage context-window token figure — an interactive /cost cumulative is not callable as a tool in a delegated session, same constraint the build handback (HANDOFF-103) noted; reported, not invented. If the orchestrator has the true /cost cumulative at ship, prefer it."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
