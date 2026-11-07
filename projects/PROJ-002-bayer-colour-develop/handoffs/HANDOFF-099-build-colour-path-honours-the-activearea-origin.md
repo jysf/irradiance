@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-06
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-047
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 28690878           # REAL combined count — what cost-audit reads
+  estimated_usd: 69.65             # tokens_total × your rate, or your harness's number
+  duration_minutes: 40
+  branch: claude/gifted-northcutt-d29013
+  pr: 137
+  completed_at: 2026-11-06         # YYYY-MM-DD
+  notes: "offset form, no crop (DEC-040); four Tier-A oracle tests, red-proof shown red pre-fix; DEVELOP_VERSION 2 to 3"
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -181,38 +181,67 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/gifted-northcutt-d29013` → https://github.com/jysf/irradiance/pull/137
+- **Completed at:** 2026-11-06
+- **All acceptance criteria met?** yes. Grey stays grey (per-channel spread ≤ 8
+  counts, well inside the `< 1e-3` tolerance) across all 4 ActiveArea origin
+  parities × 4 Bayer phases; the plane-relative red-proof is shown red before
+  the fix (pre-fix the origin-declaring render is byte-identical to the
+  plane-relative one, so the `assert_ne!` fails) and green after; an even origin
+  is byte-identical to the plane-relative render; no panic for an out-of-range
+  origin; `DEVELOP_VERSION == "3"`; `develop_color_into`'s signature and buffer
+  lengths unchanged; no new dependency; determinism held. `just test`,
+  `just lint-ci`, `just fmt-check`, `just validate` and `just cost-audit` all
+  green.
+- **For `verify`:** n/a (build cycle).
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 28,690,878
+- **Estimated USD:** 69.65 (Opus standard rates: input 15, output 75, cache-read
+  1.50, cache-write 18.75, all per Mtok)
+- **Duration (minutes):** ~40
+- **Source of the number:** harness report — summed `input + output +
+  cache_read + cache_creation` across every API call in this build session's
+  transcript (anchored on the scratchpad-dir session UUID, not a text grep).
+  This is the near-final total at handback; the few remaining close-out turns
+  add a little more. Dominated by cache reads (27.8M), consistent with the
+  STAGE-009 build-cycle costs (036 = 28.5M, 038 = 25.0M).
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none — DEC-040 was written at design and is the whole decision.
 - **Deviations from spec:**
-  - [list]
+  - none. One mechanical adjustment the spec did not spell out: adding the
+    origin to `green_at_site`/`interpolate_red_blue` pushed them to 9 arguments,
+    which trips clippy's `too_many_arguments` (a `-D warnings` CI failure), so
+    the pixel coordinate and the origin are each grouped into a `(u32, u32)`
+    tuple to stay within the limit on the library path (no test-only allow).
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - none new. The deferred crop / `DefaultCrop` + `Orientation` parity for the
+    colour path is already its own STAGE-012 backlog spec (DEC-040 Non-Goals);
+    the P1/P2/P3 demosaic performance + memory + threading specs are already in
+    the backlog.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing blocking. The spec and DEC-040 were precise (the offset form, the
+   four tests, the no-crop/no-length-change constraint). The one thing worth
+   recording for the template: the design files (DEC-040, HANDOFF-099,
+   SPEC-047-build.md) were not yet on the worktree branch at dispatch and had to
+   be merged from `main` — the dispatch anticipated this and said so, which saved
+   the loop.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The clippy `too_many_arguments` interaction is a toolchain-brief-level
+   detail, not a missing decision; grouping into tuples kept the fix on the
+   library path without a style allow, so no new rule is needed.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Group the coordinate/origin into tuples from the first edit rather than
+   passing four scalars and then reflowing when `too_many_arguments` fired — one
+   fewer fmt/lint round-trip. Otherwise the test-first flow (write the four
+   tests, see the red-proof go red, then make them pass) was the right order and
+   caught the behaviour cleanly.

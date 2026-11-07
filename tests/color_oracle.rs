@@ -22,7 +22,7 @@
 //! it is left to a follow-on, since this file's job is the MATH.
 
 use irradiance::color::{develop_color_into, to_srgb_linear_into};
-use irradiance::ifd::{Cfa, Compression, Rational, Sensor};
+use irradiance::ifd::{ActiveArea, Cfa, Compression, Rational, Sensor};
 use irradiance::Error;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1043,4 +1043,236 @@ fn grey_is_neutral_on_the_color_matrix_only_path() {
         spread <= 8,
         "interpolated CM path tinted grey: spread {spread}"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-047 — the colour path honours the ActiveArea origin (DEC-040).
+//
+// In DNG the CFA phase AND the per-slot BlackLevel/WhiteLevel 2×2 pattern both
+// start at the ActiveArea origin, not the raw plane's top-left. The colour
+// develop path must index both relative to that origin, via the offset form
+// `(y − active_top) & 1`, `(x − active_left) & 1`. A flat-grey subject built
+// relative to the origin must therefore stay grey for every origin parity and
+// Bayer phase; the pre-fix plane-relative index tints an odd-origin grey (the
+// red-proof). The ground-truth oracle here is the physical fact that a neutral
+// subject is colourless — no external reference needed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Plane size the SPEC-047 grey fixtures develop on. Even in both dimensions, so
+/// every 2×2 Bayer block is whole.
+const GREY_W: u32 = 8;
+const GREY_H: u32 = 8;
+
+/// The four standard 2×2 Bayer phases, as `CFAPattern` colour indices in slot
+/// order (top-left, top-right, bottom-left, bottom-right): 0 = R, 1 = G, 2 = B.
+/// Each has one red, one blue and two diagonal greens — the RGGB family
+/// `demosaic_into` accepts.
+const BAYER_PHASES: [[u8; 4]; 4] = [
+    [0, 1, 1, 2], // RGGB
+    [2, 1, 1, 0], // BGGR
+    [1, 0, 2, 1], // GRBG
+    [1, 2, 0, 1], // GBRG
+];
+
+/// The four ActiveArea origin parities `(top, left)`: even/even, even/odd,
+/// odd/even, odd/odd. The pre-fix plane-relative index is correct only for
+/// even/even.
+const ORIGIN_PARITIES: [(u32, u32); 4] = [(2, 4), (2, 5), (3, 4), (3, 5)];
+
+/// A per-slot (2×2) BlackLevel pattern — one value per position, all distinct so
+/// a wrong slot index (the plane-relative bug at an odd origin) subtracts a wrong
+/// black. Position order matches `normalize_mosaic`'s `pos`: TL, TR, BL, BR.
+const SLOT_BLACK: [u32; 4] = [200, 400, 600, 800];
+const GREY_WHITE: u32 = 65535;
+
+/// The scene brightness fraction the flat-grey subject is built at.
+const GREY_K: f64 = 0.5;
+
+/// Grey tolerance, in `u16` counts of 65535. A neutral subject is colourless, so
+/// the spread is only quantisation from the 12-bit-ish input and the 7-digit
+/// sRGB/Bradford constants (the shipped neutral tests hold at `≤ 8`); the
+/// plane-relative tint is thousands of counts, so the two are never confusable.
+const GREY_TOLERANCE: u16 = 8;
+
+/// `AsShotNeutral` as an `f64` triple — reuses the asymmetric Nikon neutral
+/// `(0.64, 1, 0.76417)` (R ≠ B, so even an R↔B swap tints).
+fn grey_asn_f64() -> [f64; 3] {
+    let a = nikon_asn();
+    [
+        f64::from(a[0].num) / f64::from(a[0].den),
+        f64::from(a[1].num) / f64::from(a[1].den),
+        f64::from(a[2].num) / f64::from(a[2].den),
+    ]
+}
+
+/// Build the `Sensor` for a SPEC-047 grey case: the D50 forward matrix, the
+/// Nikon neutral, the given Bayer `pattern`, the per-slot black pattern and a
+/// scalar white. `sensor_origin` is what the sensor *declares* as its ActiveArea
+/// origin — `Some((top, left))` sets `active_area`, `None` leaves it absent (the
+/// plane-relative origin `(0, 0)`, i.e. the pre-DEC-040 behaviour).
+fn grey_origin_sensor(pattern: &[u8], sensor_origin: Option<(u32, u32)>) -> Sensor {
+    let mut s = fixture_sensor(GREY_W, GREY_H);
+    s.color_filter = Some(Cfa {
+        repeat_dim: [2, 2],
+        pattern: pattern.to_vec(),
+        plane_color: vec![0, 1, 2],
+        layout: 1,
+    });
+    s.forward_matrix_1 = Some(forward_matrix_d50());
+    s.as_shot_neutral = Some(nikon_asn());
+    s.black_levels = SLOT_BLACK.to_vec();
+    s.white_level = Some(GREY_WHITE);
+    s.active_area = sensor_origin.map(|(top, left)| ActiveArea {
+        top,
+        left,
+        bottom: GREY_H,
+        right: GREY_W,
+    });
+    s
+}
+
+/// A flat-grey mosaic (`GREY_W × GREY_H`) constructed *relative to* `build_origin`
+/// for the given Bayer `pattern`: each photosite reads
+/// `black_slot + k·(white − black_slot)·asn[colour]`, where the 2×2 slot and its
+/// colour come from the position *relative to `build_origin`*. Normalizing by
+/// that slot's `[black, white]` therefore recovers `k·65535·asn[colour]` for
+/// every photosite of a colour — a spectrally neutral (grey) subject. Once the
+/// develop path indexes from the same origin, demosaic sees a piecewise-constant
+/// mosaic and the colour matrix maps the neutral to grey.
+fn grey_mosaic(pattern: &[u8], build_origin: (u32, u32)) -> Vec<u16> {
+    let (build_top, build_left) = build_origin;
+    let asn = grey_asn_f64();
+    let white = f64::from(GREY_WHITE);
+    let mut mosaic = vec![0u16; (GREY_W * GREY_H) as usize];
+    for y in 0..GREY_H {
+        for x in 0..GREY_W {
+            let row_odd = (y.wrapping_sub(build_top) & 1) == 1;
+            let col_odd = (x.wrapping_sub(build_left) & 1) == 1;
+            let slot = usize::from(row_odd) * 2 + usize::from(col_odd);
+            let colour = usize::from(pattern[slot]);
+            let black = f64::from(SLOT_BLACK[slot]);
+            let raw = black + GREY_K * (white - black) * asn[colour];
+            mosaic[(y * GREY_W + x) as usize] = raw.round() as u16;
+        }
+    }
+    mosaic
+}
+
+/// The largest per-pixel channel spread `max(R,G,B) − min(R,G,B)` of an
+/// interleaved RGB image, in `u16` counts.
+fn max_channel_spread(rgb: &[u16]) -> u16 {
+    rgb.as_chunks::<3>()
+        .0
+        .iter()
+        .map(|p| p.iter().max().unwrap() - p.iter().min().unwrap())
+        .max()
+        .unwrap_or(0)
+}
+
+#[test]
+fn grey_stays_grey_across_origin_parities_and_bayer_phases() {
+    // 4 Bayer phases × 4 origin parities = 16 cases. A flat-grey subject built
+    // relative to each origin develops to grey once the path honours that origin.
+    for pattern in BAYER_PHASES {
+        for origin in ORIGIN_PARITIES {
+            let sensor = grey_origin_sensor(&pattern, Some(origin));
+            let mosaic = grey_mosaic(&pattern, origin);
+            let mut out = vec![0u16; mosaic.len() * 3];
+            develop_color_into(&sensor, &mosaic, &mut out)
+                .expect("a grey subject develops without error");
+            let spread = max_channel_spread(&out);
+            assert!(
+                spread <= GREY_TOLERANCE,
+                "phase {pattern:?} origin {origin:?}: grey tinted — spread {spread} counts \
+                 exceeds {GREY_TOLERANCE}"
+            );
+        }
+    }
+}
+
+#[test]
+fn plane_relative_phase_tints_an_odd_origin_grey() {
+    // The red-proof control. RGGB at an odd-top origin: under the plane-relative
+    // index the row parity flips, so every red site is read as green (and vice
+    // versa) — a flat grey develops to a strong tint. The reference below *is*
+    // that plane-relative render (an ActiveArea-absent sensor indexes from
+    // (0, 0), exactly the pre-DEC-040 behaviour). DEC-040 must move the real,
+    // origin-declaring render off it; before the fix the two are identical and
+    // the `assert_ne!` fails — the proof that the offset is load-bearing.
+    let pattern = BAYER_PHASES[0]; // RGGB
+    let origin = (3, 4); // top odd, left even → row-parity flip
+    let mosaic = grey_mosaic(&pattern, origin);
+
+    let plane_relative = grey_origin_sensor(&pattern, None);
+    let mut reference = vec![0u16; mosaic.len() * 3];
+    develop_color_into(&plane_relative, &mosaic, &mut reference)
+        .expect("plane-relative develop is total");
+    let reference_spread = max_channel_spread(&reference);
+    assert!(
+        reference_spread > 1000,
+        "the plane-relative path should tint an odd-origin grey — spread was only \
+         {reference_spread} counts, so this fixture does not exercise the bug"
+    );
+
+    let honours_origin = grey_origin_sensor(&pattern, Some(origin));
+    let mut developed = vec![0u16; mosaic.len() * 3];
+    develop_color_into(&honours_origin, &mosaic, &mut developed)
+        .expect("origin-honouring develop is total");
+    assert_ne!(
+        developed, reference,
+        "declaring the ActiveArea origin did not move the output off the \
+         plane-relative render — DEC-040 is not load-bearing"
+    );
+    assert!(
+        max_channel_spread(&developed) <= GREY_TOLERANCE,
+        "the origin-honouring render should recover grey, not merely differ"
+    );
+}
+
+#[test]
+fn even_origin_is_byte_identical_to_plane_relative() {
+    // The no-regression guard. For an even/even origin `(y − even) & 1 == y & 1`,
+    // so declaring the origin changes nothing — the corpus's even-origin files
+    // (Canon 5D3 (80, 122), Nikon D300S (0, 0)) keep their exact goldens. Holds
+    // before AND after DEC-040.
+    for pattern in BAYER_PHASES {
+        let origin = (2, 4); // even/even
+        let mosaic = grey_mosaic(&pattern, origin);
+
+        let plane_relative = grey_origin_sensor(&pattern, None);
+        let mut reference = vec![0u16; mosaic.len() * 3];
+        develop_color_into(&plane_relative, &mosaic, &mut reference)
+            .expect("plane-relative develop is total");
+
+        let declared = grey_origin_sensor(&pattern, Some(origin));
+        let mut developed = vec![0u16; mosaic.len() * 3];
+        develop_color_into(&declared, &mosaic, &mut developed)
+            .expect("origin-honouring develop is total");
+
+        assert_eq!(
+            developed, reference,
+            "phase {pattern:?}: an even origin must be byte-identical to the \
+             plane-relative render"
+        );
+    }
+}
+
+#[test]
+fn develop_color_does_not_panic_for_an_out_of_range_active_area() {
+    // An ActiveArea origin at or beyond the plane edge: `wrapping_sub` keeps the
+    // parity well-defined (its low bit is the true parity even above/left of the
+    // origin), so develop runs without panic for any origin value. Not a grey
+    // subject — only that no origin can index out of range or overflow.
+    let pattern = BAYER_PHASES[0];
+    for origin in [
+        (GREY_H, GREY_W),          // exactly at the far edge
+        (GREY_H + 7, GREY_W + 13), // beyond it, with odd offsets
+        (u32::MAX, u32::MAX),      // the extreme
+    ] {
+        let sensor = grey_origin_sensor(&pattern, Some(origin));
+        let mosaic: Vec<u16> = (0..GREY_W * GREY_H).map(|i| (i * 997) as u16).collect();
+        let mut out = vec![0u16; mosaic.len() * 3];
+        develop_color_into(&sensor, &mosaic, &mut out)
+            .expect("an out-of-range ActiveArea origin must not panic");
+    }
 }

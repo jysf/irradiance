@@ -535,6 +535,24 @@ pub struct ActiveArea {
     pub right: u32,
 }
 
+/// The `ActiveArea` origin `(top, left)` in raw-plane coordinates — `(0, 0)` when
+/// the tag is absent, matching [`crate::develop`]'s `resolve_geometry` ("absent
+/// means the whole raw plane is active").
+///
+/// The one source of truth for the origin the colour develop path indexes the
+/// CFA phase and the BlackLevel/WhiteLevel 2×2 slot from (`DEC-040`): in DNG both
+/// patterns start at the `ActiveArea` origin, not the raw plane's top-left, so a
+/// file with an odd `ActiveArea.top`/`.left` would otherwise be assigned the
+/// wrong colour at every pixel. Used by [`crate::color::develop_color_into`]
+/// (the level slot) and [`crate::demosaic::demosaic_into`] (the phase), so the
+/// two call sites cannot drift. Panic-free: two field reads.
+pub(crate) fn active_area_origin(sensor: &Sensor) -> (u32, u32) {
+    match sensor.active_area {
+        Some(a) => (a.top, a.left),
+        None => (0, 0),
+    }
+}
+
 /// DNG `DefaultCropOrigin` (tag 50719, DNG 1.7 §Chapter 4): the origin of the
 /// final image area, in raw pixel coordinates relative to `ActiveArea`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

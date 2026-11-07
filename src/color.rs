@@ -105,7 +105,7 @@
 //! implementation read. See `docs/provenance-ledger.md`.
 
 use crate::demosaic::demosaic_into;
-use crate::ifd::{Rational, Sensor};
+use crate::ifd::{active_area_origin, Rational, Sensor};
 use crate::Error;
 
 /// Linear sRGB ← CIE XYZ (D65), the IEC 61966-2-1 primaries (sRGB colour space
@@ -720,17 +720,32 @@ fn quantize(value: f64) -> u16 {
 /// `white_level` (then `0` / `2^bits-1`) as the fallback. Runs on the mosaic
 /// **before** demosaic because per-colour black-subtract does not commute with
 /// interpolation.
+///
+/// The 2×2 slot is taken **relative to the `ActiveArea` origin** (`DEC-040`): in
+/// DNG the per-slot level pattern starts at the active area, not the plane's
+/// top-left, so a file with an odd `ActiveArea.top`/`.left` would otherwise
+/// subtract the wrong black at every photosite. The offset form
+/// `(row − active_top) & 1` is computed with `wrapping_sub`, so it is
+/// panic-free and parity-correct even in the masked border above/left of the
+/// origin (the low bit of a wrapping subtraction is still the true parity); for
+/// an even origin — the whole existing corpus — it reduces to `row & 1`, so the
+/// goldens are unchanged. [`demosaic_into`] uses the same origin for the phase.
 fn normalize_mosaic(sensor: &Sensor, src: &[u16], dst: &mut [u16]) {
     let width = usize::try_from(sensor.width).unwrap_or(0);
+    let (active_top, active_left) = active_area_origin(sensor);
+    let active_top = usize::try_from(active_top).unwrap_or(0);
+    let active_left = usize::try_from(active_left).unwrap_or(0);
     let white_default = max_value_for_bits(sensor.bits_per_sample).unwrap_or(u32::from(u16::MAX));
     for (pixel, (out, &sample)) in dst.iter_mut().zip(src.iter()).enumerate() {
         let row = pixel.checked_div(width).unwrap_or(0);
         let col = pixel.checked_rem(width).unwrap_or(0);
-        let pos = match (row & 1, col & 1) {
-            (0, 0) => 0,
-            (0, _) => 1,
-            (_, 0) => 2,
-            (_, _) => 3,
+        let row_odd = (row.wrapping_sub(active_top) & 1) == 1;
+        let col_odd = (col.wrapping_sub(active_left) & 1) == 1;
+        let pos = match (row_odd, col_odd) {
+            (false, false) => 0,
+            (false, true) => 1,
+            (true, false) => 2,
+            (true, true) => 3,
         };
         let black = level_at(&sensor.black_levels, pos, sensor.black_level, 0);
         let white = level_at(&sensor.white_levels, pos, sensor.white_level, white_default);
