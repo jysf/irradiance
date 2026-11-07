@@ -27,11 +27,11 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # HANDOFF-101 (build); tier_map.build
+  created_at: 2026-11-06
 
 references:
-  decisions: [DEC-032, DEC-016]    # DEC-032 = the demosaic (zero-alloc two-pass green); DEC-016 = caller-owned buffers. DEC-041 (the fast-path + perf discipline) is NEW, formalized at this spec's design.
+  decisions: [DEC-041, DEC-032, DEC-016] # DEC-041 = the interior fast path + the STAGE-012 perf discipline (this spec's decision); DEC-032 = the demosaic (zero-alloc two-pass green); DEC-016 = caller-owned buffers.
   constraints: []                  # design fills exact ids: no-panic, determinism, no-new-deps
   related_specs: [SPEC-047]        # same colour path (ships first)
 
@@ -62,7 +62,7 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
+  tokens_estimate: 15000000
   sessions: []
   totals:
     tokens_total: 0
