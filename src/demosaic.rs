@@ -63,6 +63,23 @@
 //! so a degenerate 1- or 2-wide mosaic still cannot index out of range (safe,
 //! no panic — the AC's 1×1 / 2×2 / 3×5 cases).
 //!
+//! # Performance — interior fast path (`DEC-041`)
+//!
+//! Reflection only matters within two pixels of an edge. For the **interior**
+//! (every pixel at least two rows and two columns from each edge) a neighbour
+//! read at offset ±1 or ±2 is always in range, so [`demosaic_into`] reads those
+//! neighbours by **direct index into per-row slices** of `src` (and, in pass 2,
+//! the finalized greens in `dst`), skipping [`reflect`], [`plane_index`] and the
+//! per-pixel `(x, y)` recovery that the border path still pays for. The
+//! **kernel arithmetic is reused verbatim** — the same classifiers, second
+//! differences, predictors, rounding and clamp (`green_from_neighbours` /
+//! `diagonal_from_neighbours` / [`colour_difference`]) applied to the same
+//! neighbour values in the same order — so the output is **bit-identical** to
+//! the all-reflecting implementation (the existing golden hashes are the gate,
+//! and `interior_fast_path_matches_the_reference_demosaic` is the proof). The
+//! per-row windows make the interior in-bounds **by construction**, so the fast
+//! path stays panic-free with no `unsafe` and no per-element bounds check.
+//!
 //! # Allocation — `DEC-016`
 //!
 //! Like [`crate::plane::unpack_into`] and [`crate::develop::develop_into`],
@@ -206,9 +223,12 @@ impl BayerPhase {
 /// - [`Error::DemosaicSourceWrongLength`] if `src.len() != width * height`.
 /// - [`Error::RgbBufferWrongLength`] if `dst.len() != width * height * 3`.
 ///
-/// Never panics: every index is bounds-checked (`.get`/`.get_mut`) and every
-/// intermediate is signed `i32` via saturating/checked operations whose inputs
-/// are provably far from `i32`'s range at 16-bit sample depth.
+/// Never panics: the interior fast path reads each neighbour from a fixed-size
+/// per-row window (sliced once, in-bounds by construction — `DEC-041`), and the
+/// 2-pixel border stays on the bounds-checked reflecting path
+/// (`.get`/`.get_mut`); every intermediate is signed `i32` via
+/// saturating/checked operations whose inputs are provably far from `i32`'s
+/// range at 16-bit sample depth.
 pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
     let cfa = sensor
         .color_filter
@@ -255,6 +275,7 @@ pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<()
     }
 
     let w = usize::try_from(width).unwrap_or(0);
+    let h = usize::try_from(height).unwrap_or(0);
 
     // The CFA phase repeats from the `ActiveArea` origin, not the plane's
     // top-left (`DEC-040`): index each pixel's colour relative to it so a file
@@ -263,52 +284,293 @@ pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<()
     // `normalize_mosaic` (`src/color.rs`) uses the same origin for the level slot.
     let (active_top, active_left) = active_area_origin(sensor);
 
+    // Nothing to interpolate (also guards the `chunks_mut(w)` zero-width case
+    // below, which would otherwise panic). A zero-area plane has already passed
+    // the length checks, so returning here leaves `dst` correct and untouched.
+    if expected_src == 0 || w == 0 || h == 0 {
+        return Ok(());
+    }
+
+    // The phase parity relative to the `ActiveArea` origin is a low-bit XOR:
+    // `(coord − origin) mod 2 == (coord mod 2) XOR (origin mod 2)`. The slow
+    // (`green_at_site`/`interpolate_red_blue`) path recomputes the same parity
+    // from the `(u32, u32)` site with `wrapping_sub` — the two agree bit for
+    // bit, so a fast-path interior pixel and a slow-path border pixel are
+    // assigned the same colour (`DEC-040`, SPEC-047 — kept intact).
+    let top_odd = (active_top & 1) == 1;
+    let left_odd = (active_left & 1) == 1;
+
+    // The interior is every pixel at least two rows and two columns from each
+    // edge — the only region where no neighbour read (offset up to ±2) can
+    // leave the plane, so `reflect()` is never needed there. Interior columns
+    // are `2..col_interior_end`, interior rows `2..row_interior_end`; both are
+    // empty when the axis is shorter than five, which leaves that whole pass on
+    // the reflecting border path — still bit-identical to before (`DEC-041`).
+    let col_interior_end = w.saturating_sub(2);
+    let row_interior_end = h.saturating_sub(2);
+
     // ── Pass 1 — green at every pixel, into each pixel's own green slot. ──────
-    // `as_chunks_mut::<3>` yields exactly `pixels` fixed-size `[u16; 3]` chunks
-    // (dst.len() == pixels * 3, checked above) and an empty remainder, so the
-    // pixel index is the chunk index. Pass 1 reads only `src`, so the mutable
-    // chunk borrow does not conflict with anything.
+    // Row-major over `dst`'s pixel triples (`as_chunks_mut::<3>` then
+    // `chunks_mut(w)`) so `y` is the row index, computed once per row rather
+    // than via a per-pixel `checked_div`/`checked_rem`. Pass 1 reads only `src`,
+    // so the mutable row borrow does not conflict with anything.
     let (triples, _remainder) = dst.as_chunks_mut::<3>();
-    for (pixel, [_red, green, _blue]) in triples.iter_mut().enumerate() {
-        let y = u32::try_from(pixel.checked_div(w).unwrap_or(0)).unwrap_or(0);
-        let x = u32::try_from(pixel.checked_rem(w).unwrap_or(0)).unwrap_or(0);
-        *green = green_at_site(
-            &phase,
-            src,
-            width,
-            height,
-            (x, y),
-            (active_top, active_left),
-        );
+    for (y, row) in triples.chunks_mut(w).enumerate() {
+        let row_odd = ((y & 1) == 1) ^ top_odd;
+        let y_interior = y >= 2 && y < row_interior_end;
+        for (x, [_red, green, _blue]) in row.iter_mut().enumerate() {
+            let col_odd = ((x & 1) == 1) ^ left_odd;
+            *green = if y_interior && x >= 2 && x < col_interior_end {
+                pass1_green_interior(&phase, src, w, x, y, (row_odd, col_odd)).unwrap_or_else(
+                    || {
+                        green_at_site(
+                            &phase,
+                            src,
+                            width,
+                            height,
+                            (u32_from(x), u32_from(y)),
+                            (active_top, active_left),
+                        )
+                    },
+                )
+            } else {
+                green_at_site(
+                    &phase,
+                    src,
+                    width,
+                    height,
+                    (u32_from(x), u32_from(y)),
+                    (active_top, active_left),
+                )
+            };
+        }
     }
 
     // ── Pass 2 — red and blue, reading pass 1's finalized green from `dst`. ──
-    // Indexed (not `as_chunks_mut`) because this pass reads the green slots of
-    // *other* pixels while writing this pixel's red/blue slots; the green reads
-    // (immutable, via `.get`) complete before the red/blue writes (mutable, via
-    // `.get_mut`), and the two slot sets are disjoint, so there is no aliasing.
-    for pixel in 0..expected_src {
-        let y = u32::try_from(pixel.checked_div(w).unwrap_or(0)).unwrap_or(0);
-        let x = u32::try_from(pixel.checked_rem(w).unwrap_or(0)).unwrap_or(0);
-        let (red, blue) = interpolate_red_blue(
-            &phase,
-            src,
-            dst,
-            width,
-            height,
-            (x, y),
-            (active_top, active_left),
-        );
-        let base = pixel.checked_mul(3).unwrap_or(0);
-        if let Some(slot) = dst.get_mut(base) {
-            *slot = red;
-        }
-        if let Some(slot) = base.checked_add(2).and_then(|i| dst.get_mut(i)) {
-            *slot = blue;
+    // Row-major with `y` the loop variable (again no per-pixel `(x, y)`
+    // recovery). Each pixel reads greens from `dst` *immutably* and then writes
+    // its own red/blue slots; the immutable reads complete before the mutable
+    // writes, and the two slot sets are disjoint, so there is no aliasing — the
+    // same discipline the per-pixel loop used before.
+    for y in 0..h {
+        let row_odd = ((y & 1) == 1) ^ top_odd;
+        let y_interior = y >= 2 && y < row_interior_end;
+        let row_base = y.checked_mul(w);
+        for x in 0..w {
+            let col_odd = ((x & 1) == 1) ^ left_odd;
+            let (red, blue) = if y_interior && x >= 2 && x < col_interior_end {
+                pass2_red_blue_interior(&phase, src, dst, w, x, y, (row_odd, col_odd))
+                    .unwrap_or_else(|| {
+                        interpolate_red_blue(
+                            &phase,
+                            src,
+                            dst,
+                            width,
+                            height,
+                            (u32_from(x), u32_from(y)),
+                            (active_top, active_left),
+                        )
+                    })
+            } else {
+                interpolate_red_blue(
+                    &phase,
+                    src,
+                    dst,
+                    width,
+                    height,
+                    (u32_from(x), u32_from(y)),
+                    (active_top, active_left),
+                )
+            };
+            let base = row_base
+                .and_then(|rb| rb.checked_add(x))
+                .and_then(|pixel| pixel.checked_mul(3));
+            if let Some(b) = base {
+                if let Some(slot) = dst.get_mut(b) {
+                    *slot = red;
+                }
+                if let Some(slot) = b.checked_add(2).and_then(|i| dst.get_mut(i)) {
+                    *slot = blue;
+                }
+            }
         }
     }
 
     Ok(())
+}
+
+/// Narrow a loop index to `u32` for the reflecting (border) path, saturating to
+/// `0` on the impossible overflow (a plane dimension is a `u32`, so every pixel
+/// coordinate fits). Keeps the border call panic-free without an `unwrap`.
+fn u32_from(v: usize) -> u32 {
+    u32::try_from(v).unwrap_or(0)
+}
+
+/// Pass 1 green at an **interior** pixel (`≥ 2` from every edge), read directly
+/// from per-row slices of `src` — no `reflect()`, no `plane_index()`, no
+/// per-pixel `(x, y)` recovery. The neighbour values equal those the reflecting
+/// `green_at_site` would read (reflection is the identity in the interior) and
+/// the kernel arithmetic is the shared [`green_from_neighbours`], so the result
+/// is bit-identical. Each neighbour is read from a fixed-size window, so there
+/// is no per-element bounds check. Returns `None` only if an index escapes
+/// `src` — impossible for an interior pixel, but handled so the caller can fall
+/// back to the reflecting path and the function never panics (`DEC-041`).
+fn pass1_green_interior(
+    phase: &BayerPhase,
+    src: &[u16],
+    w: usize,
+    x: usize,
+    y: usize,
+    parity: (bool, bool),
+) -> Option<u16> {
+    let (row_odd, col_odd) = parity;
+    let centre = y.checked_mul(w)?.checked_add(x)?;
+
+    if phase.colour(row_odd, col_odd) == Colour::Green {
+        // A green site keeps its own sample — what `green_at_site` returns via
+        // `u32_to_u16(sample(..))`, the identity for an in-range value.
+        return src.get(centre).copied();
+    }
+
+    // Read a horizontal five-window `[a, b, c, d, e]` centred on column index
+    // `ci`, as a fixed-size array destructured by value (constant index, no
+    // per-element check). The window makes the five reads a single bounds check.
+    let window = |ci: usize| -> Option<[u16; 5]> {
+        let lo = ci.checked_sub(2)?;
+        let hi = ci.checked_add(3)?;
+        let cells: &[u16; 5] = src.get(lo..hi)?.try_into().ok()?;
+        Some(*cells)
+    };
+
+    let up1 = centre.checked_sub(w)?;
+    let up2 = up1.checked_sub(w)?;
+    let down1 = centre.checked_add(w)?;
+    let down2 = down1.checked_add(w)?;
+
+    // Centre row: WW, W, C, E, EE. Vertical rows: only column `x` (index 2).
+    let [ww, w_neighbour, c, e, ee] = window(centre)?;
+    let n = window(up1)?[2];
+    let s = window(down1)?[2];
+    let nn = window(up2)?[2];
+    let ss = window(down2)?[2];
+
+    Some(green_from_neighbours([
+        i32::from(c),
+        i32::from(w_neighbour),
+        i32::from(e),
+        i32::from(n),
+        i32::from(s),
+        i32::from(ww),
+        i32::from(ee),
+        i32::from(nn),
+        i32::from(ss),
+    ]))
+}
+
+/// Pass 2 red and blue at an **interior** pixel, reading `src` and the finalized
+/// greens in `dst` directly from per-row slices — no `reflect()`/`plane_index()`
+/// and no per-element bounds check (each neighbour comes from a fixed-size
+/// window). The values equal those `interpolate_red_blue` reads in the interior
+/// and the arithmetic is the shared `colour_difference` / `diagonal_from_neighbours`,
+/// so the output is bit-identical. `None` only if an index escapes a buffer
+/// (impossible for an interior pixel) so the caller can fall back; never panics.
+fn pass2_red_blue_interior(
+    phase: &BayerPhase,
+    src: &[u16],
+    dst: &[u16],
+    w: usize,
+    x: usize,
+    y: usize,
+    parity: (bool, bool),
+) -> Option<(u16, u16)> {
+    let (row_odd, col_odd) = parity;
+    let centre = y.checked_mul(w)?.checked_add(x)?;
+    let up = centre.checked_sub(w)?;
+    let down = centre.checked_add(w)?;
+
+    // Three src samples `[x-1, x, x+1]` of the row whose centre pixel is `ci`.
+    let src3 = |ci: usize| -> Option<[u16; 3]> {
+        let lo = ci.checked_sub(1)?;
+        let hi = ci.checked_add(2)?;
+        let cells: &[u16; 3] = src.get(lo..hi)?.try_into().ok()?;
+        Some(*cells)
+    };
+    // The three greens `[g(x-1), g(x), g(x+1)]` of that row from the interleaved
+    // `dst`: one nine-element window, greens at constant indices 1, 4, 7.
+    let green3 = |ci: usize| -> Option<[i32; 3]> {
+        let first_pixel = ci.checked_sub(1)?;
+        let base = first_pixel.checked_mul(3)?;
+        let end = base.checked_add(9)?;
+        let cells: &[u16; 9] = dst.get(base..end)?.try_into().ok()?;
+        let &[_, g0, _, _, g1, _, _, g2, _] = cells;
+        Some([i32::from(g0), i32::from(g1), i32::from(g2)])
+    };
+
+    let s_top = src3(up)?;
+    let s_mid = src3(centre)?;
+    let s_bot = src3(down)?;
+    let g_top = green3(up)?;
+    let g_mid = green3(centre)?;
+    let g_bot = green3(down)?;
+    let gc = g_mid[1];
+
+    match phase.colour(row_odd, col_odd) {
+        Colour::Green => {
+            // Horizontal neighbours carry one primary, vertical the other
+            // (greens are diagonal); read which from the pattern as the slow
+            // path does, so RGGB and BGGR take the same branch.
+            let horizontal = phase.colour(row_odd, !col_odd);
+            let val_h = colour_difference(
+                i32::from(s_mid[0]),
+                i32::from(s_mid[2]),
+                g_mid[0],
+                gc,
+                g_mid[2],
+            );
+            let val_v = colour_difference(
+                i32::from(s_top[1]),
+                i32::from(s_bot[1]),
+                g_top[1],
+                gc,
+                g_bot[1],
+            );
+            if horizontal == Colour::Red {
+                Some((val_h, val_v))
+            } else {
+                Some((val_v, val_h))
+            }
+        }
+        Colour::Red => {
+            let red = s_mid[1];
+            let blue = diagonal_from_neighbours([
+                i32::from(s_top[0]),
+                i32::from(s_top[2]),
+                i32::from(s_bot[0]),
+                i32::from(s_bot[2]),
+                g_top[0],
+                g_top[2],
+                g_bot[0],
+                g_bot[2],
+                gc,
+            ]);
+            Some((red, blue))
+        }
+        Colour::Blue => {
+            let blue = s_mid[1];
+            let red = diagonal_from_neighbours([
+                i32::from(s_top[0]),
+                i32::from(s_top[2]),
+                i32::from(s_bot[0]),
+                i32::from(s_bot[2]),
+                g_top[0],
+                g_top[2],
+                g_bot[0],
+                g_bot[2],
+                gc,
+            ]);
+            Some((red, blue))
+        }
+    }
 }
 
 /// Pass 1: the finalized green at one pixel. A green site keeps its own sample;
@@ -356,6 +618,24 @@ fn green_at_site(
     let nn = at_v(-2);
     let ss = at_v(2);
 
+    green_from_neighbours([c, w, e, n, s, ww, ee, nn, ss])
+}
+
+/// The pass-1 green at a red/blue site, from its nine plus-pattern neighbours
+/// `[C, W, E, N, S, WW, EE, NN, SS]` (`SPEC-031` Design, pass 1):
+///
+/// - `CLh = |W−E| + |WW−2C+EE|`, `CLv = |N−S| + |NN−2C+SS|` — axis classifiers.
+/// - `gh = 2(W+E) − (WW−2C+EE)`, `gv = 2(N+S) − (NN−2C+SS)` — predictors /4.
+/// - lower gradient wins (`CLh<CLv → rnd4(gh)`, `CLv<CLh → rnd4(gv)`,
+///   tie → `rnd8(gh+gv)`), then clamp.
+///
+/// This is the one copy of the kernel arithmetic that the reflecting border
+/// path ([`green_at_site`]) and the interior fast path ([`pass1_green_interior`])
+/// both call, so their outputs are identical by construction (`DEC-041`). The
+/// neighbours arrive as an array (not nine arguments) to stay under the
+/// argument-count lint.
+fn green_from_neighbours(plus: [i32; 9]) -> u16 {
+    let [c, w, e, n, s, ww, ee, nn, ss] = plus;
     let lap_h = second_difference(ww, c, ee);
     let lap_v = second_difference(nn, c, ss);
     let cl_h = abs_i32(w.saturating_sub(e)).saturating_add(abs_i32(lap_h));
@@ -515,6 +795,24 @@ fn diagonal_directed(
         yi.saturating_add(1),
     );
 
+    diagonal_from_neighbours([nw, ne, sw, se, g_nw, g_ne, g_sw, g_se, gc])
+}
+
+/// The opposite primary at a red/blue site, from the four diagonal source
+/// neighbours, the four diagonal greens, and the centre green:
+/// `[NW, NE, SW, SE, gNW, gNE, gSW, gSE, gC]` (`SPEC-031` Design, pass 2):
+///
+/// - `dp = 2(NW+SE) − (gNW−2gC+gSE)`, `dn = 2(NE+SW) − (gNE−2gC+gSW)`.
+/// - `CLp = |SE−NW| + |gNW−2gC+gSE|`, `CLn = |SW−NE| + |gNE−2gC+gSW|`.
+/// - lower gradient wins (`CLp<CLn → rnd4(dp)`, `CLn<CLp → rnd4(dn)`,
+///   tie → `rnd8(dp+dn)`), then clamp.
+///
+/// The one copy of this kernel, called by both the reflecting
+/// [`diagonal_directed`] and the interior [`pass2_red_blue_interior`], so their
+/// outputs match by construction (`DEC-041`). The neighbours arrive as an array
+/// to stay under the argument-count lint.
+fn diagonal_from_neighbours(neighbours: [i32; 9]) -> u16 {
+    let [nw, ne, sw, se, g_nw, g_ne, g_sw, g_se, gc] = neighbours;
     let lap_p = second_difference(g_nw, gc, g_se);
     let lap_n = second_difference(g_ne, gc, g_sw);
     let dp = twice(nw.saturating_add(se)).saturating_sub(lap_p);

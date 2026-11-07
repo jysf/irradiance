@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-06
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-048
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 18076957           # REAL combined count — what cost-audit reads
+  estimated_usd: 57.02             # tokens_total × your rate, or your harness's number
+  duration_minutes: 22
+  branch: feat/spec-048-demosaic-interior-fast-path
+  pr: https://github.com/jysf/irradiance/pull/142
+  completed_at: 2026-11-07         # YYYY-MM-DD
+  notes: "Output-invariant optimisation; bit-identity proven by the equivalence test, the unchanged golden hashes, and a 24 MP full-buffer checksum. tokens_total summed from this Claude Code session's transcript usage (input+output+cache); Max plan is not per-token billed, so estimated_usd is derived from Opus list rates."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -180,38 +180,74 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `feat/spec-048-demosaic-interior-fast-path` → https://github.com/jysf/irradiance/pull/142
+- **Completed at:** 2026-11-07
+- **All acceptance criteria met?** yes.
+  - **Bit-identical across all four phases and interior+border sizes:** the new
+    `interior_fast_path_matches_the_reference_demosaic` test asserts
+    `demosaic_into` equals the independent all-reflecting reference
+    (`local_hamilton_adams(.., false)`) byte-for-byte over RGGB/BGGR/GRBG/GBRG at
+    5×5, 6×6, 9×7, 11×9, 12×10 and 8×13; the hand-computed golden tables
+    (`EXPECTED_HA`/`BGGR`/`GRBG`/`GBRG`, which are the frozen pre-change bytes)
+    still pass unchanged; a 24 MP full-buffer checksum was identical before and
+    after the change.
+  - **Before/after wall-time recorded** in `docs/provenance-ledger.md`
+    (new "STAGE-012 performance measurements" section).
+  - **Panic-free, no per-element bounds check in the interior:** the interior
+    reads each neighbour from a fixed-size per-row window destructured by
+    constant index; `#![forbid(unsafe_code)]` and the five-lint deny policy hold
+    (`just lint-ci` green).
+  - **Determinism held; no new dependency; no public API change.**
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 18,076,957 (input 190 + output 291,492 + cache-creation
+  491,729 + cache-read 17,293,546).
+- **Estimated USD:** ~$57.02 (derived from Opus list rates — input $15, output
+  $75, cache-write $18.75, cache-read $1.50 per MTok; the Max plan is not billed
+  per token).
+- **Duration (minutes):** ~22.
+- **Source of the number:** harness report — summed from this Claude Code
+  session's own transcript `usage` records (model `claude-opus-4-8`); this
+  harness exposes context-window occupancy via its usage tool but not a
+  cumulative `/cost` total, so the transcript sum is the honest cumulative figure.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None. `DEC-041` (written at the design cycle) is the governing decision;
+    build raised no new one.
 - **Deviations from spec:**
-  - [list]
+  - None material. Implementation note: the interior kernel math was extracted
+    into two shared functions (`green_from_neighbours`, `diagonal_from_neighbours`)
+    that both the reflecting border path and the fast path call, so "reuse the
+    kernel arithmetic verbatim" is enforced by there being a single copy — this
+    is why the output cannot drift. The nine neighbours are passed as a `[i32; 9]`
+    array rather than nine positional arguments, to stay under clippy's
+    `too_many_arguments`.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - None new. The P2 (colour-develop memory / f32 entry point), P3 (threading)
+    and the colour-geometry crop follow-up remain the already-planned separate
+    STAGE-012 specs; SIMD/`unsafe` stays explicitly out of scope.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing blocked progress. The one judgement call the spec leaves implicit is
+   how to read the strided greens (`dst` green slots, stride 3) without a
+   per-element bounds check; a single nine-element window per row with greens at
+   constant indices 1/4/7 answered it. The "reference" for the equivalence test
+   was already in the repo (`local_hamilton_adams`), which saved writing one.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `DEC-041`, `DEC-032`, `DEC-016`, the no-panic/no-new-deps constraints and
+   the `DEC-040` phase offset were all named and all applied. The one unstated but
+   obvious lint interaction (clippy `too_many_arguments` on a nine-neighbour
+   kernel) is handled by passing an array.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing structural. The extract-the-kernel-into-one-shared-function move is
+   the right order (do it first, so bit-identity is structural, not a thing you
+   re-verify by eye). Measuring the "before" on the untouched tree before editing
+   is likewise worth doing first — it is the only moment the pre-change timing is
+   cheap to capture.
