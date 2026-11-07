@@ -8,7 +8,26 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Added
+
+- **`develop_color_f32_into`** (`irradiance::color`, SPEC-049, PROJ-002) — a public
+  colour-develop entry point that writes scene-linear `f32` directly, equal to
+  `to_linear_f32_into(develop_color_into(..))` to the bit (it quantises to `u16`,
+  then divides by `65535.0`). Float consumers — the Python bindings, ML dataloaders
+  — no longer hold the `u16` result and its `f32` copy at once. Additive, no other
+  API change.
+
 ### Changed
+
+- **Colour develop uses ~134 MB less peak memory, output unchanged**
+  (`irradiance::color`, SPEC-049, PROJ-002) — `develop_color_into` was fused from
+  three buffered passes into two: level-normalisation now runs once into a small
+  rolling row cache as demosaic reads, and the colour matrix is applied per pixel
+  straight into `dst`, so the `normalized` mosaic and the `camera_rgb` intermediate
+  are gone (only a `w·h` green plane and a ~91 KB row ring remain). Measured peak
+  RSS at 23 MP fell 358.7 → 224.9 MiB (−133.9 MiB) at no speed cost (develop within
+  ~4% of baseline). Output is **bit-identical** — same integer ops, same order
+  (the goldens and a byte-for-byte equivalence test are the gate). `DEC-042`.
 
 - **Demosaic is about 1.69× faster, output unchanged** (`irradiance::demosaic`,
   SPEC-048, PROJ-002) — `demosaic_into` gained a row-wise **interior fast path**:
