@@ -16,7 +16,15 @@ task:
                                    #   are already groundwork-covered (determinism at develop level
                                    #   by SPEC-044; two-component restart by SPEC-046; tiled already
                                    #   a clean UnsupportedStripLayout), so no single leg is large.
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
+                                   #   Expected M held. The NEW work was the provenance binding
+                                   #   row, a plane-level determinism pin, three ljpeg header guards
+                                   #   (Pt<P, Tc/Th, later-DHT-replaces) and public-route fuzzing
+                                   #   across plane/develop/demosaic. The §12 probe pre-covered three
+                                   #   framed legs (develop-level determinism from SPEC-044, the
+                                   #   two-component restart from SPEC-046, tiled already a clean
+                                   #   UnsupportedStripLayout), so each leg stayed small; built whole,
+                                   #   APPROVED first pass. Breadth, not depth, kept it M.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -56,18 +64,35 @@ cost:
       duration_minutes: 50
       recorded_at: 2026-11-06
       notes: "main-session design (un-metered); §12 probe found the determinism develop-level test already exists (SPEC-044, develop_oracle.rs), the two-component restart reset is already done + tested (SPEC-046), and tiled Compression-7 is already a clean UnsupportedStripLayout — so the NEW work is the provenance binding row, a plane-level determinism pin, the ljpeg header-hardening gaps (parse_scan_header does NOT check Pt<P; parse_dht does NOT reject Tc!=0/Th>3; find_table returns the FIRST same-Th table), and fuzzing the PUBLIC Compression-7 route (drop the require_uncompressed early-return in the plane/develop/demosaic fuzz targets + a synthetic SOF-3 seed built from tests/support/tiff.rs + encode_lj92), keeping the direct __fuzz_ljpeg hook (DEC-036 Validation). Acceptance + failing tests + HANDOFF-097 + build prompt."
+    - cycle: build
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 12356613
+      estimated_usd: 25.02
+      duration_minutes: 40
+      recorded_at: 2026-11-06
+      notes: "Built whole, APPROVED first pass (HANDOFF-097). Recovered 12,356,613 tok / $25.02 (claude-opus-5-5, from transcript d573d2aa, 66 deduped assistant messages, 98.2% cache reads); the HANDOFF-097 handback 226,796 was a context-occupancy floor, superseded here. Merged to main as PR #129 (squash a2d6376)."
     - cycle: verify
       agent: claude-opus-4-8
       interface: claude-code
-      tokens_total: 200000
-      estimated_usd: null
+      tokens_total: 15001064
+      estimated_usd: 30.62
       duration_minutes: 40
       recorded_at: 2026-11-06
-      notes: "Verdict APPROVED (HANDOFF-098). 200000 is a FLOOR — context-window occupancy via ccd_session_mgmt get_usage (188,916 of 1,000,000 before the bookkeeping writes), not a /cost number (no /cost meter in the Claude Code Code tab); the orchestrator supersedes it from the transcript at ship. The build was already merged to main (PR #129, a2d6376), so the verify PR is a thin bookkeeping superset. All seven acceptance criteria and all nine failing tests confirmed: plane-level determinism ran on both held files (corpus 9/9, no skip); the three header guards + later-DHT rule pass with the build's red-proof; truncated/hostile/tiled strips are typed errors through the public unpack_into; plane/develop/demosaic fuzz smokes 4.63M/3.73M/5.00M runs panic-free; just test / lint-ci / fmt-check / validate green; PR #129 CI green for the no-corpus broad sweep. NOTE: the build session (HANDOFF-097, FLOOR 226,796 tok, claude-opus-5-5) is not yet a cost.sessions entry — the orchestrator recovers it from the transcript at ship, as SPEC-044 did."
+      notes: "Verdict APPROVED (HANDOFF-098). Recovered 15,001,064 tok / $30.62 (claude-opus-4-8, from transcript 4858b166, 87 deduped assistant messages, 98.3% cache reads); the earlier 200,000 was a context-window-occupancy floor from get_usage, not a /cost number (no /cost meter in the Claude Code Code tab). This verify inherited the main session's claude-opus-4-8 model, where the build ran on claude-opus-5-5. The build was already merged to main (PR #129, a2d6376), so the verify PR (#130) is a thin bookkeeping superset. All seven acceptance criteria and all nine failing tests confirmed: plane-level determinism ran on both held files (corpus 9/9, no skip); the three header guards and the later-DHT rule pass with the build's red-proof; truncated, hostile, and tiled strips are typed errors through the public unpack_into; plane/develop/demosaic fuzz smokes 4.63M/3.73M/5.00M runs panic-free; just test, lint-ci, fmt-check, validate green; PR #129 CI green for the no-corpus broad sweep."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 35
+      recorded_at: 2026-11-06
+      notes: "Orchestrator ship bookkeeping (un-metered main session; no /cost meter in the Claude Code Code tab). Recovered the build and verify true costs from their transcripts, wrote the reflection and totals, archived the spec, and ran the STAGE-011 stage ship and PROJ-003 project close in the same pass."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 27357677
+    estimated_usd: 55.64
+    session_count: 4
+shipped_at: 2026-11-06
 ---
 
 # SPEC-045: Binding capstone — provenance, determinism, and hardening
@@ -284,31 +309,38 @@ Explicit scope limits. If any of these needs doing, write a new spec, don't expa
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Dispatch the verify cycle with an explicit model override rather than
+   letting the cold session inherit the main session's. This verify ran on
+   claude-opus-4-8 by inheritance while the build ran on claude-opus-5-5 —
+   harmless, but unintended, and it muddies the cost ledger's agent column. A
+   one-word model argument on the dispatch keeps the recorded agent deliberate.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No new DEC. The build handback dispositioned DEC-036's open Validation
+   clause as designed — keep the `__fuzz_ljpeg` hook and the `fuzzing` feature
+   and *add* public-route coverage, rather than retiring the hook. The lesson
+   `probe-the-decode-input-not-just-the-container` reached its paired-opposing
+   bar across SPEC-043/044 and is landed at the STAGE-011 close (step 7/8).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. The 0.2.0 staff review's §4 polish items this spec left out
+   (`LinearizationTable` typed rejection, the opcode `MAX_TAG_VALUES` bound,
+   `tag_name` in `Error` `Display`, `#[non_exhaustive]` on the public enums)
+   are semver-scoped 0.2.0 release work (PROJ-002 SPEC-042), not a STAGE-011
+   binding concern, and are already tracked there.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — design
+   *(The §12 probe surfaced the three real ljpeg header gaps and found three
+   framed legs already groundwork-covered before any build code was written;
+   build and verify were both first-pass clean.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — A caller can decode either held monochrome DNG Compression-7 file to a
+   byte-identical u16 plane across macOS and Linux, with the container-to-decoder
+   boundary hardened against truncated and hostile strips as typed errors and
+   the public Compression-7 route under continuous fuzzing — closing the binding
+   STAGE-011 and PROJ-003 set out to deliver.
