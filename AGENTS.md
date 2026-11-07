@@ -974,7 +974,13 @@ same defect class as an oracle that cannot go red.
   *transcription* instead of a discovery loop — the strongest efficiency lesson
   from the dogfood (recurring across projects, highest single-lesson frequency).
   In this repo the probe target is usually a **byte layout**: read the real
-  file's bytes and close the arithmetic before writing the unpacker.
+  file's bytes and close the arithmetic before writing the unpacker. When the
+  load-bearing fact lives *inside* a container — a codec's frame header, an
+  embedded bitstream — probe the **innermost data the decoder will consume**, not
+  the container metadata around it: the wrapper's tags can confirm a false premise
+  while the real header says otherwise (STAGE-011 — the TIFF tags read
+  single-component while the SOF-3 frame header was two-component `Nf=2`, caught
+  only at build; lesson `probe-the-decode-input-not-just-the-container`).
   Complementary verify move — **adversarial mutation:** revert the change and
   confirm the guard *fails*; it both proves the test has teeth and surfaces
   dead/no-op config (a field the engine never reads). The oracle red-proof (bar 1

@@ -797,9 +797,13 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-09-06
-    last_touched: 2026-11-05
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ STAGE-011 CLOSE, 2026-11-06: DEFERRED, trigger unchanged, still N=2. ══
+      No STAGE-011 instance: SPEC-045's three ljpeg header guards are greenfield T.81
+      conformance, built first-pass clean, not a fix hardening failing logic while
+      silently keeping the assumption that let it fail.
       ══ STAGE-009 CLOSE, 2026-11-05: DEFERRED, trigger unchanged, still N=2. ══
       No STAGE-009 instance. Its three specs were a new-capability SOF-3 decoder
       (SPEC-036 entropy front-end, SPEC-037 reconstruction) and a fuzz target
@@ -1050,9 +1054,13 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-10-30
-    last_touched: 2026-11-05
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ STAGE-011 CLOSE, 2026-11-06: DEFERRED, still N=1. ══ The STAGE-011 Nf=2
+      frame-time miss (SPEC-043) is this family's shape, but it is codified via the
+      sharper sibling [[probe-the-decode-input-not-just-the-container]] at this same
+      close; not double-counted here so one discipline keeps one rule.
       ══ STAGE-009 CLOSE, 2026-11-05: DEFERRED, still N=1. ══ No STAGE-009 corpus-
       assumption miss — the stage was corpus-free by design (its oracle is the
       in-harness LJ92 round-trip encoder, not a held file), so there was no capstone
@@ -1085,9 +1093,12 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-01
-    last_touched: 2026-11-05
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ STAGE-011 CLOSE, 2026-11-06: DEFERRED, still N=1 (positive counter-instance). ══
+      STAGE-011 named no new algorithm — it bound the already patent-cleared SOF-3
+      (DEC-035), so there was no mid-design landmine; the lesson applied correctly.
       ══ STAGE-009 CLOSE, 2026-11-05: POSITIVE counter-instance, still N=1 same-outcome. ══
       STAGE-009 named a specific algorithm (SOF-3 lossless JPEG / ITU-T T.81 Annex H)
       and DID patent-check it at design — DEC-035 confirmed it patent-clean (the
@@ -1162,9 +1173,13 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-02
-    last_touched: 2026-11-05
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ STAGE-011 CLOSE, 2026-11-06: DEFERRED, still N=1. ══ No instance: the ljpeg
+      decoder is integer-only (wrapping u16 prediction per T.81), with no f64-as-u16
+      saturating cast and no explicit-clamp-before-cast. Its decision point remains a
+      PROJ-002 STAGE-008 close (the quantize path lives in color, not ljpeg).
       ══ STAGE-009 CLOSE (PROJ-003), 2026-11-05: DEFERRED, still N=1. ══ No instance:
       the SOF-3 decoder is integer u16 prediction (wrapping add/sub per T.81), with no
       `f64 as u16` saturating cast and no explicit-clamp-before-cast pattern, so the
@@ -1192,9 +1207,13 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-05
-    last_touched: 2026-11-05
+    last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ STAGE-011 CLOSE, 2026-11-06: DEFERRED, still N=1. ══ STAGE-011 APPLIED the
+      discipline rather than violating it: SPEC-044's oracle is an independent dnglab
+      implementation (not a shared-helper round-trip), and SPEC-045's header guards
+      carry mutation-confirmed red-proofs (later-DHT revert goes red).
       ══ STAGE-009 CLOSE, 2026-11-05: walked at the stage-born close, kept `watch`, still N=1. ══
       This is STAGE-009's own lesson (raised by SPEC-037's verify). SPEC-038 added no
       second instance — it is a fuzz target, not a round-trip oracle sharing a helper —
@@ -1239,12 +1258,18 @@ signals:
       surprise. The lesson, applied, paid off: probing the innermost layer turned a
       would-be build failure into a design-time decision.
     bar: "N=2 paired-opposing"
-    status: open
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-05
     last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ STAGE-011 CLOSE, 2026-11-06: CODIFIED at N=2 paired-opposing. ══
+      Landed in AGENTS.md §12: a §12 probe must read the innermost data the
+      decoder/parser will consume (the frame header / bitstream), not just the
+      container metadata around it. Paired instances: SPEC-043's container-tag probe
+      recorded a false single-component premise; SPEC-044's §12 probe read the real
+      SOF3 frame header and caught both the Nf=2 truth and the K3III APP0 gap.
       N=2, paired-opposing, bar met — disposition at STAGE-011 close (imminent).
       Sibling of [[probe-the-hard-assumption-at-frame-time]] — same family (a
       load-bearing assumption left unprobed at design) but a sharper rule: when the

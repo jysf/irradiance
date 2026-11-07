@@ -28,6 +28,19 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   check. The binding is panic-free under `#![forbid(unsafe_code)]` + the five-lint deny
   policy.
 
+- **Lossless-JPEG header parsing hardened for the public `Compression 7` route**
+  (`irradiance::plane` / internal `ljpeg`, SPEC-045, PROJ-003) — the SOF-3 header parser
+  now rejects a point transform at or above the sample precision, a non-DC or
+  out-of-range Huffman table, and lets a later Huffman table with the same destination
+  replace an earlier one — each a **typed `Error`, never a panic** — so a truncated or
+  hostile `Compression 7` strip fed through the public `plane::unpack_into` fails cleanly.
+  A held `Compression 7` file decodes to a **byte-identical** `u16` plane across two
+  independent decodes (plane-level determinism, integer-only by construction); the
+  `plane` / `develop` / `demosaic` fuzz targets now exercise the **public** Compression-7
+  route continuously; and the DNG `Compression 7` binding gains a provenance-ledger entry.
+  No new public API, no new dependency; `ljpeg` stays `pub(crate)`. This is the capstone
+  of STAGE-011 — the compressed-plane lossless-JPEG binding (PROJ-003) is complete.
+
 - **Colour matrix is now scene-adaptive — dual-illuminant interpolation**
   (`irradiance::color`, SPEC-034, PROJ-002) — for a DNG carrying **two** colour
   calibrations (`ColorMatrix1/2`, and usually `ForwardMatrix1/2`, at
