@@ -573,6 +573,54 @@ fn a_perturbed_hamilton_adams_step_turns_the_oracle_red() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SPEC-048 / DEC-041 — the interior fast path must be bit-identical to the
+// all-reflecting reference. `demosaic_into` now reads the interior (every pixel
+// ≥ 2 rows and ≥ 2 columns from each edge) by direct per-row-slice indexing,
+// skipping reflect()/plane_index(), and keeps the reflecting path only for the
+// 2-pixel border. `local_hamilton_adams(.., false)` is the INDEPENDENT
+// all-reflecting reference (every pixel reflected, no fast path); equality over
+// a size with a non-trivial interior AND border, across all four Bayer phases,
+// is the `dst_after == dst_before` proof. The change is output-invariant, so
+// this is an equivalence/invariance gate, not a red→green feature test. The
+// hand-computed golden tables above (EXPECTED_HA/BGGR/GRBG/GBRG) are the frozen
+// pre-change bytes and still pass unchanged — the second half of the proof.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A deterministic, varied mosaic (a cheap LCG) so the directional classifiers
+/// meet real gradients, ties and both-axis-wins cases rather than a constant
+/// field a flat path would collapse. Values sit in a realistic 12-bit window.
+fn varied_mosaic(width: u32, height: u32) -> Vec<u16> {
+    let n = (width as usize) * (height as usize);
+    let mut out = Vec::with_capacity(n);
+    let mut state: u32 = 0x9E37_79B9;
+    for _ in 0..n {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        out.push(((state >> 19) & 0x0FFF) as u16);
+    }
+    out
+}
+
+#[test]
+fn interior_fast_path_matches_the_reference_demosaic() {
+    // Square and non-square, odd and even, each ≥ 5 on both axes so there is a
+    // genuine interior as well as the 2-pixel border; 5×5 and 6×6 are the
+    // minimal-interior cases the golden tables already pin.
+    for &(w, h) in &[(5u32, 5u32), (6, 6), (9, 7), (11, 9), (12, 10), (8, 13)] {
+        let mosaic = varied_mosaic(w, h);
+        for pattern in [RGGB, BGGR, GRBG, GBRG] {
+            let sensor = fixture_sensor(w, h, Some(bayer(pattern)));
+            let reference = local_hamilton_adams(&sensor, &mosaic, false);
+            let actual = demosaic(&sensor, &mosaic);
+            assert_eq!(
+                actual, reference,
+                "the interior fast path diverged from the all-reflecting reference \
+                 at {w}x{h}, phase {pattern:?} — demosaic_into is no longer bit-identical"
+            );
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // The no-panic / typed-error contract (carried over from SPEC-030).
 // ─────────────────────────────────────────────────────────────────────────────
 
