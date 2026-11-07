@@ -6,14 +6,14 @@
 task:
   id: SPEC-049
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L              # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved         # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -63,11 +63,44 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 18000000
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 40
+      recorded_at: 2026-11-07
+      notes: "Main-session design (un-metered). Formalized DEC-042 (fuse to two passes + a public develop_color_f32_into that quantises then divides), wrote the byte-identity + f32-equality failing tests, HANDOFF-103 and the build prompt. The design's normalise-on-read call was wrong (see build) — the rolling-row cache it named as the fallback is what shipped."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 49237604
+      estimated_usd: 106.77
+      duration_minutes: 110
+      recorded_at: 2026-11-07
+      notes: "ONE session, TWO build turns: #147 (the fuse, normalise-on-read) then #148 (the rolling-row cache revision). #147's normalise-on-read measured ~2.76x slower develop (it re-normalised each sample ~9x and bought no memory over a rolling cache); the ledger discipline surfaced it, the maintainer chose the fix, and #148's rolling cache kept the ~134 MB win at ~1.04x (near baseline), bit-identical. Recovered 49,237,604 tok / $106.77 (claude-opus-4-8, transcript 160a4ff6, 119 deduped messages) across both turns — ~3.3x the 18M estimate, the cost of the wrong first approach + rework."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 10460829
+      estimated_usd: 23.18
+      duration_minutes: 45
+      recorded_at: 2026-11-07
+      notes: "Verdict APPROVED at main 212eb98 (HANDOFF-104, PR #149). Cold review of the rolling-cache state: bit-identity proven against an independent reference and confirmed by two adversarial mutations watched go red; demosaic kernel untouched; the ~134 MiB win is structural (green plane + ~91 KB ring); f32 equals the quantised u16 / 65535. Recovered 10,460,829 tok / $23.18 (claude-opus-4-8, transcript d3910903, 59 deduped messages); handback floor superseded."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 30
+      recorded_at: 2026-11-07
+      notes: "Orchestrator ship bookkeeping (un-metered main session). The build PR #147 was merged directly (skipping verify + ship), so this cycle caught up: recovered the true build+verify costs from transcripts, wrote the reflection and totals, archived the spec, and flipped the STAGE-012 backlog."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 59698433
+    estimated_usd: 129.95
+    session_count: 4
+shipped_at: 2026-11-07
 ---
 
 # SPEC-049: colour-develop memory fuse and f32 entry point
@@ -183,31 +216,36 @@ expand this one.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Reach for the rolling-row cache at **design**, not after a measured
+   regression. The design chose normalise-on-read; it re-normalised each sample
+   ~9× and, per the ledger, bought no memory over a rolling cache — so it only
+   added a 2.76× develop slowdown. DEC-042 had even named the rolling cache as the
+   fallback. The ledger's before/after discipline caught it (the system working),
+   but a full extra build turn later — the spec ran ~3.3× its token estimate
+   (`complexity_actual: L` vs estimated M). Also: don't merge a perf build PR
+   before its verify and a before/after review — the direct #147 merge put a known
+   2.76× regression transiently on `main`.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No new rule; `DEC-042` was amended to the rolling-row cache and the STAGE-012
+   perf discipline (`DEC-041`) did its job. A watch-worthy pattern: a memory
+   optimisation that removes a buffer by recomputing a value on every read can
+   regress time badly — prefer a rolling/windowed cache that recomputes once. It
+   is captured in DEC-042's narrative; worth a `signals.yaml` lesson if it recurs.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The remaining `STAGE-012` backlog: the colour-geometry crop follow-up (§3B)
+   and P3 (opt-in threading). The one-row-cache follow-up the first build flagged
+   is already done — it is this spec's shipped approach (#148).
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — build
+   *(The normalise-on-read time regression — a design-level wrong call — was
+   surfaced by the build cycle's own before/after measurement, before verify; the
+   fix shipped in the same build session's second turn.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Colour-develop a 23 MP frame with ~134 MB less peak memory (358.7 → 224.9
+   MiB) at no speed cost, and call `develop_color_f32_into` for a direct `f32`
+   result — before, a float caller had to hold the `u16` result and its `f32`
+   copy at once.
