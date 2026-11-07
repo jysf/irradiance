@@ -27,11 +27,11 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # HANDOFF-103 (build); tier_map.build
+  created_at: 2026-11-07
 
 references:
-  decisions: [DEC-038, DEC-016, DEC-018] # DEC-038 = the colour develop path; DEC-016 = caller-owned buffers (the f32 entry point extends this); DEC-018 = clamp/modular integer discipline. DEC-042 (the fuse + f32) is NEW, formalized at this spec's design.
+  decisions: [DEC-042, DEC-038, DEC-016, DEC-018] # DEC-042 = the fuse + f32 entry point (this spec's decision); DEC-038 = the colour develop path; DEC-016 = caller-owned buffers (the f32 entry point extends this); DEC-018 = clamp/modular integer discipline.
   constraints: []                  # design fills exact ids: no-panic, determinism, no-new-deps
   related_specs: [SPEC-047, SPEC-048] # same colour path
 
@@ -62,7 +62,7 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
+  tokens_estimate: 18000000
   sessions: []
   totals:
     tokens_total: 0
@@ -164,9 +164,13 @@ expand this one.
   and applies the 3×3 colour matrix per pixel, writing the final linear sRGB
   straight into `dst` — so neither `normalized` nor `camera_rgb` is allocated. The
   arithmetic and its order must match today's path exactly (bit-identical).
-- **`develop_color_f32_into`** shares that fused pipeline but writes `/ 65535.0`
-  into an `f32` dst in the same pass, so a float caller never holds a `u16` copy;
-  it must equal `to_linear_f32_into(develop_color_into(..))` to the bit.
+- **`develop_color_f32_into`** shares that fused pipeline, but pass 2 writes `f32`
+  into `dst` so a float caller never holds a `u16` copy. It must equal
+  `to_linear_f32_into(develop_color_into(..))` **to the bit** — and that function
+  (`src/tone.rs`) divides the **quantised `u16`** by `65535.0`. So the f32 path
+  **quantises to `u16` first (identical to the integer path), then divides by
+  `65535.0`**; do NOT divide the raw `f64` matrix result, which would differ by
+  the clamp-and-round (`quantize`, `DEC-018`). The equality test is the gate.
 - This is a bigger restructuring than P1 — keep the STAGE-012 perf discipline
   (bit-identical proof + measured peak-RSS + the `DEC-*`). Keep zero-dependency,
   no-panic, determinism. LibRaw/rawpy are the pyirradiance yardstick — reference
