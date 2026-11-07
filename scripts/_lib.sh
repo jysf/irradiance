@@ -1533,6 +1533,34 @@ spec_mtime_date() {
 # so the key stays visually inside its own block.
 upsert_frontmatter_scalar() {
     local file="$1" key="$2" value="$3"
+
+    # Flat (un-dotted) top-level scalar — e.g. shipped_at, closed_reason. The
+    # nested-key path below assumes a `top:` block with an indented `  leaf:`.
+    # Handed a flat key, `top` and `leaf` are the same word, so it looks for an
+    # indented child of the key under itself, never finds one, and then inserts
+    # an INDENTED duplicate (`  shipped_at: ...`) beneath the real line instead
+    # of updating it — invalid YAML, and the stamp silently lands on a phantom
+    # child. So a flat key is handled here and never reaches that logic.
+    if [ "$key" = "${key#*.}" ]; then
+        if awk -v k="$key" '
+            /^---$/ { n++; next } n != 1 { next }
+            $0 ~ ("^" k ":") { found = 1 }
+            END { exit !found }
+        ' "$file"; then
+            awk -v k="$key" -v val="$value" '
+                /^---$/ { n++; print; next }
+                n == 1 && !done && $0 ~ ("^" k ":") { print k ": " val; done = 1; next }
+                { print }
+            ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+        else
+            awk -v k="$key" -v val="$value" '
+                /^---$/ { n++; if (n == 2 && !done) { print k ": " val; done = 1 } print; next }
+                { print }
+            ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+        fi
+        return
+    fi
+
     local top="${key%%.*}" leaf="${key##*.}"
 
     if awk -v top="$top" -v leaf="$leaf" '
@@ -1707,6 +1735,15 @@ get_dec_id() {
     id=$(awk '/^---$/{f=!f;next} !f{next} /^insight:/{i=1;next} i&&/^[a-zA-Z_]/{i=0} i&&/^[[:space:]]+id:/{print $2;exit}' "$1")
     [ -n "$id" ] || id=$(basename "$1" .md | sed -E 's/^(DEC-[0-9]+).*/\1/')
     echo "$id"
+}
+
+# project.id — which project this decision is attributed to (the nested
+# `project:` block's `id:`). Empty if absent. close-project needs this to count
+# the decisions attributed to the project it is closing; without it the density
+# rollup silently read zero for every project (set -e does not trip inside the
+# command substitution, so the miss was invisible rather than fatal).
+get_dec_project_id() {
+    awk '/^---$/{f=!f;next} !f{next} /^project:/{p=1;next} p&&/^[a-zA-Z_]/{p=0} p&&/^[[:space:]]+id:/{print $2;exit}' "$1"
 }
 
 # insight.confidence (e.g. 0.95). Empty if missing.
