@@ -47,7 +47,7 @@ handback:
   estimated_usd: 1.10              # tokens_total × your rate, or your harness's number
   duration_minutes: 20
   branch: claude/jovial-margulis-f54357
-  pr: PR_PLACEHOLDER               # verify PR against main
+  pr: 143                          # verify PR against main
   completed_at: 2026-11-07         # YYYY-MM-DD
   notes: "APPROVED. tokens_total is this harness's context-window occupancy at handback (get_usage: 217,733 of 1M, 22%); it counts unique/context-equivalent tokens, NOT a cache-inclusive transcript sum, so it is a floor and is not directly comparable to the build's 18.08M figure. No cache-inclusive /cost sum is exposed to this agent."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -129,7 +129,7 @@ verdict returned.
 ### Execution notes
 
 - **Branch / PR:** verify branch `claude/jovial-margulis-f54357`; verify PR
-  opened against `main` (number PR_PLACEHOLDER). Build under review: PR #142,
+  opened against `main` (PR #143). Build under review: PR #142,
   squash-merged to `main` as `b7606130ca075c071f4e6bcb3fec060662082a0f` (which my
   verify branch is a superset of — HEAD == origin/main == this SHA at review start).
 - **Completed at:** 2026-11-07
