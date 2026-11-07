@@ -1303,7 +1303,7 @@ signals:
   - id: shared-path-oracle-tautology
     type: lesson
     summary: "An encode->decode round-trip oracle cannot catch a regression in a helper that BOTH halves call — the error cancels — so a shared helper's sign/edge branches need a direct, hand-computed assertion, not just the round-trip."
-    evidence: "N=1, SPEC-037 (verify, HANDOFF-088). The LJ92 round-trip oracle and the production decoder both call `predict`->`floor_div2`; mutating `floor_div2` to truncate-toward-zero (dropping the negative-odd floor) left all 18 ljpeg tests green — encode and decode made the same error and it cancelled, and the one hand-computed predictor test used only positive neighbours (no negative `>>1` intermediate). The cold verify caught it; the fix was one direct assertion with a negative-odd intermediate (predictor 5, Rb<Rc), mutation-confirmed to fail on truncation."
+    evidence: "N=2. Instance 1 — SPEC-037 (verify, HANDOFF-088). The LJ92 round-trip oracle and the production decoder both call `predict`->`floor_div2`; mutating `floor_div2` to truncate-toward-zero (dropping the negative-odd floor) left all 18 ljpeg tests green — encode and decode made the same error and it cancelled, and the one hand-computed predictor test used only positive neighbours (no negative `>>1` intermediate). The cold verify caught it; the fix was one direct assertion with a negative-odd intermediate (predictor 5, Rb<Rc), mutation-confirmed to fail on truncation. Instance 2 — PROJ-003 close ultrareview, 2026-11-06. The restart-interval prediction rule (the `r == 0` first-line condition and the per-restart reset) is applied IDENTICALLY by the production decoder (`reconstruct`), the test encoder (`encode_lj92`), AND the `reference_decode` red-proof control, so a restart round-trip and the red-proof both cancel any divergence from T.81 on the restart boundary; the only truly independent check (`dnglab --raw-checksum`) runs on the two held files, neither of which carries a `DRI`, so the restart path is unverified by any non-shared oracle."
     bar: "N=2"
     status: watch
     disposition_at: stage-close
@@ -1311,6 +1311,15 @@ signals:
     last_touched: 2026-11-06
     raised_by: claude
     notes: |
+      ══ PROJ-003 CLOSE REVIEW, 2026-11-06: N=2 — BAR MET. ══
+      The restart-boundary instance (evidence instance 2) is the confirmed second
+      case, so the convention should codify at the 0.2.0 ljpeg-hardening stage-close:
+      a round-trip / analytic oracle must be paired with an INDEPENDENT check (a
+      different implementation, e.g. dnglab on a synthetic restart-bearing file) or a
+      direct hand-computed assertion on each rule BOTH halves share — a reference
+      decoder that reuses the same rule is not independent. Kept at watch only because
+      no stage is open to codify into; see docs/reviews/2026-11-06-proj-003-close-review-triage.md.
+      ──
       ══ STAGE-011 CLOSE, 2026-11-06: DEFERRED, still N=1. ══ STAGE-011 APPLIED the
       discipline rather than violating it: SPEC-044's oracle is an independent dnglab
       implementation (not a shared-helper round-trip), and SPEC-045's header guards
@@ -1381,3 +1390,48 @@ signals:
       not the outer container." The SPEC-044 instance shows the falsifier is cheap
       (~40 lines decoding the held files) and decisive at design time.
       Related: [[unrun-docs-carry-errors]] (run the tool — here, run the RIGHT read).
+
+  # --- lesson: a review scaffold must carry the whole code tree ----------------
+  - id: review-scaffold-must-carry-the-whole-code-tree
+    type: lesson
+    summary: "A code-review target built by cherry-picking files makes the omitted-but-related files read at their pre-change state, so a reviewer flags already-fixed things as broken."
+    evidence: "N=1, PROJ-003 close ultrareview, 2026-11-06. The review ran against a `review/proj-003-code` branch carrying src/ljpeg.rs, src/plane.rs, src/lib.rs, the tests, the fuzz targets and examples/fuzz-seeds.rs, but NOT Cargo.toml, fuzz/Cargo.toml, docs/ or src/bin/irr.rs. 4 of the 9 findings were false positives read off those baseline files: the `fuzzing` feature declaration (Cargo.toml), the ljpeg fuzz-target registration (fuzz/Cargo.toml), the provenance-ledger rows (docs/), and the irr-info Compression-7 branch (src/bin/irr.rs) — all present on main."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-11-06
+    last_touched: 2026-11-06
+    raised_by: claude
+    notes: |
+      The scaffold was needed because the cloud ultrareview caps the diff (8,000
+      lines) and the full baseline-to-main range was 14,995 lines (mostly spec /
+      handoff / timeline markdown). Narrowing to code was right; cherry-picking the
+      code files was the mistake. Convention if it recurs: build the review target
+      from the WHOLE code tree (exclude only large non-code dirs — the project
+      markdown, decisions, guidance), or at minimum include every file the reviewed
+      code references for its contract (the manifests, the docs a blocking constraint
+      requires, the binaries that call it), so the reviewer sees the real integrated
+      state, not a half-reverted one. A per-dimension false-positive rate near a half
+      (4 of 9 here) is the cost. See docs/reviews/2026-11-06-proj-003-close-review-triage.md.
+
+  # --- risk: unexercised SOF-3 decode paths garble silently -------------------
+  - id: unexercised-sof3-paths-garble-silently
+    type: risk
+    summary: "SOF-3 decode paths no held corpus file exercises — restart intervals (DRI) and chroma subsampling (Hi/Vi not 1) — are parsed but not validated, so a conforming file using them would silently mis-decode instead of returning a typed error."
+    evidence: "PROJ-003 close ultrareview, 2026-11-06. (1) Restart: the per-restart prediction rule is unverified by any non-shared oracle (see [[shared-path-oracle-tautology]] instance 2) and neither held file carries a DRI. (2) Subsampling: parse_frame_header (src/ljpeg.rs:468) reads and discards Hi/Vi; a frame with H or V not equal to 1 decodes to a garbled plane with no error. Both are documented non-goals (DEC-037) and corpus-unexercised, so the shipped planes are unaffected — but the failure mode is silent wrong output, not a clean rejection."
+    bar: null
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-06
+    last_touched: 2026-11-06
+    raised_by: claude
+    notes: |
+      Mitigation is the 0.2.0 ljpeg-hardening spec (triage doc findings 1 and 2):
+      settle the T.81 restart rule against the standard plus an INDEPENDENT oracle,
+      and reject subsampled frames with a typed error rather than garbling. Until
+      then this is the honest residual risk: the decoder is bit-exact on the two held
+      files and panic-free on hostile input, but a valid SOF-3 we do not fully support
+      currently produces wrong pixels silently on the restart and subsampling axes
+      rather than a typed Unsupported error. Revisit at the hardening stage-close;
+      drop once both paths either decode correctly (with an independent check) or
+      reject typed. See docs/reviews/2026-11-06-proj-003-close-review-triage.md.
