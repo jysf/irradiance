@@ -10,6 +10,19 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **Colour develop now honours the DNG `ActiveArea` origin** (`irradiance::color` /
+  `irradiance::demosaic`, SPEC-047, PROJ-002) — `develop_color_into` and `demosaic_into`
+  now index each pixel's Bayer colour and its BlackLevel/WhiteLevel 2×2 slot from the
+  `ActiveArea` origin (a shared `active_area_origin` helper plus a wrapping offset), not
+  the plane's top-left. A DNG whose `ActiveArea` origin is odd previously developed a flat
+  grey to **magenta** (`0.589 0.000 0.669`) with no error raised; it now stays grey,
+  matching LibRaw (`~0.200` per channel), proven by a grey-stays-grey red-proof across all
+  four origin parities and the four Bayer phases. **Even-origin files are byte-identical**
+  (no change for the Canon 5D3 / Nikon D300S corpus), and `develop_color_into`'s buffer
+  contract is unchanged — the masked-border crop and full `DefaultCrop`/`Orientation`
+  parity are a separate STAGE-012 follow-up. `DEVELOP_VERSION` is bumped to `3` (`DEC-040`).
+  No new public API, no new dependency. Raised by the pyirradiance rawpy/LibRaw benchmark.
+
 - **DNG `Compression 7` sensor planes now route through the lossless-JPEG decoder**
   (`irradiance::plane`, SPEC-043, PROJ-003) — `plane::unpack_into` dispatches on the
   `Compression` tag: a `Compression 7` (SOF-3 lossless JPEG) plane now decodes each

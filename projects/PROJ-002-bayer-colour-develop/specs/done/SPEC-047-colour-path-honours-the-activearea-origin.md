@@ -6,14 +6,14 @@
 task:
   id: SPEC-047
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M              # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved         # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -63,11 +63,44 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 15000000
-  sessions: []
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 45
+      recorded_at: 2026-11-06
+      notes: "Main-session design (un-metered; no /cost meter in the Claude Code Code tab). Formalized DEC-040 (offset from the ActiveArea origin, not a crop — chosen so even-origin files stay byte-identical and develop_color_into's contract is unchanged), wrote the four failing tests, HANDOFF-099 and the build prompt."
+    - cycle: build
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 14522562
+      estimated_usd: 32.21
+      duration_minutes: 40
+      recorded_at: 2026-11-06
+      notes: "Built whole, APPROVED by verify first pass (HANDOFF-099, PR #137, 0e4b4dc). Recovered 14,522,562 tok / $32.21 (claude-opus-4-8, from transcript cdeb761e, 65 deduped assistant messages, 97.8% cache reads); the HANDOFF-099 handback 28,690,878 was a non-deduped /cost over-count, superseded by the deduped transcript sum. The cold build inherited the orchestrator's claude-opus-4-8 (model:opus did not upgrade above the parent)."
+    - cycle: verify
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: 6848824
+      estimated_usd: 16.46
+      duration_minutes: 20
+      recorded_at: 2026-11-06
+      notes: "Verdict APPROVED at 0e4b4dc (HANDOFF-100, PR #138). Recovered 6,848,824 tok / $16.46 (claude-opus-4-8, from transcript 3f6f58fc, 40 deduped assistant messages, 97.0% cache reads); the HANDOFF-100 handback 195,000 was a context-window-occupancy floor, superseded. The verify proved the red-proof load-bearing by neutralizing DEC-040 — both grey tests then failed with a 40,716-count magenta while the byte-identity and no-panic tests stayed green."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 25
+      recorded_at: 2026-11-06
+      notes: "Orchestrator ship bookkeeping (un-metered main session). Recovered the build and verify true costs from their transcripts, wrote the reflection and totals, archived the spec, flipped the STAGE-012 backlog, and logged the brag + changelog."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 21371386
+    estimated_usd: 48.67
+    session_count: 4
+shipped_at: 2026-11-06
 ---
 
 # SPEC-047: colour path honours the ActiveArea origin
@@ -218,31 +251,29 @@ pattern to build on). The build cycle makes these pass.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — The offset-vs-crop call was the decision that mattered; splitting the crop /
+   masked-border / geometry work out of P0 kept it small enough to ship with zero
+   golden churn and no contract change. Nothing I'd change — except to distrust a
+   build's self-reported `/cost` sooner: the handback (28.7M) was roughly double
+   the deduped-transcript truth (14.5M), the usual non-deduped over-count.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No new rule. `DEC-040` records the decision; the crop follow-up and
+   `DEVELOP_VERSION` bump are captured. The handback-vs-deduped gap is already
+   covered by the standing "recover true costs from transcripts at ship" practice.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Already in the `STAGE-012` backlog: the colour-path crop + masked-border
+   removal + full `DefaultCrop`/`Orientation` parity (the §3B crop half this spec
+   deferred), plus the P1 demosaic fast path, P2 fused-buffer + f32 entry point,
+   and P3 opt-in threading.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — none
+   *(The build was APPROVED on the first verify pass; the verify's own adversarial
+   neutralization of DEC-040 confirmed the red-proof rather than finding a defect.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Develop a DNG whose `ActiveArea` origin is odd to correct colour — a flat
+   grey stays grey (channel spread < 1e-3) where it previously came out magenta
+   (`0.589 0.000 0.669`), now matching LibRaw's `~0.200` on every channel.
