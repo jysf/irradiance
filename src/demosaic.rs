@@ -87,7 +87,7 @@
 //! implement no isolable demosaic step, `DEC-024`). See
 //! `docs/provenance-ledger.md`.
 
-use crate::ifd::{Cfa, Sensor};
+use crate::ifd::{active_area_origin, Cfa, Sensor};
 use crate::Error;
 
 /// A photosite's colour, as the `CFAPattern` colour indices name them
@@ -256,6 +256,13 @@ pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<()
 
     let w = usize::try_from(width).unwrap_or(0);
 
+    // The CFA phase repeats from the `ActiveArea` origin, not the plane's
+    // top-left (`DEC-040`): index each pixel's colour relative to it so a file
+    // with an odd `ActiveArea.top`/`.left` is assigned the right colour. `(0, 0)`
+    // when the tag is absent, so an even origin (the whole corpus) is unchanged.
+    // `normalize_mosaic` (`src/color.rs`) uses the same origin for the level slot.
+    let (active_top, active_left) = active_area_origin(sensor);
+
     // ── Pass 1 — green at every pixel, into each pixel's own green slot. ──────
     // `as_chunks_mut::<3>` yields exactly `pixels` fixed-size `[u16; 3]` chunks
     // (dst.len() == pixels * 3, checked above) and an empty remainder, so the
@@ -265,7 +272,14 @@ pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<()
     for (pixel, [_red, green, _blue]) in triples.iter_mut().enumerate() {
         let y = u32::try_from(pixel.checked_div(w).unwrap_or(0)).unwrap_or(0);
         let x = u32::try_from(pixel.checked_rem(w).unwrap_or(0)).unwrap_or(0);
-        *green = green_at_site(&phase, src, width, height, x, y);
+        *green = green_at_site(
+            &phase,
+            src,
+            width,
+            height,
+            (x, y),
+            (active_top, active_left),
+        );
     }
 
     // ── Pass 2 — red and blue, reading pass 1's finalized green from `dst`. ──
@@ -276,7 +290,15 @@ pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<()
     for pixel in 0..expected_src {
         let y = u32::try_from(pixel.checked_div(w).unwrap_or(0)).unwrap_or(0);
         let x = u32::try_from(pixel.checked_rem(w).unwrap_or(0)).unwrap_or(0);
-        let (red, blue) = interpolate_red_blue(&phase, src, dst, width, height, x, y);
+        let (red, blue) = interpolate_red_blue(
+            &phase,
+            src,
+            dst,
+            width,
+            height,
+            (x, y),
+            (active_top, active_left),
+        );
         let base = pixel.checked_mul(3).unwrap_or(0);
         if let Some(slot) = dst.get_mut(base) {
             *slot = red;
@@ -297,9 +319,23 @@ pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<()
 /// - `gh = 2(W+E) − (WW−2C+EE)`, `gv = 2(N+S) − (NN−2C+SS)` — predictors /4.
 /// - lower gradient wins (`CLh<CLv → rnd4(gh)`, `CLv<CLh → rnd4(gv)`,
 ///   tie → `rnd8(gh+gv)`), then clamp.
-fn green_at_site(phase: &BayerPhase, src: &[u16], width: u32, height: u32, x: u32, y: u32) -> u16 {
-    let row_odd = (y & 1) == 1;
-    let col_odd = (x & 1) == 1;
+fn green_at_site(
+    phase: &BayerPhase,
+    src: &[u16],
+    width: u32,
+    height: u32,
+    site: (u32, u32),
+    origin: (u32, u32),
+) -> u16 {
+    let (x, y) = site;
+    let (active_top, active_left) = origin;
+    // Phase relative to the `ActiveArea` origin (`DEC-040`). `wrapping_sub` is
+    // panic-free and parity-correct even for `y < active_top` (the low bit of a
+    // wrapping subtraction is still the true parity); an even origin reduces to
+    // `y & 1`. Neighbour sampling below stays plane-relative — only the colour
+    // label each photosite is assigned shifts.
+    let row_odd = (y.wrapping_sub(active_top) & 1) == 1;
+    let col_odd = (x.wrapping_sub(active_left) & 1) == 1;
     let xi = i64::from(x);
     let yi = i64::from(y);
 
@@ -351,11 +387,16 @@ fn interpolate_red_blue(
     dst: &[u16],
     width: u32,
     height: u32,
-    x: u32,
-    y: u32,
+    site: (u32, u32),
+    origin: (u32, u32),
 ) -> (u16, u16) {
-    let row_odd = (y & 1) == 1;
-    let col_odd = (x & 1) == 1;
+    let (x, y) = site;
+    let (active_top, active_left) = origin;
+    // Phase relative to the `ActiveArea` origin (`DEC-040`), as in
+    // [`green_at_site`]; `wrapping_sub` is panic-free and parity-correct, and an
+    // even origin reduces to `y & 1`.
+    let row_odd = (y.wrapping_sub(active_top) & 1) == 1;
+    let col_odd = (x.wrapping_sub(active_left) & 1) == 1;
     let here = phase.colour(row_odd, col_odd);
     let xi = i64::from(x);
     let yi = i64::from(y);
