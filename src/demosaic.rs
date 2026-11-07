@@ -407,28 +407,36 @@ fn u32_from(v: usize) -> u32 {
 }
 
 /// The **fused** colour-develop demosaic (`SPEC-049`, `DEC-042`): the same
-/// Hamilton-Adams kernel as [`demosaic_into`], but normalising each mosaic
-/// sample **on read** (through `normalize`) instead of over a pre-normalised
-/// plane, keeping the finalised green in a caller-owned `w·h` `green` plane
-/// (not in `dst`), and handing each pixel's camera-RGB triple to `emit` rather
-/// than writing a `camera_rgb` intermediate. [`crate::color::develop_color_into`]
-/// supplies `normalize` (per-CFA-slot level normalisation) and an `emit` that
-/// applies the colour matrix straight into `dst`, so neither the `normalized`
-/// mosaic nor the `camera_rgb` buffer is ever allocated.
+/// Hamilton-Adams kernel as [`demosaic_into`], but driven as a single
+/// output-row sweep that normalises each mosaic sample **exactly once** into a
+/// small rolling ring of normalised rows, keeps the finalised green in a
+/// caller-owned `w·h` `green` plane (not in `dst`), and hands each pixel's
+/// camera-RGB triple to `emit` rather than writing a `camera_rgb` intermediate.
+/// [`crate::color::develop_color_into`] supplies `normalize` (per-CFA-slot level
+/// normalisation) and an `emit` that applies the colour matrix straight into
+/// `dst`, so neither the `normalized` mosaic nor the `camera_rgb` buffer is
+/// allocated — only the `w·h` green plane and the `RING`-row cache.
 ///
-/// **Output-invariant.** `normalize(rx, ry)` returns exactly the value
-/// [`crate::color`]'s pre-fuse `normalize_mosaic` wrote at the plane index
-/// `ry·width + rx` (same per-slot `[black, white]`, same `normalize_sample`),
-/// and `green`/the red-blue interpolation feed the **same** shared kernel
-/// helpers ([`green_from_neighbours`], [`diagonal_from_neighbours`],
-/// [`colour_difference`]) on the same neighbours in the same order as the
-/// reflecting path of [`demosaic_into`]. The reflecting path is itself
-/// bit-identical to [`demosaic_into`]'s interior fast path (`DEC-041`,
-/// `SPEC-048`), so the fused `u16` render equals the pre-fuse
-/// `normalize → demosaic_into → matrix` pipeline byte for byte. This function
-/// uses the reflecting path for every pixel (no interior fast path): the fuse's
-/// goal is peak-RSS, and `normalise-on-read` already recomputes per neighbour,
-/// so the fast path would save only the reflect bookkeeping (`DEC-042`).
+/// **Why a rolling cache (`DEC-042`, revised).** The first cut normalised on
+/// every neighbour read (up to ~9× per photosite), which kept the memory win
+/// but regressed develop wall-time ~2.76×. The eliminated `camera_rgb` buffer is
+/// the whole memory win; re-normalising bought none of it. So this revision
+/// normalises each photosite once — when its row first enters the ring — and
+/// both the green pass and the red/blue pass read the cached value. The ring
+/// holds the few rows a single output row touches (y−1 … y+3, inside `RING`),
+/// so a row's residue slot never collides with a still-live row.
+///
+/// **Output-invariant.** A cached cell equals `normalize(col, row)`, which is
+/// exactly the value [`crate::color`]'s pre-fuse `normalize_mosaic` wrote at the
+/// plane index `row·width + col`; the green pass and the red/blue interpolation
+/// feed the **same** shared kernel helpers ([`green_from_neighbours`],
+/// [`diagonal_from_neighbours`], [`colour_difference`]) on the same neighbours in
+/// the same order as [`demosaic_into`]. The interior reads the cache by direct
+/// index (the `DEC-041` fast path, over normalised rows), the two-pixel border
+/// falls back to [`fused_green_at_site`] / [`fused_interpolate_red_blue`] (which
+/// recompute `normalize` — negligibly many pixels), and both agree with
+/// [`demosaic_into`] bit for bit. So the fused `u16` render equals the pre-fuse
+/// `normalize → demosaic_into → matrix` pipeline byte for byte.
 ///
 /// `normalize` is keyed by the **reflected, in-range** `(col, row)` so it needs
 /// no per-read division. `emit(pixel, r, g, b)` receives the camera-RGB triple
@@ -442,10 +450,10 @@ fn u32_from(v: usize) -> u32 {
 ///   so [`Error::MissingColorCalibration`] surfaces **after** the CFA check,
 ///   matching the pre-fuse error order).
 ///
-/// Never panics: every neighbour read reflects into range and goes through
-/// `.get`, green reads and writes are `.get`/`.get_mut`, and all arithmetic is
-/// checked/saturating/wrapping. `green` and the `emit` destination are
-/// caller-owned and sized by the caller (`DEC-016`); a short `green` plane
+/// Never panics: every read goes through `.get` (cached interior) or reflects
+/// into range (border), green reads and writes are `.get`/`.get_mut`, and all
+/// arithmetic is checked/saturating/wrapping. `green` and the `emit` destination
+/// are caller-owned and sized by the caller (`DEC-016`); a short `green` plane
 /// would read/write short rather than panic.
 pub(crate) fn develop_color_fused<N, Setup, Sink>(
     sensor: &Sensor,
@@ -487,45 +495,117 @@ where
         return Ok(());
     }
 
-    // ── Pass 1 — green at every pixel into the `w·h` green plane. ────────────
-    for y in 0..h {
-        let yu = u32_from(y);
-        let row_base = y.checked_mul(w);
-        for x in 0..w {
-            let xu = u32_from(x);
-            let g = fused_green_at_site(
-                &phase,
-                normalize,
-                width,
-                height,
-                (xu, yu),
-                (active_top, active_left),
-            );
-            if let Some(slot) = row_base
-                .and_then(|rb| rb.checked_add(x))
-                .and_then(|i| green.get_mut(i))
-            {
-                *slot = g;
-            }
-        }
-    }
+    // The rolling ring of normalised rows. `RING` is safely larger than the
+    // five-row span (y−1 … y+3) any single output row reads, so a row's residue
+    // slot never aliases a still-live row. Each photosite is normalised once,
+    // when `fill_norm_row` first writes its row into the ring.
+    const RING: usize = 8;
+    let mut cache: Vec<u16> = match RING.checked_mul(w) {
+        Some(n) => vec![0u16; n],
+        // `w` is astronomically large; the caller's length checks precede this,
+        // so this is unreachable, but handled rather than risking an overflow.
+        None => return Ok(()),
+    };
+    let mut norm_filled: usize = 0; // count of absolute rows normalised into the ring
+    let mut green_done: usize = 0; // count of green rows finalised in the plane
 
-    // ── Pass 2 — red/blue, reading the finalised green plane; matrix → dst. ──
+    // The interior (≥ 2 from every edge) reads the cache by direct index; the
+    // two-pixel border reflects. Empty when an axis is shorter than five.
+    let col_interior_end = w.saturating_sub(2);
+    let row_interior_end = h.saturating_sub(2);
+
     for y in 0..h {
+        // Normalise forward so rows up to `y + 3` (capped at the last row) are in
+        // the ring — enough for green row `y + 1`'s ±2 reads and this row's reads.
+        let need_norm = core::cmp::min(y.saturating_add(4), h);
+        while norm_filled < need_norm {
+            fill_norm_row(&mut cache, RING, w, normalize, norm_filled);
+            norm_filled = norm_filled.saturating_add(1);
+        }
+
+        // Advance the green frontier so rows up to `y + 1` are finalised in the
+        // plane before red/blue reads them.
+        let need_green = core::cmp::min(y.saturating_add(2), h);
+        while green_done < need_green {
+            let g = green_done;
+            let gu = u32_from(g);
+            let g_interior = g >= 2 && g < row_interior_end;
+            let g_base = g.checked_mul(w);
+            for x in 0..w {
+                let xu = u32_from(x);
+                let parity = (
+                    (gu.wrapping_sub(active_top) & 1) == 1,
+                    (xu.wrapping_sub(active_left) & 1) == 1,
+                );
+                let value = if g_interior && x >= 2 && x < col_interior_end {
+                    cache_green_interior(&phase, &cache, RING, w, x, g, parity).unwrap_or_else(
+                        || {
+                            fused_green_at_site(
+                                &phase,
+                                normalize,
+                                width,
+                                height,
+                                (xu, gu),
+                                (active_top, active_left),
+                            )
+                        },
+                    )
+                } else {
+                    fused_green_at_site(
+                        &phase,
+                        normalize,
+                        width,
+                        height,
+                        (xu, gu),
+                        (active_top, active_left),
+                    )
+                };
+                if let Some(slot) = g_base
+                    .and_then(|b| b.checked_add(x))
+                    .and_then(|i| green.get_mut(i))
+                {
+                    *slot = value;
+                }
+            }
+            green_done = green_done.saturating_add(1);
+        }
+
+        // Red/blue + colour matrix for row `y`, straight into `dst` via `emit`.
         let yu = u32_from(y);
-        let row_base = y.checked_mul(w);
+        let y_interior = y >= 2 && y < row_interior_end;
+        let y_base = y.checked_mul(w);
         for x in 0..w {
             let xu = u32_from(x);
-            let (red, blue) = fused_interpolate_red_blue(
-                &phase,
-                normalize,
-                green,
-                width,
-                height,
-                (xu, yu),
-                (active_top, active_left),
+            let parity = (
+                (yu.wrapping_sub(active_top) & 1) == 1,
+                (xu.wrapping_sub(active_left) & 1) == 1,
             );
-            let pixel = row_base.and_then(|rb| rb.checked_add(x));
+            let (red, blue) = if y_interior && x >= 2 && x < col_interior_end {
+                cache_rgb_interior(&phase, &cache, RING, w, green, (x, y), parity).unwrap_or_else(
+                    || {
+                        fused_interpolate_red_blue(
+                            &phase,
+                            normalize,
+                            green,
+                            width,
+                            height,
+                            (xu, yu),
+                            (active_top, active_left),
+                        )
+                    },
+                )
+            } else {
+                fused_interpolate_red_blue(
+                    &phase,
+                    normalize,
+                    green,
+                    width,
+                    height,
+                    (xu, yu),
+                    (active_top, active_left),
+                )
+            };
+            let pixel = y_base.and_then(|b| b.checked_add(x));
             let gc = pixel.and_then(|p| green.get(p)).copied().unwrap_or(0);
             if let Some(p) = pixel {
                 emit(p, red, gc, blue);
@@ -534,6 +614,178 @@ where
     }
 
     Ok(())
+}
+
+/// Normalise mosaic row `r` into the ring's `r % ring` slot, once — the
+/// memoisation that replaces per-read recomputation (`DEC-042`, revised). Every
+/// column is filled, so any in-range column read later resolves.
+fn fill_norm_row<N: Fn(u32, u32) -> u16>(
+    cache: &mut [u16],
+    ring: usize,
+    w: usize,
+    normalize: &N,
+    r: usize,
+) {
+    let base = r.checked_rem(ring).unwrap_or(0).saturating_mul(w);
+    for x in 0..w {
+        let value = normalize(u32_from(x), u32_from(r));
+        if let Some(slot) = base.checked_add(x).and_then(|i| cache.get_mut(i)) {
+            *slot = value;
+        }
+    }
+}
+
+/// The normalised sample at absolute `(row, col)` from the ring, or `None` if the
+/// index does not resolve (unreachable for an in-range cell). The ring slot is
+/// `row % ring`; the caller guarantees that slot currently holds `row`.
+fn cache_cell(cache: &[u16], ring: usize, w: usize, row: usize, col: usize) -> Option<u16> {
+    row.checked_rem(ring)
+        .unwrap_or(0)
+        .checked_mul(w)?
+        .checked_add(col)
+        .and_then(|i| cache.get(i))
+        .copied()
+}
+
+/// Pass-1 green at an **interior** pixel, reading the normalised ring by direct
+/// index — the `DEC-041` fast path over normalised rows, the memoised twin of
+/// [`fused_green_at_site`]. Same nine plus-pattern neighbours in the same order
+/// through the shared [`green_from_neighbours`], so the result is bit-identical.
+/// `None` only if an index escapes the ring (impossible for an interior pixel),
+/// so the caller can fall back to the reflecting path; never panics.
+fn cache_green_interior(
+    phase: &BayerPhase,
+    cache: &[u16],
+    ring: usize,
+    w: usize,
+    x: usize,
+    g: usize,
+    parity: (bool, bool),
+) -> Option<u16> {
+    let (row_odd, col_odd) = parity;
+    if phase.colour(row_odd, col_odd) == Colour::Green {
+        // A green site keeps its own normalised sample.
+        return cache_cell(cache, ring, w, g, x);
+    }
+    let at = |row: usize, col: usize| -> Option<i32> {
+        cache_cell(cache, ring, w, row, col).map(i32::from)
+    };
+    let xl1 = x.checked_sub(1)?;
+    let xl2 = x.checked_sub(2)?;
+    let xr1 = x.checked_add(1)?;
+    let xr2 = x.checked_add(2)?;
+    let g_up1 = g.checked_sub(1)?;
+    let g_up2 = g.checked_sub(2)?;
+    let g_dn1 = g.checked_add(1)?;
+    let g_dn2 = g.checked_add(2)?;
+
+    let c = at(g, x)?;
+    let w_neighbour = at(g, xl1)?;
+    let e = at(g, xr1)?;
+    let n = at(g_up1, x)?;
+    let s = at(g_dn1, x)?;
+    let ww = at(g, xl2)?;
+    let ee = at(g, xr2)?;
+    let nn = at(g_up2, x)?;
+    let ss = at(g_dn2, x)?;
+
+    Some(green_from_neighbours([
+        c,
+        w_neighbour,
+        e,
+        n,
+        s,
+        ww,
+        ee,
+        nn,
+        ss,
+    ]))
+}
+
+/// Pass-2 red and blue at an **interior** pixel, reading the normalised ring
+/// (`src`) by direct index and the finalised greens from the `w·h` green plane —
+/// the memoised twin of [`fused_interpolate_red_blue`], feeding the shared
+/// [`colour_difference`] / [`diagonal_from_neighbours`] kernels on the same
+/// neighbours in the same order, so the result is bit-identical. The site's own
+/// primary at a red/blue site is its normalised sample. `None` only if an index
+/// escapes a buffer (impossible for an interior pixel); never panics.
+fn cache_rgb_interior(
+    phase: &BayerPhase,
+    cache: &[u16],
+    ring: usize,
+    w: usize,
+    green: &[u16],
+    site: (usize, usize),
+    parity: (bool, bool),
+) -> Option<(u16, u16)> {
+    let (x, y) = site;
+    let (row_odd, col_odd) = parity;
+    let s_at = |row: usize, col: usize| -> Option<i32> {
+        cache_cell(cache, ring, w, row, col).map(i32::from)
+    };
+    let g_at = |row: usize, col: usize| -> Option<i32> {
+        row.checked_mul(w)?
+            .checked_add(col)
+            .and_then(|i| green.get(i))
+            .copied()
+            .map(i32::from)
+    };
+    let up = y.checked_sub(1)?;
+    let down = y.checked_add(1)?;
+    let xl = x.checked_sub(1)?;
+    let xr = x.checked_add(1)?;
+    let gc = g_at(y, x)?;
+
+    match phase.colour(row_odd, col_odd) {
+        Colour::Green => {
+            // Horizontal neighbours carry one primary, vertical the other.
+            let horizontal = phase.colour(row_odd, !col_odd);
+            let val_h =
+                colour_difference(s_at(y, xl)?, s_at(y, xr)?, g_at(y, xl)?, gc, g_at(y, xr)?);
+            let val_v = colour_difference(
+                s_at(up, x)?,
+                s_at(down, x)?,
+                g_at(up, x)?,
+                gc,
+                g_at(down, x)?,
+            );
+            if horizontal == Colour::Red {
+                Some((val_h, val_v))
+            } else {
+                Some((val_v, val_h))
+            }
+        }
+        Colour::Red => {
+            let red = cache_cell(cache, ring, w, y, x)?;
+            let blue = diagonal_from_neighbours([
+                s_at(up, xl)?,
+                s_at(up, xr)?,
+                s_at(down, xl)?,
+                s_at(down, xr)?,
+                g_at(up, xl)?,
+                g_at(up, xr)?,
+                g_at(down, xl)?,
+                g_at(down, xr)?,
+                gc,
+            ]);
+            Some((red, blue))
+        }
+        Colour::Blue => {
+            let blue = cache_cell(cache, ring, w, y, x)?;
+            let red = diagonal_from_neighbours([
+                s_at(up, xl)?,
+                s_at(up, xr)?,
+                s_at(down, xl)?,
+                s_at(down, xr)?,
+                g_at(up, xl)?,
+                g_at(up, xr)?,
+                g_at(down, xl)?,
+                g_at(down, xr)?,
+                gc,
+            ]);
+            Some((red, blue))
+        }
+    }
 }
 
 /// The normalised mosaic sample at the **reflected, in-range** coordinate
