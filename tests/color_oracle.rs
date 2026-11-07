@@ -21,8 +21,9 @@
 //! (corpus-gated) and is explicitly NOT an accuracy gate (`SPEC-035`'s ΔE is);
 //! it is left to a follow-on, since this file's job is the MATH.
 
-use irradiance::color::{develop_color_into, to_srgb_linear_into};
+use irradiance::color::{develop_color_f32_into, develop_color_into, to_srgb_linear_into};
 use irradiance::ifd::{ActiveArea, Cfa, Compression, Rational, Sensor};
+use irradiance::tone::to_linear_f32_into;
 use irradiance::Error;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -635,6 +636,108 @@ fn develop_color_composes_normalize_demosaic_matrix() {
         composed, expected,
         "develop_color_into must equal normalize → demosaic → matrix"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-049 — the fuse is output-invariant, and the f32 entry point equals the
+// quantised u16 divided by 65535 (DEC-042).
+//
+// The fuse restructures develop_color_into from three buffered passes (normalize
+// → demosaic → matrix) into two memory-lean passes that normalise on read and
+// apply the matrix straight into dst. Its u16 output must stay byte-identical to
+// the pre-fuse composition — proven here against the independent reference
+// pipeline (reference_normalize → the real demosaic_into → reference_to_srgb),
+// for all four Bayer phases. develop_color_f32_into must equal
+// to_linear_f32_into(develop_color_into(..)) to the bit.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A 2×2 Bayer CFA with the DNG-default plane colour for a given phase pattern.
+fn phase_cfa(pattern: &[u8]) -> Cfa {
+    Cfa {
+        repeat_dim: [2, 2],
+        pattern: pattern.to_vec(),
+        plane_color: vec![0, 1, 2],
+        layout: 1,
+    }
+}
+
+/// The pre-fuse colour-develop composition, built from independent transcriptions
+/// plus the real public `demosaic_into`: normalize → demosaic → matrix. This is
+/// the `dst_before` the fused `develop_color_into` (`dst_after`) must match.
+fn reference_develop_color(sensor: &Sensor, mosaic: &[u16]) -> Vec<u16> {
+    let normalized = reference_normalize(sensor, mosaic);
+    let mut camera_rgb = vec![0u16; mosaic.len() * 3];
+    irradiance::demosaic::demosaic_into(sensor, &normalized, &mut camera_rgb)
+        .expect("demosaic the normalized mosaic");
+    reference_to_srgb(sensor, &camera_rgb)
+}
+
+/// A varied (non-flat) `width·height` mosaic so the demosaic gradients differ
+/// per pixel and the clamp (values above the white level) is exercised.
+fn varied_mosaic(width: u32, height: u32) -> Vec<u16> {
+    let pixels = (width as usize) * (height as usize);
+    (0..pixels)
+        .map(|i| ((i * 211 + 37) % 4096) as u16)
+        .collect()
+}
+
+/// A `width·height` sensor carrying the colour calibration and per-slot levels
+/// the fuse reads, for a given Bayer phase (no ActiveArea → origin `(0, 0)`, so
+/// `reference_normalize`'s plane-relative slot matches).
+fn fused_fixture(width: u32, height: u32, pattern: &[u8]) -> Sensor {
+    let mut sensor = fixture_sensor(width, height);
+    sensor.color_filter = Some(phase_cfa(pattern));
+    sensor.forward_matrix_1 = Some(forward_matrix_d50());
+    sensor.as_shot_neutral = Some(asn_half_one_half());
+    sensor.black_levels = vec![100, 140, 160, 220]; // distinct per-2×2-slot black
+    sensor.white_levels = vec![4000]; // scalar white (below some mosaic values)
+    sensor
+}
+
+#[test]
+fn fused_develop_color_is_byte_identical_to_the_reference() {
+    // 9×7 is odd in both dimensions and ≥ 5 each, so the reference's demosaic_into
+    // runs its interior fast path AND its reflecting border — the fused path must
+    // match both. All four Bayer phases.
+    for pattern in BAYER_PHASES {
+        let sensor = fused_fixture(9, 7, &pattern);
+        let mosaic = varied_mosaic(9, 7);
+
+        let mut dst_after = vec![0u16; mosaic.len() * 3];
+        develop_color_into(&sensor, &mosaic, &mut dst_after).expect("fused develop");
+
+        let dst_before = reference_develop_color(&sensor, &mosaic);
+
+        assert_eq!(
+            dst_after, dst_before,
+            "phase {pattern:?}: the fused develop_color_into must equal the pre-fuse \
+             normalize → demosaic_into → matrix output byte for byte"
+        );
+    }
+}
+
+#[test]
+fn develop_color_f32_equals_to_linear_of_u16() {
+    for pattern in BAYER_PHASES {
+        let sensor = fused_fixture(9, 7, &pattern);
+        let mosaic = varied_mosaic(9, 7);
+
+        // The u16 render, then to_linear_f32_into — the exact definition the f32
+        // entry point must reproduce (quantise, then divide by 65535.0).
+        let mut u16_out = vec![0u16; mosaic.len() * 3];
+        develop_color_into(&sensor, &mosaic, &mut u16_out).expect("u16 develop");
+        let mut expected = vec![0.0f32; mosaic.len() * 3];
+        to_linear_f32_into(&u16_out, &mut expected).expect("to_linear_f32_into");
+
+        let mut f32_out = vec![0.0f32; mosaic.len() * 3];
+        develop_color_f32_into(&sensor, &mosaic, &mut f32_out).expect("f32 develop");
+
+        assert_eq!(
+            f32_out, expected,
+            "phase {pattern:?}: develop_color_f32_into must equal \
+             to_linear_f32_into(develop_color_into(..)) to the bit"
+        );
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

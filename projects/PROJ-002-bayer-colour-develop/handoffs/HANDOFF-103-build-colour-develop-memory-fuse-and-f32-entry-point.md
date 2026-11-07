@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-07
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-049
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 358009             # REAL combined count — what cost-audit reads
+  estimated_usd: 6.0               # tokens_total × your rate, or your harness's number
+  duration_minutes: 55
+  branch: claude/competent-kirch-f3ef94
+  pr: 147
+  completed_at: 2026-11-07         # YYYY-MM-DD
+  notes: "Output-invariant fuse; u16 byte-identical (checksum 339852, oracle green), peak RSS -133.9 MiB; develop time ~2.76x slower (normalise-on-read, accepted per DEC-042). tokens_total is the harness session-usage figure (get_usage / the session token counter), not an interactive /cost cumulative readout, which is not callable as a tool in this delegated session."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -181,38 +181,97 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/competent-kirch-f3ef94` → PR #147 (against `main`).
+- **Completed at:** 2026-11-07
+- **All acceptance criteria met?** yes.
+  - `develop_color_into`'s `u16` output is **byte-identical** to the pre-fuse
+    `normalize → demosaic_into → matrix` composition, proven across all four
+    Bayer phases by `tests/color_oracle.rs::fused_develop_color_is_byte_identical_to_the_reference`
+    (an independent reference pipeline), and corroborated by the first-9-sample
+    checksum (`339852`) being unchanged across the fuse. The existing colour
+    goldens — the compose test, SPEC-047 grey-stays-grey across every origin
+    parity and Bayer phase, the even-origin regression guard, and the SPEC-034
+    dual-illuminant set — all stay green.
+  - The `normalized` and `camera_rgb` scratch buffers are gone; only the `w·h`
+    green plane remains. Measured peak RSS at 23.4 MP (5712×4096) falls from
+    **376,143,872 B (358.7 MiB)** to **235,749,376 B (224.8 MiB)**, a
+    **−140,394,496 B (−133.9 MiB)** drop — within ~16 KiB of the exact size of
+    the eliminated `camera_rgb` buffer (`5712·4096·3·2 = 140,378,112 B`). Row
+    recorded in `docs/provenance-ledger.md`'s STAGE-012 table.
+  - `develop_color_f32_into` exists, is exported through `pub mod color`, and
+    equals `to_linear_f32_into(develop_color_into(..))` **to the bit** for every
+    Bayer phase (`develop_color_f32_equals_to_linear_of_u16`): it quantises to
+    `u16` first (the identical `quantize`, `DEC-018`) then divides by `65535.0`.
+  - Panic-free (the five-lint `-D warnings` policy holds via `just lint-ci`),
+    deterministic (committed-constant `f64` basic ops, integer normalise, no
+    threading/SIMD), zero new dependencies. `develop_color_into`'s signature is
+    unchanged; `develop_color_f32_into` is the only public-surface addition.
+- **For `verify`:** n/a (build cycle).
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 358009
+- **Estimated USD:** ~6.0 (order of magnitude; Opus list rate, no cache
+  discount, no input/output split)
+- **Duration (minutes):** ~55
+- **Source of the number:** harness report — the session-usage API
+  (`get_usage`, which matches this session's token counter). An interactive
+  `/cost` cumulative readout is not available as a callable tool in this
+  delegated session; this figure is the harness's own session token accounting,
+  reported rather than invented. If the orchestrator has the true `/cost`
+  cumulative at ship, prefer it.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - None. The build followed `DEC-042` as written.
 - **Deviations from spec:**
-  - [list]
+  - The fused traversal lives in `src/demosaic.rs` as a new `pub(crate)`
+    `develop_color_fused` (reusing the existing private Hamilton-Adams kernel +
+    reflect helpers verbatim), with `src/color.rs` supplying the normalise-on-read
+    accessor and the matrix-applying sink. The spec framed the change as "in
+    `src/color.rs`"; splitting the kernel-adjacent traversal into `demosaic.rs`
+    keeps the bit-identity guarantee structural (the same kernel helpers feed
+    both paths) and leaves the shipped `demosaic_into` untouched. No behavioural
+    deviation — the `u16` output is byte-identical.
+  - The fused path uses the reflecting border logic for **every** pixel (not the
+    SPEC-048 interior fast path). Output is identical (the reflecting path is
+    bit-identical to the fast path, `DEC-041`); this is the memory-first choice
+    `DEC-042` anticipates, and it is the main driver of the time regression
+    below. `demosaic_into`'s own fast path is untouched and intact.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - **Develop time regressed ≈2.76× on the colour path** (243 ms → 671 ms at
+    23.4 MP) because removing the normalised scratch re-normalises each photosite
+    on every neighbour read (up to ~9×) and the fused path forgoes the interior
+    fast path. This is exactly the tradeoff `DEC-042` names ("memory, not speed")
+    and explicitly defers. A follow-up spec in STAGE-012's backlog should add the
+    **one-row normalised cache** `DEC-042` describes (and/or a normalise-on-read
+    interior fast path that computes slot parity by XOR instead of per-read), to
+    recover the time while keeping the single green plane. Not built here per the
+    handoff's Out-of-Scope.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing blocking. The one judgement call the spec left open was *where* the
+   fused traversal should live: the spec said "in `src/color.rs`", but the
+   Hamilton-Adams kernel and reflect helpers are private to `src/demosaic.rs`.
+   Reaching for them from `color.rs` would have meant either duplicating the
+   kernel (a bit-identity hazard) or widening its visibility; putting the fused
+   traversal beside the kernel it reuses was the lower-risk reading and the spec
+   did allow `demosaic.rs` changes ("keep green in a `w·h` plane").
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `DEC-042`, `DEC-041` (perf discipline), `DEC-038` (untouched colour
+   maths), `DEC-040` (ActiveArea-origin phase) and `DEC-018` (quantise) were all
+   named and sufficient. The error-ordering subtlety (CFA error before
+   calibration error) was not spelled out but was easy to preserve by building
+   the matrix inside the sink setup, after the CFA check.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Measure the baseline peak-RSS *and* time first (I did), but I would also
+   have measured the time cost of normalise-on-read against the fast path up front
+   so the ≈2.76× regression was a known number at design, not a build-time
+   discovery — it is fully within `DEC-042`'s stated tolerance, but measuring it
+   earlier would have let the one-row-cache follow-up be framed as a sibling spec
+   from the start.

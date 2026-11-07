@@ -406,6 +406,337 @@ fn u32_from(v: usize) -> u32 {
     u32::try_from(v).unwrap_or(0)
 }
 
+/// The **fused** colour-develop demosaic (`SPEC-049`, `DEC-042`): the same
+/// Hamilton-Adams kernel as [`demosaic_into`], but normalising each mosaic
+/// sample **on read** (through `normalize`) instead of over a pre-normalised
+/// plane, keeping the finalised green in a caller-owned `w·h` `green` plane
+/// (not in `dst`), and handing each pixel's camera-RGB triple to `emit` rather
+/// than writing a `camera_rgb` intermediate. [`crate::color::develop_color_into`]
+/// supplies `normalize` (per-CFA-slot level normalisation) and an `emit` that
+/// applies the colour matrix straight into `dst`, so neither the `normalized`
+/// mosaic nor the `camera_rgb` buffer is ever allocated.
+///
+/// **Output-invariant.** `normalize(rx, ry)` returns exactly the value
+/// [`crate::color`]'s pre-fuse `normalize_mosaic` wrote at the plane index
+/// `ry·width + rx` (same per-slot `[black, white]`, same `normalize_sample`),
+/// and `green`/the red-blue interpolation feed the **same** shared kernel
+/// helpers ([`green_from_neighbours`], [`diagonal_from_neighbours`],
+/// [`colour_difference`]) on the same neighbours in the same order as the
+/// reflecting path of [`demosaic_into`]. The reflecting path is itself
+/// bit-identical to [`demosaic_into`]'s interior fast path (`DEC-041`,
+/// `SPEC-048`), so the fused `u16` render equals the pre-fuse
+/// `normalize → demosaic_into → matrix` pipeline byte for byte. This function
+/// uses the reflecting path for every pixel (no interior fast path): the fuse's
+/// goal is peak-RSS, and `normalise-on-read` already recomputes per neighbour,
+/// so the fast path would save only the reflect bookkeeping (`DEC-042`).
+///
+/// `normalize` is keyed by the **reflected, in-range** `(col, row)` so it needs
+/// no per-read division. `emit(pixel, r, g, b)` receives the camera-RGB triple
+/// for pixel index `pixel` (`r` = red, `g` = finalised green, `b` = blue).
+///
+/// # Errors
+///
+/// - [`Error::NotAColorFilterArray`] if `sensor.color_filter` is `None`.
+/// - [`Error::UnsupportedCfaPattern`] if the CFA is not a 2×2 RGGB-family Bayer.
+/// - whatever `setup` returns ([`crate::color`] builds the colour matrix there,
+///   so [`Error::MissingColorCalibration`] surfaces **after** the CFA check,
+///   matching the pre-fuse error order).
+///
+/// Never panics: every neighbour read reflects into range and goes through
+/// `.get`, green reads and writes are `.get`/`.get_mut`, and all arithmetic is
+/// checked/saturating/wrapping. `green` and the `emit` destination are
+/// caller-owned and sized by the caller (`DEC-016`); a short `green` plane
+/// would read/write short rather than panic.
+pub(crate) fn develop_color_fused<N, Setup, Sink>(
+    sensor: &Sensor,
+    green: &mut [u16],
+    normalize: &N,
+    setup: Setup,
+) -> Result<(), Error>
+where
+    N: Fn(u32, u32) -> u16,
+    Setup: FnOnce() -> Result<Sink, Error>,
+    Sink: FnMut(usize, u16, u16, u16),
+{
+    let cfa = sensor
+        .color_filter
+        .as_ref()
+        .ok_or(Error::NotAColorFilterArray)?;
+    let phase = BayerPhase::from_cfa(cfa).ok_or_else(|| Error::UnsupportedCfaPattern {
+        repeat_dim: cfa.repeat_dim,
+        pattern: cfa.pattern.clone(),
+    })?;
+
+    // Build the per-pixel sink (and, inside it, the colour matrix) only after
+    // the CFA is validated, so a missing-calibration error surfaces after an
+    // unsupported-CFA error exactly as the pre-fuse path did.
+    let mut emit = setup()?;
+
+    let width = sensor.width;
+    let height = sensor.height;
+    let w = usize::try_from(width).unwrap_or(0);
+    let h = usize::try_from(height).unwrap_or(0);
+
+    // The CFA phase and the level slot both start at the `ActiveArea` origin,
+    // not the plane's top-left (`DEC-040`); `normalize` captures the same origin
+    // for the level slot, and the colour is indexed relative to it here.
+    let (active_top, active_left) = active_area_origin(sensor);
+
+    // A zero-area plane has nothing to interpolate (and guards the loops below).
+    if w == 0 || h == 0 {
+        return Ok(());
+    }
+
+    // ── Pass 1 — green at every pixel into the `w·h` green plane. ────────────
+    for y in 0..h {
+        let yu = u32_from(y);
+        let row_base = y.checked_mul(w);
+        for x in 0..w {
+            let xu = u32_from(x);
+            let g = fused_green_at_site(
+                &phase,
+                normalize,
+                width,
+                height,
+                (xu, yu),
+                (active_top, active_left),
+            );
+            if let Some(slot) = row_base
+                .and_then(|rb| rb.checked_add(x))
+                .and_then(|i| green.get_mut(i))
+            {
+                *slot = g;
+            }
+        }
+    }
+
+    // ── Pass 2 — red/blue, reading the finalised green plane; matrix → dst. ──
+    for y in 0..h {
+        let yu = u32_from(y);
+        let row_base = y.checked_mul(w);
+        for x in 0..w {
+            let xu = u32_from(x);
+            let (red, blue) = fused_interpolate_red_blue(
+                &phase,
+                normalize,
+                green,
+                width,
+                height,
+                (xu, yu),
+                (active_top, active_left),
+            );
+            let pixel = row_base.and_then(|rb| rb.checked_add(x));
+            let gc = pixel.and_then(|p| green.get(p)).copied().unwrap_or(0);
+            if let Some(p) = pixel {
+                emit(p, red, gc, blue);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// The normalised mosaic sample at the **reflected, in-range** coordinate
+/// `(x, y)` as `i32`, the fused counterpart of [`sample_i32`] (which reads a
+/// pre-normalised plane). Reflect, then ask `normalize` for the per-slot
+/// level-normalised value at that cell.
+fn norm_sample_i32<N: Fn(u32, u32) -> u16>(
+    normalize: &N,
+    width: u32,
+    height: u32,
+    x: i64,
+    y: i64,
+) -> i32 {
+    let rx = reflect(x, width);
+    let ry = reflect(y, height);
+    i32::from(normalize(rx, ry))
+}
+
+/// The finalised green at `(x, y)` (reflect border) read from the fused `w·h`
+/// green plane, the counterpart of [`green_sample`] (which reads green from the
+/// interleaved `dst`). `0` if the index somehow does not resolve — unreachable
+/// after a reflect into range, but never a panic.
+fn green_plane_sample(green: &[u16], width: u32, height: u32, x: i64, y: i64) -> i32 {
+    let rx = reflect(x, width);
+    let ry = reflect(y, height);
+    let g = plane_index(width, rx, ry)
+        .and_then(|i| green.get(i))
+        .copied()
+        .unwrap_or(0);
+    i32::from(g)
+}
+
+/// Pass-1 green at one pixel for the fused path — the normalise-on-read twin of
+/// [`green_at_site`], calling the shared [`green_from_neighbours`] kernel on the
+/// same nine plus-pattern neighbours in the same order, so the result is
+/// bit-identical. A green site keeps its own normalised sample.
+fn fused_green_at_site<N: Fn(u32, u32) -> u16>(
+    phase: &BayerPhase,
+    normalize: &N,
+    width: u32,
+    height: u32,
+    site: (u32, u32),
+    origin: (u32, u32),
+) -> u16 {
+    let (x, y) = site;
+    let (active_top, active_left) = origin;
+    let row_odd = (y.wrapping_sub(active_top) & 1) == 1;
+    let col_odd = (x.wrapping_sub(active_left) & 1) == 1;
+
+    if phase.colour(row_odd, col_odd) == Colour::Green {
+        return normalize(x, y);
+    }
+
+    let xi = i64::from(x);
+    let yi = i64::from(y);
+    let at_h = |dx: i64| norm_sample_i32(normalize, width, height, xi.saturating_add(dx), yi);
+    let at_v = |dy: i64| norm_sample_i32(normalize, width, height, xi, yi.saturating_add(dy));
+
+    let c = norm_sample_i32(normalize, width, height, xi, yi);
+    let w = at_h(-1);
+    let e = at_h(1);
+    let n = at_v(-1);
+    let s = at_v(1);
+    let ww = at_h(-2);
+    let ee = at_h(2);
+    let nn = at_v(-2);
+    let ss = at_v(2);
+
+    green_from_neighbours([c, w, e, n, s, ww, ee, nn, ss])
+}
+
+/// Pass-2 `(red, blue)` at one pixel for the fused path — the normalise-on-read
+/// twin of [`interpolate_red_blue`], reading the green plane and calling the
+/// shared [`colour_difference`] / [`diagonal_from_neighbours`] kernels on the
+/// same neighbours in the same order, so the result is bit-identical. The site's
+/// own primary at a red/blue site is its normalised sample.
+fn fused_interpolate_red_blue<N: Fn(u32, u32) -> u16>(
+    phase: &BayerPhase,
+    normalize: &N,
+    green: &[u16],
+    width: u32,
+    height: u32,
+    site: (u32, u32),
+    origin: (u32, u32),
+) -> (u16, u16) {
+    let (x, y) = site;
+    let (active_top, active_left) = origin;
+    let row_odd = (y.wrapping_sub(active_top) & 1) == 1;
+    let col_odd = (x.wrapping_sub(active_left) & 1) == 1;
+    let here = phase.colour(row_odd, col_odd);
+    let xi = i64::from(x);
+    let yi = i64::from(y);
+    let gc = green_plane_sample(green, width, height, xi, yi);
+
+    match here {
+        Colour::Green => {
+            let horizontal = phase.colour(row_odd, !col_odd);
+            let val_h = colour_difference(
+                norm_sample_i32(normalize, width, height, xi.saturating_sub(1), yi),
+                norm_sample_i32(normalize, width, height, xi.saturating_add(1), yi),
+                green_plane_sample(green, width, height, xi.saturating_sub(1), yi),
+                gc,
+                green_plane_sample(green, width, height, xi.saturating_add(1), yi),
+            );
+            let val_v = colour_difference(
+                norm_sample_i32(normalize, width, height, xi, yi.saturating_sub(1)),
+                norm_sample_i32(normalize, width, height, xi, yi.saturating_add(1)),
+                green_plane_sample(green, width, height, xi, yi.saturating_sub(1)),
+                gc,
+                green_plane_sample(green, width, height, xi, yi.saturating_add(1)),
+            );
+            if horizontal == Colour::Red {
+                (val_h, val_v)
+            } else {
+                (val_v, val_h)
+            }
+        }
+        Colour::Red => {
+            let red = normalize(x, y);
+            let blue = fused_diagonal_directed(normalize, green, width, height, xi, yi, gc);
+            (red, blue)
+        }
+        Colour::Blue => {
+            let blue = normalize(x, y);
+            let red = fused_diagonal_directed(normalize, green, width, height, xi, yi, gc);
+            (red, blue)
+        }
+    }
+}
+
+/// The opposite primary at a red/blue site for the fused path — the
+/// normalise-on-read twin of [`diagonal_directed`], reading the four diagonal
+/// normalised samples and their greens from the green plane and calling the
+/// shared [`diagonal_from_neighbours`] kernel, so the result is bit-identical.
+fn fused_diagonal_directed<N: Fn(u32, u32) -> u16>(
+    normalize: &N,
+    green: &[u16],
+    width: u32,
+    height: u32,
+    xi: i64,
+    yi: i64,
+    gc: i32,
+) -> u16 {
+    let nw = norm_sample_i32(
+        normalize,
+        width,
+        height,
+        xi.saturating_sub(1),
+        yi.saturating_sub(1),
+    );
+    let ne = norm_sample_i32(
+        normalize,
+        width,
+        height,
+        xi.saturating_add(1),
+        yi.saturating_sub(1),
+    );
+    let sw = norm_sample_i32(
+        normalize,
+        width,
+        height,
+        xi.saturating_sub(1),
+        yi.saturating_add(1),
+    );
+    let se = norm_sample_i32(
+        normalize,
+        width,
+        height,
+        xi.saturating_add(1),
+        yi.saturating_add(1),
+    );
+    let g_nw = green_plane_sample(
+        green,
+        width,
+        height,
+        xi.saturating_sub(1),
+        yi.saturating_sub(1),
+    );
+    let g_ne = green_plane_sample(
+        green,
+        width,
+        height,
+        xi.saturating_add(1),
+        yi.saturating_sub(1),
+    );
+    let g_sw = green_plane_sample(
+        green,
+        width,
+        height,
+        xi.saturating_sub(1),
+        yi.saturating_add(1),
+    );
+    let g_se = green_plane_sample(
+        green,
+        width,
+        height,
+        xi.saturating_add(1),
+        yi.saturating_add(1),
+    );
+
+    diagonal_from_neighbours([nw, ne, sw, se, g_nw, g_ne, g_sw, g_se, gc])
+}
+
 /// Pass 1 green at an **interior** pixel (`≥ 2` from every edge), read directly
 /// from per-row slices of `src` — no `reflect()`, no `plane_index()`, no
 /// per-pixel `(x, y)` recovery. The neighbour values equal those the reflecting

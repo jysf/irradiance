@@ -83,10 +83,18 @@
 //!
 //! Like [`crate::plane::unpack_into`], [`crate::develop::develop_into`] and
 //! [`crate::demosaic::demosaic_into`], the public functions here write a
-//! caller-owned `dst`. [`develop_color_into`] allocates internal scratch (the
-//! normalized mosaic and the camera-RGB intermediate), exactly as
-//! `develop_into`'s warp path allocates; the public `src`/`dst` stay
-//! caller-owned.
+//! caller-owned `dst`. [`develop_color_into`] and [`develop_color_f32_into`]
+//! allocate one internal `width·height` green plane (`SPEC-049`'s fuse,
+//! `DEC-042`): level-normalise is done on read and the colour matrix is applied
+//! straight into `dst`, so neither a normalized mosaic nor a camera-RGB
+//! intermediate is allocated. The public `src`/`dst` stay caller-owned.
+//!
+//! # Float entry point (`SPEC-049`, `DEC-042`)
+//!
+//! [`develop_color_f32_into`] shares that fused pipeline but writes scene-linear
+//! `f32` directly, equal to `to_linear_f32_into(develop_color_into(..))` to the
+//! bit (quantise to `u16`, then `/65535.0`), so a float consumer never holds the
+//! `u16` result and its `f32` copy at once.
 //!
 //! # Panic policy (`no-panics-on-untrusted-input`)
 //!
@@ -104,7 +112,7 @@
 //! (`D50 → D65`). All three are public standards — provenance **class 1**, no
 //! implementation read. See `docs/provenance-ledger.md`.
 
-use crate::demosaic::demosaic_into;
+use crate::demosaic::develop_color_fused;
 use crate::ifd::{active_area_origin, Rational, Sensor};
 use crate::Error;
 
@@ -221,29 +229,34 @@ pub fn to_srgb_linear_into(
 }
 
 /// Develop a raw **Bayer mosaic** (`width·height` `u16` samples) all the way to
-/// interleaved **linear-sRGB** `u16` (`width·height·3`): the compose of
-/// per-channel level-normalize → [`crate::demosaic::demosaic_into`] →
-/// [`to_srgb_linear_into`] (`SPEC-033`).
+/// interleaved **linear-sRGB** `u16` (`width·height·3`): per-channel
+/// level-normalize → demosaic → colour matrix, fused into two memory-lean passes
+/// (`SPEC-033`; the `SPEC-049` fuse, `DEC-042`).
 ///
-/// The per-channel level-normalize runs on the **mosaic, before demosaic**:
+/// The per-channel level-normalize happens on the **mosaic, before demosaic**:
 /// black-subtract is per CFA colour and does not commute with interpolation, so
 /// each photosite is normalized by the `black_levels`/`white_levels` entry for
 /// its 2×2 position (scalar `black_level`/`white_level` fallback, then
-/// `0`/`2^bits-1`), clamped per `DEC-018`. `demosaic_into` then runs on the
-/// normalized values unchanged, and `to_srgb_linear_into` applies the colour
-/// matrix.
+/// `0`/`2^bits-1`), clamped per `DEC-018`. Rather than materialise a normalized
+/// mosaic and a `camera_rgb` intermediate, the fused path (`DEC-042`) normalises
+/// **on read**: pass 1 writes the finalised green into a single `width·height`
+/// green plane, and pass 2 interpolates red/blue, assembles the camera-RGB triple
+/// in registers, and applies the colour matrix ([`build_camera_to_srgb_linear`])
+/// straight into `dst`. The `u16` output is **byte-identical** to the pre-fuse
+/// `normalize → demosaic_into → matrix` composition (the colour goldens and
+/// `tests/color_oracle.rs`'s byte-equivalence test are the gate).
 ///
-/// The public `src`/`dst` are caller-owned (`DEC-016`); the normalized mosaic
-/// and the camera-RGB intermediate are internal scratch, as `develop_into`'s
-/// warp path allocates.
+/// The public `src`/`dst` are caller-owned (`DEC-016`); the only internal scratch
+/// is the `width·height` green plane (`~47 MB` at 23 MP, down from the pre-fuse
+/// `~187 MB`).
 ///
 /// # Errors
 ///
 /// - [`Error::ColorSourceWrongLength`] if `src.len() != width·height`.
 /// - [`Error::RgbBufferWrongLength`] if `dst.len() != width·height·3`.
-/// - whatever [`crate::demosaic::demosaic_into`] returns (a non-CFA plane, an
-///   unsupported mosaic) or [`to_srgb_linear_into`] returns
-///   ([`Error::MissingColorCalibration`]).
+/// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] for a
+///   non-CFA plane or an unsupported mosaic, or [`Error::MissingColorCalibration`]
+///   if the colour matrix cannot be built — in that order (CFA before matrix).
 ///
 /// Never panics.
 pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
@@ -267,16 +280,93 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
         });
     }
 
-    // (1) per-channel level-normalize the mosaic into a width·height scratch.
-    let mut normalized = vec![0u16; expected_src];
-    normalize_mosaic(sensor, src, &mut normalized);
+    // The one remaining scratch buffer: the `width·height` green plane.
+    let mut green = vec![0u16; expected_src];
+    let normalize = make_normalizer(sensor, src);
+    let (dst_triples, _remainder) = dst.as_chunks_mut::<3>();
 
-    // (2) demosaic the normalized mosaic into a camera-RGB scratch.
-    let mut camera_rgb = vec![0u16; expected_dst];
-    demosaic_into(sensor, &normalized, &mut camera_rgb)?;
+    develop_color_fused(sensor, &mut green, &normalize, || {
+        let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] =
+            build_camera_to_srgb_linear(sensor)?;
+        Ok(move |pixel: usize, r: u16, g: u16, b: u16| {
+            let rf = f64::from(r);
+            let gf = f64::from(g);
+            let bf = f64::from(b);
+            if let Some([out_r, out_g, out_b]) = dst_triples.get_mut(pixel) {
+                *out_r = quantize(m00 * rf + m01 * gf + m02 * bf);
+                *out_g = quantize(m10 * rf + m11 * gf + m12 * bf);
+                *out_b = quantize(m20 * rf + m21 * gf + m22 * bf);
+            }
+        })
+    })
+}
 
-    // (3) apply the colour matrix: camera-RGB → linear-sRGB `dst`.
-    to_srgb_linear_into(sensor, &camera_rgb, dst)
+/// Develop a raw **Bayer mosaic** (`width·height` `u16` samples) to interleaved
+/// **scene-linear sRGB** `f32` (`width·height·3`), sharing [`develop_color_into`]'s
+/// fused pipeline but writing `f32` directly so a float consumer (the Python
+/// bindings, ML dataloaders) never holds the `u16` result and its `f32` copy at
+/// once (`SPEC-049`, `DEC-042`).
+///
+/// The value written is **exactly** `to_linear_f32_into(develop_color_into(..))`:
+/// each channel is quantised to `u16` first — the identical clamp-and-round
+/// [`quantize`] (`DEC-018`) the integer path uses — and then divided by
+/// `65535.0`, matching [`crate::tone::to_linear_f32_into`] to the bit. The raw
+/// `f64` matrix result is **not** divided directly; that would skip the
+/// clamp-and-round and differ. As in [`crate::tone::to_linear_f32_into`] this is
+/// scene-linear, not display-encoded (the sRGB OETF is [`crate::tone`]'s).
+///
+/// The only internal scratch is the `width·height` green plane; `src`/`dst` are
+/// caller-owned (`DEC-016`).
+///
+/// # Errors
+///
+/// - [`Error::ColorSourceWrongLength`] if `src.len() != width·height`.
+/// - [`Error::RgbBufferWrongLength`] if `dst.len() != width·height·3`.
+/// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] /
+///   [`Error::MissingColorCalibration`], in that order (CFA before matrix).
+///
+/// Never panics.
+pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> Result<(), Error> {
+    let pixels = pixel_count(sensor)?;
+    let rgb_len = pixels.checked_mul(3).ok_or(Error::RgbBufferWrongLength {
+        expected: u64::MAX,
+        actual: dst.len(),
+    })?;
+    let expected_src = usize::try_from(pixels).unwrap_or(usize::MAX);
+    let expected_dst = usize::try_from(rgb_len).unwrap_or(usize::MAX);
+    if src.len() != expected_src {
+        return Err(Error::ColorSourceWrongLength {
+            expected: pixels,
+            actual: src.len(),
+        });
+    }
+    if dst.len() != expected_dst {
+        return Err(Error::RgbBufferWrongLength {
+            expected: rgb_len,
+            actual: dst.len(),
+        });
+    }
+
+    let mut green = vec![0u16; expected_src];
+    let normalize = make_normalizer(sensor, src);
+    let (dst_triples, _remainder) = dst.as_chunks_mut::<3>();
+
+    develop_color_fused(sensor, &mut green, &normalize, || {
+        let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] =
+            build_camera_to_srgb_linear(sensor)?;
+        Ok(move |pixel: usize, r: u16, g: u16, b: u16| {
+            let rf = f64::from(r);
+            let gf = f64::from(g);
+            let bf = f64::from(b);
+            if let Some([out_r, out_g, out_b]) = dst_triples.get_mut(pixel) {
+                // Quantise to the identical integer path, THEN divide by 65535.0
+                // — the bit-exact definition of `to_linear_f32_into(quantize(..))`.
+                *out_r = f32::from(quantize(m00 * rf + m01 * gf + m02 * bf)) / 65535.0;
+                *out_g = f32::from(quantize(m10 * rf + m11 * gf + m12 * bf)) / 65535.0;
+                *out_b = f32::from(quantize(m20 * rf + m21 * gf + m22 * bf)) / 65535.0;
+            }
+        })
+    })
 }
 
 /// `width·height·3`, the interleaved-RGB sample count, as `u64` — errors (rather
@@ -714,31 +804,51 @@ fn quantize(value: f64) -> u16 {
     (clamped + 0.5).floor() as u16
 }
 
-/// Per-channel level-normalize a Bayer mosaic into `dst` (same length): each
-/// photosite is mapped `[black, white] → [0, 65535]` by the `black_levels` /
-/// `white_levels` entry for its 2×2 position, with the scalar `black_level` /
-/// `white_level` (then `0` / `2^bits-1`) as the fallback. Runs on the mosaic
-/// **before** demosaic because per-colour black-subtract does not commute with
-/// interpolation.
+/// Build the **normalise-on-read** accessor the fused develop path
+/// ([`develop_color_fused`]) reads the mosaic through (`SPEC-049`, `DEC-042`).
+/// Given a mosaic cell `(col, row)` — already reflected into range by the
+/// demosaic border logic — it returns the per-channel level-normalized value
+/// for that cell: `[black, white] → [0, 65535]` by the `black_levels` /
+/// `white_levels` entry for the cell's 2×2 position (scalar `black_level` /
+/// `white_level`, then `0` / `2^bits-1`, as the fallback), clamped per `DEC-018`.
+///
+/// This is the per-photosite map the pre-fuse `normalize_mosaic` applied once
+/// over a whole scratch plane, now computed on demand so no normalized mosaic is
+/// allocated. The four slot `(black, white)` pairs are resolved **once** here;
+/// the returned closure then does no per-read division to find its slot. For a
+/// cell at `(col, row)` the value equals the pre-fuse `normalize_mosaic`'s output
+/// at plane index `row·width + col` — same slot, same [`normalize_sample`] — so
+/// the fused render stays byte-identical.
 ///
 /// The 2×2 slot is taken **relative to the `ActiveArea` origin** (`DEC-040`): in
 /// DNG the per-slot level pattern starts at the active area, not the plane's
 /// top-left, so a file with an odd `ActiveArea.top`/`.left` would otherwise
 /// subtract the wrong black at every photosite. The offset form
-/// `(row − active_top) & 1` is computed with `wrapping_sub`, so it is
-/// panic-free and parity-correct even in the masked border above/left of the
-/// origin (the low bit of a wrapping subtraction is still the true parity); for
-/// an even origin — the whole existing corpus — it reduces to `row & 1`, so the
-/// goldens are unchanged. [`demosaic_into`] uses the same origin for the phase.
-fn normalize_mosaic(sensor: &Sensor, src: &[u16], dst: &mut [u16]) {
+/// `(row − active_top) & 1` is computed with `wrapping_sub`, panic-free and
+/// parity-correct even above/left of the origin (the low bit of a wrapping
+/// subtraction is still the true parity); for an even origin — the whole existing
+/// corpus — it reduces to `row & 1`, so the goldens are unchanged. The demosaic
+/// uses the same origin for the CFA phase.
+fn make_normalizer<'a>(sensor: &'a Sensor, src: &'a [u16]) -> impl Fn(u32, u32) -> u16 + 'a {
     let width = usize::try_from(sensor.width).unwrap_or(0);
     let (active_top, active_left) = active_area_origin(sensor);
     let active_top = usize::try_from(active_top).unwrap_or(0);
     let active_left = usize::try_from(active_left).unwrap_or(0);
     let white_default = max_value_for_bits(sensor.bits_per_sample).unwrap_or(u32::from(u16::MAX));
-    for (pixel, (out, &sample)) in dst.iter_mut().zip(src.iter()).enumerate() {
-        let row = pixel.checked_div(width).unwrap_or(0);
-        let col = pixel.checked_rem(width).unwrap_or(0);
+
+    // Resolve the four 2×2-slot `(black, white)` pairs once; `level_at` depends
+    // only on the slot, not the pixel, so this is the same value the pre-fuse
+    // per-pixel `level_at` would have returned at each slot.
+    let mut levels = [(0u32, u32::from(u16::MAX)); 4];
+    for (pos, slot) in levels.iter_mut().enumerate() {
+        let black = level_at(&sensor.black_levels, pos, sensor.black_level, 0);
+        let white = level_at(&sensor.white_levels, pos, sensor.white_level, white_default);
+        *slot = (black, white);
+    }
+
+    move |x: u32, y: u32| -> u16 {
+        let col = usize::try_from(x).unwrap_or(0);
+        let row = usize::try_from(y).unwrap_or(0);
         let row_odd = (row.wrapping_sub(active_top) & 1) == 1;
         let col_odd = (col.wrapping_sub(active_left) & 1) == 1;
         let pos = match (row_odd, col_odd) {
@@ -747,9 +857,10 @@ fn normalize_mosaic(sensor: &Sensor, src: &[u16], dst: &mut [u16]) {
             (true, false) => 2,
             (true, true) => 3,
         };
-        let black = level_at(&sensor.black_levels, pos, sensor.black_level, 0);
-        let white = level_at(&sensor.white_levels, pos, sensor.white_level, white_default);
-        *out = normalize_sample(sample, black, white);
+        let (black, white) = levels.get(pos).copied().unwrap_or((0, u32::from(u16::MAX)));
+        let index = row.checked_mul(width).and_then(|rb| rb.checked_add(col));
+        let sample = index.and_then(|i| src.get(i)).copied().unwrap_or(0);
+        normalize_sample(sample, black, white)
     }
 }
 
