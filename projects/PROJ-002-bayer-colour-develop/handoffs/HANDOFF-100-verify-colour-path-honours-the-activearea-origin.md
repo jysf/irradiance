@@ -47,7 +47,7 @@ handback:
   estimated_usd: 1.00              # tokens_total × your rate, or your harness's number
   duration_minutes: 20
   branch: claude/keen-sutherland-1e2389
-  pr: null                         # verify PR — see ## Handback (opened after this file)
+  pr: 138                          # verify PR against main
   completed_at: 2026-11-06
   notes: "APPROVED. tokens_total is this harness's per-session token meter at handback (15.00M budget minus remaining); it counts unique/context-equivalent tokens, NOT the cache-inclusive transcript sum the build reported (28.69M), so it is a floor and is not directly comparable to the build figure. No cache-inclusive /cost sum is exposed to this agent."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
