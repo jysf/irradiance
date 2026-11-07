@@ -88,6 +88,12 @@
 //! compose ([`color::develop_color_into`]) that normalizes levels per CFA
 //! colour, demosaics, and applies it — the first display-referred colour render
 //! (`DEC-033`; the `tone` OETF still does the final sRGB encode, `DEC-025`).
+//! `SPEC-049` fused that compose from three buffered passes into two
+//! (level-normalise on read, colour matrix straight into `dst`, one
+//! `width·height` green plane the only scratch) and added
+//! [`color::develop_color_f32_into`], a scene-linear `f32` entry point equal to
+//! `to_linear_f32_into(develop_color_into(..))` to the bit — the `u16` render is
+//! unchanged (`DEC-042`).
 //! Still absent, by design:
 //! `ASCII` and the signed field types (no DNG tag PROJ-001 reads needs them
 //! yet), and any compressed-plane decode (PROJ-003).

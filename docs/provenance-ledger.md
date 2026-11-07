@@ -62,9 +62,10 @@ bit-identical (the golden hashes plus an equivalence test are the gate) and
 release-build runs on the maintainer's machine (`aarch64-apple-darwin`); host
 facts, so re-measure elsewhere.
 
-| Change | Frame | Before (median) | After (median) | Speedup | Bit-identical? |
+| Change | Frame | Before | After | Delta | Bit-identical? |
 |---|---|---|---|---|---|
 | `SPEC-048` / `DEC-041` — `demosaic_into` interior fast path | 6000×4000 RGGB (24.0 MP), deterministic LCG mosaic | 533.0 ms (min 528.7) | 316.2 ms (min 312.8) | **≈1.69× (≈41% faster)** | yes — full-buffer checksum unchanged (`2359785445034`), equivalence test + golden hashes green |
+| `SPEC-049` / `DEC-042` — `develop_color_into` fuse (normalise on read, colour matrix straight into `dst`, one `w·h` green plane) + `develop_color_f32_into` | 5712×4096 RGGB (23.4 MP), deterministic mosaic | peak RSS **376,143,872 B** (358.7 MiB); develop 243 ms (min 3) | peak RSS **235,749,376 B** (224.8 MiB); develop 671 ms (min 3) | **memory −140,394,496 B (−133.9 MiB)** — the whole eliminated `camera_rgb` buffer; **time ≈2.76× SLOWER** (the normalise-on-read recompute, an accepted tradeoff — `DEC-042`) | yes — first-9-sample checksum unchanged (`339852`), `fused_develop_color_is_byte_identical_to_the_reference` + the colour goldens green |
 
 The interior (every pixel ≥ 2 rows and ≥ 2 columns from each edge) now reads its
 neighbours by direct index into per-row slices, skipping the per-pixel
@@ -76,6 +77,35 @@ deliberately branchy worst case for the directional classifiers; a smooth real
 frame mispredicts less, so this factor is a conservative floor rather than a
 ceiling. The pyirradiance rawpy/LibRaw benchmark (LibRaw's whole develop 477 ms)
 is the external yardstick that motivated this — reference only, never linked.
+
+`SPEC-049` / `DEC-042` fused `develop_color_into` from three buffered passes
+(level-normalise into a scratch mosaic → demosaic into a `camera_rgb`
+intermediate → matrix into `dst`) into two: pass 1 writes the finalised green
+into one `w·h` plane, normalising each mosaic sample on read; pass 2 interpolates
+red/blue, assembles the camera-RGB triple in registers, and applies the colour
+matrix straight into `dst`. Only the `w·h` green plane remains as scratch, so the
+`camera_rgb` buffer is gone — the measured peak RSS falls by **140,394,496 B**,
+within ~16 KiB of the eliminated buffer's exact size (`5712·4096·3·2 =
+140,378,112 B`). The `u16` render is byte-identical: `make_normalizer` reproduces
+the pre-fuse `normalize_mosaic`'s per-slot map at each cell, and the fused
+traversal feeds the **same** Hamilton-Adams kernel helpers the reflecting path of
+`demosaic_into` uses (itself bit-identical to the interior fast path, `DEC-041`),
+so the output cannot move — pinned by the first-9-sample checksum (`339852`,
+unchanged across the fuse) and `tests/color_oracle.rs`'s byte-equivalence test
+over all four Bayer phases. The cost is time: removing the normalised scratch
+means each photosite is re-normalised every time it is read as a neighbour (up to
+~9×), and the fused path uses the reflecting border logic for every pixel (not
+the interior fast path), so develop runs ≈2.76× slower on this frame. This is the
+tradeoff `DEC-042` names explicitly — memory, not speed, is the goal here, and
+the one-row normalised cache that would recover the time is deliberately left to
+a later pass, not built in this spec. `develop_color_f32_into` shares the fused
+pipeline and writes scene-linear `f32` directly (quantise to `u16`, then
+`/65535.0` — bit-equal to `to_linear_f32_into(develop_color_into(..))`), so a
+float caller no longer holds the `u16` result and its `f32` copy at once (the
+double-copy the pyirradiance benchmark flags); its peak RSS on the same frame is
+**235,749,376 B of scratch+green plus the `f32` dst** rather than the `u16` dst,
+the develop scratch, and the `f32` copy together. Measured 2026-11-07,
+`/usr/bin/time -l` on `aarch64-apple-darwin`; host facts, re-measure elsewhere.
 
 ## ⚠ The distinction runs BOTH ways — measured 2026-08-20
 
