@@ -27,11 +27,11 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # HANDOFF-099 (build); tier_map.build
+  created_at: 2026-11-06
 
 references:
-  decisions: [DEC-038]             # DEC-038 = the colour develop path + DEVELOP_VERSION; DEC-040 (ActiveArea-relative phase) is NEW, formalized at this spec's design
+  decisions: [DEC-038, DEC-040]    # DEC-038 = the colour develop path + DEVELOP_VERSION; DEC-040 = index the phase/slot from the ActiveArea origin (offset, no crop) — formalized at this design
   constraints: []                  # design cycle fills exact ids: determinism, no-panic, oracle-must-be-shown-red
   related_specs: []                # [SPEC-NNN]
 
@@ -62,7 +62,7 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
+  tokens_estimate: 15000000
   sessions: []
   totals:
     tokens_total: 0
@@ -99,9 +99,12 @@ first spec of `STAGE-012`.
 ## Goal
 
 Make the colour develop path take the CFA phase and the BlackLevel/WhiteLevel
-slot from the **ActiveArea origin**, and crop its output to the active area, so a
-DNG with an odd active-area origin develops to correct colour and the masked
-border is dropped. Bump `DEVELOP_VERSION`.
+slot from the **ActiveArea origin** (not the plane's top-left), so a DNG with an
+odd active-area origin develops to correct colour. Realize it with the **offset**
+form `(y.wrapping_sub(active_top) & 1, x.wrapping_sub(active_left) & 1)` — no
+crop, no change to `develop_color_into`'s input/output lengths (DEC-040). Bump
+`DEVELOP_VERSION` 2 → 3. (Cropping the masked border and full geometry parity are
+a deferred follow-up — see Non-Goals.)
 
 ## Inputs
 
@@ -115,48 +118,63 @@ border is dropped. Bump `DEVELOP_VERSION`.
 
 ## Outputs
 
-- **Files modified:** `src/color.rs` and `src/demosaic.rs` (index the phase and
-  level slot from the ActiveArea origin, crop to the active area), `src/lib.rs`
-  (`DEVELOP_VERSION` 2 → 3).
-- **New decision:** `DEC-040` — the CFA phase and level-pattern slot are indexed
-  from the ActiveArea origin; records the chosen implementation (crop vs offset)
-  and why. Written during this spec's **design** cycle.
-- **Output contract:** cropping changes `develop_color_into`'s output
-  **dimensions** (the `dst` length is now the resolved active-area size, not the
-  full plane) — the design cycle states the new contract, matching `develop_into`.
-- **No new public function or dependency** (P1/P2/P3 add those, in later specs).
-- **Goldens:** regenerate any colour fixtures whose output changes, with the
-  reason in the commit.
+- **Files modified:**
+  - `src/color.rs` — `normalize_mosaic` indexes the 2×2 level slot from the
+    ActiveArea origin; a small `active_area_origin(sensor) -> (u32, u32)` helper
+    (origin, `(0, 0)` when the tag is absent).
+  - `src/demosaic.rs` — `demosaic_into` and its green/colour site helpers compute
+    `row_odd`/`col_odd` from the ActiveArea origin via the same helper.
+  - `src/lib.rs` — `DEVELOP_VERSION` 2 → 3.
+- **No contract change:** `develop_color_into` keeps `src.len() == width*height`
+  and `dst.len() == width*height*3`; no new public function, no dependency, no
+  crop. The border-crop and geometry parity are a deferred follow-up.
+- **Decision:** `DEC-040` (already written) — offset indexing from the ActiveArea
+  origin, and why not a crop, for P0.
+- **Goldens:** even-origin fixtures are byte-identical, so the existing colour
+  goldens do not move; regenerate only a deliberately odd-origin fixture, with
+  the reason in the commit.
 
 ## Acceptance Criteria
 
-- [ ] On a synthetic RGGB DNG with a flat grey subject, `develop_color_into`
-  produces grey — per-channel spread `< 1e-3` — for **all four ActiveArea origin
-  parities** (even/even, even/odd, odd/even, odd/odd) on **all four Bayer phases**
-  (RGGB, BGGR, GRBG, GBRG).
-- [ ] **Red-proof:** the same test on today's plane-relative code fails (magenta)
-  for the odd parities — the fix is shown to be load-bearing.
-- [ ] The colour output is cropped to the active area (no pixels from the masked
-  border outside ActiveArea appear in the output).
-- [ ] Even-origin behaviour is preserved on the active-area pixels (the Canon and
-  Nikon colour values are unchanged there; any golden diff is the crop alone).
-- [ ] `DEVELOP_VERSION` is `3`.
-- [ ] A malformed ActiveArea (origin or size outside the plane) does not panic —
-  typed error or safe clamp, consistent with `resolve_geometry`.
-- [ ] Determinism held; no new dependency.
+- [ ] On a synthetic RGGB sensor with a flat-grey subject and a per-slot
+  BlackLevel pattern, `develop_color_into` produces grey — per-channel spread
+  `< 1e-3` — for **all four ActiveArea origin parities** (even/even, even/odd,
+  odd/even, odd/odd) on **all four Bayer phases** (RGGB, BGGR, GRBG, GBRG).
+- [ ] **Red-proof:** the same assertion on the pre-fix plane-relative computation
+  shows a large channel spread (magenta) for the odd-origin parities — the fix is
+  shown to be load-bearing.
+- [ ] **Even-origin is byte-identical:** an even-origin fixture develops to the
+  exact same bytes as the plane-relative path (so the existing goldens hold).
+- [ ] `DEVELOP_VERSION` is `"3"`.
+- [ ] No panic for any ActiveArea origin, including one at or beyond the plane
+  edge (the `wrapping_sub` low bit is still a valid parity).
+- [ ] Determinism held; no new dependency; `develop_color_into`'s signature and
+  buffer lengths unchanged.
 
 ## Failing Tests
 
-*Sketched at frame; the **design** cycle writes them in full (and formalizes
-`DEC-040`) before handoff.*
+In `tests/color_oracle.rs` (the Tier-A synthetic colour oracle — `fixture_sensor`,
+`rggb()`, the D50 forward-matrix helpers, and `a_neutral_subject_is_grey` are the
+pattern to build on). The build cycle makes these pass.
 
-- **`tests/color_oracle.rs`** (or a new colour-geometry test)
-  - `"grey stays grey across the four origin parities and four Bayer phases"` —
-    asserts channel spread `< 1e-3` for the 16 combinations.
-  - `"the plane-relative phase tints an odd-origin grey magenta"` — the red-proof
-    control, asserting the pre-fix computation fails.
-  - `"colour output is cropped to the active area"` — asserts output dimensions
-    equal the resolved active-area size.
+- **`tests/color_oracle.rs`**
+  - `"grey_stays_grey_across_origin_parities_and_bayer_phases"` — a helper builds
+    a `fixture_sensor` with `active_area` set to each of the four origin parities
+    (e.g. `(2,4)`, `(2,5)`, `(3,4)`, `(3,5)`), a per-slot 2×2 BlackLevel pattern,
+    a neutral `as_shot_neutral`, and a D50 forward matrix; fills `src` with a
+    flat-grey mosaic for that origin + phase; runs `develop_color_into` and
+    asserts every pixel's `max(R,G,B) - min(R,G,B)` is within the grey tolerance,
+    across all 4 phases × 4 parities (16 cases).
+  - `"plane_relative_phase_tints_an_odd_origin_grey"` — the red-proof control: the
+    same input developed with the plane-relative index (`y & 1`) asserts a large
+    channel spread for an odd origin, proving the offset is what fixes it
+    (a test-local plane-relative reference, as the existing red-proofs perturb a
+    reference; it must fail without DEC-040).
+  - `"even_origin_is_byte_identical_to_plane_relative"` — for an even origin,
+    `develop_color_into` output equals the plane-relative reference exactly (the
+    no-regression guarantee for the corpus).
+  - `"develop_color_does_not_panic_for_an_out_of_range_active_area"` — an
+    ActiveArea origin at/beyond the plane edge develops without panic.
 
 ## Non-Goals
 
@@ -164,24 +182,32 @@ border is dropped. Bump `DEVELOP_VERSION`.
   the ColorChecker ΔE work (`SPEC-035`) are untouched.
 - Demosaic performance (P1), colour-develop memory + the f32 entry point (P2),
   and threading (P3) — separate specs in `STAGE-012`'s backlog.
-- Full `DefaultCrop` / `Orientation` parity with the mono path beyond the
-  ActiveArea crop — if wanted, its own spec; this one fixes the colour and the
-  active-area crop only.
+- **Cropping the colour output to the active area, removing the masked border,
+  and full `DefaultCrop`/`Orientation` parity with `develop_into`** — the larger,
+  contract-changing shape (DEC-040 explains why it is out of P0). Its own
+  STAGE-012 spec, listed in the backlog.
+- The exact-LibRaw demosaic behaviour at the active-area boundary (edge reflection
+  within the active area vs reading the masked border) — a crop-time concern,
+  deferred with the crop.
 - The mono/tone develop path (`develop_into`) — already correct.
 - Subsampled (`Hi`/`Vi != 1`) or tiled layouts — out (see the
   `unexercised-sof3-paths-garble-silently` risk; a different concern).
 
 ## Notes for the Implementer
 
-- **The decision (DEC-040, at design):** recommended implementation is to **crop
-  the colour path to the active area before normalize/demosaic**, reusing
-  `resolve_geometry`, so the origin becomes `(0, 0)` — this makes both the phase
-  and the level-slot computation correct at once and removes the border work. The
-  alternative is to offset the index (`((y - top) & 1, (x - left) & 1)`) in
-  `normalize_mosaic` and `demosaic_into` without cropping; the design chooses and
-  records why. Either way `DEVELOP_VERSION` bumps 2 → 3.
-- Cropping changes the output dimensions — do not silently keep full-plane
-  dimensions; match the mono path's resolved size and state it in the doc comment.
+- **The fix (DEC-040):** compute `row_odd = (y.wrapping_sub(active_top) & 1) == 1`
+  and `col_odd = (x.wrapping_sub(active_left) & 1) == 1` in both `normalize_mosaic`
+  (`src/color.rs`) and `demosaic_into` and its site helpers (`src/demosaic.rs`),
+  with `(active_top, active_left)` from a shared `active_area_origin(sensor)`
+  helper (`(0, 0)` when `sensor.active_area` is `None`, matching
+  `resolve_geometry`). `wrapping_sub` keeps it panic-free and parity-correct even
+  above/left of the origin.
+- **Do not crop and do not change buffer lengths** — the offset is the whole
+  change; keeping `develop_color_into`'s contract is the point of choosing offset
+  over crop for P0.
+- One helper, two call sites: put `active_area_origin` where both `color.rs` and
+  `demosaic.rs` can use it (and it is reachable from `develop.rs`), so the two
+  cannot drift — the single source of truth for the origin.
 - Keep the zero-dependency, no-panic, determinism rules. LibRaw/rawpy are the
   reference oracle in pyirradiance — read-only, never linked.
 
