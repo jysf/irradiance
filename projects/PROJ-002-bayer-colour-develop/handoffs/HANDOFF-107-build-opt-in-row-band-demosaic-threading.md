@@ -47,7 +47,7 @@ handback:
   estimated_usd: 6.88
   duration_minutes: 25
   branch: claude/spec-051-row-band-threading
-  pr: null
+  pr: 157
   completed_at: 2026-11-09
   notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id; 8,538,715 of it cache reads) at handback time — /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the few final PR-opening turns."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -176,7 +176,7 @@ reconstruct it.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-051-row-band-threading` → PR #__PR__ (against `main`).
+- **Branch / PR:** `claude/spec-051-row-band-threading` → PR #157 (against `main`).
 - **Completed at:** 2026-11-09
 - **All acceptance criteria met?** yes.
   - *Byte-identical for N > 1, all phases and geometries:* `tests/threaded.rs`
