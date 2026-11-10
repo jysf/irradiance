@@ -639,7 +639,14 @@ pub struct Cfa {
 /// requires be cross-checked against `exiftool`, and `src/bin/irr.rs`'s
 /// `ifd` subcommand is what surfaces it (AGENTS.md §11, "ship the reader with
 /// the field").
+///
+/// **A parser-output view, sealed with `#[non_exhaustive]`** (`SPEC-054`,
+/// `DEC-049`): [`Container::sensor`] builds it and consumers read it, so new
+/// fields (every future hardening field, like `opcode_list_2`) are additive,
+/// not breaking. Outside this crate a `Sensor` cannot be built with a struct
+/// literal or `..rest` update; its public fields stay readable and assignable.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Sensor {
     /// Index into [`Container::ifds`] of the IFD this came from.
     pub ifd_index: usize,
@@ -693,6 +700,15 @@ pub struct Sensor {
     /// change that adds it. A malformed entry costs this field alone and is
     /// recorded in `malformed_tags` (`DEC-012`).
     pub opcode_list_1: Option<Vec<u8>>,
+    /// `OpcodeList2`'s raw bytes (tag 51009 / `0xC741`), when present and
+    /// readable (`SPEC-054`, `DEC-049`). No develop path applies this list;
+    /// its reader is the required-processing check every public develop entry
+    /// runs, which rejects a **mandatory** opcode here with
+    /// [`Error::UnsupportedRequiredOpcode`] instead of silently dropping it.
+    /// Same interpretation-class tolerance as `opcode_list_1`/`opcode_list_3`
+    /// (`DEC-012`): a malformed entry costs this field alone and is recorded
+    /// in `malformed_tags`.
+    pub opcode_list_2: Option<Vec<u8>>,
     /// `OpcodeList3`'s raw bytes (tag 51022 / `0xC74E`), when present and
     /// readable. **Bytes only** — parsing them into `crate::opcode::WarpRect`
     /// happens in `develop_into` (`SPEC-018`), which is what satisfies the
@@ -768,6 +784,54 @@ pub struct Sensor {
 }
 
 impl Sensor {
+    /// A blank `Sensor` for the crate's own integration tests and examples —
+    /// **dev-only**, compiled in solely under the `test-fixtures` cargo feature
+    /// (`SPEC-054`, `DEC-049`; mirrors the `fuzzing` feature, `DEC-036`).
+    ///
+    /// `#[non_exhaustive]` stops the separate `tests/` crate from writing a
+    /// `Sensor { .. }` literal, so fixtures start here and assign the public
+    /// fields they exercise. Every field is a placeholder: a 0×0, 16-bit,
+    /// one-sample, uncompressed `LinearRaw` plane with every optional tag
+    /// absent. The published crate (default features) does not contain it.
+    #[cfg(feature = "test-fixtures")]
+    #[doc(hidden)]
+    pub fn test_fixture() -> Sensor {
+        Sensor {
+            ifd_index: 0,
+            width: 0,
+            height: 0,
+            bits_per_sample: 16,
+            samples_per_pixel: 1,
+            photometric: 34892,
+            compression: Compression::Uncompressed,
+            rows_per_strip: None,
+            strip_offsets: Vec::new(),
+            strip_byte_counts: Vec::new(),
+            black_level: None,
+            white_level: None,
+            black_level_repeat_dim: None,
+            active_area: None,
+            default_crop_origin: None,
+            default_crop_size: None,
+            orientation: None,
+            opcode_lists: [false, false, false],
+            opcode_list_1: None,
+            opcode_list_2: None,
+            opcode_list_3: None,
+            color_filter: None,
+            color_matrix_1: None,
+            color_matrix_2: None,
+            forward_matrix_1: None,
+            forward_matrix_2: None,
+            as_shot_neutral: None,
+            calibration_illuminant_1: None,
+            calibration_illuminant_2: None,
+            black_levels: Vec::new(),
+            white_levels: Vec::new(),
+            malformed_tags: Vec::new(),
+        }
+    }
+
     /// Reject a plane this library cannot unpack, with the code in the error.
     ///
     /// Three of the seven corpus files are compressed (two JPEG, one Pentax
@@ -1645,6 +1709,18 @@ impl<'a> Container<'a> {
             &mut malformed,
         );
 
+        // Interpretation: OpcodeList2's raw bytes (`SPEC-054`, `DEC-049`). Same
+        // shape as lists 1 and 3: kept so the required-processing check can see
+        // a mandatory opcode no path applies, instead of dropping it on read.
+        let opcode_list_2 = Self::cost_the_field(
+            match ifd.entry(TAG_OPCODE_LIST_2) {
+                None => Ok(None),
+                Some(entry) => self.payload(entry).map(|bytes| Some(bytes.to_vec())),
+            },
+            TAG_OPCODE_LIST_2,
+            &mut malformed,
+        );
+
         // Interpretation: OpcodeList3's raw bytes (`SPEC-018`). Absent tag is
         // `Ok(None)`, never malformed; a present-but-unreadable entry (bad
         // offset/length from `payload`) costs this field alone.
@@ -1747,6 +1823,7 @@ impl<'a> Container<'a> {
                 ifd.has(TAG_OPCODE_LIST_3),
             ],
             opcode_list_1,
+            opcode_list_2,
             opcode_list_3,
             color_filter,
             color_matrix_1,
@@ -2908,6 +2985,33 @@ mod tests {
         let data = b.ifd(8, &entries, 0).done();
         let s = Container::parse(&data).unwrap().sensor().unwrap();
         assert_eq!(s.opcode_lists, [true, false, true]);
+    }
+
+    #[test]
+    fn opcode_list_2_bytes_are_kept_when_readable() {
+        // SPEC-054 / DEC-049: list 2 is no longer dropped on read.
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.push((TAG_OPCODE_LIST_2, TYPE_UNDEFINED, 4, 0x0102_0304));
+        let data = b.ifd(8, &entries, 0).done();
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(s.opcode_lists, [false, true, false]);
+        assert_eq!(s.opcode_list_2.as_deref().map(<[u8]>::len), Some(4));
+        assert!(s.malformed_tags.is_empty());
+    }
+
+    #[test]
+    fn malformed_opcode_list_2_costs_the_field_alone() {
+        // DEC-012 parity with lists 1 and 3: a present-but-unreadable entry
+        // (payload past EOF) is `None` + recorded, and the plane survives.
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.push((TAG_OPCODE_LIST_2, TYPE_UNDEFINED, 64, 0x7fff_0000));
+        let data = b.ifd(8, &entries, 0).done();
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(s.opcode_lists, [false, true, false]);
+        assert_eq!(s.opcode_list_2, None);
+        assert_eq!(s.malformed_tags, vec![TAG_OPCODE_LIST_2]);
     }
 
     #[test]

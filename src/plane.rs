@@ -681,6 +681,7 @@ mod tests {
             orientation: None,
             opcode_lists: [false, false, false],
             opcode_list_1: None,
+            opcode_list_2: None,
             opcode_list_3: None,
             color_filter: None,
             color_matrix_1: None,

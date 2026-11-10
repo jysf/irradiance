@@ -47,9 +47,7 @@ mod pnm;
 
 use corpus::{CorpusRoot, Manifest};
 use irradiance::develop::{apply_fix_bad_pixels_constant, develop_into, output_dimensions};
-use irradiance::ifd::{
-    ActiveArea, Compression, Container, DefaultCropOrigin, DefaultCropSize, Sensor,
-};
+use irradiance::ifd::{ActiveArea, Container, DefaultCropOrigin, DefaultCropSize, Sensor};
 use irradiance::opcode::parse_fix_bad_pixels_constant;
 use irradiance::plane::unpack_into;
 use irradiance::Error;
@@ -58,40 +56,11 @@ use std::path::{Path, PathBuf};
 /// A minimal, valid `Sensor` covering the whole `width x height` plane (no
 /// `ActiveArea`/crop/orientation tags) — a test overrides what it needs.
 fn minimal_sensor(width: u32, height: u32) -> Sensor {
-    Sensor {
-        ifd_index: 0,
-        width,
-        height,
-        bits_per_sample: 14,
-        samples_per_pixel: 1,
-        photometric: 34892,
-        compression: Compression::Uncompressed,
-        rows_per_strip: None,
-        strip_offsets: vec![],
-        strip_byte_counts: vec![],
-        black_level: None,
-        white_level: None,
-        black_level_repeat_dim: None,
-        active_area: None,
-        default_crop_origin: None,
-        default_crop_size: None,
-        orientation: None,
-        opcode_lists: [false, false, false],
-        opcode_list_1: None,
-        opcode_list_3: None,
-        color_filter: None,
-        // SPEC-026 colour metadata — additive, not read by this fixture.
-        color_matrix_1: None,
-        color_matrix_2: None,
-        forward_matrix_1: None,
-        forward_matrix_2: None,
-        as_shot_neutral: None,
-        calibration_illuminant_1: None,
-        calibration_illuminant_2: None,
-        black_levels: vec![],
-        white_levels: vec![],
-        malformed_tags: vec![],
-    }
+    let mut built = Sensor::test_fixture();
+    built.width = width;
+    built.height = height;
+    built.bits_per_sample = 14;
+    built
 }
 
 /// The real `Sensor` for one corpus file, or `None` with the skip already
@@ -833,9 +802,10 @@ fn q2m_develop_oracle_score_not_worse_after_fixbadpixels() {
             continue; // SKIP already announced by fetch_dnglab_srgb_reference
         };
 
-        let sensor_before = Sensor {
-            opcode_list_1: None,
-            ..sensor.clone()
+        let sensor_before = {
+            let mut built = sensor.clone();
+            built.opcode_list_1 = None;
+            built
         };
         let Some(before) = score_against(path, &sensor_before, &plane, &reference) else {
             continue; // SKIP already announced by score_against

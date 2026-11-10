@@ -318,6 +318,86 @@ pub fn cfa_dng_16bit(order: Order, width: u32, height: u32, samples: &[u16]) -> 
     data
 }
 
+/// DNG 1.7 §Chapter 6 opcode-list tags (`irradiance::ifd::TAG_OPCODE_LIST_*`).
+pub const OPCODE_LIST_1: u16 = 51008;
+pub const OPCODE_LIST_2: u16 = 51009;
+pub const OPCODE_LIST_3: u16 = 51022;
+
+/// A valid 16-bit DNG with a **real strip** (like [`cfa_dng_16bit`]) that also
+/// carries any of `OpcodeList1`/`2`/`3` as UNDEFINED (type 7) tags, each payload
+/// placed after the strip. `cfa` picks a 2×2-RGGB Bayer plane (the colour path)
+/// or a `LinearRaw` monochrome plane (the mono path). `SPEC-054`: the
+/// required-processing fixtures go through the real container read, so the
+/// `OpcodeList2` bytes travel the same tag-read path a camera file's would.
+pub fn dng_16bit_with_opcode_lists(
+    order: Order,
+    cfa: bool,
+    width: u32,
+    height: u32,
+    samples: &[u16],
+    lists: [Option<&[u8]>; 3],
+) -> Vec<u8> {
+    assert_eq!(
+        samples.len() as u64,
+        u64::from(width) * u64::from(height),
+        "samples must be width * height"
+    );
+    let strip_offset: u32 = 256; // clear of the 8-byte header + IFD0
+    let strip_bytes = width * height * 2;
+    let mut entries = vec![
+        long(NEW_SUBFILE_TYPE, 0),
+        long(IMAGE_WIDTH, width),
+        long(IMAGE_LENGTH, height),
+        short(BITS_PER_SAMPLE, 16, order),
+        short(COMPRESSION, 1, order),
+        short(
+            PHOTOMETRIC,
+            if cfa { CFA_PHOTOMETRIC } else { LINEAR_RAW },
+            order,
+        ),
+        short(SAMPLES_PER_PIXEL, 1, order),
+        long(STRIP_OFFSETS, strip_offset),
+        long(STRIP_BYTE_COUNTS, strip_bytes),
+    ];
+    if cfa {
+        entries.extend([
+            two_shorts(CFA_REPEAT_PATTERN_DIM, 2, 2, order),
+            inline_bytes(CFA_PATTERN, [0, 1, 1, 2], 4, order),
+            inline_bytes(CFA_PLANE_COLOR, [0, 1, 2, 0], 3, order),
+            short(CFA_LAYOUT, 1, order),
+        ]);
+    }
+    // Opcode payloads go after the strip, each at an even offset. Every list
+    // here is longer than 4 bytes, so none is inline.
+    let mut next_payload = strip_offset + strip_bytes;
+    let mut payloads: Vec<(u32, &[u8])> = Vec::new();
+    for (tag, list) in [OPCODE_LIST_1, OPCODE_LIST_2, OPCODE_LIST_3]
+        .into_iter()
+        .zip(lists)
+    {
+        if let Some(bytes) = list {
+            assert!(bytes.len() > 4, "fixture opcode lists are never inline");
+            entries.push(at_offset(tag, 7, bytes.len() as u32, next_payload));
+            payloads.push((next_payload, bytes));
+            next_payload += (bytes.len() as u32 + 1) & !1;
+        }
+    }
+    let mut data = tiff(order, 8, &[Ifd::new(8, entries, 0)]);
+    let end = next_payload as usize;
+    if data.len() < end {
+        data.resize(end, 0);
+    }
+    for (i, s) in samples.iter().enumerate() {
+        let at = strip_offset as usize + i * 2;
+        data[at..at + 2].copy_from_slice(&order.u16(*s));
+    }
+    for (at, bytes) in payloads {
+        let at = at as usize;
+        data[at..at + bytes.len()].copy_from_slice(bytes);
+    }
+    data
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SPEC-045 — a synthetic DNG `Compression = 7` (SOF-3 lossless JPEG) container
 // ─────────────────────────────────────────────────────────────────────────────

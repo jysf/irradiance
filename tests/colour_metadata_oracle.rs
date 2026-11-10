@@ -31,7 +31,7 @@ mod tools;
 use std::path::{Path, PathBuf};
 
 use corpus::{CorpusRoot, Manifest};
-use irradiance::ifd::{Cfa, Compression, Container, Rational, Sensor};
+use irradiance::ifd::{Cfa, Container, Rational, Sensor};
 use tools::{Mismatch, ToolError};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -659,57 +659,45 @@ fn matrix(nums: [i32; 9]) -> Option<Vec<Rational>> {
 /// structural fields carry the plane's real values (measured) for honesty but
 /// are not compared here.
 fn colour_fixture_sensor() -> Sensor {
-    Sensor {
-        ifd_index: 1,
-        width: 5920,
-        height: 3950,
-        bits_per_sample: 16,
-        samples_per_pixel: 1,
-        photometric: 32803,
-        compression: Compression::Uncompressed,
-        rows_per_strip: Some(3950),
-        strip_offsets: vec![],
-        strip_byte_counts: vec![],
-        black_level: Some(2047),
-        white_level: Some(15000),
-        black_level_repeat_dim: Some([2, 2]),
-        active_area: None,
-        default_crop_origin: None,
-        default_crop_size: None,
-        orientation: Some(1),
-        opcode_lists: [false, false, false],
-        opcode_list_1: None,
-        opcode_list_3: None,
-        color_filter: Some(Cfa {
-            repeat_dim: [2, 2],
-            pattern: vec![0, 1, 1, 2],
-            plane_color: vec![0, 1, 2],
-            layout: 1,
-        }),
-        color_matrix_1: matrix([7234, -1413, -600, -3631, 11150, 2850, -382, 1335, 6437]),
-        color_matrix_2: matrix([6722, -635, -963, -4287, 12460, 2028, -908, 2162, 5668]),
-        forward_matrix_1: matrix([7868, 92, 1683, 2291, 8615, -906, 27, -4752, 12976]),
-        forward_matrix_2: matrix([7637, 805, 1201, 2649, 9179, -1828, 137, -2456, 10570]),
-        as_shot_neutral: Some(vec![
-            Rational {
-                num: 606276,
-                den: 1000000,
-            },
-            Rational {
-                num: 1000000,
-                den: 1000000,
-            },
-            Rational {
-                num: 461885,
-                den: 1000000,
-            },
-        ]),
-        calibration_illuminant_1: Some(17),
-        calibration_illuminant_2: Some(21),
-        black_levels: vec![2047, 2047, 2047, 2048],
-        white_levels: vec![15000],
-        malformed_tags: vec![],
-    }
+    let mut built = Sensor::test_fixture();
+    built.ifd_index = 1;
+    built.width = 5920;
+    built.height = 3950;
+    built.photometric = 32803;
+    built.rows_per_strip = Some(3950);
+    built.black_level = Some(2047);
+    built.white_level = Some(15000);
+    built.black_level_repeat_dim = Some([2, 2]);
+    built.orientation = Some(1);
+    built.color_filter = Some(Cfa {
+        repeat_dim: [2, 2],
+        pattern: vec![0, 1, 1, 2],
+        plane_color: vec![0, 1, 2],
+        layout: 1,
+    });
+    built.color_matrix_1 = matrix([7234, -1413, -600, -3631, 11150, 2850, -382, 1335, 6437]);
+    built.color_matrix_2 = matrix([6722, -635, -963, -4287, 12460, 2028, -908, 2162, 5668]);
+    built.forward_matrix_1 = matrix([7868, 92, 1683, 2291, 8615, -906, 27, -4752, 12976]);
+    built.forward_matrix_2 = matrix([7637, 805, 1201, 2649, 9179, -1828, 137, -2456, 10570]);
+    built.as_shot_neutral = Some(vec![
+        Rational {
+            num: 606276,
+            den: 1000000,
+        },
+        Rational {
+            num: 1000000,
+            den: 1000000,
+        },
+        Rational {
+            num: 461885,
+            den: 1000000,
+        },
+    ]);
+    built.calibration_illuminant_1 = Some(17);
+    built.calibration_illuminant_2 = Some(21);
+    built.black_levels = vec![2047, 2047, 2047, 2048];
+    built.white_levels = vec![15000];
+    built
 }
 
 #[test]

@@ -206,6 +206,25 @@ pub fn __fuzz_ljpeg(data: &[u8]) {
     let _ = ljpeg::decode_into(data, &mut out);
 }
 
+/// libFuzzer entry for the required-processing check
+/// (`opcode::check_required_processing`, `pub(crate)`) — `SPEC-054`,
+/// `DEC-049`. Same `fuzzing`-feature gating and `#[doc(hidden)]` rationale as
+/// [`__fuzz_ljpeg`]: compiled in only for the `irradiance-fuzz` crate, so the
+/// check stays internal (group E's unified preflight will absorb it).
+///
+/// Runs `lists` (`OpcodeList1`/`2`/`3`) through the check for both develop
+/// paths and returns `[mono_ok, colour_ok]`, so the fuzz target can assert the
+/// path invariant (the colour path applies a subset of what the mono path
+/// applies, so whatever colour accepts, mono must accept). Never panics.
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub fn __fuzz_required_processing(lists: [Option<&[u8]>; 3]) -> [bool; 2] {
+    [
+        opcode::check_required_processing(lists, opcode::DevelopPath::Mono).is_ok(),
+        opcode::check_required_processing(lists, opcode::DevelopPath::Colour).is_ok(),
+    ]
+}
+
 /// Errors produced while reading or developing a RAW file.
 ///
 /// Every fallible path in this crate returns this type rather than
@@ -526,6 +545,24 @@ pub enum Error {
     /// without it.
     UnsupportedMandatoryOpcode {
         /// The unrecognized, non-optional opcode ID.
+        id: u32,
+    },
+
+    /// `SPEC-054`, `DEC-049`. A **mandatory** opcode (DNG `Flags` bit 0 unset)
+    /// that this reader recognizes but the requested develop path will not
+    /// apply. The path's applied set is small: the monochrome
+    /// [`develop::develop_into`] applies the first `FixBadPixelsConstant` in
+    /// `OpcodeList1` and the first `WarpRectilinear` in `OpcodeList3`; the
+    /// colour path ([`color::develop_color_into`] and its variants) applies
+    /// none; nothing applies `OpcodeList2`. Any other mandatory opcode — one in
+    /// `OpcodeList2`, any on the colour path, a recognized opcode in a list its
+    /// applier does not read, or a second instance beyond the one applied —
+    /// would otherwise be silently skipped, producing a plausible-looking but
+    /// wrongly processed image. Optional opcodes are never this error.
+    UnsupportedRequiredOpcode {
+        /// Which opcode list (1, 2 or 3) carries it.
+        list: u8,
+        /// The opcode ID.
         id: u32,
     },
 
@@ -935,6 +972,12 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "opcode {id} is unrecognized and not marked optional (DNG Flags bit 0)"
+                )
+            }
+            Error::UnsupportedRequiredOpcode { list, id } => {
+                write!(
+                    f,
+                    "OpcodeList{list} requires opcode {id} (not marked optional), which this develop path does not apply"
                 )
             }
             Error::UnsupportedWarpTangentialTerms { kt0, kt1 } => {

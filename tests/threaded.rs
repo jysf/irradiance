@@ -15,9 +15,7 @@ use irradiance::color::{
 };
 use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
 use irradiance::develop::output_dimensions;
-use irradiance::ifd::{
-    ActiveArea, Cfa, Compression, DefaultCropOrigin, DefaultCropSize, Rational, Sensor,
-};
+use irradiance::ifd::{ActiveArea, Cfa, DefaultCropOrigin, DefaultCropSize, Rational, Sensor};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixtures.
@@ -43,49 +41,28 @@ fn sensor(width: u32, height: u32, pattern: &[u8]) -> Sensor {
     .flatten()
     .map(|&num| Rational { num, den: 100000 })
     .collect();
-    Sensor {
-        ifd_index: 0,
-        width,
-        height,
-        bits_per_sample: 16,
-        samples_per_pixel: 1,
-        photometric: 32803,
-        compression: Compression::Uncompressed,
-        rows_per_strip: None,
-        strip_offsets: vec![],
-        strip_byte_counts: vec![],
-        black_level: None,
-        white_level: None,
-        black_level_repeat_dim: None,
-        active_area: None,
-        default_crop_origin: None,
-        default_crop_size: None,
-        orientation: None,
-        opcode_lists: [false, false, false],
-        opcode_list_1: None,
-        opcode_list_3: None,
-        color_filter: Some(Cfa {
+    {
+        let mut built = Sensor::test_fixture();
+        built.width = width;
+        built.height = height;
+        built.photometric = 32803;
+        built.color_filter = Some(Cfa {
             repeat_dim: [2, 2],
             pattern: pattern.to_vec(),
             plane_color: vec![0, 1, 2],
             layout: 1,
-        }),
-        color_matrix_1: None,
-        color_matrix_2: None,
-        forward_matrix_1: Some(forward_matrix),
-        forward_matrix_2: None,
-        as_shot_neutral: Some(vec![
+        });
+        built.forward_matrix_1 = Some(forward_matrix);
+        built.as_shot_neutral = Some(vec![
             Rational { num: 1, den: 2 },
             Rational { num: 1, den: 1 },
             Rational { num: 1, den: 2 },
-        ]),
-        calibration_illuminant_1: None,
-        calibration_illuminant_2: None,
+        ]);
         // Distinct per-slot blacks + a white below some samples, so the level
         // slot and the clamp both matter.
-        black_levels: vec![100, 140, 160, 220],
-        white_levels: vec![4000],
-        malformed_tags: vec![],
+        built.black_levels = vec![100, 140, 160, 220];
+        built.white_levels = vec![4000];
+        built
     }
 }
 
