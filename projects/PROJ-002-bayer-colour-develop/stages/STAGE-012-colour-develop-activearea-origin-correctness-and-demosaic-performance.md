@@ -114,12 +114,12 @@ them. Update status as specs progress.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-047 (shipped on 2026-11-06) [M] — **P0, ship first:** the colour path indexes the CFA phase + level slot from the ActiveArea origin (offset, no crop — DEC-040), so odd-origin DNGs develop to correct colour; DEVELOP_VERSION 2→3 + a grey-stays-grey red-proof.
-- [ ] (not yet written) [M] — **P0-follow / §3B:** crop the colour output to the active area, remove the masked border, and bring full DefaultCrop/Orientation parity with `develop_into` (the contract-changing geometry the P0 offset deferred, DEC-040).
+- [ ] SPEC-050 (design) [M] — **P0-follow / §3B:** crop the colour output to the active area, remove the masked border, and bring full DefaultCrop/Orientation parity with `develop_into` (the contract-changing geometry the P0 offset deferred, DEC-040 → DEC-043); DEVELOP_VERSION bump.
 - [x] SPEC-048 (shipped on 2026-11-07) [M] — **P1:** demosaic interior fast path (per-row slices, no per-pixel reflect / checked-div on the interior); output bit-identical, before/after ms recorded (DEC-041).
 - [x] SPEC-049 (shipped on 2026-11-07) [M] — **P2:** fuse `develop_color_into`'s scratch passes (normalise each row ONCE into a rolling row cache — #147's normalise-on-read regressed time 2.76x and was revised in #148 — write linear sRGB in pass 2) to drop ~134 MB at no speed cost, and add `develop_color_f32_into`; output bit-identical, peak-RSS recorded (DEC-042).
 - [ ] (not yet written) [S] — **P3 (optional):** opt-in row-band demosaic threading via `std::thread::scope`, default 1 thread; output bit-identical.
 
-**Count:** 3 shipped / 0 active / 2 pending
+**Count:** 3 shipped / 1 active / 1 pending
 
 ## Design Notes
 
