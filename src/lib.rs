@@ -98,6 +98,13 @@
 //! `Orientation`, output at [`develop::output_dimensions`], the masked border
 //! dropped — by scattering each developed pixel to its output slot as the fused
 //! kernel emits it; the kept pixels' colours are unchanged (`DEC-043`).
+//! `SPEC-051` added opt-in parallelism as three additive siblings —
+//! [`demosaic::demosaic_into_threaded`], [`color::develop_color_into_threaded`]
+//! and [`color::develop_color_f32_into_threaded`] — that split the **output**
+//! rows into bands over `std::thread::scope` (no dependency, no `unsafe`);
+//! `threads <= 1` is the single-thread call, and any thread count is
+//! byte-identical to it. The colour 90° rotations (orientations 5–8) fall back
+//! to the single-thread develop (`DEC-044`).
 //! Still absent, by design:
 //! `ASCII` and the signed field types (no DNG tag PROJ-001 reads needs them
 //! yet), and any compressed-plane decode (PROJ-003).

@@ -67,6 +67,7 @@ facts, so re-measure elsewhere.
 | `SPEC-048` / `DEC-041` — `demosaic_into` interior fast path | 6000×4000 RGGB (24.0 MP), deterministic LCG mosaic | 533.0 ms (min 528.7) | 316.2 ms (min 312.8) | **≈1.69× (≈41% faster)** | yes — full-buffer checksum unchanged (`2359785445034`), equivalence test + golden hashes green |
 | `SPEC-049` / `DEC-042` — `develop_color_into` fuse (normalise once into a rolling row cache, colour matrix straight into `dst`, one `w·h` green plane) + `develop_color_f32_into` | 5712×4096 RGGB (23.4 MP), deterministic mosaic | peak RSS **376,143,872 B** (358.7 MiB); develop 243 ms (min 3) | peak RSS **235,864,064 B** (224.9 MiB); develop 253 ms (min 3) | **memory −140,279,808 B (−133.8 MiB)** — the whole eliminated `camera_rgb` buffer; **time ≈1.04×** (within ~4%, essentially baseline) | yes — first-9-sample checksum unchanged (`339852`), `fused_develop_color_is_byte_identical_to_the_reference` (9×7, 20×24, 3×5 × 4 phases) + the colour goldens green |
 | `SPEC-050` / `DEC-043` — `develop_color_into` / `develop_color_f32_into` crop + orient at the sink (`ActiveArea` → `DefaultCrop` → `Orientation`, output at `output_dimensions`; no new buffer, `dst` shrinks) | 5712×4096 RGGB (23.4 MP), deterministic LCG mosaic, `ActiveArea` (80, 122)–(4096, 5712) + `DefaultCrop` (12, 12) 5568×3976, orientation 1 | u16: peak RSS **235,814,912 B** (224.9 MiB), develop 399 ms; f32: **376,193,024 B**, 420 ms — whole-plane `dst` (`5712·4096·3`) | u16: peak RSS **228,261,888 B** (217.7 MiB), develop 420 ms; f32: **361,086,976 B**, 430 ms — `dst` = `5568·3976·3` | **memory −7,553,024 B u16 / −15,106,048 B f32** (exactly the smaller `dst`; no regression from SPEC-049); **time ≈1.05× u16 / ≈1.02× f32** (the per-pixel crop test in the sink) | kept pixels yes — every kept pixel byte-identical to the pre-change whole-plane render at its source (3,744 pixels, 4 phases × 8 orientations, checked against bytes captured before the change), `colour_crop_pixels_equal_the_whole_plane_develop_at_their_source` + `colour_geometry_matches_the_mono_path`; trivial geometry byte-identical (`trivial_geometry_is_byte_identical_to_the_whole_plane`) |
+| `SPEC-051` / `DEC-044` — opt-in output-row-band threading (`demosaic_into_threaded`, `develop_color_into_threaded`, `develop_color_f32_into_threaded`; `std::thread::scope`, no dependency, no `unsafe`) | demosaic: 6000×4000 RGGB (24.0 MP), deterministic LCG mosaic. colour: 5712×4096 RGGB, LCG mosaic, SPEC-050's `ActiveArea` (80, 122)–(4096, 5712) + `DefaultCrop` (12, 12) 5568×3976, orientation 1 (and 6) | `threads = 1` (the single-thread function, called directly): demosaic **334.5 ms** (min 323.8); colour u16 **412.5 ms** (min 410.0), f32 **422.0 ms** | demosaic: **182.5 ms** N=2, **101.4 ms** N=4, **89.3 ms** N=8. colour u16: **211.6 / 111.9 / 70.5 ms** (N=2/4/8); f32: **217.1 / 114.2 / 78.8 ms**. orientation 6 (90°, the single-thread fallback): u16 417–423 ms at every N | demosaic **≈1.83× / 3.30× / 3.75×**; colour u16 **≈1.95× / 3.69× / 5.85×**, f32 **≈1.94× / 3.70× / 5.36×** (N = 2/4/8); orientations 5–8 unchanged by design (fallback); `threads = 1` is the unchanged single-thread path | yes — every N's buffer compared equal to N=1 in the harness (demosaic checksum `163377593301` at every N; colour u16 + f32 bit patterns equal), and `tests/threaded.rs` pins `dst_threaded == dst_single` across N in {2,3,4} (demosaic, 4 phases × 7 sizes × even/odd origin), N in {2,4} × orientations 1–4 + whole plane (colour), orientations 5–8 (fallback), N in {1,2,3,5,8} (independence), and seams on interior/odd rows and one-row bands |
 
 The interior (every pixel ≥ 2 rows and ≥ 2 columns from each edge) now reads its
 neighbours by direct index into per-row slices, skipping the per-pixel
@@ -130,6 +131,30 @@ absolute times higher than SPEC-049's row (a different, branchier mosaic), so
 compare within a row, not across. Measured 2026-11-09, `/usr/bin/time -l`
 (peak RSS identical across all 7 runs), `aarch64-apple-darwin`; host facts,
 re-measure elsewhere.
+
+`SPEC-051` / `DEC-044` added opt-in parallelism as three **additive**
+`*_threaded` siblings; `threads <= 1` calls the existing single-thread function
+directly (no banding, no allocation), so its output and performance are the rows
+above, untouched. With `threads >= 2` the **output** rows are split into
+`min(threads, rows)` contiguous bands, each a disjoint `dst` slice carved by
+`split_at_mut_checked` inside `std::thread::scope`. Each band runs the existing
+fused traversal (`develop_color_fused`, the `DEC-042` rolling cache) over its own
+source rows plus a three-row halo with a **local** green buffer, and keeps only the
+pixels that land in its slice; the halo's top is rounded down to an even row so
+every local row keeps its absolute Bayer phase, and reflection happens only where
+the halo reaches a true image edge. Same neighbours, same kernel, same `f64`
+matrix, no cross-thread reduction — so every N is byte-identical to N = 1 and
+independent of scheduling. The mono demosaic threads for every input (it reuses
+the fused traversal with an identity normaliser, which the colour oracle already
+proves equal to `demosaic_into`); the colour path threads orientations 1–4 and
+falls back to the single-thread develop for the 90° rotations (5–8), whose output
+bands are fed by source columns. Extra memory at N ≥ 2 is the per-band green
+(about one `w·h` plane in total, plus the halo rows) — no RGB intermediate. The
+demosaic scales less than the colour develop at N = 8 (3.75× vs 5.85×): it has no
+matrix arithmetic per pixel to amortise its memory traffic, and each band pays
+for its own green plane where single-thread `demosaic_into` keeps green in `dst`.
+Measured 2026-11-09, median of 7 release runs on an Apple M4 Pro (14 cores,
+`aarch64-apple-darwin`); host facts, re-measure elsewhere.
 
 ## ⚠ The distinction runs BOTH ways — measured 2026-08-20
 

@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-09
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-051
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 8783063            # REAL combined count — what cost-audit reads
+  estimated_usd: 6.88
+  duration_minutes: 25
+  branch: claude/spec-051-row-band-threading
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  completed_at: 2026-11-09
+  notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id; 8,538,715 of it cache reads) at handback time — /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the few final PR-opening turns."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -176,27 +176,99 @@ reconstruct it.*
 
 ### Execution notes
 
-- **Branch / PR:** <branch> → PR #<n> (against `main`).
-- **Completed at:** <YYYY-MM-DD>
-- **All acceptance criteria met?** <yes/no + evidence per criterion — the
-  byte-equality across N and orientations, the measured speedup, N<=1 unchanged>
+- **Branch / PR:** `claude/spec-051-row-band-threading` → PR #__PR__ (against `main`).
+- **Completed at:** 2026-11-09
+- **All acceptance criteria met?** yes.
+  - *Byte-identical for N > 1, all phases and geometries:* `tests/threaded.rs`
+    compares every threaded output with the existing single-thread function —
+    demosaic N in {2,3,4} × 4 phases × 7 sizes (tall 9×37 / 13×61, 20×24, a
+    3-wide, 6×2, 2×2, 1×1) × even and odd ActiveArea origin; colour u16
+    N in {2,4} × orientations absent/1–4 × 4 phases on an odd-top/odd-left
+    ActiveArea + DefaultCrop fixture, plus the whole plane; orientations 5–8
+    (the fallback) N in {2,3,4}; f32 N in {2,4} × orientations 1–4 and 6, by
+    bit pattern. All 8 tests were red against no-op stubs first (one,
+    `output_is_independent_of_thread_count`, initially passed vacuously against
+    the stub — its baseline is now the single-thread render, and it went red).
+  - *N = 1 unchanged:* `threads <= 1` is a literal call to the existing function
+    (`threads_one_equals_the_single_thread_entry` pins 0 and 1); the
+    single-thread kernels and functions are untouched (the diff only adds code).
+  - *Deterministic:* `output_is_independent_of_thread_count` (N in
+    {1,2,3,5,8}, each run twice) and the band edges are a pure function of
+    `(rows, threads)`; no cross-thread reduction.
+  - *Seams:* `band_boundary_reflects_at_the_true_edge` puts a seam on odd
+    interior row 7, makes every row its own band (N = rows), and over-asks
+    (N = 50 > rows), on the demosaic and through a vertical flip on colour.
+    Mutation check: shrinking the halo to 1 row, or dropping the even-row
+    rounding of the halo top, turns 5 of the 8 tests red.
+  - *Measured speedup (ledger row, DEC-041; median of 7, M4 Pro):* demosaic
+    6000×4000 334.5 ms → 182.5 / 101.4 / 89.3 ms at N = 2/4/8 (≈1.83× / 3.30× /
+    3.75×); colour u16 5712×4096 orientation 1 412.5 ms → 211.6 / 111.9 /
+    70.5 ms (≈1.95× / 3.69× / 5.85×); f32 similar; orientation 6 unchanged
+    (fallback). Every N's buffer equal to N = 1 in the harness.
+  - *No dependency, no `unsafe`, no panic:* `Cargo.toml`/`Cargo.lock`
+    untouched; `#![forbid(unsafe_code)]` + the five-lint deny policy hold
+    (`just lint-ci` green). Inputs are validated before spawning (any input the
+    banded path does not take goes to the single-thread function, so the typed
+    errors are identical by construction — `threaded_errors_match_the_single_thread_errors`);
+    threads are spawned with `Builder::spawn_scoped` (an error, not a panic, if
+    the OS refuses) and the calling thread drains the same band queue, so a
+    refused spawn only means fewer workers.
+  - Gates: `just test`, `just lint-ci`, `just fmt-check`, `just validate`,
+    `just cost-audit` green.
 
 ### Cost self-report
 
-- **Tokens (total):** <REAL number from `/cost`>
-- **Estimated USD:** <tokens × rate>
-- **Duration (minutes):** <n>
-- **Source of the number:** <`/cost`, usage object, harness>
+- **Tokens (total):** 8,783,063 (input 95 + cache write 186,628 + cache read 8,538,715 + output 57,625)
+- **Estimated USD:** ≈ $6.88
+- **Duration (minutes):** ~25
+- **Source of the number:** this session's own transcript
+  (`~/.claude/projects/<worktree>/164f1a9f-….jsonl`, anchored on the
+  scratchpad UUID), summing every assistant usage record (input + cache write +
+  cache read + output, deduped by message id) — `/cost` is not callable as a
+  tool in a delegated session. USD at Opus list rates.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:** <none / DEC-NNN>
-- **Deviations from spec:** <none / what and why — e.g. the threaded-vs-fallback
-  predicate, the band-count clamping>
-- **Follow-up work identified:** <none / e.g. a transposed-colour gather spec>
+- **New decisions emitted:** none (DEC-044 implemented as written).
+- **Deviations from spec:**
+  - *How a band "runs the existing traversal":* rather than duplicate the
+    kernel loops band-aware, each band runs the unchanged fused traversal
+    `develop_color_fused` over a **local view** of the plane — a clone of the
+    `Sensor` with `height` set to the band's rows plus a 3-row halo, a
+    normaliser offset by the halo's top row, and a local green buffer — and its
+    sink keeps only the band's own pixels. The halo top is rounded down to an
+    even row so each local row keeps its absolute Bayer parity. This reuses the
+    single-thread code path byte for byte with zero changes to it.
+  - *`demosaic_into_threaded` bands run the fused traversal (identity
+    normaliser), not `demosaic_into` itself.* `demosaic_into` keeps green in
+    `dst` and would need a local RGB buffer per band to be run on a sub-plane;
+    the fused traversal is already proven equal to `demosaic_into`
+    (`fused_develop_color_is_byte_identical_to_the_reference`) and needs only the
+    local green DEC-044 budgets. Cost: per-band throughput is a little lower
+    than `demosaic_into` (2 threads ≈1.83×, not 2×).
+  - *Band-count clamping:* bands = `min(threads, rows)`; fewer than two output
+    rows (or a non-banded input) goes to the single-thread function.
+  - *A work queue instead of one thread per band:* bands sit in a
+    `Mutex<Vec<…>>` drained by `threads − 1` spawned workers plus the calling
+    thread — the no-panic answer to a refused spawn (`thread::scope`'s plain
+    `spawn` panics there). Output does not depend on which thread takes which band.
+  - One extra test beyond the spec's seven: `threaded_errors_match_the_single_thread_errors`.
+- **Follow-up work identified:** a transposed-orientation colour gather to
+  thread portrait (5–8) images, if that case proves worth it (DEC-044 names it).
+  A thread-count default helper (e.g. `available_parallelism`) for callers, also
+  named in the spec's non-goals. Neither is needed for STAGE-012 to ship.
 
 ### Reflection (3 questions, short answers)
 
-1. **What was unclear in the spec or handoff that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec or handoff that slowed you down?** — Only
+   "run the existing single-thread traversal per band": the kernels index the
+   whole plane absolutely, so it took a moment to see that a height-shortened
+   `Sensor` view plus an offset normaliser runs them unchanged — and that the
+   view's top must sit on an even row to keep the CFA phase.
+2. **Was there a constraint or decision that should have been listed but wasn't?**
+   — That `std::thread::scope`'s `spawn` panics if the OS refuses a thread;
+   under `no-panics-on-untrusted-input` that pushes you to `Builder::spawn_scoped`.
+   Worth a line in DEC-044.
+3. **If you did this task again, what would you do differently?** — Make every
+   byte-equality test's baseline the single-thread function from the start: a
+   threaded-vs-threaded comparison passes against a stub that writes nothing.

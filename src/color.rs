@@ -113,7 +113,9 @@
 //! (`D50 → D65`). All three are public standards — provenance **class 1**, no
 //! implementation read. See `docs/provenance-ledger.md`.
 
-use crate::demosaic::develop_color_fused;
+use crate::demosaic::{
+    develop_color_fused, develop_rows_banded, is_supported_bayer, run_row_bands,
+};
 use crate::develop::{oriented_dimensions, output_coords_from_crop, resolve_geometry};
 use crate::ifd::{active_area_origin, Rational, Sensor};
 use crate::Error;
@@ -376,6 +378,216 @@ pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> 
             }
         })
     })
+}
+
+/// [`develop_color_into`] with opt-in **output-row-band** parallelism
+/// (`SPEC-051`, `DEC-044`): the same cropped, oriented linear-sRGB render, byte
+/// for byte, split across `threads` scoped threads.
+///
+/// `threads <= 1` is a straight call to [`develop_color_into`] — no banding, no
+/// allocation. With `threads >= 2` the geometry is resolved once, then:
+///
+/// - **Orientations 1–4 (non-transposing)** are threaded. Each output row comes
+///   from one source row (identity or vertically flipped), so an output row band
+///   is fed by a contiguous source row band. The output rows are split into
+///   `min(threads, out_height)` bands, each thread owning a **disjoint** `dst`
+///   slice; it develops its source band plus a three-row halo through the same
+///   fused traversal (local green buffer, the `SPEC-049` rolling cache) and
+///   scatters through the same `SPEC-050` crop/orient map, keeping only the
+///   pixels that land in its own slice.
+/// - **Orientations 5–8 (the 90° rotations) fall back to [`develop_color_into`]**:
+///   an output row band there is fed by source *columns* spanning every source
+///   row, so no contiguous source band feeds it. Correct, just not parallel.
+///
+/// Every pixel is computed by the same kernel, from the same neighbours, with
+/// the same `f64` matrix, in the same order — there is no cross-thread
+/// reduction — so the output is byte-identical to [`develop_color_into`] and
+/// independent of `threads` and of scheduling. No `DEVELOP_VERSION` change:
+/// threading is output-invariant. The local green buffers sum to about one
+/// `width·height` plane (the single-thread plane, partitioned); no RGB
+/// intermediate exists.
+///
+/// # Errors
+///
+/// Exactly [`develop_color_into`]'s, in the same order: any input the threaded
+/// path does not accept is handed to [`develop_color_into`], which returns its
+/// typed error.
+///
+/// Never panics: inputs (buffers, geometry, CFA, colour matrix) are validated
+/// once before any thread is spawned; a thread the OS refuses to spawn only
+/// means fewer workers.
+pub fn develop_color_into_threaded(
+    sensor: &Sensor,
+    src: &[u16],
+    dst: &mut [u16],
+    threads: usize,
+) -> Result<(), Error> {
+    if threads <= 1 {
+        return develop_color_into(sensor, src, dst);
+    }
+    let Some(plan) = colour_band_plan(sensor, src.len(), dst.len(), threads) else {
+        return develop_color_into(sensor, src, dst);
+    };
+    develop_color_bands(sensor, src, dst, threads, &plan, |out, m, rgb| {
+        let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] = *m;
+        let [r, g, b] = rgb;
+        let rf = f64::from(r);
+        let gf = f64::from(g);
+        let bf = f64::from(b);
+        // The single-thread sink's expressions, verbatim (`develop_color_into`).
+        *out = [
+            quantize(m00 * rf + m01 * gf + m02 * bf),
+            quantize(m10 * rf + m11 * gf + m12 * bf),
+            quantize(m20 * rf + m21 * gf + m22 * bf),
+        ];
+    })
+}
+
+/// [`develop_color_f32_into`] with opt-in output-row-band parallelism
+/// (`SPEC-051`, `DEC-044`) — exactly `to_linear_f32_into(develop_color_into_threaded(..))`,
+/// bit for bit, and so exactly [`develop_color_f32_into`].
+///
+/// Same banding as [`develop_color_into_threaded`]: `threads <= 1` is a straight
+/// call to [`develop_color_f32_into`]; orientations 1–4 are threaded over
+/// disjoint output row bands; the 90° rotations (5–8) fall back to
+/// [`develop_color_f32_into`].
+///
+/// # Errors
+///
+/// Exactly [`develop_color_f32_into`]'s, in the same order.
+///
+/// Never panics.
+pub fn develop_color_f32_into_threaded(
+    sensor: &Sensor,
+    src: &[u16],
+    dst: &mut [f32],
+    threads: usize,
+) -> Result<(), Error> {
+    if threads <= 1 {
+        return develop_color_f32_into(sensor, src, dst);
+    }
+    let Some(plan) = colour_band_plan(sensor, src.len(), dst.len(), threads) else {
+        return develop_color_f32_into(sensor, src, dst);
+    };
+    develop_color_bands(sensor, src, dst, threads, &plan, |out, m, rgb| {
+        let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] = *m;
+        let [r, g, b] = rgb;
+        let rf = f64::from(r);
+        let gf = f64::from(g);
+        let bf = f64::from(b);
+        // The single-thread sink's quantise-then-divide, verbatim
+        // (`develop_color_f32_into`).
+        *out = [
+            f32::from(quantize(m00 * rf + m01 * gf + m02 * bf)) / 65535.0,
+            f32::from(quantize(m10 * rf + m11 * gf + m12 * bf)) / 65535.0,
+            f32::from(quantize(m20 * rf + m21 * gf + m22 * bf)) / 65535.0,
+        ];
+    })
+}
+
+/// What a threaded colour develop needs, resolved once before spawning.
+struct ColourBandPlan {
+    /// The camera → linear-sRGB matrix (the single-thread path's own).
+    matrix: [[f64; 3]; 3],
+    /// The crop rectangle's rows, in raw-plane coordinates.
+    crop_top: usize,
+    crop_height: usize,
+    /// Orientations 3 and 4: output row `oy` comes from crop row
+    /// `crop_height − 1 − oy` (a vertical flip), else from crop row `oy`.
+    vertical_flip: bool,
+    out_width: usize,
+    out_height: usize,
+}
+
+/// The [`ColourBandPlan`], or `None` when the input belongs on the single-thread
+/// path: anything [`develop_color_into`] would reject (so its typed error comes
+/// back unchanged, in its order), a transposing orientation (5–8, `DEC-044`'s
+/// fallback), or fewer than two output rows (or threads) to split.
+fn colour_band_plan(
+    sensor: &Sensor,
+    src_len: usize,
+    dst_len: usize,
+    threads: usize,
+) -> Option<ColourBandPlan> {
+    check_color_buffers(sensor, src_len, dst_len).ok()?;
+    let geometry = resolve_geometry(sensor).ok()?;
+    let vertical_flip = match geometry.orientation {
+        1 | 2 => false,
+        3 | 4 => true,
+        _ => return None,
+    };
+    if !is_supported_bayer(sensor) {
+        return None;
+    }
+    let matrix = build_camera_to_srgb_linear(sensor).ok()?;
+    let to_usize = |v: u32| usize::try_from(v).ok();
+    let out_height = to_usize(geometry.crop_height)?;
+    if core::cmp::min(threads, out_height) < 2 {
+        return None;
+    }
+    Some(ColourBandPlan {
+        matrix,
+        crop_top: to_usize(geometry.active_top.saturating_add(geometry.crop_origin_y))?,
+        crop_height: out_height,
+        vertical_flip,
+        out_width: to_usize(geometry.crop_width)?,
+        out_height,
+    })
+}
+
+/// Develop a non-transposing colour render over disjoint output row bands
+/// (`SPEC-051`, `DEC-044`). Each band works backwards from its output rows to the
+/// contiguous source rows that feed them, runs the fused traversal over those
+/// rows ([`develop_rows_banded`]), maps each developed pixel through the same
+/// `SPEC-050` [`CropScatter`] as the single-thread sink, and `store`s the pixels
+/// that land in its own slice. Generic over the output sample so the `u16` and
+/// `f32` entries share it; `store` is each entry's single-thread sink arithmetic.
+fn develop_color_bands<T, S>(
+    sensor: &Sensor,
+    src: &[u16],
+    dst: &mut [T],
+    threads: usize,
+    plan: &ColourBandPlan,
+    store: S,
+) -> Result<(), Error>
+where
+    T: Send,
+    S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]) + Sync,
+{
+    let normalize = make_normalizer(sensor, src);
+    let (triples, _remainder) = dst.as_chunks_mut::<3>();
+    run_row_bands(
+        triples,
+        plan.out_width,
+        plan.out_height,
+        threads,
+        |oy0, oy1, band| {
+            // Output rows `oy0..oy1` come from crop rows `oy0..oy1`, or — under a
+            // vertical flip — from crop rows `crop_height − oy1 .. crop_height − oy0`.
+            let (cy0, cy1) = if plan.vertical_flip {
+                (
+                    plan.crop_height.saturating_sub(oy1),
+                    plan.crop_height.saturating_sub(oy0),
+                )
+            } else {
+                (oy0, oy1)
+            };
+            let rows = (
+                plan.crop_top.saturating_add(cy0),
+                plan.crop_top.saturating_add(cy1),
+            );
+            let first = oy0.saturating_mul(plan.out_width);
+            let mut scatter = CropScatter::new(sensor)?;
+            develop_rows_banded(sensor, rows, &normalize, |pixel, r, g, b| {
+                let Some(slot) = scatter.slot_of(pixel) else {
+                    return;
+                };
+                if let Some(out) = slot.checked_sub(first).and_then(|i| band.get_mut(i)) {
+                    store(out, &plan.matrix, [r, g, b]);
+                }
+            })
+        },
+    )
 }
 
 /// Validate a colour develop's buffers against `sensor`, in `develop_into`'s
