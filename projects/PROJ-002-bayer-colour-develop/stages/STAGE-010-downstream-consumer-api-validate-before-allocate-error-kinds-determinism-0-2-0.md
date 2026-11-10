@@ -131,10 +131,13 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [ ] SPEC-053 (frame) — [S] **(B) Compression-7 shape binding** (review #2): bind the
       decoded `Frame` shape (width × `Nf`, height) to the strip, rejecting the
       equal-area wrong-shape case that currently returns `Ok(())`. Independent.
-- [ ] SPEC-054 (frame) — [M] **(C) Required-processing validation + `Sensor` API**
+- [ ] SPEC-054 (build) — [M] **(C) Required-processing validation + `Sensor` API**
       (review #3): keep `OpcodeList2` bytes, typed error when a list needs an
-      unsupported op (mono + colour); make `Sensor` non-exhaustive. Needs a DEC
-      (opcode contract + `Sensor` construction). Design-heavy; gates E.
+      unsupported op (mono + colour); make `Sensor` non-exhaustive. **DESIGNED
+      2026-11-10 (DEC-049); build-ready, HANDOFF-112.** Flags-aware scan at every
+      develop entry + `Error::UnsupportedRequiredOpcode`; `Sensor` sealed + 7 `tests/`
+      fixtures migrated to a dev-feature constructor; corpus probed safe (no file
+      carries `OpcodeList2`). Design-heavy; gates E.
 - [ ] SPEC-055 (frame) — [S] **(D) Licence gate dev-graph + package surface**
       (review #4/#6): evaluate the dev-dependency graph (root + `fuzz/`) with a
       mutation red-proof; `irr` package disposition + a package-target-list check.
