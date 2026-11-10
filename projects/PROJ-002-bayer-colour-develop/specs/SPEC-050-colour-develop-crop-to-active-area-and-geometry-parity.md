@@ -6,7 +6,7 @@
 task:
   id: SPEC-050
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -26,13 +26,13 @@ repo:
   id: irradiance
 
 handoff:
-  from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  from_agent: claude-opus-4-8  # from .repo-context tier_map.design (DEC-005)
+  to_agent: claude-opus-5          # HANDOFF-105 build (cold session; records its real model at handback)
+  created_at: 2026-11-07
 
 references:
-  decisions: [DEC-040, DEC-019, DEC-038] # DEC-040 = the ActiveArea-origin offset that DEFERRED this crop; DEC-019 = DefaultCropOrigin relative to ActiveArea; DEC-038 = the colour develop path. DEC-043 (crop the colour path to full geometry parity) is NEW, formalized at this spec's design.
-  constraints: []                  # design fills exact ids: no-panic, determinism, no-new-deps
+  decisions: [DEC-043, DEC-040, DEC-019, DEC-038] # DEC-043 = crop the colour path to full geometry parity (NEW, this spec's design — sink-side scatter); DEC-040 = the ActiveArea-origin offset that DEFERRED this crop; DEC-019 = DefaultCropOrigin relative to ActiveArea; DEC-038 = the colour develop path.
+  constraints: [no-panics-on-untrusted-input, oracle-must-be-shown-red, test-before-implementation, no-new-top-level-deps-without-decision, one-spec-per-pr, provenance-recorded-per-algorithm]
   related_specs: [SPEC-047, SPEC-049] # the colour-develop path (offset + fuse) this crops
 
 # Blocking dependencies: specs that must SHIP before this one can start.
@@ -62,8 +62,15 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 15000000        # ~M-complexity, in line with SPEC-047/048/049 build+verify (sink-only change, but a contract move + golden regen)
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null           # orchestrator main-loop session spans many specs' design/ship cycles; a per-cycle split is not observable (DEC-013: a null here is honest, a guess is not)
+      estimated_usd: null
+      duration_minutes: 40
+      notes: "Design of SPEC-050: DEC-043 (sink-side crop/orient scatter, memory shape preserved), HANDOFF-105 build, the build prompt, failing-test set, cycle advanced to build."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -98,12 +105,15 @@ deferred), so bump `DEVELOP_VERSION` and regenerate the colour goldens; the
 
 ## Inputs
 
-- **Files to read:** `src/color.rs` (`develop_color_into`, `develop_color_f32_into`,
-  the fused pipeline from SPEC-049, `pixel_count`), `src/develop.rs`
-  (`resolve_geometry`, `output_dimensions`, and the crop/orient helpers
-  `crop_orient_normalize_into` / `crop_and_orient_from_active_into` — how the mono
-  path crops+orients; reuse this, don't reinvent it), `src/ifd.rs` (`ActiveArea`,
-  `Sensor`).
+- **Files to read:** `src/color.rs` (`develop_color_into` ~265 /
+  `develop_color_f32_into` ~332 — the sink closure that writes `dst_triples[pixel]`
+  is what this spec changes; `pixel_count`), `src/demosaic.rs`
+  (`develop_color_fused` ~458 — the whole-plane traversal that calls
+  `emit(pixel, r, g, b)`; **do not change it**, the crop happens in the sink),
+  `src/develop.rs` (`resolve_geometry` ~135, `output_dimensions` ~230, and
+  `crop_source_coords` ~249 — the forward output→crop map whose **inverse** the
+  sink needs; and `crop_and_orient_from_active_into` ~613 for how the mono gather
+  reads it), `src/ifd.rs` (`ActiveArea`, `Sensor`, `active_area_origin`).
 - **Reference only:** `pyirradiance/notes/active_area_origin_repro.py` + the
   report; LibRaw is the geometry yardstick (never linked).
 - **Prior decisions:** `DEC-040` (the offset that deferred this), `DEC-019`
@@ -111,10 +121,11 @@ deferred), so bump `DEVELOP_VERSION` and regenerate the colour goldens; the
 
 ## Outputs
 
-- **Files modified:** `src/color.rs` — the colour path crops to the active area,
-  demosaics within it (reflecting at the active-area edge, not across the masked
-  border), and applies `DefaultCrop` + `Orientation`, producing
-  `output_dimensions(sensor)`; `src/lib.rs` — `DEVELOP_VERSION` bump.
+- **Files modified:** `src/color.rs` — the sink scatters each developed pixel to
+  its `DefaultCrop` + `Orientation` output slot (dropping the masked border and the
+  non-crop margin), so `dst` is `output_dimensions(sensor)·3`; the fused kernel in
+  `src/demosaic.rs` is unchanged. `src/develop.rs` — the new
+  `output_coords_from_crop` inverse helper. `src/lib.rs` — `DEVELOP_VERSION` bump.
 - **Output contract change:** `develop_color_into` / `develop_color_f32_into`
   expect `dst` sized to `output_dimensions(sensor)` (× 3), not `width×height×3`.
   State the new contract in the doc comments; callers size `dst` from the public
@@ -143,17 +154,28 @@ deferred), so bump `DEVELOP_VERSION` and regenerate the colour goldens; the
 
 ## Failing Tests
 
-*Sketched at frame; the **design** cycle writes them in full (and formalises
-`DEC-043`), in `tests/color_oracle.rs` / `tests/develop*`.*
+*Formalised at design (`DEC-043`); the build writes them first, in
+`tests/color_oracle.rs` and `src/develop.rs`'s unit tests. Each must fail against
+today's whole-plane colour output before the change.*
 
 - `"colour_output_has_output_dimensions_geometry"` — a `fixture_sensor` with a
-  non-trivial `ActiveArea` + `DefaultCrop` + `Orientation`; `develop_color_into`'s
-  output dims equal `output_dimensions(sensor)`, and the border is gone.
-- `"colour_geometry_matches_the_mono_path"` — the crop rectangle and orientation
-  match `develop_into`'s for the same fixture.
-- `"active_area_colour_is_unchanged_after_crop"` — the SPEC-047 grey-stays-grey /
-  odd-origin colour still holds on the cropped pixels.
-- `"develop_color_f32_still_equals_to_linear_at_new_dims"`.
+  non-trivial `ActiveArea` + `DefaultCrop` + `Orientation`; `develop_color_into`
+  called with `dst` sized to `output_dimensions(sensor)·3` succeeds, and the
+  masked border is gone (a known border pixel no longer appears at [0,0]).
+- `"colour_geometry_matches_the_mono_path"` — for the same fixture the colour
+  output's dimensions equal `output_dimensions(sensor)`, i.e. the same crop
+  rectangle and orientation `develop_into` resolves.
+- `"colour_crop_pixels_equal_the_whole_plane_develop_at_their_source"` — the
+  *values* the crop keeps are byte-identical to today's whole-plane
+  `develop_color_into` at the corresponding `(DefaultCrop + inverse-orient)` source
+  pixel: the crop moves the frame, not the colours (so `SPEC-047`'s
+  grey-stays-grey / odd-origin colour still holds on every kept pixel).
+- `"output_coords_from_crop_is_the_inverse_of_crop_source_coords"` — for all eight
+  orientations over a small grid, `crop_source_coords(orientation,
+  output_coords_from_crop(orientation, cx, cy, cw, ch), cw, ch) == (cx, cy)` (the
+  round-trip that pins the new inverse helper).
+- `"develop_color_f32_still_equals_to_linear_at_new_dims"` — at the new output
+  dimensions, `develop_color_f32_into == to_linear_f32_into(develop_color_into)`.
 
 ## Non-Goals
 
@@ -172,19 +194,25 @@ expand this one.
 
 ## Notes for the Implementer
 
-- **Reuse `develop.rs`'s geometry, don't reinvent it.** `resolve_geometry` already
-  yields the `ActiveArea` window, the `DefaultCrop` rectangle (relative to the
-  active area, `DEC-019`) and the validated `Orientation`; `output_dimensions`
-  gives the final size; `crop_and_orient_from_active_into` / the mono crop/orient
-  helpers already do the extraction. The colour path should normalise + demosaic
-  the **active-area window** (so demosaic reflects at the active-area edge, which
-  is the whole reason P0 chose offset-then-defer-crop), then `DefaultCrop` +
-  `Orientation` into `dst`.
+- **Crop at the sink, don't re-scope the kernel (`DEC-043`).** `develop_color_fused`
+  already develops every plane pixel with `SPEC-047`'s correct colours; leave it
+  byte-for-byte. The change is in `src/color.rs`'s sink closure: map each plane
+  pixel `(x, y)` to its output slot — if it's inside the `ActiveArea` *and* the
+  `DefaultCrop` rectangle, scatter its matrixed triple to `dst` at `DefaultCrop`
+  offset + the **inverse of `crop_source_coords`**; otherwise drop it. This keeps
+  the developed *values* identical to `SPEC-047` (the criterion) and keeps
+  `SPEC-049`'s memory shape — **do not introduce an active-area or full-plane RGB
+  buffer** (that re-adds the ~140 MB SPEC-049 removed); scatter straight into `dst`.
+- **Add the inverse helper in `src/develop.rs`** (`output_coords_from_crop`, the
+  source→output inverse of `crop_source_coords`) and pin it with the round-trip
+  test. Orientations 1–4 keep `crop_w×crop_h`; 5–8 transpose.
 - **The contract change is the point** — `dst` is now `output_dimensions`-sized.
-  Do not keep full-plane dims; document it and keep `develop_color_f32_into` in
-  lockstep.
-- Keep zero-dependency, no-panic (reuse `resolve_geometry`'s typed errors),
-  determinism. LibRaw/rawpy are the pyirradiance yardstick — reference only.
+  Fix the length checks + `Error::RgbBufferWrongLength` expectations, document the
+  new contract in the doc comments, and keep `develop_color_f32_into` in lockstep
+  (scatter the quantised `u16`, then `/65535.0` — not the raw `f64`).
+- Keep zero-dependency, no-panic (reuse `resolve_geometry`'s typed errors; scatter
+  through `.get_mut`), determinism. LibRaw/rawpy are the pyirradiance yardstick —
+  reference only.
 
 ---
 
