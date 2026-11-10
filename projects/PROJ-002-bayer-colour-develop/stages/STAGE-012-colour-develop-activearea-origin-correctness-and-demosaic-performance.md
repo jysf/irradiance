@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-012                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-06
-shipped_at: null
+shipped_at: 2026-11-09
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -46,10 +46,11 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
-                                    #   estimated_usd: N
-                                    #   recorded_at: YYYY-MM-DD
-                                    #   notes: "framing + spec breakdown"
+  sessions:
+    - tokens_total: 294948511
+      estimated_usd: 602.86
+      recorded_at: 2026-11-09
+      notes: "Stage grain (DEC-013 §5), not split across specs. The orchestrator session (work-status-next-steps, scratchpad uuid c0b7ec9b-2be4-41ad-9dea-77f3b6690343) ran STAGE-012's design and ship cycles in the main session. Measured FLOOR from that session's OWN transcript (scratchpad-uuid anchored, NOT text grep), deduped by message.id, all claude-opus-4-8, 98.0 percent cache-read: 656 usage-bearing messages dated 2026-11-07 onward, in 1,312 / out 1,050,183 / cache-write 4,824,820 / cache-read 289,072,196 = 294,948,511 tokens, priced per component at Opus list rates (15/75/18.75-write/1.50-read per MTok) = 602.86 USD. SCOPED to 2026-11-07 onward to avoid double-count: STAGE-011's close (2026-11-06) already measured this same session's 2026-11-06 messages, which swept in SPEC-047's 2026-11-06 design/ship orchestration; this window covers the design and ship cycles of SPEC-048, SPEC-049 (including its #147 normalise-on-read revision steering), SPEC-050 and SPEC-051, dispatching and reconciling their eight cold build and verify sessions, the two squash-merge re-lands and conflict fixes (SPEC-050 #151, SPEC-051 #155 frame-only squash then #156 re-land), and this STAGE-012 stage-ship. Floor: the push and stage-ship-PR turns post-date the measurement. RATIO: 294.9M orchestration against the four in-window specs' delegated build+verify grand totals of roughly 118M (SPEC-048 ~24M, SPEC-049 ~60M, SPEC-050 18.7M, SPEC-051 15.7M) is about 2.5x the delegated spend being un-metered main-loop orchestration — the design and ship of four specs plus the stage-ship, inflated by the repeated PR-merge friction this wave hit. SPEC-047's own 2026-11-06 orchestration sits under STAGE-011's floor by the date scoping above."
 ---
 
 # STAGE-012: colour-develop ActiveArea-origin correctness and demosaic performance
@@ -158,18 +159,58 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 *Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
 FIRST_SESSION_PROMPTS.md to draft this.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes.** The Bayer
+  colour-develop path is now correct for every DNG geometry and cheap enough to run
+  per image. An odd `ActiveArea` origin develops to the right colour instead of
+  magenta (SPEC-047), the output crops and orients to `output_dimensions` like the
+  mono path and LibRaw (SPEC-050), the demosaic is ~1.69× faster (SPEC-048), the
+  colour develop dropped ~134 MiB of scratch at no speed cost and gained an f32
+  entry point (SPEC-049), and there is an opt-in per-image threading speedup of
+  ~3.3× demosaic / ~3.7× colour at 4 threads (SPEC-051). Every Success Criterion was
+  met; all four correctness/perf outputs stayed bit-identical or byte-identical
+  where the criterion demanded it. Zero new dependencies, no panics, determinism
+  held throughout.
+- **How many specs did it actually take?** **5** (SPEC-047/048/049/050/051) vs the
+  plan of 4 priorities (P0–P3). P0 split into two specs: SPEC-047 did the
+  ActiveArea-origin colour offset (DEC-040 chose offset-not-crop to keep even-origin
+  files byte-identical), and SPEC-050 did the contract-changing crop + full
+  DefaultCrop/Orientation parity that P0 deferred (DEC-043).
+- **How many outlines survived unchanged?** N/A — STAGE-012 was not framed with
+  `just frame-stage`; specs were added to the backlog as each priority was reached.
+- **What changed between starting and shipping?** P0 split into offset-now /
+  crop-later, and SPEC-049's first normalise-on-read fuse regressed develop time
+  ~2.76× and was revised in-cycle to a rolling normalised-row cache that kept the
+  memory win at ~1.04× baseline.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - None rose to its bar this close. Two below-bar lessons recorded as `watch`
+    signals: **read the exact kernel traversal a change hooks into before writing
+    the decision's approach** (SPEC-050 — the first DEC-043 draft mis-framed the
+    crop until `develop_color_fused` was read; N=1), and **confirm GitHub advanced a
+    PR's head to a pushed follow-up commit before treating it as merged** (SPEC-051
+    — #155 squash-merged the frame only, the design commit raced the merge and had
+    to be re-landed via #156; a `process-debt`, N building).
+- **Signals dispositioned at this close?** (Prompt 1d step 7) Every open/watch
+  `disposition_at: stage-close` signal was walked (no silent carry):
+  - `shared-path-oracle-tautology` (N=2, bar met) — STAGE-012 **applied** the
+    discipline (SPEC-049/050/051 verifies confirmed the oracles compare against an
+    independent reference pipeline / the real single-thread function, never
+    threaded-vs-threaded), added no new ljpeg instance; **kept `watch`, deferred** to
+    the 0.2.0 ljpeg-hardening stage-close where it belongs.
+  - `probe-the-hard-assumption-at-frame-time` — no new miss-instance (STAGE-012's
+    geometry/perf assumptions were already named by the pyirradiance benchmark);
+    **applied**, not violated — SPEC-051's DEC-044 probed the SPEC-050 scatter and
+    the real `develop_color_fused` traversal at design. Kept `watch`, still N=1.
+  - `a-fix-inherits-the-precondition-of-the-thing-it-fixes`,
+    `patent-check-named-algorithms-at-frame`,
+    `saturating-as-cast-masks-explicit-clamp-in-quantize-tests`,
+    `unexercised-sof3-paths-garble-silently` — no STAGE-012 instance (a
+    colour-develop/threading stage); `last_touched` bumped, N unchanged, still
+    `watch`/`open`.
+  - **New:** added `read-the-kernel-before-deciding-the-approach` (lesson, watch,
+    N=1) and `confirm-pr-head-advanced-before-treating-pushed-commit-as-merged`
+    (process-debt, watch).
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - The PR-merge friction recurred across the wave (SPEC-050 #151 squash conflict,
+    SPEC-051 #155 frame-only squash) — promoted to the `process-debt` watch signal
+    above; its fix (cut each cycle's branch from freshly-merged main, and verify the
+    PR head before treating a push as merged) is already practised, not yet codified.

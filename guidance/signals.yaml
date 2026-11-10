@@ -854,9 +854,10 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-09-06
-    last_touched: 2026-11-06
+    last_touched: 2026-11-09
     raised_by: claude
     notes: |
+      ══ STAGE-012 CLOSE, 2026-11-09: no instance (colour-develop/threading stage), still N=2, trigger unchanged. ══
       ══ STAGE-011 CLOSE, 2026-11-06: DEFERRED, trigger unchanged, still N=2. ══
       No STAGE-011 instance: SPEC-045's three ljpeg header guards are greenfield T.81
       conformance, built first-pass clean, not a fix hardening failing logic while
@@ -1142,9 +1143,14 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-10-30
-    last_touched: 2026-11-06
+    last_touched: 2026-11-09
     raised_by: claude
     notes: |
+      ══ STAGE-012 CLOSE, 2026-11-09: DEFERRED, still N=1 — APPLIED, not violated. ══
+      No frame-time corpus-probe miss: STAGE-012's geometry/perf assumptions were
+      already named by the pyirradiance benchmark. Positive application — SPEC-051's
+      DEC-044 probed the SPEC-050 output scatter and the real develop_color_fused
+      traversal at design before committing the threading approach.
       ══ STAGE-011 CLOSE, 2026-11-06: DEFERRED, still N=1. ══ The STAGE-011 Nf=2
       frame-time miss (SPEC-043) is this family's shape, but it is codified via the
       sharper sibling [[probe-the-decode-input-not-just-the-container]] at this same
@@ -1181,9 +1187,12 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-01
-    last_touched: 2026-11-06
+    last_touched: 2026-11-09
     raised_by: claude
     notes: |
+      ══ STAGE-012 CLOSE, 2026-11-09: no instance, still N=1. ══ No named/patented
+      algorithm was introduced — threading reuses the existing kernels; the colour
+      maths is untouched (DEC-038). ══
       ══ STAGE-011 CLOSE, 2026-11-06: DEFERRED, still N=1 (positive counter-instance). ══
       STAGE-011 named no new algorithm — it bound the already patent-cleared SOF-3
       (DEC-035), so there was no mid-design landmine; the lesson applied correctly.
@@ -1274,9 +1283,13 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-02
-    last_touched: 2026-11-06
+    last_touched: 2026-11-09
     raised_by: claude
     notes: |
+      ══ STAGE-012 CLOSE, 2026-11-09: no instance, still N=1. ══ The threading specs
+      added byte-equality tests against the single-thread functions, not new clamp /
+      quantize assertions, so the `saturating as`-cast masking shape had no new surface
+      here. ══
       ══ STAGE-011 CLOSE, 2026-11-06: DEFERRED, still N=1. ══ No instance: the ljpeg
       decoder is integer-only (wrapping u16 prediction per T.81), with no f64-as-u16
       saturating cast and no explicit-clamp-before-cast. Its decision point remains a
@@ -1308,9 +1321,16 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-05
-    last_touched: 2026-11-06
+    last_touched: 2026-11-09
     raised_by: claude
     notes: |
+      ══ STAGE-012 CLOSE, 2026-11-09: APPLIED, kept watch, deferred. ══ No new ljpeg
+      instance (colour-develop/threading stage). STAGE-012 applied the discipline:
+      SPEC-049/050/051's verifies each confirmed the byte-equality oracle compares
+      against an INDEPENDENT reference pipeline / the real single-thread function,
+      never threaded-vs-threaded or stub-vs-stub (SPEC-051 verify explicitly rejected
+      a threaded-vs-threaded tautology). Bar is met (N=2) but this stage is not the
+      lesson's home; still codifies at the 0.2.0 ljpeg-hardening stage-close.
       ══ PROJ-003 CLOSE REVIEW, 2026-11-06: N=2 — BAR MET. ══
       The restart-boundary instance (evidence instance 2) is the confirmed second
       case, so the convention should codify at the 0.2.0 ljpeg-hardening stage-close:
@@ -1423,9 +1443,12 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-06
-    last_touched: 2026-11-06
+    last_touched: 2026-11-09
     raised_by: claude
     notes: |
+      ══ STAGE-012 CLOSE, 2026-11-09: untouched. ══ An ljpeg/SOF-3 decode risk, not in
+      STAGE-012's colour-develop scope; still owned by the 0.2.0 ljpeg-hardening close.
+      Residual risk unchanged.
       Mitigation is the 0.2.0 ljpeg-hardening spec (triage doc findings 1 and 2):
       settle the T.81 restart rule against the standard plus an INDEPENDENT oracle,
       and reject subsampled frames with a typed error rather than garbling. Until
@@ -1435,3 +1458,39 @@ signals:
       rather than a typed Unsupported error. Revisit at the hardening stage-close;
       drop once both paths either decode correctly (with an independent check) or
       reject typed. See docs/reviews/2026-11-06-proj-003-close-review-triage.md.
+
+  # --- lesson: read the kernel before deciding the approach -------------------
+  - id: read-the-kernel-before-deciding-the-approach
+    type: lesson
+    summary: "Read the exact code path a change hooks into (the real traversal/kernel, not your memory of it) BEFORE writing the decision's approach — the first design draft can commit to a mechanism the actual code makes wrong or needless."
+    evidence: "N=1, STAGE-012 2026-11-09. SPEC-050's first DEC-043 draft framed the colour crop as 'develop the active-area window and reflect at its edge', which would have changed near-edge pixel values and broken the 'colours unchanged from SPEC-047' criterion. Reading `develop_color_fused` (it walks the WHOLE plane and emits `pixel = y*w + x`, with the SPEC-047 origin offset inside) redirected the decision to a sink-side scatter that keeps the kernel byte-for-byte — same result, no near-edge change. Caught at design before the handoff, but a kernel read up front would have skipped the wrong draft."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-09
+    last_touched: 2026-11-09
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote — N=1. Distinct from
+      [[probe-the-hard-assumption-at-frame-time]] (that probes the CORPUS at frame
+      time; this reads the IMPLEMENTATION at design time) and from the
+      measure-before-build family. Falsifier is cheap: open the function the DEC will
+      build on and read its actual traversal / emit before committing the approach.
+
+  # --- process-debt: confirm a PR head advanced before treating a push as merged
+  - id: confirm-pr-head-advanced-before-treating-pushed-commit-as-merged
+    type: process-debt
+    summary: "After pushing a follow-up commit to an open PR, confirm GitHub advanced the PR's recorded head to it before treating the PR as merged — a push landing on the branch is not the same as the PR recording it, and a merge can race the push and squash an earlier head."
+    evidence: "N=1, STAGE-012 2026-11-09. SPEC-051's design commit (DEC-044 + HANDOFF-107 + the build prompt) was pushed to PR #155, but GitHub's PR view still showed the pre-design head (mergeable UNKNOWN, recomputing). The PR was merged while it recorded only the frame+merge head, so the squash captured the FRAME ONLY and the design never reached main; it was re-landed via a fresh cherry-pick (PR #156). Adjacent: the recurring squash-merge conflict when a stacked branch carries the prior PR's pre-squash commit (SPEC-050 #151, SPEC-051 #155)."
+    bar: null
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-09
+    last_touched: 2026-11-09
+    raised_by: claude
+    notes: |
+      The branch mitigations are already practised: cut each new cycle's branch from
+      a freshly-merged main after the prior PR merges, and resolve the squash conflict
+      by merging main in and taking the stage-backlog Count line. The NEW half is the
+      PR-head-advance check before treating a pushed follow-up as merged. Not codified;
+      watch whether the gh/PR-view lag recurs.
