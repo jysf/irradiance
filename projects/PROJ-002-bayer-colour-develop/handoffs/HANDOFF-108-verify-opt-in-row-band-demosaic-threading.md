@@ -50,7 +50,7 @@ handback:
   pr: 158
   completed_at: 2026-11-09               # YYYY-MM-DD
   notes: "verify APPROVED at 7ee2a86; tokens summed from this session's own transcript usage records (claude-opus-5-5), /cost not callable as a tool in a delegated session; excludes the final commit/PR turns"                      # one line if unusual (rework, no meter, etc.)
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-09            # cost recorded at ship from transcript df90e54b (true 5,273,738 tok, floor 3,917,704 superseded); marked synced so handback-sync does not re-transcribe the floor
 ---
 
 # HANDOFF-108: opt-in row-band demosaic threading (verify)

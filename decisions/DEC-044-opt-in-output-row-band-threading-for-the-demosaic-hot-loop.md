@@ -131,3 +131,28 @@ local green is the one genuinely new allocation, and only when `N >= 2`.
   colour gather (possible later spec); any change to the single-thread output, the
   colour maths (`DEC-038`), the kernel, or `DEVELOP_VERSION` (threading is
   output-invariant, so the develop contract and version do not move).
+
+## Addendum (ship of SPEC-051, from the verify FU-1)
+
+The build (`SPEC-051`, PR #157) settled the mechanics this decision left loose; the
+verify confirmed them bit-identical, so they are the decided design:
+
+- **Halo radius is 3, not "±2".** The body above says "±2 halo", but a band needs
+  3 rows of halo, and its **top is rounded down to an even row** so the Bayer /
+  `ActiveArea` phase at the seam is identical to the single-thread traversal. The
+  kernel's ±2 neighbour reach plus the green frontier the fused pass advances is
+  why 3 (even-aligned) is the correct figure. Mutating it to 2, or dropping the
+  even rounding, turns the byte-equality tests red.
+- **Band count is `min(threads, output_rows)`**, split with `split_at_mut_checked`;
+  workers are `std::thread::Builder::spawn_scoped` and the **calling thread drains
+  the same band queue**, so a refused spawn degrades to fewer workers, never a
+  panic.
+- **`demosaic_into_threaded` bands run the fused traversal** (the same kernel the
+  colour path uses), with a local green buffer, rather than the in-`dst` green of
+  the single-thread `demosaic_into` — a neighbour band would otherwise be writing
+  red/blue into the green a band reads.
+
+Still open (non-blocking, not done here): **FU-2** — floor the band height or cap
+`threads`, since a very large `threads` spawns one OS thread per row and does about
+7× the work; worth a small follow-up spec. **FU-3** — an optional non-zero
+even-origin colour fixture.
