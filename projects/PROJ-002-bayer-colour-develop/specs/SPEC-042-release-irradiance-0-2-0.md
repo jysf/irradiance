@@ -40,7 +40,7 @@ references:
   related_specs: [SPEC-039, SPEC-040, SPEC-041]                # [SPEC-NNN]
 
 # Blocking: SPEC-039 must SHIP before the release is cut (feeds `just ready`).
-depends_on: [SPEC-039]
+depends_on: [SPEC-052, SPEC-053, SPEC-054, SPEC-055, SPEC-039, SPEC-040, SPEC-041]  # group F — blocked by all of A–E + 040 + 041 (DEC-045)
 
 value_link: null
 
@@ -60,6 +60,16 @@ cost:
 ---
 
 # SPEC-042: Release irradiance 0.2.0
+
+> **⚠ HELD + SCOPE EXPANDED (DEC-045, 2026-11-10).** 0.2.0 is held until the
+> four P1 code-review findings ship (groups A–E). This release spec is group F
+> and is **blocked by A–E + SPEC-040 + SPEC-041**. Beyond the Context below it
+> now also owns, per DEC-045 and the pre-0.2.0 review: the full public-struct
+> non-exhaustive sweep (`Cfa`/`WarpRect`/`Opcode`/…; `Sensor` is already done in
+> group C), a **tier-B corpus evidence run on the candidate SHA**
+> (`IRRADIANCE_CORPUS_DIR`), a **package target list** check (no stray binary),
+> and **deny-on-dev-graph** confirmation (group D). Design this only after A–E
+> land. Do not cut a partial 0.2.0 — the maintainer chose to hold for all P1s.
 
 ## Context
 

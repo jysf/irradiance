@@ -55,6 +55,12 @@ handback:
 
 # HANDOFF-084: `plane::validate` — validate before allocate
 
+> **⚠ SUPERSEDED — do not dispatch (DEC-045, 2026-11-10).** SPEC-039 was
+> re-scoped to group E and now depends on SPEC-052/053/054; its uncompressed-only
+> design (which this handoff delegates) is incomplete per the pre-0.2.0 code
+> review (finding #5). A fresh build handoff is written when SPEC-039 reaches its
+> re-design cycle. This file is kept for history only.
+
 ## Delegation Summary
 
 The architect hands `SPEC-039` to the implementer for the **build** cycle: add a public,
