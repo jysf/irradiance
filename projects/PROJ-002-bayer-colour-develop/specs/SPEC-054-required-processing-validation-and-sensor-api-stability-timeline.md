@@ -7,4 +7,23 @@ Cycle prompts live in `prompts/SPEC-054-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **design** (orchestrator, 2026-11-10) — full design against the current tree;
+  DEC-049 minted. Corpus opcode lists probed (`exiftool -b` → per-opcode `id`/`flags`):
+  no corpus file carries `OpcodeList2`; the Bayer/colour files carry no opcode lists;
+  the Q2-Mono's mandatory list-1/list-3 opcodes are both applied — so validation is
+  pure hardening and the corpus stays bit-exact. Confirmed `parse_opcode_list` drops
+  `flags` for recognized opcodes (so a flags-aware raw scan is required, not the typed
+  parse) and that `tests/` builds `Sensor` by struct literal in 7 sites (the
+  `#[non_exhaustive]` blast radius). `Sensor` sealed here; the other public structs'
+  sweep scheduled to SPEC-042. HANDOFF-112 (build) prepared. Spec moved `frame → build`.
+- [~] **build** — delegated via HANDOFF-112. Branch `claude/spec-054-build-<suffix>`
+  from freshly-merged `main`. Keep `OpcodeList2` bytes; add the flags-aware
+  required-processing scan + `Error::UnsupportedRequiredOpcode`, called at every public
+  develop entry (mono + colour + f32 + threaded); seal `Sensor` + migrate the 7 `tests/`
+  fixtures onto a dev-feature constructor; red-proofs shown red first; fuzz; corpus
+  bit-exact (local run); gates; PR; fill the handback.
+- [ ] **verify** — cold review: the error fires from *each* public entry (§12, not one),
+  the scan validates on raw bytes (not the flags-dropping typed parse), the corpus
+  develops bit-exact, `DEVELOP_VERSION` unchanged, the dev-feature fixtures do not leak
+  into the default surface.
+- [ ] **ship** — merge, recover true build/verify cost, brag, stage bookkeeping.
