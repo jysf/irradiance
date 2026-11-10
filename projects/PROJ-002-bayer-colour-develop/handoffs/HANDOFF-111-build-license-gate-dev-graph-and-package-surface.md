@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-10
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-055
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 9300000            # REAL combined count — what cost-audit reads
+  estimated_usd: 6.60              # tokens_total × your rate, or your harness's number
+  duration_minutes: 45
+  branch: claude/spec-055-build-37bb23
+  pr: https://github.com/jysf/irradiance/pull/168
+  completed_at: 2026-11-10         # YYYY-MM-DD
+  notes: "tokens summed from this session's transcript (dc7e7e0e…jsonl, 58 assistant msgs, all claude-opus-5-5: 45.8k out, 137.8k cache-write, 8.81M cache-read, ~0.1k in = 9.00M at PR time) + ~0.3M headroom for the handback turn; /cost not callable from inside the session. Knob was [licenses] include-dev, not a [graph] setting." 
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -169,43 +169,46 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-055-build-37bb23` → https://github.com/jysf/irradiance/pull/168
+- **Completed at:** 2026-11-10
+- **All acceptance criteria met?** yes, with one deviation in how AC1 is verified (see Deviations).
+  - **Dev-graph evaluated:** fix is `[licenses] include-dev = true` in `deny.toml`. Root `cargo deny check licenses` now evaluates 48 crates (was 1), including `toml v0.8.23`, `ssimulacra2 v0.5.1` and all their transitives. Fuzz graph evaluates 12 crates (build-dep `cc` was already covered by default). **`just deny` and `just deny-fuzz` both pass on the real tree** (confirmed after the change, and again in the final gate run).
+  - **Licence red-proof bites:** `scripts/deny-red-proof.sh` → control green on both graphs (with `toml`/`ssimulacra2`/`libfuzzer-sys` named in the accepted list), a GPL-3.0-only dev-dep rejected by name (`error[rejected]`) in root and fuzz, the same root mutation green with `include-dev` removed, isolation green. Shown red: removing `include-dev` from the real `deny.toml` makes the script fail at its control. Measured green on cargo-deny 0.19.9 (local) and 0.20.2 (the `cargo-deny-action@v2` image). Wired as `just deny-red-proof` and CI job `licenses-red-proof` (pinned 0.20.2).
+  - **Pre-fix confirmation:** before the change, a GPL-3.0-only dev-dep passed both `just deny` and `just deny-fuzz` (measured on temp copies).
+  - **`irr` excluded:** `irr = []` + `required-features = ["irr"]`. **A default `cargo build` produces no `irr` binary** (no executable in cargo's JSON artifact stream; confirmed in a clean target dir too). `cargo package` succeeds, and the unpacked `.crate` built with default features (what `cargo install` builds) produces no executable either. `scripts/package-targets-check.sh` asserts all of that plus a positive control (`--features irr` produces `irr`) and a red half (temp copy with `required-features` stripped surfaces `irr`). Wired as `just package-targets-check` and CI job `package-surface`.
+  - **Dev/oracle build intact:** `just test` green; `tests/demosaic_oracle.rs` 26/26 under `--all-features`, including on a clean target dir.
+  - **Policy reconciled:** `docs/license-policy.md` gains a dev-dep section, a coverage table per graph and the knob in the worked example; also `no-copyleft-dependencies` enforcement text, AGENTS.md command list, `src/bin/irr.rs` header, CHANGELOG `[Unreleased]` (Security + Changed).
+  - **Gates:** `just test`, `lint-ci`, `fmt-check`, `validate`, `cost-audit`, `deny`, `deny-fuzz`, `deny-red-proof`, `package-targets-check`, `gate-audit` all green locally.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 9,300,000 (9.00M summed from the transcript at PR time + ~0.3M for this handback turn)
+- **Estimated USD:** 6.60 (Opus rates: $25/M out, $6.25/M cache-write, $0.50/M cache-read, $5/M in)
+- **Duration (minutes):** ~45
+- **Source of the number:** harness transcript — this session's `dc7e7e0e-1485-49ec-b98c-0097915b9d1b.jsonl`, de-duplicated by message id, all `claude-opus-5-5`. `/cost` is not callable by the agent from inside the session.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none. DEC-048 left the exact knob to this cycle; it turned out to be `[licenses] include-dev`. Recorded in `deny.toml` and `docs/license-policy.md`; the verifier may want a one-line addendum on DEC-048.
 - **Deviations from spec:**
-  - [list]
+  - **AC1 verified with `check licenses`, not `cargo deny list`.** `list` ignores `include-dev` and still prints only `irradiance@0.1.1` (on both 0.19.9 and with the knob set). Verification goes through `cargo deny -L debug check licenses`, whose accepted list names every evaluated crate; the red-proof's control asserts on that list.
+  - **`tests/demosaic_oracle.rs` changed (one attribute).** Cargo still sets `CARGO_BIN_EXE_irr` without the feature but does not build the bin, so plain `cargo test` on a clean target failed `irr_demosaic_emits_a_valid_p6_ppm` (spawn error; measured). It is now `cfg_attr(not(feature = "irr"), ignore = "...")` — a visible skip by default, runs under `--all-features`. The spec said the file should pass "unchanged"; this was needed to keep plain `cargo test` working.
+  - Also touched outside the spec's Outputs list: `guidance/constraints.yaml` (enforcement text only), `AGENTS.md` (command list), `src/bin/irr.rs` (doc header only).
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - SPEC-042 (release, group F): the release checklist can now cite `just deny-red-proof` and `just package-targets-check` as evidence items.
+  - The `licenses-red-proof` job pins cargo-deny 0.20.2 to match the action image; if the image moves, move the pin.
+  - Unchanged: `just build` (`cargo build --release`) no longer builds `irr`; provenance-ledger RSS commands that use `target/release/irr` now need `--features irr` (noted in the irr.rs header, not rewritten in the ledger).
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Little. The "dev-deps not in the graph" framing pointed at graph gathering, but debug logs showed 48 crates gathered and 1 evaluated, which pointed straight at the licence check. AC1's "`cargo deny list` includes the dev-deps" is not achievable as written, since `list` ignores the knob.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The `CARGO_BIN_EXE_*` + `required-features` interaction: cargo sets the variable without building the bin, so `cargo test` without features breaks at runtime, not compile time. Also worth listing that `Cargo.lock` is gitignored, so a red-proof can't rely on an offline lockfile in CI.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `-L debug` on the first probe (it shows gathered vs evaluated right away), and run plain `cargo test` on a clean target dir before trusting a green test run after any `required-features` change. A stale `target/debug/irr` hid the break at first.
