@@ -6,14 +6,14 @@
 task:
   id: SPEC-051
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -71,10 +71,35 @@ cost:
       estimated_usd: null
       duration_minutes: 45
       notes: "Design of SPEC-051: DEC-044 (output-row-band std::thread::scope threading — each thread works backwards from its output band to its source rows; colour path threads non-transposing orientations and falls back to single-thread for the 90 degree rotations; no new buffer, no unsafe, no DEVELOP_VERSION bump), HANDOFF-107 build, the build prompt, the byte-equality + determinism failing-test set, cycle advanced to build."
+    - cycle: build
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 10451074
+      estimated_usd: 23.65
+      duration_minutes: 85
+      recorded_at: 2026-11-09
+      notes: "Cold build session (PR #157, HANDOFF-107). Three *_threaded entry points; threads<=1 calls the single-thread function directly; threads>=2 splits the OUTPUT into contiguous bands via split_at_mut_checked, each band running the unchanged fused traversal on its source rows plus a 3-row even-rounded halo with a local green buffer. Colour path threads orientations 1-4, falls back to single-thread for 5-8. spawn_scoped so a refused spawn means fewer workers not a panic. No dep, no unsafe, no RGB intermediate, no DEVELOP_VERSION bump. Byte-identical to single-thread across N and orientations (8 red-first tests + a mutation check). Measured on an M4 Pro: demosaic 6000x4000 1.83x at N=2 / 3.30x at N=4; colour 5712x4096 orient 1 1.95x / 3.69x. Recovered 10,451,074 tok / $23.65 (claude-opus-5-5, transcript 164f1a9f, 53 deduped messages); handback floor 8,783,063 superseded."
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 5273738
+      estimated_usd: 11.92
+      duration_minutes: 40
+      recorded_at: 2026-11-09
+      notes: "Cold verify, verdict APPROVED at #157 head 7ee2a86 (PR #158, HANDOFF-108). Gates green (just test 442 pass). Byte-identity independently re-proved on real Canon 5D3 + Nikon D300S files, every orientation, demosaic N up to 64 and colour N up to 13, repeated: 0 mismatches; confirmed the committed tests compare against the real single-thread functions with sentinel buffers; 7 mutations shown red (halo 3->2, top/bottom-only halo, dropping the even rounding, threading 5-8, dropping a flip, stubbed entries). Constraints confirmed (disjoint bands, threads<=1 direct, spawn_scoped no-panic, no dep/unsafe/RGB-intermediate/version bump). Three non-blocking follow-ups (FU-1 DEC-044 halo-radius wording, FU-2 cap N / floor band height, FU-3 even-origin colour fixture). Recovered 5,273,738 tok / $11.92 (claude-opus-5-5, transcript df90e54b, 37 deduped messages); handback floor 3,917,704 superseded."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 30
+      recorded_at: 2026-11-09
+      notes: "Orchestrator ship bookkeeping (un-metered main session): recovered the true build+verify costs from the cold transcripts (floors superseded), added a DEC-044 addendum for FU-1 (halo radius 3, even-rounded top), wrote the reflection + totals, logged the brag, advanced the cycle with the approved verdict, archived the spec and flipped the STAGE-012 backlog (last P3 item — stage now stage-shippable)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 15724812
+    estimated_usd: 35.57
+    session_count: 4
+shipped_at: 2026-11-09
 ---
 
 # SPEC-051: opt-in row-band demosaic threading
@@ -224,22 +249,35 @@ wall-time on a large image in `docs/provenance-ledger.md`, per `DEC-041`.)*
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Nail the exact seam geometry in the DEC instead of writing "±2 halo". The
+   build correctly derived that a band needs a **3-row halo with an even-rounded
+   top** (the ±2 kernel reach plus the green frontier, aligned to the Bayer phase);
+   DEC-044's loose "±2" was imprecise and got corrected at build (verify's FU-1,
+   now a DEC addendum). For a threading spec whose whole value is bit-identity, the
+   halo width is load-bearing and belonged in the design exactly, not approximately.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No template or constraint change. DEC-044 got a ship addendum recording the
+   true mechanics (halo radius 3, even-rounded top, the `spawn_scoped` work queue,
+   demosaic bands running the fused traversal). Verify's FU-2 — a very large
+   `threads` spawns one OS thread per row and does ~7× the work — is a real
+   robustness gap worth a follow-up, but below the bar for codifying a lesson.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Two optional ones, neither blocking the STAGE-012 stage-ship (the stage's P0–P3
+   are all shipped now): (a) **FU-2** — floor the band height / cap `threads` so a
+   huge count doesn't spawn one thread per row; (b) a **transposed-orientation
+   colour gather** to parallelise the 90° rotations that currently fall back to
+   single-thread. Both are perf-robustness, not correctness; record and defer.
 
 4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
    the defect-escape distribution is greppable across specs:
    `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
    `none` (clean first try).
-   — <one word>
+   — build — no defect in the deliverable (verify APPROVED, no punch list), but the
+   design's "±2 halo" was an imprecision the build surfaced and corrected to a
+   3-row even-rounded halo; the worst thing caught was that design-level wording,
+   caught at build.
    *(Runtime/operational defects — the escape-prone class — only exist once the
    artifact meets its real host. `escaped` here is a signal to strengthen the
    §12 behavioral pre-flight for that surface.)*
@@ -251,4 +289,8 @@ wall-time on a large image in `docs/provenance-ledger.md`, per `DEC-041`.)*
    `impact` field is transcribed from, and both halves are already written above
    (## Context is the before, ## Goal is the after): confirm the prediction,
    don't reconstruct it from memory.
-   — <answer | none>
+   — Before: the demosaic and colour develop ran single-threaded only. After: three
+   opt-in `*_threaded` entry points give a per-image speedup — on an M4 Pro the
+   colour develop of a 5712×4096 frame runs ~1.95× faster at 2 threads and ~3.69×
+   at 4, and demosaic ~1.83× / ~3.30×, output **byte-identical** to single-thread —
+   with no new dependency, no `unsafe`, and `threads = 1` unchanged.
