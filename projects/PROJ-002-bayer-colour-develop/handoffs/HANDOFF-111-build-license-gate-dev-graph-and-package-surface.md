@@ -43,13 +43,13 @@ repo:
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
   status: completed                # completed | blocked | rejected
-  tokens_total: 9300000            # REAL combined count — what cost-audit reads
-  estimated_usd: 6.60              # tokens_total × your rate, or your harness's number
+  tokens_total: 9800000            # REAL combined count — what cost-audit reads
+  estimated_usd: 7.10              # tokens_total × your rate, or your harness's number
   duration_minutes: 45
   branch: claude/spec-055-build-37bb23
   pr: https://github.com/jysf/irradiance/pull/168
   completed_at: 2026-11-10         # YYYY-MM-DD
-  notes: "tokens summed from this session's transcript (dc7e7e0e…jsonl, 58 assistant msgs, all claude-opus-5-5: 45.8k out, 137.8k cache-write, 8.81M cache-read, ~0.1k in = 9.00M at PR time) + ~0.3M headroom for the handback turn; /cost not callable from inside the session. Knob was [licenses] include-dev, not a [graph] setting." 
+  notes: "tokens summed from this session's transcript (dc7e7e0e…jsonl, 58 assistant msgs, all claude-opus-5-5: 45.8k out, 137.8k cache-write, 8.81M cache-read, ~0.1k in = 9.00M at PR time, 9.60M after the handback commit) + ~0.2M for the final correction turn; /cost not callable from inside the session. Knob was [licenses] include-dev, not a [graph] setting." 
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -184,8 +184,8 @@ If you cannot complete the task:
 
 ### Cost self-report
 
-- **Tokens (total):** 9,300,000 (9.00M summed from the transcript at PR time + ~0.3M for this handback turn)
-- **Estimated USD:** 6.60 (Opus rates: $25/M out, $6.25/M cache-write, $0.50/M cache-read, $5/M in)
+- **Tokens (total):** 9,800,000 (summed from the transcript: 9.00M at PR time, 9.60M after the handback commit, + ~0.2M for the final correction turn)
+- **Estimated USD:** 7.10 (Opus rates: $25/M out, $6.25/M cache-write, $0.50/M cache-read, $5/M in)
 - **Duration (minutes):** ~45
 - **Source of the number:** harness transcript — this session's `dc7e7e0e-1485-49ec-b98c-0097915b9d1b.jsonl`, de-duplicated by message id, all `claude-opus-5-5`. `/cost` is not callable by the agent from inside the session.
 
