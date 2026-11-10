@@ -127,32 +127,31 @@ if [ -n "$STAGE_ID" ]; then
 fi
 
 # If this leaves no active specs under the stage, surface that as an
-# observation — NOT as a claim that the stage is complete. The stage's
-# `## Spec Backlog` may still list unwritten specs, and we can't
-# reliably read that list (it's manually maintained markdown).
+# observation, with what the stage's `## Spec Backlog` still holds, so "no
+# active specs" is never read as "stage complete" while work is unwritten.
 if [ -n "$STAGE_ID" ]; then
-    # Count active specs whose front-matter `stage:` is this stage. A plain
-    # shell loop replaces `find … | xargs -I{} awk … {}`, which errored at
-    # ship time with BSD xargs' "command line cannot be assembled, too long"
-    # — its -I per-invocation line budget is small and version-dependent.
-    # Because this is the script's last block under `set -euo pipefail`, that
-    # non-zero xargs aborted the whole script after the archive already
-    # succeeded. The loop has no such limit and needs no `{}` placeholder.
+    # A loop, not `find | xargs -I{} awk`: one awk per file either way, but this
+    # needs no xargs (whose -I differs between BSD and GNU on odd names and
+    # empty input) and cannot fail the pipeline under pipefail.
     REMAINING=0
-    while IFS= read -r spec; do
-        [ -n "$spec" ] || continue
-        if awk -v sid="$STAGE_ID" '
-                /^---$/ { f = !f; next }
-                f && /^[[:space:]]+stage:/ && $2 == sid { found = 1; exit }
-                END     { exit(found ? 0 : 1) }
-            ' "$spec"; then
-            REMAINING=$((REMAINING + 1))
-        fi
-    done < <(find "$SPEC_DIR" -maxdepth 1 -name "SPEC-*.md" 2>/dev/null)
+    while IFS= read -r f; do
+        [ -f "$f" ] || continue
+        case "$f" in *-timeline.md) continue ;; esac
+        [ "$(get_spec_stage "$f")" = "$STAGE_ID" ] && REMAINING=$((REMAINING + 1))
+    done <<EOF
+$(find "$SPEC_DIR" -maxdepth 1 -name "SPEC-*.md" 2>/dev/null || true)
+EOF
     if [ "$REMAINING" = "0" ]; then
+        UNWRITTEN=0
+        [ -n "${STAGE_FILE:-}" ] && [ -f "$STAGE_FILE" ] && UNWRITTEN=$(count_unpromoted_bullets "$STAGE_FILE")
         echo ""
         echo "${GREEN}No active specs remain for ${STAGE_ID}.${RESET}"
-        echo "If the stage's Spec Backlog is fully complete, run the Stage"
-        echo "Ship prompt (Prompt 1c) in FIRST_SESSION_PROMPTS.md."
+        if [ "${UNWRITTEN:-0}" -gt 0 ]; then
+            echo "Its Spec Backlog still has ${UNWRITTEN} unwritten item(s) — see 'just backlog --all'."
+            echo "Frame or spec them, or move them on, before shipping the stage."
+        else
+            echo "Its Spec Backlog has no unwritten items left. If the stage is"
+            echo "done, run the Stage Ship prompt (Prompt 1c) in FIRST_SESSION_PROMPTS.md."
+        fi
     fi
 fi
