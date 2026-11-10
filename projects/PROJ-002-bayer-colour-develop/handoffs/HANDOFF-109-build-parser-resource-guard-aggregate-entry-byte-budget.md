@@ -50,7 +50,7 @@ handback:
   pr: 167
   completed_at: 2026-11-10
   notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-10
 ---
 
 # HANDOFF-109: Parser resource guard — aggregate entry/byte budget (SPEC-052, group A)

@@ -6,12 +6,12 @@
 task:
   id: SPEC-054
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
-  complexity_actual: null
-  verify_verdict: null
+  complexity_actual: M
+  verify_verdict: punch-list
 
 project:
   id: PROJ-002
@@ -37,11 +37,29 @@ value_link: "a DNG that requires an unsupported correction is told so, not hande
 
 cost:
   tokens_estimate: 24000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-112
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 18666929
+      estimated_usd: 12.71
+      duration_minutes: 45
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns."
+    - cycle: verify
+      handoff: HANDOFF-115
+      agent: claude-opus-5-5
+      interface: other
+      tokens_total: 7521269
+      estimated_usd: 5.25
+      duration_minutes: null
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 verify. Verdict PUNCH LIST — code approved as-is at cd05206; the one punch item was a doc-only HANDOFF-112 restoration (fixed, shipped via the rebased #175). Removing the check from each of the 5 real develop entries in turn broke 6-7 tests each (per-entry coverage confirmed); corpus bit-exact via a hash probe across 8 files; DEVELOP_VERSION unchanged; fuzz clean. The mono f32/threaded entries named in the brief do not exist. tokens_total summed from the session transcript (/cost is not callable in a delegated session)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 26188198
+    estimated_usd: 17.96
+    session_count: 2
 ---
 
 # SPEC-054: Required-processing validation + Sensor API stability (group C)

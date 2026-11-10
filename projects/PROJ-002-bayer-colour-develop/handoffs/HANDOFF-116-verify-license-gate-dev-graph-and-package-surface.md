@@ -24,15 +24,16 @@ repo:
   id: irradiance
 
 handback:
-  status: null
-  tokens_total: null               # REAL combined count — `/cost`
-  estimated_usd: null
+  status: completed
+  agent: claude-opus-5-5
+  tokens_total: 7400000            # REAL combined count — `/cost`
+  estimated_usd: 4.96
   duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null
-  notes: null
-  synced_at: null
+  branch: claude/spec-055-verify-rebased
+  pr: 174
+  completed_at: 2026-11-10
+  notes: "claude-opus-5-5 verify. Verdict PUNCH LIST at 0e975ae — the licence gate and irr gating were correct, but the build's new CI red-proof job was red from two script bugs (CI colour codes broke the grep; grep -q under pipefail killed printf mid-write). Both fixed (--color never; grep <<<here-string), shipped via the rebased #174. Independent mutation proof: GPL dev-dep rejected in root+fuzz; irr stays out of the package; real tree passes. tokens_total approximate, summed from the session transcript (/cost is not callable in a delegated session)."
+  synced_at: 2026-11-10
 ---
 
 # HANDOFF-116: VERIFY the licence gate over the dev-graph + the irr binary gate (SPEC-055, group D)

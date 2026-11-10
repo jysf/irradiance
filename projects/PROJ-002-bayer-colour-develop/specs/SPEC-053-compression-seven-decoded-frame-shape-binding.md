@@ -6,12 +6,12 @@
 task:
   id: SPEC-053
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
-  complexity_actual: null
-  verify_verdict: null
+  complexity_actual: S
+  verify_verdict: approved
 
 project:
   id: PROJ-002
@@ -37,11 +37,29 @@ value_link: "a wrong-shape compressed DNG is rejected, not silently decoded to a
 
 cost:
   tokens_estimate: 18000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-110
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 12629153
+      estimated_usd: 8.72
+      duration_minutes: 24
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns."
+    - cycle: verify
+      handoff: HANDOFF-114
+      agent: claude-opus-5-5
+      interface: other
+      tokens_total: 3831612
+      estimated_usd: 2.79
+      duration_minutes: null
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 verify. Verdict APPROVED at 90f4898, no code change needed. Tests, lint, both red-proofs and the bit-exact corpus check all pass; DEVELOP_VERSION unchanged; fuzz clean (ljpeg 3.35M, plane 3.10M). tokens_total summed from the session transcript (/cost is not callable in a delegated session)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 16460765
+    estimated_usd: 11.51
+    session_count: 2
 ---
 
 # SPEC-053: Compression-7 decoded-frame shape binding (group B)

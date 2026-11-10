@@ -50,7 +50,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/168
   completed_at: 2026-11-10         # YYYY-MM-DD
   notes: "tokens summed from this session's transcript (dc7e7e0e…jsonl, 58 assistant msgs, all claude-opus-5-5: 45.8k out, 137.8k cache-write, 8.81M cache-read, ~0.1k in = 9.00M at PR time, 9.60M after the handback commit) + ~0.2M for the final correction turn; /cost not callable from inside the session. Knob was [licenses] include-dev, not a [graph] setting." 
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-10
 ---
 
 # HANDOFF-111: Licence gate over the dev-graph + package surface (SPEC-055, group D)

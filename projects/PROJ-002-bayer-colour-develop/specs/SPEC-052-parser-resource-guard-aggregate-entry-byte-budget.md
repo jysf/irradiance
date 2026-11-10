@@ -6,12 +6,12 @@
 task:
   id: SPEC-052
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
-  complexity_actual: null
-  verify_verdict: null
+  complexity_actual: S
+  verify_verdict: approved
 
 project:
   id: PROJ-002
@@ -37,11 +37,29 @@ value_link: "makes the container parser safe to point at hostile metadata — th
 
 cost:
   tokens_estimate: 20000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-109
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 7025673
+      estimated_usd: 5.29
+      duration_minutes: 21
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns."
+    - cycle: verify
+      handoff: HANDOFF-113
+      agent: claude-opus-5-5
+      interface: other
+      tokens_total: 4376521
+      estimated_usd: 3.15
+      duration_minutes: null
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 verify. Verdict APPROVED at 75f681a, no code change needed. A counting-allocator probe confirmed the guard cuts a 790 KB hostile file from 402 MB to 787 KB; both corpus DNGs still parse; red-proof reproduced. tokens_total summed from the session transcript (/cost is not callable in a delegated session)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 11402194
+    estimated_usd: 8.44
+    session_count: 2
 ---
 
 # SPEC-052: Parser resource guard — aggregate entry/byte budget (group A)

@@ -6,12 +6,12 @@
 task:
   id: SPEC-055
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
-  complexity_actual: null
-  verify_verdict: null
+  complexity_actual: S
+  verify_verdict: punch-list
 
 project:
   id: PROJ-002
@@ -37,11 +37,29 @@ value_link: "the permissive-licence claim is actually enforced, and the publishe
 
 cost:
   tokens_estimate: 18000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-111
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 9800000
+      estimated_usd: 7.10
+      duration_minutes: 45
+      recorded_at: 2026-11-10
+      notes: "tokens summed from this session's transcript (dc7e7e0e…jsonl, 58 assistant msgs, all claude-opus-5-5: 45.8k out, 137.8k cache-write, 8.81M cache-read, ~0.1k in = 9.00M at PR time, 9.60M after the handback commit) + ~0.2M for the final correction turn; /cost not callable from inside the session. Knob was [licenses] include-dev, not a [graph] setting."
+    - cycle: verify
+      handoff: HANDOFF-116
+      agent: claude-opus-5-5
+      interface: other
+      tokens_total: 7400000
+      estimated_usd: 4.96
+      duration_minutes: null
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 verify. Verdict PUNCH LIST at 0e975ae — the licence gate and irr gating were correct, but the build's new CI red-proof job was red from two script bugs (CI colour codes broke the grep; grep -q under pipefail killed printf mid-write). Both fixed (--color never; grep <<<here-string), shipped via the rebased #174. Independent mutation proof: GPL dev-dep rejected in root+fuzz; irr stays out of the package; real tree passes. tokens_total approximate, summed from the session transcript (/cost is not callable in a delegated session)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 17200000
+    estimated_usd: 12.06
+    session_count: 2
 ---
 
 # SPEC-055: Licence gate over the dev-graph + package surface (group D)
