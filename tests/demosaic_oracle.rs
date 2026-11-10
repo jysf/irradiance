@@ -830,7 +830,16 @@ fn run_irr_demosaic(dng: &[u8]) -> std::process::Output {
     output
 }
 
+// `irr` is behind the `irr` feature (SPEC-055, DEC-048). Cargo still sets
+// CARGO_BIN_EXE_irr without it but does not build the binary, so a plain
+// `cargo test` on a clean target would fail to spawn it. Ignored (a visible
+// skip, not a silent pass) unless the feature is on; `just test` and CI use
+// `--all-features`, so it always runs there.
 #[test]
+#[cfg_attr(
+    not(feature = "irr"),
+    ignore = "needs the internal irr binary: run with --features irr (just test does)"
+)]
 fn irr_demosaic_emits_a_valid_p6_ppm() {
     // A 4×3 RGGB 16-bit mosaic with a real strip, so unpack → demosaic produce
     // an honest image (the values themselves are the oracle tests' job).

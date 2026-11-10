@@ -32,7 +32,11 @@ declare the policy, enforce it in CI, fail the build on a violation.
    | Node | [license-checker](https://www.npmjs.com/package/license-checker) | `license-checker --onlyAllow 'MIT;Apache-2.0;BSD;ISC'` |
    | Go | [go-licenses](https://github.com/google/go-licenses) | `go-licenses check ./...` |
 
-3. **Allow narrow, named exceptions** — never widen the global allow-list for one
+3. **Check the tool sees what the policy covers.** If the policy includes
+   dev-dependencies, confirm the tool actually evaluates them — cargo-deny does
+   not by default (see the Rust example below) — and prove it with a mutation: add
+   a disallowed dependency in a temp copy and watch the gate go red.
+4. **Allow narrow, named exceptions** — never widen the global allow-list for one
    transitive dependency. Record *why* the exception is safe (e.g. weak copyleft
    like LGPL does not relicense a dynamically-used library; a fuzz-only transitive
    isn't in the shipped binary).
@@ -79,7 +83,48 @@ exceptions = [
 
 # Require high confidence when matching a license file's text to an SPDX id.
 confidence-threshold = 0.9
+
+# Evaluate DEV-dependencies too. cargo-deny's licence check skips them by
+# default; without this line a GPL dev-dependency passes. See below.
+include-dev = true
 ```
+
+### Dev-dependencies are NOT checked by default — this repo turns them on
+
+In this repo the policy covers dev-dependencies (constraint
+`no-copyleft-dependencies`: "including dev-dependencies"). cargo-deny's licence
+check does **not**, by default: since cargo-deny PR#557 it skips any crate reached
+only through dev-dependency edges, unless `[licenses] include-dev = true` is set.
+Measured here on cargo-deny 0.19.9 (SPEC-055, review finding #4, DEC-048): `cargo
+deny check licenses` gathered all 48 crates of the root graph — `toml`,
+`ssimulacra2` and their transitives included — then evaluated the licence of
+exactly one, `irradiance` itself. A GPL-3.0-only dev-dependency of the root or of
+`fuzz/` passed both gates. The gate was weaker than the policy and nothing said so.
+
+Two things that look like the knob and are not (both probed, both changed
+nothing): `exclude-dev = false` under `[graph]`, and an empty `[workspace]` table
+in `Cargo.toml`. The knob is in `[licenses]`. Also, `cargo deny list` ignores it
+and still prints only `irradiance` — read `cargo deny -L debug check licenses`,
+whose accepted list names every crate it evaluated.
+
+What the gate covers now, exactly:
+
+| Graph | Invocation | Normal deps | Build deps | Dev deps |
+|---|---|---|---|---|
+| library (root) | `just deny` / CI `licenses` | yes | yes | **yes** (`include-dev`) |
+| `irradiance-fuzz` (DEC-011) | `just deny-fuzz` / CI `licenses-fuzz` | yes | yes | **yes** (`include-dev`) |
+
+Proof, not assertion: `scripts/deny-red-proof.sh` (`just deny-red-proof`, CI
+`licenses-red-proof`) runs the control green on both graphs with `toml` /
+`ssimulacra2` named in the accepted list, then injects a synthetic GPL-3.0-only
+**dev**-dependency (a local path crate in a temp dir) into the root graph and into
+the fuzz graph and asserts each is rejected by name, then asserts the same
+mutation **passes** with `include-dev` removed — so the red is pinned to that one
+line. Delete it from `deny.toml` and CI goes red.
+
+Scope is unchanged by this: cargo-deny reads the **declared** licence expressions
+of cargo packages. It still does not see provenance or vendored non-Rust source
+(see the `no-copyleft-dependencies` enforcement text).
 
 A `just deny` recipe (in your project's `justfile`):
 

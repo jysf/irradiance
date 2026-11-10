@@ -10,6 +10,12 @@
 //! (`guidance/toolchain-brief.md`: "`irr` is a dev/oracle binary, not a
 //! product surface. `unwrap()` is fine there.").
 //!
+//! Gated behind the empty `irr` cargo feature (`required-features`, SPEC-055 /
+//! DEC-048), so a default build or `cargo install irradiance` does not produce
+//! it. Build it with `cargo build --release --features irr`; the
+//! `target/release/irr` invocations below assume that. `cargo test
+//! --all-features` (`just test`) enables it for `CARGO_BIN_EXE_irr`.
+//!
 //! # Subcommands
 //!
 //! - `irr ifd <file>` — walk the container and print every IFD, then the

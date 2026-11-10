@@ -22,6 +22,17 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   `#[non_exhaustive]`). Well-formed files are unaffected: their tables are disjoint
   (the corpus DNGs' tables are ~0.003 % of the file). `MAX_IFDS`, `MAX_IFD_DEPTH`,
   `MAX_TAG_VALUES` and the cycle guard are unchanged. `DEC-046`.
+- **The licence gate now checks dev-dependencies** (`deny.toml`, SPEC-055, PROJ-002,
+  pre-0.2.0 review finding #4) — the policy says no copyleft dependency of any kind,
+  dev-dependencies included, but cargo-deny's licence check skips dev-dependencies
+  by default: `just deny` gathered all 48 crates of the root graph and evaluated the
+  licence of one (`irradiance`), so a GPL dev-dependency passed both `just deny` and
+  `just deny-fuzz`. `deny.toml` now sets `[licenses] include-dev = true`, and the
+  real tree still passes on both graphs (`toml`, `ssimulacra2` and their transitives
+  are all permissive). New mutation red-proof `scripts/deny-red-proof.sh`
+  (`just deny-red-proof`, CI `licenses-red-proof`): a synthetic GPL-3.0-only
+  dev-dependency is rejected by name in the root and the fuzz graph, and passes with
+  the knob removed. No dependency added. `DEC-048`.
 
 ### Added
 
@@ -34,6 +45,16 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **`cargo install irradiance` no longer installs the internal `irr` tool**
+  (`Cargo.toml`, SPEC-055, PROJ-002, pre-0.2.0 review finding #6) — `irr` is a
+  dev/oracle binary, not a product surface (`library-not-application`), but it was
+  declared unconditionally, so a default build, `cargo install` and the published
+  package all built it. It now sits behind a new empty `irr` cargo feature
+  (`required-features = ["irr"]`); build it with `cargo build --features irr`.
+  `cargo test --all-features` still builds it for the demosaic oracle test. The
+  library API is unchanged. New check `scripts/package-targets-check.sh`
+  (`just package-targets-check`, CI `package-surface`) builds the tree and the
+  packaged crate with default features and fails on any executable. `DEC-048`.
 - **⚠ Colour develop now crops and orients like the mono develop — `dst` is
   smaller** (`irradiance::color`, SPEC-050, PROJ-002) — `develop_color_into` and
   `develop_color_f32_into` now apply `ActiveArea` → `DefaultCrop` → `Orientation`
