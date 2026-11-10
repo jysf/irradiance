@@ -47,7 +47,7 @@ handback:
   estimated_usd: 3.12              # tokens_total × your rate, or your harness's number
   duration_minutes: 35
   branch: claude/spec-051-verify
-  pr: null
+  pr: 158
   completed_at: 2026-11-09               # YYYY-MM-DD
   notes: "verify APPROVED at 7ee2a86; tokens summed from this session's own transcript usage records (claude-opus-5-5), /cost not callable as a tool in a delegated session; excludes the final commit/PR turns"                      # one line if unusual (rework, no meter, etc.)
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -117,7 +117,7 @@ section; set both statuses to `completed`; open the verify PR.
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-051-verify` → verify PR against `main` (this
+- **Branch / PR:** `claude/spec-051-verify` → PR #158 against `main` (this
   file is the only change). Reviewed PR #157 at head **`7ee2a86`** (branch
   `claude/spec-051-row-band-threading` — the brief named it
   `claude/adoring-kilby-565b10`, which is not the PR's branch).
