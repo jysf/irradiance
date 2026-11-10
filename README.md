@@ -101,16 +101,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 encoders are the additive, display-referred layer on top.
 
 For a **Bayer** DNG, replace step 3 with `develop_color_into`, which takes the
-`width × height` mosaic and writes `width × height × 3` linear-sRGB `u16`
+`width × height` mosaic and writes linear-sRGB `u16` cropped and oriented to the
+same geometry as `develop_into` — `output_dimensions(&sensor)`, × 3 channels
 (it reports `Error::NotAColorFilterArray` for a monochrome plane):
 
 ```rust
-let mut rgb = vec![0u16; sensor.width as usize * sensor.height as usize * 3];
+let (w, h) = irradiance::develop::output_dimensions(&sensor)?;
+let mut rgb = vec![0u16; w as usize * h as usize * 3];
 irradiance::color::develop_color_into(&sensor, &raw, &mut rgb)?;
 ```
 
-The colour path does not yet apply the `develop` geometry pipeline (warp, crop,
-orientation).
+The colour path applies `ActiveArea` → `DefaultCrop` → `Orientation` (the
+masked border is dropped) but not yet the `OpcodeList` stages (`WarpRectilinear`,
+`FixBadPixelsConstant`) that `develop_into` runs.
 
 ## Building and testing
 

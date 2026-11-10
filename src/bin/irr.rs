@@ -51,8 +51,10 @@
 //!   linear-sRGB), encode the linear-sRGB through the `tone` sRGB OETF
 //!   (`encode_srgb16_into`, `DEC-025`), and write a **P6 PPM** (maxval 65535,
 //!   big-endian RGB) to **stdout** — the first recognisable colour picture
-//!   (unlike `irr demosaic`'s uncorrected greenish output). Stats go to
-//!   **stderr** so they do not corrupt the binary image on stdout.
+//!   (unlike `irr demosaic`'s uncorrected greenish output). Since `SPEC-050`
+//!   the image is cropped and oriented like `irr develop`'s (`ActiveArea` →
+//!   `DefaultCrop` → `Orientation`, `DEC-043`), so the masked border is gone.
+//!   Stats go to **stderr** so they do not corrupt the binary image on stdout.
 //!
 //! `irr ifd`/`irr unpack`/`irr develop`/`irr demosaic`/`irr color` read a file,
 //! which the library never does — the library takes bytes. The I/O is here, on
@@ -573,14 +575,26 @@ fn cmd_color(args: &[&str]) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    // The colour develop is cropped and oriented to `develop`'s geometry
+    // (`SPEC-050`, `DEC-043`): size the RGB buffers from `output_dimensions`.
+    let (out_width, out_height) = match irradiance::develop::output_dimensions(&sensor) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("irr color: {path}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let out_pixels = usize::try_from(u64::from(out_width) * u64::from(out_height))
+        .expect("output too large for this host");
+
     // Develop the mosaic to LINEAR-sRGB (WB + colour matrix), then encode the
     // sRGB OETF — `color` produces linear, `tone` encodes (`DEC-025`).
-    let mut linear_srgb = vec![0u16; pixel_count * 3];
+    let mut linear_srgb = vec![0u16; out_pixels * 3];
     if let Err(e) = irradiance::color::develop_color_into(&sensor, &plane, &mut linear_srgb) {
         eprintln!("irr color: {path}: {e}");
         return ExitCode::FAILURE;
     }
-    let mut srgb = vec![0u16; pixel_count * 3];
+    let mut srgb = vec![0u16; out_pixels * 3];
     if let Err(e) = irradiance::tone::encode_srgb16_into(&linear_srgb, &mut srgb) {
         eprintln!("irr color: {path}: {e}");
         return ExitCode::FAILURE;
@@ -589,7 +603,10 @@ fn cmd_color(args: &[&str]) -> ExitCode {
     // Stats to STDERR — stdout carries the binary P6 image (see `cmd_demosaic`).
     let head: Vec<u16> = srgb.iter().take(8).copied().collect();
     eprintln!("file            {path}");
-    eprintln!("dimensions      {} x {}", sensor.width, sensor.height);
+    eprintln!(
+        "dimensions      {} x {} (plane {} x {})",
+        out_width, out_height, sensor.width, sensor.height
+    );
     eprintln!(
         "cfa_pattern     {:?}",
         sensor.color_filter.as_ref().map(|c| &c.pattern)
@@ -615,7 +632,7 @@ fn cmd_color(args: &[&str]) -> ExitCode {
     eprintln!("note            display-referred sRGB (WB + colour matrix + sRGB OETF — STAGE-008)");
 
     // The P6 PPM on STDOUT: `"P6\n{w} {h}\n65535\n"` then big-endian u16 RGB.
-    let mut ppm: Vec<u8> = format!("P6\n{} {}\n65535\n", sensor.width, sensor.height).into_bytes();
+    let mut ppm: Vec<u8> = format!("P6\n{out_width} {out_height}\n65535\n").into_bytes();
     ppm.reserve(srgb.len() * 2);
     for sample in &srgb {
         ppm.extend_from_slice(&sample.to_be_bytes());
