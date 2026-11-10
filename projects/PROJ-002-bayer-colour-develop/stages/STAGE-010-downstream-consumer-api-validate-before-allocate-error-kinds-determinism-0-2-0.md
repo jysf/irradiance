@@ -142,11 +142,15 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
       (review #4/#6): evaluate the dev-dependency graph (root + `fuzz/`) with a
       mutation red-proof; `irr` package disposition + a package-target-list check.
       Independent. Emits a DEC (`irr` disposition).
-- [ ] SPEC-039 (frame) — [M] **(E) Validate-before-allocate completion + docs**
-      (review #5): structural `plane::validate` + caller-selected limit; reconcile
-      README/CHANGELOG/conformance-matrix; add `ifd`/`plane`/`ljpeg` to the fuzz
-      smoke matrix; EOI-optional decision. **RE-SCOPED** from the old uncompressed-only
-      design. depends_on: A, B, C (SPEC-052, SPEC-053, SPEC-054).
+- [ ] SPEC-039 (build) — [M] **(E) Validate-before-allocate completion + docs**
+      (review #5): one `plane::validate(sensor, byte_order, file, max_pixels)` over
+      both the uncompressed and the Compression-7 path, with a caller-selected pixel
+      budget checked first as the universal pre-allocation guard; reconcile
+      README/CHANGELOG/conformance-matrix + a tested-DNG-modes table; add
+      `ifd`/`plane`/`ljpeg` to the fuzz smoke matrix; ratify EOI-optional. **DESIGNED
+      2026-11-10 (DEC-050); build-ready, HANDOFF-117.** A–C shipped, so depends_on is
+      satisfied. Group C's two verify follow-ups are deferred here (DEC-050 §Scope),
+      not folded in. depends_on: A, B, C (SPEC-052, SPEC-053, SPEC-054).
 - [ ] SPEC-040 (frame) — [S] **`Error::kind()` / `ErrorKind`** (needs a DEC first):
       `{ Unsupported, Corrupt, CallerError }`, non-exhaustive, exhaustive-in-tests
       classification table. depends_on: SPEC-039.
