@@ -28,8 +28,8 @@ mod tools;
 
 use corpus::{CorpusRoot, Manifest};
 use irradiance::ifd::{
-    ActiveArea, Compression, Container, DefaultCropOrigin, DefaultCropSize, Sensor,
-    TAG_ACTIVE_AREA, TAG_BLACK_LEVEL_REPEAT_DIM,
+    ActiveArea, Container, DefaultCropOrigin, DefaultCropSize, Sensor, TAG_ACTIVE_AREA,
+    TAG_BLACK_LEVEL_REPEAT_DIM,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -465,51 +465,31 @@ const FIXTURE_LINE: &str = include_str!("oracle-fixtures/exiftool-l1021223-senso
 
 /// A `Sensor` matching [`FIXTURE_LINE`] field-for-field — the honest tree.
 fn fixture_sensor() -> Sensor {
-    Sensor {
-        ifd_index: 1,
-        width: 8424,
-        height: 5632,
-        bits_per_sample: 14,
-        samples_per_pixel: 1,
-        photometric: 34892,
-        compression: Compression::Uncompressed,
-        rows_per_strip: Some(5632),
-        strip_offsets: vec![],
-        strip_byte_counts: vec![],
-        black_level: Some(512),
-        white_level: Some(16383),
-        black_level_repeat_dim: Some([1, 1]),
-        active_area: Some(ActiveArea {
-            top: 0,
-            left: 0,
-            bottom: 5632,
-            right: 8392,
-        }),
-        default_crop_origin: Some(DefaultCropOrigin { x: 12, y: 24 }),
-        default_crop_size: Some(DefaultCropSize {
-            width: 8368,
-            height: 5584,
-        }),
-        orientation: Some(1),
-        opcode_lists: [true, false, true],
-        opcode_list_1: None,
-        opcode_list_3: None,
-        color_filter: None,
-        // SPEC-026 colour metadata, additive and not read by the mono `diff`:
-        // the monochrome Q2M plane carries no CFA and no colour matrices, and
-        // its BlackLevel/WhiteLevel are single-valued (measured — int16u[1] /
-        // int32u[1]), so the per-channel arrays are the scalars' one element.
-        color_matrix_1: None,
-        color_matrix_2: None,
-        forward_matrix_1: None,
-        forward_matrix_2: None,
-        as_shot_neutral: None,
-        calibration_illuminant_1: None,
-        calibration_illuminant_2: None,
-        black_levels: vec![512],
-        white_levels: vec![16383],
-        malformed_tags: vec![],
-    }
+    let mut built = Sensor::test_fixture();
+    built.ifd_index = 1;
+    built.width = 8424;
+    built.height = 5632;
+    built.bits_per_sample = 14;
+    built.rows_per_strip = Some(5632);
+    built.black_level = Some(512);
+    built.white_level = Some(16383);
+    built.black_level_repeat_dim = Some([1, 1]);
+    built.active_area = Some(ActiveArea {
+        top: 0,
+        left: 0,
+        bottom: 5632,
+        right: 8392,
+    });
+    built.default_crop_origin = Some(DefaultCropOrigin { x: 12, y: 24 });
+    built.default_crop_size = Some(DefaultCropSize {
+        width: 8368,
+        height: 5584,
+    });
+    built.orientation = Some(1);
+    built.opcode_lists = [true, false, true];
+    built.black_levels = vec![512];
+    built.white_levels = vec![16383];
+    built
 }
 
 fn fixture_reading() -> tools::ToolReading {

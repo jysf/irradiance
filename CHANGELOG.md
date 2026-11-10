@@ -51,7 +51,34 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   byte-identically — both held Compression-7 DNGs still match their pinned `dnglab`
   checksums — so `DEVELOP_VERSION` is unchanged. `DEC-047`.
 
+### Fixed
+
+- **A DNG that requires processing the develop does not perform is now refused,
+  not silently mis-developed** (`irradiance::develop`, `irradiance::color`,
+  SPEC-054, PROJ-002, pre-0.2.0 review finding #3) — DNG opcodes carry a `Flags`
+  word; one without the optional bit is *required* processing. Previously a
+  required opcode in `OpcodeList2` (dropped on read), any required opcode on the
+  colour path (which applies none), a recognized opcode in a list its applier does
+  not read, or a second required instance beyond the one applied, developed to a
+  plausible-looking wrong image and `Ok(())`. Every public develop entry —
+  `develop_into`, `develop_color_into`, `develop_color_f32_into`,
+  `develop_color_into_threaded`, `develop_color_f32_into_threaded` — now checks
+  every present opcode list first, before allocating, and returns the new typed
+  **`Error::UnsupportedRequiredOpcode { list, id }`** (additive; `Error` is
+  `#[non_exhaustive]`). An unrecognized required opcode keeps its existing
+  `Error::UnsupportedMandatoryOpcode`; a broken opcode list is `Error::Truncated`.
+  Optional opcodes are still skipped. No change to any develop that still succeeds
+  (no `DEVELOP_VERSION` bump): the whole tier-B corpus develops byte-identically.
+  `DEC-049`.
+
 ### Added
+
+- **`Sensor::opcode_list_2`** (`irradiance::ifd`, SPEC-054) — `OpcodeList2`'s raw
+  bytes, kept on read like `opcode_list_1`/`opcode_list_3` (a malformed tag is
+  `None` and listed in `malformed_tags`, `DEC-012`).
+- **`test-fixtures` cargo feature** (dev-only, SPEC-054) — compiles in a doc-hidden
+  `Sensor::test_fixture()` blank constructor for this crate's own integration
+  tests. Off by default; carries no dependency.
 
 - **`develop_color_f32_into`** (`irradiance::color`, SPEC-049, PROJ-002) — a public
   colour-develop entry point that writes scene-linear `f32` directly, equal to
@@ -72,6 +99,13 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   library API is unchanged. New check `scripts/package-targets-check.sh`
   (`just package-targets-check`, CI `package-surface`) builds the tree and the
   packaged crate with default features and fails on any executable. `DEC-048`.
+- **⚠ `Sensor` is now `#[non_exhaustive]`** (`irradiance::ifd`, SPEC-054,
+  `DEC-049`) — `Sensor` is a parser-output view that `Container::sensor` builds and
+  callers read. Sealing it makes this release's new field (`opcode_list_2`), and
+  every later one, non-breaking. **Breaking for callers that built a `Sensor` with
+  a struct literal or `..rest` update**: obtain one from `Container::sensor()`
+  instead (its public fields stay readable and assignable). `Cfa`, `WarpRect` and
+  `Opcode` are sealed separately before 0.2.0 (SPEC-042).
 - **⚠ Colour develop now crops and orients like the mono develop — `dst` is
   smaller** (`irradiance::color`, SPEC-050, PROJ-002) — `develop_color_into` and
   `develop_color_f32_into` now apply `ActiveArea` → `DefaultCrop` → `Orientation`

@@ -33,7 +33,7 @@ mod pnm;
 mod tiff;
 
 use irradiance::demosaic::demosaic_into;
-use irradiance::ifd::{Cfa, Compression, Sensor};
+use irradiance::ifd::{Cfa, Sensor};
 use irradiance::Error;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,39 +44,12 @@ use irradiance::Error;
 /// absent/empty, `color_filter` is the one field it reads. Mirrors
 /// `tests/develop_oracle.rs::minimal_sensor`'s field set.
 fn fixture_sensor(width: u32, height: u32, color_filter: Option<Cfa>) -> Sensor {
-    Sensor {
-        ifd_index: 0,
-        width,
-        height,
-        bits_per_sample: 16,
-        samples_per_pixel: 1,
-        photometric: 32803,
-        compression: Compression::Uncompressed,
-        rows_per_strip: None,
-        strip_offsets: vec![],
-        strip_byte_counts: vec![],
-        black_level: None,
-        white_level: None,
-        black_level_repeat_dim: None,
-        active_area: None,
-        default_crop_origin: None,
-        default_crop_size: None,
-        orientation: None,
-        opcode_lists: [false, false, false],
-        opcode_list_1: None,
-        opcode_list_3: None,
-        color_filter,
-        color_matrix_1: None,
-        color_matrix_2: None,
-        forward_matrix_1: None,
-        forward_matrix_2: None,
-        as_shot_neutral: None,
-        calibration_illuminant_1: None,
-        calibration_illuminant_2: None,
-        black_levels: vec![],
-        white_levels: vec![],
-        malformed_tags: vec![],
-    }
+    let mut built = Sensor::test_fixture();
+    built.width = width;
+    built.height = height;
+    built.photometric = 32803;
+    built.color_filter = color_filter;
+    built
 }
 
 /// A 2×2 Bayer CFA with the DNG-default plane colour, for the given phase

@@ -44,9 +44,7 @@ mod pnm;
 
 use corpus::{CorpusRoot, Manifest};
 use irradiance::develop::{develop_into, output_dimensions};
-use irradiance::ifd::{
-    ActiveArea, Compression, Container, DefaultCropOrigin, DefaultCropSize, Sensor,
-};
+use irradiance::ifd::{ActiveArea, Container, DefaultCropOrigin, DefaultCropSize, Sensor};
 use irradiance::opcode::{parse_warp_rectilinear, WarpRect};
 use irradiance::plane::unpack_into;
 use irradiance::warp::apply_warp_into;
@@ -197,47 +195,28 @@ fn warp_moves_corner_impulse_to_spike_001s_source_coord() {
 #[test]
 fn output_dimensions_are_unchanged_by_warp() {
     let bytes = opcode_support::load_hex_fixture("opcodelist3-L1021223");
-    let sensor = Sensor {
-        ifd_index: 0,
-        width: 8424,
-        height: 5632,
-        bits_per_sample: 14,
-        samples_per_pixel: 1,
-        photometric: 34892,
-        compression: Compression::Uncompressed,
-        rows_per_strip: None,
-        strip_offsets: vec![],
-        strip_byte_counts: vec![],
-        black_level: Some(512),
-        white_level: Some(16383),
-        black_level_repeat_dim: None,
-        active_area: Some(ActiveArea {
+    let sensor = {
+        let mut built = Sensor::test_fixture();
+        built.width = 8424;
+        built.height = 5632;
+        built.bits_per_sample = 14;
+        built.black_level = Some(512);
+        built.white_level = Some(16383);
+        built.active_area = Some(ActiveArea {
             top: 0,
             left: 0,
             bottom: 5632,
             right: 8392,
-        }),
-        default_crop_origin: Some(DefaultCropOrigin { x: 12, y: 24 }),
-        default_crop_size: Some(DefaultCropSize {
+        });
+        built.default_crop_origin = Some(DefaultCropOrigin { x: 12, y: 24 });
+        built.default_crop_size = Some(DefaultCropSize {
             width: 8368,
             height: 5584,
-        }),
-        orientation: Some(1),
-        opcode_lists: [false, false, true],
-        opcode_list_1: None,
-        opcode_list_3: Some(bytes),
-        color_filter: None,
-        // SPEC-026 colour metadata — additive, not read by this fixture.
-        color_matrix_1: None,
-        color_matrix_2: None,
-        forward_matrix_1: None,
-        forward_matrix_2: None,
-        as_shot_neutral: None,
-        calibration_illuminant_1: None,
-        calibration_illuminant_2: None,
-        black_levels: vec![],
-        white_levels: vec![],
-        malformed_tags: vec![],
+        });
+        built.orientation = Some(1);
+        built.opcode_lists = [false, false, true];
+        built.opcode_list_3 = Some(bytes);
+        built
     };
     assert_eq!(
         output_dimensions(&sensor).expect("fits"),
@@ -333,51 +312,29 @@ fn seam_ramp_plane() -> Vec<u16> {
 /// `develop`'s normalization the identity, so every value in the developed
 /// output is a resampled ramp sample and nothing else.
 fn seam_sensor(opcode_list_3: Option<Vec<u8>>) -> Sensor {
-    Sensor {
-        ifd_index: 0,
-        width: SEAM_RAW_W,
-        height: SEAM_RAW_H,
-        bits_per_sample: 16,
-        samples_per_pixel: 1,
-        photometric: 34892,
-        compression: Compression::Uncompressed,
-        rows_per_strip: None,
-        strip_offsets: vec![],
-        strip_byte_counts: vec![],
-        black_level: Some(0),
-        white_level: Some(65535),
-        black_level_repeat_dim: None,
-        active_area: Some(ActiveArea {
-            top: SEAM_ACTIVE_TOP,
-            left: SEAM_ACTIVE_LEFT,
-            bottom: SEAM_ACTIVE_TOP + SEAM_ACTIVE_H,
-            right: SEAM_ACTIVE_LEFT + SEAM_ACTIVE_W,
-        }),
-        default_crop_origin: Some(DefaultCropOrigin {
-            x: SEAM_CROP_X,
-            y: SEAM_CROP_Y,
-        }),
-        default_crop_size: Some(DefaultCropSize {
-            width: SEAM_CROP_W,
-            height: SEAM_CROP_H,
-        }),
-        orientation: Some(1),
-        opcode_lists: [false, false, opcode_list_3.is_some()],
-        opcode_list_1: None,
-        opcode_list_3,
-        color_filter: None,
-        // SPEC-026 colour metadata — additive, not read by this fixture.
-        color_matrix_1: None,
-        color_matrix_2: None,
-        forward_matrix_1: None,
-        forward_matrix_2: None,
-        as_shot_neutral: None,
-        calibration_illuminant_1: None,
-        calibration_illuminant_2: None,
-        black_levels: vec![],
-        white_levels: vec![],
-        malformed_tags: vec![],
-    }
+    let mut built = Sensor::test_fixture();
+    built.width = SEAM_RAW_W;
+    built.height = SEAM_RAW_H;
+    built.black_level = Some(0);
+    built.white_level = Some(65535);
+    built.active_area = Some(ActiveArea {
+        top: SEAM_ACTIVE_TOP,
+        left: SEAM_ACTIVE_LEFT,
+        bottom: SEAM_ACTIVE_TOP + SEAM_ACTIVE_H,
+        right: SEAM_ACTIVE_LEFT + SEAM_ACTIVE_W,
+    });
+    built.default_crop_origin = Some(DefaultCropOrigin {
+        x: SEAM_CROP_X,
+        y: SEAM_CROP_Y,
+    });
+    built.default_crop_size = Some(DefaultCropSize {
+        width: SEAM_CROP_W,
+        height: SEAM_CROP_H,
+    });
+    built.orientation = Some(1);
+    built.opcode_lists = [false, false, opcode_list_3.is_some()];
+    built.opcode_list_3 = opcode_list_3;
+    built
 }
 
 /// Extract the `DefaultCrop` rectangle from an `ActiveArea`-sized buffer —

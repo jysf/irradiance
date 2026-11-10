@@ -23,9 +23,7 @@
 
 use irradiance::color::{develop_color_f32_into, develop_color_into, to_srgb_linear_into};
 use irradiance::develop::{develop_into, output_dimensions};
-use irradiance::ifd::{
-    ActiveArea, Cfa, Compression, DefaultCropOrigin, DefaultCropSize, Rational, Sensor,
-};
+use irradiance::ifd::{ActiveArea, Cfa, DefaultCropOrigin, DefaultCropSize, Rational, Sensor};
 use irradiance::tone::to_linear_f32_into;
 use irradiance::Error;
 
@@ -303,39 +301,11 @@ fn reference_to_srgb(sensor: &Sensor, camera_rgb: &[u16]) -> Vec<u16> {
 /// A `Sensor` carrying the colour calibration the transform reads; everything
 /// else is absent/empty (mirrors `tests/demosaic_oracle.rs::fixture_sensor`).
 fn fixture_sensor(width: u32, height: u32) -> Sensor {
-    Sensor {
-        ifd_index: 0,
-        width,
-        height,
-        bits_per_sample: 16,
-        samples_per_pixel: 1,
-        photometric: 32803,
-        compression: Compression::Uncompressed,
-        rows_per_strip: None,
-        strip_offsets: vec![],
-        strip_byte_counts: vec![],
-        black_level: None,
-        white_level: None,
-        black_level_repeat_dim: None,
-        active_area: None,
-        default_crop_origin: None,
-        default_crop_size: None,
-        orientation: None,
-        opcode_lists: [false, false, false],
-        opcode_list_1: None,
-        opcode_list_3: None,
-        color_filter: None,
-        color_matrix_1: None,
-        color_matrix_2: None,
-        forward_matrix_1: None,
-        forward_matrix_2: None,
-        as_shot_neutral: None,
-        calibration_illuminant_1: None,
-        calibration_illuminant_2: None,
-        black_levels: vec![],
-        white_levels: vec![],
-        malformed_tags: vec![],
-    }
+    let mut built = Sensor::test_fixture();
+    built.width = width;
+    built.height = height;
+    built.photometric = 32803;
+    built
 }
 
 /// A 2×2 RGGB CFA with the DNG-default plane colour.
