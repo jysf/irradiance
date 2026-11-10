@@ -43,11 +43,11 @@ repo:
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
   status: completed                # completed | blocked | rejected
-  tokens_total: __TOK__               # REAL combined count — what cost-audit reads
-  estimated_usd: __USD__              # tokens_total × your rate, or your harness's number
+  tokens_total: 4696185               # REAL combined count — what cost-audit reads
+  estimated_usd: 3.60              # tokens_total × your rate, or your harness's number
   duration_minutes: 45
   branch: claude/spec-050-verify
-  pr: __PR__
+  pr: 153
   completed_at: 2026-11-09               # YYYY-MM-DD
   notes: "verify APPROVED at 1576d2c; tokens summed from this session's own transcript usage records (claude-opus-5-5), /cost not callable as a tool in a delegated session"                      # one line if unusual (rework, no meter, etc.)
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -120,7 +120,7 @@ set to `completed`, verify PR opened against `main`.
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-050-verify` → PR #__PR__ (this handoff file only).
+- **Branch / PR:** `claude/spec-050-verify` → PR #153 (this handoff file only).
 - **Completed at:** 2026-11-09
 - **All acceptance criteria met?** yes.
 - **Verdict: ✅ APPROVED** at PR #152 head `1576d2c2a1bd9d8d10e2c7cbd8b34854e3f07a91`.
@@ -203,8 +203,8 @@ red.
 
 ### Cost self-report
 
-- **Tokens (total):** __TOK__
-- **Estimated USD:** ~__USD__ (Opus 5.5 list rates; ~97% of tokens are cache reads)
+- **Tokens (total):** 4696185
+- **Estimated USD:** ~3.60 (Opus 5.5 list rates; ~97% of tokens are cache reads)
 - **Duration (minutes):** ~45
 - **Source of the number:** harness report: the sum of this session's own
   transcript usage records (input + output + cache creation + cache read, deduped
