@@ -83,13 +83,20 @@ reset_tree() {
 }
 
 # The two invocations, verbatim from `just deny` / `just deny-fuzz` (plus `-L
-# debug`, which only adds the accepted-crate list to the output). Sets $rc and
-# $out; rc captured per §16 rule 3, never read through an unguarded pipeline.
+# debug`, which only adds the accepted-crate list to the output, and `--color
+# never`). Sets $rc and $out; rc captured per §16 rule 3, never read through an
+# unguarded pipeline.
+#
+# `--color never` is load-bearing: cargo-deny reads CARGO_TERM_COLOR, and CI's
+# workflow env sets it to `always`, which wraps the `├` tree glyph in ANSI codes
+# so every grep below misses (`\e[36m├\e[0m toml`). That made the control fail
+# in CI while passing locally (SPEC-055 verify, HANDOFF-116). Colour changes
+# only the rendering, not what is evaluated, so the gate under test is the same.
 run_deny() {
     set +e
     case "$1" in
-        root) out="$(cargo deny -L debug check licenses 2>&1)"; rc=$? ;;
-        fuzz) out="$(cargo deny -L debug --manifest-path fuzz/Cargo.toml check licenses 2>&1)"; rc=$? ;;
+        root) out="$(cargo deny --color never -L debug check licenses 2>&1)"; rc=$? ;;
+        fuzz) out="$(cargo deny --color never -L debug --manifest-path fuzz/Cargo.toml check licenses 2>&1)"; rc=$? ;;
         *) fail "run_deny: unknown graph '$1'" ;;
     esac
     set -e
