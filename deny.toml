@@ -73,3 +73,24 @@ exceptions = [
 
 # Require high confidence when matching a license file's text to an SPDX id.
 confidence-threshold = 0.9
+
+# Evaluate DEV-dependencies too (SPEC-055, DEC-048). The constraint
+# `no-copyleft-dependencies` covers dev-dependencies, but cargo-deny's licence
+# check has skipped them by default since its PR#557 (documented opt-in:
+# `licenses.include-dev`; still the default in 0.19.9 and 0.20.2, the version
+# cargo-deny-action@v2 runs). Without it `cargo deny check licenses`
+# GATHERS the whole graph (48 crates for the root, incl. `toml` and
+# `ssimulacra2`) and then evaluates the licences of only one of them,
+# `irradiance` itself. A GPL dev-dependency passed. The knob lives here under
+# `[licenses]`, NOT under `[graph]`: `exclude-dev = false` there and an empty
+# `[workspace]` in Cargo.toml were both probed and changed nothing.
+#
+# Build-dependencies are already evaluated by default (`cc` under libfuzzer-sys
+# in the fuzz graph shows up without `include-build`), so only dev needs this.
+#
+# Load-bearing, and proven so: scripts/deny-red-proof.sh (`just deny-red-proof`)
+# injects a GPL dev-dependency into a temp copy of BOTH graphs and asserts the
+# gate goes red, and that it does NOT go red with this line removed. Delete it
+# and that red-proof fails. Note `cargo deny list` ignores this knob and still
+# prints one crate; read the `check licenses` output, not `list`.
+include-dev = true

@@ -411,6 +411,21 @@ cargo build --release
 cargo deny check licenses
 cargo deny --manifest-path fuzz/Cargo.toml check licenses
 
+# deny-red-proof — proves BOTH licence invocations evaluate DEV-dependencies
+#              (SPEC-055, DEC-048). cargo-deny skips dev-deps by default; the
+#              fix is `include-dev = true` under [licenses] in deny.toml. Control
+#              green with toml/ssimulacra2 evaluated, a synthetic GPL dev-dep
+#              rejected by name in root AND fuzz, the same mutation green with
+#              the knob removed. Temp copy, no network. `cargo deny list`
+#              ignores the knob — do not verify with it.
+./scripts/deny-red-proof.sh
+
+# package-targets-check — the internal `irr` bin is behind the `irr` feature
+#              (`required-features`; SPEC-055, DEC-048), so a default build and
+#              the packaged crate produce no executable. Build irr by hand with
+#              `cargo build --release --features irr`.
+./scripts/package-targets-check.sh
+
 # msrv       — compile the whole target set against EXACTLY the pinned 1.90.0.
 #              ⚠ The `~/.cargo/bin/` prefix is the THIRD instance of the
 #              `+toolchain` trap: a bare `cargo +1.90.0 check` fails with

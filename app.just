@@ -106,6 +106,28 @@ deny:
 deny-fuzz:
     cargo deny --manifest-path fuzz/Cargo.toml check licenses
 
+# SPEC-055's red-proof for BOTH licence invocations above (DEC-048;
+# oracle-must-be-shown-red covers gates). Until SPEC-055 the licence check
+# evaluated no dev-dependency at all — a GPL dev-dep passed `just deny` and
+# `just deny-fuzz` — and `include-dev = true` in deny.toml is the fix. This
+# proves it: control green on both graphs with toml/ssimulacra2 evaluated, a
+# synthetic GPL-3.0-only dev-dep rejected by name in the root AND the fuzz
+# graph, the same mutation passing with include-dev removed (the knob is the
+# teeth), and isolation. Temp copy; local path crate, no network; working tree
+# untouched. See scripts/deny-red-proof.sh.
+deny-red-proof:
+    ./scripts/deny-red-proof.sh
+
+# SPEC-055's package-surface check (review finding #6, DEC-048): the internal
+# `irr` bin is gated behind the empty `irr` feature, so the default build and
+# the packaged crate (what `cargo install irradiance` builds) must produce NO
+# executable. Builds and reads cargo's JSON artifact stream; a positive control
+# (`--features irr` produces irr) and a red half (required-features stripped in
+# a temp copy surfaces irr) prove the detector bites. Build irr by hand with
+# `cargo build --release --features irr`. See scripts/package-targets-check.sh.
+package-targets-check:
+    ./scripts/package-targets-check.sh
+
 # Prove the LIBRARY's panic-free lint policy actually rejects violating code —
 # one violation per policy lint, injected into a temp-dir copy of src/lib.rs,
 # so src/lib.rs's own #![deny(...)] is what must reject them. The UNMUTATED
