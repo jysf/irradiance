@@ -104,6 +104,8 @@
 //! implement no isolable demosaic step, `DEC-024`). See
 //! `docs/provenance-ledger.md`.
 
+use std::sync::{Mutex, PoisonError};
+
 use crate::ifd::{active_area_origin, Cfa, Sensor};
 use crate::Error;
 
@@ -397,6 +399,248 @@ pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<()
     }
 
     Ok(())
+}
+
+/// [`demosaic_into`] with opt-in **output-row-band** parallelism (`SPEC-051`,
+/// `DEC-044`): the same Hamilton-Adams render, byte for byte, split across
+/// `threads` scoped threads.
+///
+/// `threads <= 1` is a straight call to [`demosaic_into`] — no banding, no
+/// allocation, the default every existing caller keeps. With `threads >= 2` the
+/// output rows are split into `min(threads, height)` near-equal contiguous bands,
+/// each thread owning a **disjoint** `dst` slice (`split_at_mut`, so the borrow
+/// checker proves no two threads write the same sample). Each band runs the fused
+/// traversal (`develop_color_fused`) — which the colour oracle already proves
+/// equal to [`demosaic_into`] — over its own rows plus a three-row halo of the
+/// shared, read-only `src`, with a **local** green buffer (the single-thread path
+/// keeps green in `dst`'s green slots, which a neighbour band would be writing).
+/// Reflection happens only at the true image edges, never at a band seam, so the
+/// output is byte-identical to [`demosaic_into`] and independent of `threads`
+/// and of scheduling. The local green buffers sum to about one `width·height`
+/// plane; that is the only extra memory, and only when `threads >= 2`.
+///
+/// # Errors
+///
+/// Exactly [`demosaic_into`]'s, in the same order: every input the threaded path
+/// does not accept (a non-CFA plane, an unsupported mosaic, a wrong-length
+/// buffer) is handed to [`demosaic_into`], which returns its typed error.
+///
+/// Never panics: inputs are validated before any thread is spawned, a thread
+/// that cannot be spawned just leaves its band to the threads that were (the
+/// calling thread always works too), and the kernels are the panic-free
+/// single-thread ones.
+pub fn demosaic_into_threaded(
+    sensor: &Sensor,
+    src: &[u16],
+    dst: &mut [u16],
+    threads: usize,
+) -> Result<(), Error> {
+    if threads <= 1 {
+        return demosaic_into(sensor, src, dst);
+    }
+    // Anything the banded path does not take — an input `demosaic_into` rejects
+    // (so its typed error comes back unchanged) or a plane too short to split —
+    // goes straight to the single-thread function.
+    let Some((w, h)) = demosaic_band_plan(sensor, src.len(), dst.len(), threads) else {
+        return demosaic_into(sensor, src, dst);
+    };
+    let width = sensor.width;
+    let normalize = |x: u32, y: u32| -> u16 {
+        plane_index(width, x, y)
+            .and_then(|i| src.get(i))
+            .copied()
+            .unwrap_or(0)
+    };
+    let (triples, _remainder) = dst.as_chunks_mut::<3>();
+    run_row_bands(triples, w, h, threads, |y0, y1, band| {
+        // Output rows are source rows (1:1), so the band's first pixel is
+        // plane pixel `y0·w` and a developed pixel lands at `pixel − y0·w`.
+        let first = y0.saturating_mul(w);
+        develop_rows_banded(sensor, (y0, y1), &normalize, |pixel, r, g, b| {
+            if let Some(out) = pixel.checked_sub(first).and_then(|i| band.get_mut(i)) {
+                *out = [r, g, b];
+            }
+        })
+    })
+}
+
+/// The `(width, height)` [`demosaic_into_threaded`] bands over, or `None` when
+/// the input belongs on the single-thread path: not a supported Bayer CFA, a
+/// buffer of the wrong length, or fewer than two rows (or threads) to split.
+fn demosaic_band_plan(
+    sensor: &Sensor,
+    src_len: usize,
+    dst_len: usize,
+    threads: usize,
+) -> Option<(usize, usize)> {
+    if !is_supported_bayer(sensor) {
+        return None;
+    }
+    let w = usize::try_from(sensor.width).ok()?;
+    let h = usize::try_from(sensor.height).ok()?;
+    let pixels = w.checked_mul(h)?;
+    let usable = src_len == pixels
+        && pixels.checked_mul(3) == Some(dst_len)
+        && w > 0
+        && core::cmp::min(threads, h) >= 2;
+    usable.then_some((w, h))
+}
+
+/// Whether `sensor` carries a CFA [`demosaic_into`] / [`develop_color_fused`]
+/// accept (a 2×2 RGGB-family Bayer) — the threaded paths' pre-spawn check, so a
+/// band can never fail on the CFA.
+pub(crate) fn is_supported_bayer(sensor: &Sensor) -> bool {
+    sensor
+        .color_filter
+        .as_ref()
+        .and_then(BayerPhase::from_cfa)
+        .is_some()
+}
+
+/// Rows of halo a band develops beyond each side of its own rows (`DEC-044`):
+/// an output row reads green one row away, and that green reads mosaic samples
+/// two rows further — so three rows of real neighbours make a band's pixels
+/// independent of where the band (and its local reflection) ends.
+const BAND_HALO: usize = 3;
+
+/// Run the fused traversal [`develop_color_fused`] over source rows `s0..s1`
+/// only (plus [`BAND_HALO`] rows each side, clamped at the true image edges),
+/// with a local green buffer, and `emit` each developed pixel of `s0..s1` by its
+/// **whole-plane** pixel index — the per-band worker of the threaded entry
+/// points (`SPEC-051`, `DEC-044`).
+///
+/// The halo rows are developed against a local plane whose top/bottom are the
+/// halo's edges, so their own values may reflect wrongly — but they are never
+/// emitted, and no emitted pixel reads them beyond the first halo row's
+/// correctly-sourced samples. Where the halo is clamped, the local edge **is** the
+/// true edge, so reflection there is the single-thread reflection. The local
+/// top `lo` is rounded down to an even row so every local row has its absolute
+/// row's Bayer parity (the `ActiveArea`-origin phase, `DEC-040`, is unchanged).
+/// So every emitted pixel equals the whole-plane render bit for bit.
+///
+/// `normalize(x, y)` is keyed by whole-plane coordinates. Returns
+/// [`develop_color_fused`]'s errors (none after the caller's pre-spawn checks).
+pub(crate) fn develop_rows_banded<N, Sink>(
+    sensor: &Sensor,
+    rows: (usize, usize),
+    normalize: &N,
+    mut emit: Sink,
+) -> Result<(), Error>
+where
+    N: Fn(u32, u32) -> u16,
+    Sink: FnMut(usize, u16, u16, u16),
+{
+    let (s0, s1) = rows;
+    let w = usize::try_from(sensor.width).unwrap_or(0);
+    let h = usize::try_from(sensor.height).unwrap_or(0);
+    let lo = s0.saturating_sub(BAND_HALO) & !1;
+    let hi = core::cmp::min(h, s1.saturating_add(BAND_HALO));
+    let local_rows = hi.saturating_sub(lo);
+
+    // A view of the plane that starts at row `lo` and is `local_rows` tall. Only
+    // the height differs; the CFA, width and ActiveArea origin are the plane's,
+    // and `lo` is even, so the phase of every local row is its absolute row's.
+    let mut local = sensor.clone();
+    local.height = u32::try_from(local_rows).unwrap_or(0);
+    let mut green = vec![0u16; w.saturating_mul(local_rows)];
+    let lo_row = u32_from(lo);
+    let local_normalize = |x: u32, y: u32| normalize(x, y.saturating_add(lo_row));
+
+    let offset = lo.saturating_mul(w);
+    let keep = s0.saturating_mul(w)..s1.saturating_mul(w);
+    develop_color_fused(&local, &mut green, &local_normalize, || {
+        Ok(move |pixel: usize, r: u16, g: u16, b: u16| {
+            let whole = pixel.saturating_add(offset);
+            if keep.contains(&whole) {
+                emit(whole, r, g, b);
+            }
+        })
+    })
+}
+
+/// Split `dst` (`rows` rows of `row_len` items) into `min(threads, rows)`
+/// contiguous, near-equal row bands and run `work(y0, y1, band)` on each, over
+/// `std::thread::scope` (`SPEC-051`, `DEC-044`). Each band is a **disjoint**
+/// `&mut` slice carved with `split_at_mut_checked`, so no two threads can touch
+/// the same item; the band edges are a pure function of `(rows, threads)`.
+///
+/// The bands sit in a shared queue that the spawned threads **and the calling
+/// thread** drain, so a thread the OS refuses to spawn (`Builder::spawn_scoped`
+/// returns an error rather than panicking) only means fewer workers — every band
+/// is still run exactly once, and the output is the same. The first error by
+/// band order is returned (deterministic); a panic inside `work` (none of the
+/// kernels can panic) is re-raised on join rather than swallowed.
+pub(crate) fn run_row_bands<T, F>(
+    dst: &mut [T],
+    row_len: usize,
+    rows: usize,
+    threads: usize,
+    work: F,
+) -> Result<(), Error>
+where
+    T: Send,
+    F: Fn(usize, usize, &mut [T]) -> Result<(), Error> + Sync,
+{
+    let bands = core::cmp::max(core::cmp::min(threads, rows), 1);
+    let mut queue = Vec::with_capacity(bands);
+    let mut rest = dst;
+    for i in 0..bands {
+        let y0 = band_edge(rows, bands, i);
+        let y1 = band_edge(rows, bands, i.saturating_add(1));
+        let len = y1.saturating_sub(y0).saturating_mul(row_len);
+        let remaining = rest.len();
+        let Some((band, tail)) = rest.split_at_mut_checked(len) else {
+            // Unreachable: every caller sized `dst` to `rows · row_len`.
+            return Err(Error::RgbBufferWrongLength {
+                expected: u64::try_from(rows.saturating_mul(row_len)).unwrap_or(u64::MAX),
+                actual: remaining,
+            });
+        };
+        queue.push((i, y0, y1, band));
+        rest = tail;
+    }
+
+    let queue = Mutex::new(queue);
+    let next_band = || queue.lock().unwrap_or_else(PoisonError::into_inner).pop();
+    let drain = || {
+        let mut errors = Vec::new();
+        while let Some((i, y0, y1, band)) = next_band() {
+            if let Err(e) = work(y0, y1, band) {
+                errors.push((i, e));
+            }
+        }
+        errors
+    };
+
+    let mut errors = std::thread::scope(|scope| {
+        let drain = &drain;
+        let handles: Vec<_> = (1..bands)
+            .filter_map(|_| std::thread::Builder::new().spawn_scoped(scope, drain).ok())
+            .collect();
+        let mut errors = drain();
+        for handle in handles {
+            match handle.join() {
+                Ok(more) => errors.extend(more),
+                Err(payload) => std::panic::resume_unwind(payload),
+            }
+        }
+        errors
+    });
+    errors.sort_by_key(|(i, _)| *i);
+    match errors.into_iter().next() {
+        Some((_, e)) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// Row `⌊rows · i / bands⌋` — the start of band `i` (and the end of band
+/// `i − 1`). Computed in `u128` so it cannot overflow; `bands ≥ 1`.
+fn band_edge(rows: usize, bands: usize, i: usize) -> usize {
+    let edge = (rows as u128)
+        .saturating_mul(i as u128)
+        .checked_div(bands as u128)
+        .unwrap_or(0);
+    usize::try_from(edge).unwrap_or(rows)
 }
 
 /// Narrow a loop index to `u32` for the reflecting (border) path, saturating to
