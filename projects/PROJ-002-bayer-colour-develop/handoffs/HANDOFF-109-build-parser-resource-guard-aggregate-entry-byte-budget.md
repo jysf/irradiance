@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-10
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-052
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 7025673            # REAL combined count — what cost-audit reads
+  estimated_usd: 5.29
+  duration_minutes: 21
+  branch: claude/spec-052-build-b8dcbf
+  pr: 167
+  completed_at: 2026-11-10
+  notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -171,38 +171,92 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-052-build-b8dcbf` — https://github.com/jysf/irradiance/pull/167
+- **Completed at:** 2026-11-10
+- **All acceptance criteria met?** yes
+  - **Amplification rejected:** `aliased_ifd_tables_exceeding_file_are_rejected`. The
+    fixture (`tests/support/tiff.rs::aliased_ifd_chain`) puts 32 IFDs of 32 entries at
+    distinct offsets 12 bytes apart: 12,288 declared table bytes in a 770-byte file.
+    Without the guard it parsed `Ok` with all 32 IFDs (shown red before the guard was
+    written). With the guard it is rejected at the 3rd IFD (`declared 1152`, more than
+    770), and the test asserts the rejection lands within one table of the file length,
+    so the walk counted no more than ~`file_len / 12` entries. Both byte orders.
+  - **Bound holds:** `ok_implies_table_bytes_bounded` over every `tiff::all()` fixture
+    plus overlapping-but-within-budget chains; and the fuzz target asserts it on every
+    `Ok` parse.
+  - **Distinct from the cycle guard:** `distinct_offsets_isolate_the_new_guard` (all
+    offsets distinct, under `MAX_IFDS`, tables really overlap, and the error is the new
+    variant). The red-proof mutates only the aggregate guard's condition.
+  - **No false positive:** every existing `tiff::all()` fixture keeps its verdict
+    (`tests/ifd_reader.rs` sweep green, the new `aliased-ifd-tables` fixture added to
+    the shared list as a hostile one); `aggregate_table_bytes_within_file_still_parse`
+    pins sum-vs-file-length, not overlap (2 overlapping IFDs, 48 bytes in a 50-byte
+    file, parse `Ok`). **Tier-B corpus run (local, `IRRADIANCE_CORPUS_DIR` set):**
+    Canon 5D-III `5G4A9394.DNG` — 4 IFDs, 1,524 table bytes of 48,382,640, parses Ok;
+    Nikon D300S `_DSC4615.DNG` — 3 IFDs, 828 table bytes of 37,562,890, parses Ok.
+  - **Panic-free:** running total via `checked_add` (saturating to `u64::MAX` on
+    overflow, which is then rejected), `u64::try_from` for the widenings; no new
+    allocation; `just lint-ci` green. `just fuzz 60`: 5,672,937 runs in 61 s, clean,
+    with the new bound assertion live and the new `aliased-ifd-tables` seed.
+  - **Red-proof:** `ifd_guard_red_proof` — honest tree in-process first, then the
+    unmutated CONTROL copy-and-rebuild (`err IFD entry tables declare 1152 bytes,
+    exceeding the 770-byte file`), then the MUTANT with the guard condition forced
+    false (`ok 32`). Asserts the output changed and the mutant accepts the chain.
+- **Gates:** `just test` (corpus set), `just lint-ci`, `just fmt-check`,
+  `just validate`, `just cost-audit` — all green.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 7,025,673 (input 95 + cache write 140,487 + cache read 6,845,723 + output 39,368)
+- **Estimated USD:** ≈ $5.29
+- **Duration (minutes):** ~21
+- **Source of the number:** this session's own transcript
+  (`~/.claude/projects/<worktree>/2d7c0b54-e5e3-46c3-ad16-506eb16b1154.jsonl`,
+  anchored on the scratchpad-dir UUID; usage records deduped by message id; input +
+  cache write + cache read + output). `/cost` is not callable as a tool in a delegated
+  session. USD at Opus list rates (the HANDOFF-107 basis). Excludes the last few
+  handback/PR turns.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none — DEC-046 was followed as written.
 - **Deviations from spec:**
-  - [list]
+  - **Guard placement:** the check sits after the existing table bounds check
+    (`self.data.get(entries_at..entries_end)`), not immediately after `table_len` is
+    computed. Both satisfy "after `table_len`, before `Vec::with_capacity`", but putting
+    it first would have turned every single over-long table (e.g. the existing
+    `entry-count-past-eof` fixture) from `Truncated` into the new error, changing
+    existing typed-error behaviour. After the bounds check, the new error fires only
+    when tables that each fit the file sum past it — exactly the aliasing case.
+  - **Red-proof mutation:** the guard's condition is forced false
+    (`if false && ...`) rather than the block deleted, so the mutant compiles with no
+    unused-variable noise; semantically the guard is removed.
+  - **Seed wiring:** the aliased-table seed rides on the shared `tiff::all()` list
+    (which `examples/fuzz-seeds.rs` writes to `fuzz/seeds/ifd/`), so the only edit to
+    `examples/fuzz-seeds.rs` is a doc line; `fuzz/seeds/ifd/aliased-ifd-tables.tiff`
+    is the new committed seed.
+  - Added a small `table_bytes_error_display_names_both_numbers` test beyond the
+    spec's list.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - none required. Note for SPEC-040: `IfdTableBytesExceedFile` is Corrupt-class.
+  - No exact-equality boundary test (tables summing to exactly `file_len`): the
+    aliased-chain family cannot hit equality (sum minus length is never 0 mod 12 with
+    the header and pointer overhead). The strict `>` is documented in code and DEC-046.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Only the exact guard placement: "right after `table_len`" would have changed the
+   existing `Truncated` verdict for single over-long tables; the spec's other phrase
+   ("before `Vec::with_capacity`") allowed the safer spot. Building the aliased fixture
+   took the most thought — `tiff()` overwrites overlapping blocks, so it needed a
+   hand-laid periodic layout.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. `oracle-must-be-shown-red` + DEC-009 covered the red-proof shape, and the
+   existing `tests/develop.rs` apparatus copied over cleanly.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing material. I would write the fixture's layout invariants (count word vs
+   next-pointer slots never colliding; no next pointer reads as tag 330) as asserts
+   up front rather than reasoning them out, though the red run confirmed them.

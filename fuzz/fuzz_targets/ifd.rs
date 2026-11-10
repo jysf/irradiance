@@ -35,6 +35,20 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
 
+    // SPEC-052 / DEC-046: the aggregate entry-table byte guard runs inside
+    // every `parse` above. Whenever the parse is Ok, its bound must hold —
+    // the walked tables (`count x 12` bytes each) sum to at most the file
+    // length, however the IFDs alias one another. Saturating arithmetic so
+    // the assertion itself can never be the panic.
+    let walked_table_bytes = container.ifds().iter().fold(0usize, |acc, ifd| {
+        acc.saturating_add(ifd.entries().len().saturating_mul(12))
+    });
+    assert!(
+        walked_table_bytes <= data.len(),
+        "Container::parse returned Ok with {walked_table_bytes} table bytes from a {}-byte file",
+        data.len()
+    );
+
     // Walk everything the parse exposed. `parse` only reads entry HEADERS;
     // payload resolution is where the hostile `count x sizeof(type)` product
     // actually gets used, so it must be reached from here or the target

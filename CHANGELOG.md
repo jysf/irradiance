@@ -8,6 +8,21 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Security
+
+- **The container parser can no longer be amplified by aliased IFD tables**
+  (`irradiance::ifd`, SPEC-052, PROJ-002, pre-0.2.0 review finding #1) — IFD entry
+  tables at *distinct* offsets may overlap the same file bytes, so a small hostile
+  file could make `Container::parse` read and allocate millions of entries (the
+  reviewer measured ~6.3M entries, ~72 MiB, from a ~770 KB file). The walk now keeps
+  a running total of every IFD's `count × 12` table bytes and rejects the file, before
+  allocating, once that total exceeds the file length — so the entries parsed are
+  bounded by `file_len / 12`. New typed error
+  **`Error::IfdTableBytesExceedFile { declared, file_len }`** (additive; `Error` is
+  `#[non_exhaustive]`). Well-formed files are unaffected: their tables are disjoint
+  (the corpus DNGs' tables are ~0.003 % of the file). `MAX_IFDS`, `MAX_IFD_DEPTH`,
+  `MAX_TAG_VALUES` and the cycle guard are unchanged. `DEC-046`.
+
 ### Added
 
 - **`develop_color_f32_into`** (`irradiance::color`, SPEC-049, PROJ-002) — a public
