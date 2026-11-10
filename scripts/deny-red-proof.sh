@@ -92,6 +92,12 @@ reset_tree() {
 # so every grep below misses (`\e[36m├\e[0m toml`). That made the control fail
 # in CI while passing locally (SPEC-055 verify, HANDOFF-116). Colour changes
 # only the rendering, not what is evaluated, so the gate under test is the same.
+#
+# The greps on $out read it from a here-string, never `printf "$out" | grep -q`:
+# under `set -o pipefail`, grep -q exits on its first match, printf takes
+# SIGPIPE on output larger than the pipe buffer (the GPL run is ~100 KB), and
+# the pipeline reports failure even though the pattern matched. That flaked
+# red in CI on a correct rejection (SPEC-055 verify).
 run_deny() {
     set +e
     case "$1" in
@@ -123,11 +129,11 @@ inject_gpl_dev_dep() { # manifest, relative path to the GPL crate
 assert_red_names_gpl() { # graph label
     [ "$rc" -ne 0 ] \
         || fail "$1: the gate did NOT go red on a GPL-3.0-only dev-dependency — dev-deps are not evaluated (out: ${out})"
-    printf '%s\n' "$out" | grep -q 'error\[rejected\]' \
+    grep -q 'error\[rejected\]' <<<"$out" \
         || fail "$1: the gate went red but not with error[rejected] — red for the wrong reason (out: ${out})"
-    printf '%s\n' "$out" | grep -q "${GPL_CRATE} v0.1.0" \
+    grep -q "${GPL_CRATE} v0.1.0" <<<"$out" \
         || fail "$1: the gate went red but did not name ${GPL_CRATE} — red for the wrong reason (out: ${out})"
-    printf '%s\n' "$out" | grep -q 'GPL-3.0-only' \
+    grep -q 'GPL-3.0-only' <<<"$out" \
         || fail "$1: the gate went red but did not name the GPL-3.0-only licence (out: ${out})"
 }
 
@@ -136,13 +142,13 @@ run_deny root
 [ "$rc" -eq 0 ] \
     || fail "control failed — 'just deny' is already red on the honest tree; an injected red below would prove nothing (out: ${out})"
 for dep in toml ssimulacra2; do
-    printf '%s\n' "$out" | grep -qE "├ ${dep} v[0-9]" \
+    grep -qE "├ ${dep} v[0-9]" <<<"$out" \
         || fail "control: the root licence check did not evaluate dev-dependency '${dep}' — the gate is green over a graph without its dev-deps (the SPEC-055 defect)"
 done
 run_deny fuzz
 [ "$rc" -eq 0 ] \
     || fail "control failed — 'just deny-fuzz' is already red on the honest tree (out: ${out})"
-printf '%s\n' "$out" | grep -qE '├ libfuzzer-sys v[0-9]' \
+grep -qE '├ libfuzzer-sys v[0-9]' <<<"$out" \
     || fail "control: the fuzz licence check did not evaluate libfuzzer-sys — it is not looking at the fuzz graph"
 
 # ── 2. ROOT: a GPL dev-dependency of the library → red, named. ──────────────
