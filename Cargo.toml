@@ -39,9 +39,20 @@ path = "src/lib.rs"
 # `irr` is an internal dev/oracle binary, never a shipped product surface
 # (constraint `library-not-application`). It is deliberately absent from the
 # library's public API.
+#
+# Gated behind the empty `irr` feature (SPEC-055, DEC-048): a target whose
+# required-features are not enabled is not built, so a default `cargo build`,
+# `cargo install irradiance` and `cargo package` produce no `irr` executable.
+# `just test` / CI run `cargo test --all-features`, which enables it, so
+# `env!("CARGO_BIN_EXE_irr")` in tests/demosaic_oracle.rs still resolves. Build
+# it by hand with `cargo build --release --features irr`. The source still
+# ships under `include` (harmless, and it keeps the published manifest
+# self-consistent — an excluded bin path would break `cargo install`).
+# scripts/package-targets-check.sh fails CI if the default build regains it.
 [[bin]]
 name = "irr"
 path = "src/bin/irr.rs"
+required-features = ["irr"]
 
 # Dev-only exposure, NOT a runtime dependency (DEC-036). An empty feature that,
 # when enabled, compiles in the doc-hidden `__fuzz_ljpeg` entry (src/lib.rs) so
@@ -52,6 +63,10 @@ path = "src/bin/irr.rs"
 # `[dependencies]` table below is still empty). SPEC-038.
 [features]
 fuzzing = []
+# Dev-only, same shape as `fuzzing`: an empty feature with no dependency and no
+# library code behind it. Its only effect is to enable the internal `irr` bin
+# above (`required-features`). SPEC-055, DEC-048.
+irr = []
 
 # Zero dependencies by design (SPIKE-001; this spec's handoff). Adding one
 # needs a DEC — see guidance/constraints.yaml `no-new-top-level-deps-without-decision`.

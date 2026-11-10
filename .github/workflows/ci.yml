@@ -177,6 +177,52 @@ jobs:
           manifest-path: fuzz/Cargo.toml
           command: check licenses
 
+  # SPEC-055 / DEC-048. The two licence jobs above are gates, so
+  # `oracle-must-be-shown-red` requires a red-proof beside them — and until
+  # SPEC-055 neither could have gone red on a dev-dependency: cargo-deny's
+  # licence check gathered the whole root graph and then evaluated ONE crate
+  # (irradiance), so a GPL dev-dep passed both jobs. `include-dev = true` in
+  # deny.toml is the fix; this job proves it on both graphs: control green with
+  # toml/ssimulacra2 evaluated, a synthetic GPL-3.0-only dev-dependency (a local
+  # path crate in a temp dir — never the real tree) rejected BY NAME in the root
+  # and the fuzz graph, the same mutation passing with include-dev removed, and
+  # isolation. Delete the knob and this job goes red.
+  #
+  # The cargo-deny-action runs exactly one command, so this job installs
+  # cargo-deny itself (the same `cargo install --locked` move the fuzz jobs use
+  # for cargo-fuzz), pinned to 0.20.2 — the version cargo-deny-action@v2's image
+  # runs for the two jobs above, so the proof is of the binary the gate uses.
+  # If the action's image moves, move this pin with it. The script forces
+  # `--color never`: this workflow's CARGO_TERM_COLOR=always otherwise colours
+  # cargo-deny's output and the script's greps miss (it went red at its control
+  # in CI on the build PR; SPEC-055 verify). Mirrors `just deny-red-proof`.
+  licenses-red-proof:
+    name: rust / license policy red-proof — GPL dev-dep, both graphs (must fail red)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-deny --locked --version 0.20.2
+      - run: ./scripts/deny-red-proof.sh
+
+  # SPEC-055 / DEC-048 (review finding #6). `irr` is an internal dev/oracle tool
+  # (constraint `library-not-application`) and is now gated behind the empty
+  # `irr` feature with `required-features`, so a default build, `cargo install
+  # irradiance` and `cargo package` produce no executable. This job keeps it
+  # that way: it BUILDS the real tree and the unpacked packaged crate with
+  # default features and reads cargo's JSON artifact stream for executables
+  # (none allowed), proves the detector can see a binary (`--features irr`
+  # produces `irr`), and proves the regression is caught (a temp copy with
+  # `required-features` stripped surfaces `irr`). Mirrors
+  # `just package-targets-check`.
+  package-surface:
+    name: rust / package surface — default build ships no irr binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: ./scripts/package-targets-check.sh
+
   # SPEC-018. The `warp_opcode` fuzz target's own smoke run — AGENTS.md §12
   # bar 2: a fuzz target arrives with the parser IN THE SAME PR, and runs.
   # No prior fuzz target (`ifd`/`plane`/`develop`) has a CI job of its own
