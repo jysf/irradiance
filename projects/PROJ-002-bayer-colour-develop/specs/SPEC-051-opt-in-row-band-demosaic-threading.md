@@ -6,10 +6,10 @@
 task:
   id: SPEC-051
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
-  complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
+  complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
@@ -27,12 +27,12 @@ repo:
 
 handoff:
   from_agent: claude-opus-4-8  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5          # HANDOFF-107 build (cold session; records its real model at handback)
+  created_at: 2026-11-09
 
 references:
-  decisions: [DEC-041, DEC-042, DEC-043] # DEC-041 = STAGE-012 perf discipline; DEC-042 = fused path + rolling cache; DEC-043 = SPEC-050 sink-side crop/orient scatter (the threading complication). DEC-044 (the threading model) is NEW, written at this spec's design.
-  constraints: []                  # design fills exact ids: no-panic, no-new-deps, oracle-red, provenance-recorded
+  decisions: [DEC-044, DEC-041, DEC-042, DEC-043] # DEC-044 = the threading model (NEW, this spec's design: output-row-band std::thread::scope, transposed-colour single-thread fallback); DEC-041 = STAGE-012 perf discipline; DEC-042 = fused path + rolling cache; DEC-043 = SPEC-050 sink-side crop/orient scatter (the threading complication).
+  constraints: [no-panics-on-untrusted-input, oracle-must-be-shown-red, test-before-implementation, no-new-top-level-deps-without-decision, one-spec-per-pr, provenance-recorded-per-algorithm]
   related_specs: [SPEC-048, SPEC-049, SPEC-050] # the demosaic fast path, the fuse, and the crop/orient scatter this threads over
 
 # Blocking dependencies: specs that must SHIP before this one can start.
@@ -62,8 +62,15 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 16000000        # ~M: threaded entry points + output-band decomposition + bit-identity across N and orientations; the transposed-colour fallback adds branching over a pure demosaic-only thread
+  sessions:
+    - cycle: design
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null           # orchestrator main-loop session spans many specs' design/ship cycles; a per-cycle split is not observable (DEC-013: a null here is honest, a guess is not)
+      estimated_usd: null
+      duration_minutes: 45
+      notes: "Design of SPEC-051: DEC-044 (output-row-band std::thread::scope threading — each thread works backwards from its output band to its source rows; colour path threads non-transposing orientations and falls back to single-thread for the 90 degree rotations; no new buffer, no unsafe, no DEVELOP_VERSION bump), HANDOFF-107 build, the build prompt, the byte-equality + determinism failing-test set, cycle advanced to build."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -112,16 +119,19 @@ scheduling; a large image demosaics measurably faster.
 
 ## Outputs
 
-- **Threaded entry point(s):** a caller-specified thread count that defaults to 1.
-  The **design** picks the surface — a new function (e.g. `demosaic_into_threaded`
-  / `develop_color_into_threaded`) or a thread-count parameter / small config —
-  **additive, default 1, the existing single-thread signatures unchanged**.
-- **Files modified:** `src/demosaic.rs` (and possibly `src/color.rs`), `src/lib.rs`
-  (export). **Likely NO `DEVELOP_VERSION` bump** — threading is output-invariant,
+- **Threaded entry points (`DEC-044`):** three additive siblings, signature shape
+  `(sensor, src, dst, threads: usize)` — `demosaic_into_threaded`,
+  `develop_color_into_threaded`, `develop_color_f32_into_threaded`. `threads <= 1`
+  dispatches straight to the existing single-thread function (unchanged signatures,
+  no banding). `threads >= 2` splits the **output** rows into that many contiguous
+  bands over `std::thread::scope`, each thread owning a disjoint `dst` slice.
+- **Files modified:** `src/demosaic.rs`, `src/color.rs`, `src/lib.rs` (export the
+  three functions). **No `DEVELOP_VERSION` bump** — threading is output-invariant,
   so the develop contract does not change.
-- **New decision:** `DEC-044` — the threading model (`std::thread::scope` row
-  bands, how `dst` is partitioned into disjoint slices, how the `SPEC-050` scatter
-  is handled, default 1). Written at **design**.
+- **New decision:** `DEC-044` (written at this design) — output-row-band
+  `std::thread::scope` threading; each thread works backwards from its output band
+  to the source rows it needs; the colour path threads for non-transposing
+  orientations and **falls back to single-thread for the 90° rotations**.
 
 ## Acceptance Criteria
 
@@ -139,19 +149,36 @@ scheduling; a large image demosaics measurably faster.
 
 ## Failing Tests
 
-*Sketched at frame; the **design** cycle writes them in full (and formalises
-`DEC-044`), in `tests/`.*
+*Formalised at design (`DEC-044`); the build writes them in full, in `tests/`.
+Each is a `dst_threaded == dst_single` byte-equality (the `DEC-041` proof), red
+until the threaded path exists.*
 
-- `"threaded_demosaic_equals_single_threaded"` — the threaded demosaic output is
-  byte-identical to `demosaic_into` for N in {2, 4}, across Bayer phases and with a
-  band boundary on an interior row.
-- `"threading_default_is_single_threaded"` — the default entry (N = 1) equals the
-  existing single-thread output byte-for-byte.
-- `"band_boundary_row_reflects_at_the_true_edge"` — a pixel on a band boundary
-  reflects at the TRUE image edge, not the band edge (the halo-correctness guard).
-- *(if the colour path is threaded)* `"threaded_colour_develop_equals_single_threaded"`
-  — byte-identical across geometries/orientations incl. a 90° rotation (the
-  `SPEC-050` scatter case).
+- `"threads_one_equals_the_single_thread_entry"` — `demosaic_into_threaded(.., 0)`
+  and `(.., 1)` are byte-identical to `demosaic_into`, and likewise for the two
+  colour entries; the default dispatches to the existing code with no banding.
+- `"threaded_demosaic_equals_single_threaded"` — `demosaic_into_threaded(.., N)`
+  byte-identical to `demosaic_into` for N in {2, 3, 4}, across all four Bayer
+  phases, on a tall image, including a band split that lands a boundary on an
+  interior row (so the ±2 halo is exercised across the seam).
+- `"threaded_colour_develop_non_transposing_equals_single_threaded"` —
+  `develop_color_into_threaded(.., N)` byte-identical to `develop_color_into` for
+  **orientations 1–4** (and a non-trivial `ActiveArea`/`DefaultCrop`), N in {2, 4},
+  across Bayer phases.
+- `"threaded_colour_develop_transposing_falls_back_and_still_matches"` — for
+  **orientations 5–8** (the 90° rotations), `develop_color_into_threaded(.., N)`
+  with N > 1 is still byte-identical to `develop_color_into` (the single-thread
+  fallback keeps correctness even though it does not parallelise).
+- `"threaded_f32_equals_single_threaded"` — `develop_color_f32_into_threaded(.., N)`
+  byte-identical to `develop_color_f32_into` for N in {2, 4}.
+- `"output_is_independent_of_thread_count"` — the threaded output is identical
+  across N in {1, 2, 3, 5, 8} (determinism regardless of band count or scheduling).
+- `"band_boundary_reflects_at_the_true_edge"` — with a band boundary forced onto an
+  interior row, boundary-row pixels equal the single-thread values (the halo reads
+  real neighbour rows across the seam; reflection happens only at the true image
+  edges, never at a band edge).
+
+*(Not a unit test, per the acceptance criteria: record a `threads=1` vs N
+wall-time on a large image in `docs/provenance-ledger.md`, per `DEC-041`.)*
 
 ## Non-Goals
 
@@ -168,21 +195,27 @@ scheduling; a large image demosaics measurably faster.
 
 ## Notes for the Implementer
 
-- `std::thread::scope` borrows `src` **immutably** (shared) and `dst` **mutably as
-  DISJOINT slices** (`split_at_mut` / `chunks_mut`) — the borrow checker enforcing
-  no overlap *is* the bit-identity guarantee. Each band normalises/reads its own
-  rows (including the ±2 halo) and **reflects at the true image edges**, so a band
-  boundary never changes a pixel.
-- **Thread `demosaic_into` first** — contiguous output, 1:1 row bands, disjoint
-  `dst` slices, no scatter. It is the clean, [S]-sized win.
-- **The `SPEC-050` colour sink is the hard part.** Under a 90° orientation an input
-  row-band scatters across ALL output rows, so input bands do **not** map to
-  disjoint contiguous `dst` slices. The design must resolve this WITHOUT `unsafe`
-  and WITHOUT an RGB buffer (e.g. partition the OUTPUT into bands and gather per
-  band, thread only the non-rotating geometries, or scope the colour path out of
-  P3) — call it out in `DEC-044`.
-- Default N = 1 must be the literal current code path. Keep zero-dependency,
-  no-`unsafe`, no-panic, determinism.
+- **Partition the OUTPUT, not the input (`DEC-044`).** `std::thread::scope` borrows
+  `src` **immutably** (shared) and `dst` **mutably as DISJOINT slices**
+  (`split_at_mut` / `chunks_mut`) — the borrow checker enforcing no overlap *is* the
+  bit-identity guarantee. Each thread works backwards from its output band to the
+  source rows it needs, runs the **existing single-thread traversal** over them
+  (local green + rolling cache), and **reflects at the true image edges** (never a
+  band edge), so a band boundary never changes a pixel.
+- **`demosaic_into_threaded`** is the clean case — output rows ↔ source rows 1:1,
+  so output band `[oy0, oy1)` needs source rows `[oy0-2, oy1+2)`. Each thread uses a
+  **local** green buffer (the single-thread path keeps green in `dst`; the threaded
+  one can't — a neighbour would be writing red/blue into the green it reads).
+- **The colour path splits by orientation.** Non-transposing (1–4): an output band
+  is fed by a contiguous source band — thread it. Transposing (5–8, the 90°
+  rotations): an output band is fed by source *columns* across all rows — **fall
+  back to single-thread** (correct, not parallel). Resolve orientation from
+  `resolve_geometry` once, before spawning.
+- **No new persistent buffer:** the per-band local green sums to ~one
+  `width·height` plane (the single-thread plane, partitioned). **Never** add an
+  active-area or full-plane RGB intermediate (undoes `SPEC-049`/`SPEC-050`).
+- `threads <= 1` must be the literal current code path (no banding, no alloc). Keep
+  zero-dependency, no-`unsafe`, no-panic, determinism; no `DEVELOP_VERSION` bump.
 
 ---
 
