@@ -6,7 +6,7 @@
 task:
   id: SPEC-039
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: frame  # frame | design | build | verify | ship — RE-SCOPED to group E (DEC-045); was build, now re-frames after A–C
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -38,7 +38,7 @@ references:
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
 # (`just ready`) and safe fan-out. Optional; [] = no blockers.
-depends_on: []                     # e.g. [SPEC-002]
+depends_on: [SPEC-052, SPEC-053, SPEC-054]   # group E unifies the preflight across A–C (DEC-045)
 
 # Fan-out lease — who/what holds this spec now (`just claim` / `just unclaim`).
 # Advisory; null = free. The hard lock for parallel agents is the worktree/branch.
@@ -71,6 +71,19 @@ cost:
 ---
 
 # SPEC-039: `plane::validate` — validate before allocate
+
+> **⚠ RE-SCOPED to group E — `cycle: frame` (DEC-045, 2026-11-10).** The
+> pre-0.2.0 code review (finding #5) showed this spec's design below is
+> **incomplete**: its uncompressed byte-count invariant does not carry to
+> compressed (Compression-7) strips, and the real preflight must be unified with
+> the parser guard (A/SPEC-052), the Comp-7 shape binding (B/SPEC-053) and the
+> required-processing validation (C/SPEC-054). So this spec now **depends on
+> A–C** and is re-designed after them; it also absorbs the README/CHANGELOG/
+> conformance-matrix reconcile, the `ifd`/`plane`/`ljpeg` fuzz-smoke-matrix
+> addition, and the EOI-optional decision. **The `## Design` below is the old
+> uncompressed-only plan — do NOT build it as written; it is kept for reference
+> and will be rewritten at the design cycle.** `HANDOFF-084` (the old build
+> handoff) is **superseded**.
 
 ## Context
 

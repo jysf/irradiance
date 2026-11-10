@@ -29,9 +29,9 @@ value_contribution:
     - "Cross-OS/arch determinism evidence"
     - "irradiance 0.2.0 on crates.io"
   explicitly_does_not:
-    - "Any change to existing public API"
+    - "Any NON-additive public API change (DEC-045 adds a Sensor field + makes the public structs non-exhaustive, additive only)"
     - "ML packing, normalisation or NumPy buffers (downstream)"
-    - "Colour work (STAGE-008)"
+    - "Colour-accuracy work (STAGE-008 / ColorChecker)"
 
 # Orchestration cost — the spend that has no spec to attach to (roadmap:
 # orchestration + framing cost attribution). Framing a stage, deciding the spec
@@ -117,22 +117,57 @@ is a maintainer decision recorded on the release spec.
 
 ## Spec Backlog
 
+> **RE-PLANNED 2026-11-10 (DEC-045).** The pre-0.2.0 external code review
+> (`docs/reviews/2026-11-09-pre-0.2.0-code-review-triage.md`, PR #161) **holds
+> 0.2.0** for four P1 findings and re-sequences the stage around the review's
+> A–F grouping. The old "SPEC-039 first" ordering is superseded: the unified
+> preflight (group E / SPEC-039) now depends on A–C.
+
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-039 (frame) — [M] **`plane::validate` (validate-before-allocate)**: extract
-      `unpack_into`'s non-`dst` checks (bit depth, pixel-count product, strip layout,
-      `PackedSizeMismatch`/`Truncated`) into a public allocation-free `validate`;
-      `unpack_into` calls it; forged-dimension tests; extend `fuzz/fuzz_targets/plane.rs`.
-      **Blocking for pyirradiance.**
+- [ ] SPEC-052 (frame) — [S] **(A) Parser resource guard** (review #1): aggregate
+      IFD entry/byte budget across the walk + reject aliased entry tables, so a
+      ~770 KB file cannot drive a ~72 MiB parse. Independent. Emits a DEC (budget).
+- [ ] SPEC-053 (frame) — [S] **(B) Compression-7 shape binding** (review #2): bind the
+      decoded `Frame` shape (width × `Nf`, height) to the strip, rejecting the
+      equal-area wrong-shape case that currently returns `Ok(())`. Independent.
+- [ ] SPEC-054 (frame) — [M] **(C) Required-processing validation + `Sensor` API**
+      (review #3): keep `OpcodeList2` bytes, typed error when a list needs an
+      unsupported op (mono + colour); make `Sensor` non-exhaustive. Needs a DEC
+      (opcode contract + `Sensor` construction). Design-heavy; gates E.
+- [ ] SPEC-055 (frame) — [S] **(D) Licence gate dev-graph + package surface**
+      (review #4/#6): evaluate the dev-dependency graph (root + `fuzz/`) with a
+      mutation red-proof; `irr` package disposition + a package-target-list check.
+      Independent. Emits a DEC (`irr` disposition).
+- [ ] SPEC-039 (frame) — [M] **(E) Validate-before-allocate completion + docs**
+      (review #5): structural `plane::validate` + caller-selected limit; reconcile
+      README/CHANGELOG/conformance-matrix; add `ifd`/`plane`/`ljpeg` to the fuzz
+      smoke matrix; EOI-optional decision. **RE-SCOPED** from the old uncompressed-only
+      design. depends_on: A, B, C (SPEC-052, SPEC-053, SPEC-054).
 - [ ] SPEC-040 (frame) — [S] **`Error::kind()` / `ErrorKind`** (needs a DEC first):
-      `{ Unsupported, Corrupt, CallerError }`, `#[non_exhaustive]`, exhaustive-in-tests
+      `{ Unsupported, Corrupt, CallerError }`, non-exhaustive, exhaustive-in-tests
       classification table. depends_on: SPEC-039.
 - [ ] SPEC-041 (frame) — [S] **Cross-arch determinism evidence**: tier-A synthetic Bayer
       fixtures, committed golden hashes for the three outputs, a linux x86_64 + macOS
-      arm64 CI matrix; name any float path that could diverge.
-- [ ] SPEC-042 (frame) — [S] **Release `0.2.0`** (release spec, DEC-028 publish checks):
-      depends_on SPEC-039; SPEC-040/041 ride along if shipped, else `0.2.1`.
-**Count:** 0 shipped / 4 active / 0 pending
+      arm64 CI matrix; name any float path that could diverge. Independent.
+- [ ] SPEC-042 (frame) — [S] **(F) Release `0.2.0`** (release spec, DEC-028 publish
+      checks): the full public-struct non-exhaustive sweep, a tier-B corpus evidence
+      run on the candidate SHA, a package target list, deny-on-dev-graph. depends_on:
+      all of A–E + SPEC-040 + SPEC-041.
+**Count:** 0 shipped / 8 active / 0 pending
+
+### Dependency graph (DEC-045)
+
+```
+A (052)  B (053)  C (054)  D (055)   041      ← ready now, fan out in parallel
+                    │                            (C gates E; A/B/C feed E's preflight)
+   └──────┬─────────┘
+          ▼
+        E (039) ──► 040
+          │
+          ▼
+        F (042)  ← release, blocked by A–E, 040, 041
+```
 
 ## Design Notes
 
