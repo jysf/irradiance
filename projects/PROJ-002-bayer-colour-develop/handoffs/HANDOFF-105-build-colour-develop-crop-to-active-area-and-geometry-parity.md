@@ -47,7 +47,7 @@ handback:
   estimated_usd: 7.58
   duration_minutes: 15
   branch: claude/spec-050-colour-crop-geometry
-  pr: null
+  pr: 152
   completed_at: 2026-11-09
   notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id; 10,398,650 of it cache reads) at handback time — /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the few final PR-opening turns."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -175,7 +175,7 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-050-colour-crop-geometry` → PR (against `main`; number in the PR itself / the session report).
+- **Branch / PR:** `claude/spec-050-colour-crop-geometry` → PR #152 (against `main`).
 - **Completed at:** 2026-11-09
 - **All acceptance criteria met?** yes.
   - *Output dims = `output_dimensions(sensor)`:* `colour_output_has_output_dimensions_geometry` (orientation 6 → 9×13 from a 13×9 crop; a whole-plane `dst` is now `RgbBufferWrongLength`), `colour_geometry_matches_the_mono_path` (all 8 orientations + absent). Real file: Canon 5D3 `5G4A9394.DNG` — `irr color` and `irr develop` both 5760×3840 (plane 5920×3950).
