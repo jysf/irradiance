@@ -50,7 +50,7 @@ handback:
   pr: 153
   completed_at: 2026-11-09               # YYYY-MM-DD
   notes: "verify APPROVED at 1576d2c; tokens summed from this session's own transcript usage records (claude-opus-5-5), /cost not callable as a tool in a delegated session"                      # one line if unusual (rework, no meter, etc.)
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-09            # cost recorded at ship from transcript a31bf1a5 (true 5,746,981 tok, floor 4,696,185 superseded); marked synced so handback-sync does not re-transcribe the floor
 ---
 
 # HANDOFF-106: colour develop crop to active area and geometry parity (verify)

@@ -6,14 +6,14 @@
 task:
   id: SPEC-050
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -71,10 +71,35 @@ cost:
       estimated_usd: null
       duration_minutes: 40
       notes: "Design of SPEC-050: DEC-043 (sink-side crop/orient scatter, memory shape preserved), HANDOFF-105 build, the build prompt, failing-test set, cycle advanced to build."
+    - cycle: build
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 12912710
+      estimated_usd: 26.90
+      duration_minutes: 95
+      recorded_at: 2026-11-09
+      notes: "Cold build session (PR #152, HANDOFF-105). Cropped at the sink per DEC-043: develop_color_fused left byte-for-byte, the sink scatters each developed pixel to its DefaultCrop+Orientation slot via the new output_coords_from_crop inverse (reading affine strides once rather than matching the orientation per pixel), no RGB buffer re-added. DEVELOP_VERSION 3->4, dst now output_dimensions*3, irr color + README + CHANGELOG resized, colour goldens regenerated with a trivial-geometry byte-identical pin. Kept pixels byte-identical to the old whole-plane develop at their source. Recovered 12,912,710 tok / $26.90 (claude-opus-5-5, transcript ffe512f3, 69 deduped messages); handback floor 10,626,299 superseded."
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: 5746981
+      estimated_usd: 12.71
+      duration_minutes: 45
+      recorded_at: 2026-11-09
+      notes: "Cold verify, verdict APPROVED at #152 head 1576d2c (PR #153, HANDOFF-106). Independently re-proved byte-identity (30,060 pixels across 5 geometries x 4 Bayer phases x 9 orientation cases, 0 mismatches; real Canon 5D3 file matches), confirmed the committed tests use independent reference pipelines (not tautological), and showed 5 mutations red (orientation 6/8 swap, crop_left+1, dropped ActiveArea top, negated step_y, f32 sink skipping the crop). Kernel untouched, no new buffer, RSS down, contract + typed errors confirmed; two non-blocking follow-ups raised (FU-1, FU-2). Recovered 5,746,981 tok / $12.71 (claude-opus-5-5, transcript a31bf1a5, 39 deduped messages); handback floor 4,696,185 superseded."
+    - cycle: ship
+      agent: claude-opus-4-8
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 30
+      recorded_at: 2026-11-09
+      notes: "Orchestrator ship bookkeeping (un-metered main session): recovered the true build+verify costs from the cold transcripts (floors superseded), wrote the reflection and totals, logged the brag, advanced the cycle with the approved verdict, archived the spec and flipped the STAGE-012 backlog."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 18659691
+    estimated_usd: 39.61
+    session_count: 4
+shipped_at: 2026-11-09
 ---
 
 # SPEC-050: colour develop crop to active area and geometry parity
@@ -221,22 +246,36 @@ expand this one.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Read the exact traversal the change hooks into *before* writing the
+   decision's approach. The first DEC-043 draft framed the fix as "develop the
+   active-area window and reflect at its edge", which would have changed near-edge
+   pixel values and broken the "colours unchanged from SPEC-047" criterion. Reading
+   `develop_color_fused` (it walks the whole plane and emits `pixel = y·w + x`)
+   first is what redirected it to the sink-scatter — same result, no kernel risk.
+   The near-miss was self-caught at design, but a kernel read up front would have
+   skipped the wrong draft entirely.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No template or constraint change. Verify raised two non-blocking follow-ups:
+   FU-1 a wording nit in DEC-043's scope section, and FU-2 "add an odd
+   plane-crop-origin geometry to the committed sweep" (the verify sweep covered it
+   ad-hoc; the permanent tests don't). FU-2 is a small test-hardening addition,
+   below the bar for its own spec — fold it into the P3 cycle or a later hardening
+   pass rather than codifying anything now.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. P3 (opt-in row-band threading) is already the last STAGE-012
+   backlog item; FU-2's test-hardening rides along with it. That closes STAGE-012's
+   correctness arc (SPEC-047 colour, SPEC-048 speed, SPEC-049 memory, SPEC-050
+   geometry).
 
 4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
    the defect-escape distribution is greppable across specs:
    `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
    `none` (clean first try).
-   — <one word>
+   — design — the only issue was the Option-B "develop the active window" framing
+   in the first DEC-043 draft, caught and corrected at design before the handoff
+   went out; build and verify were clean first try (APPROVED, no punch list).
    *(Runtime/operational defects — the escape-prone class — only exist once the
    artifact meets its real host. `escaped` here is a signal to strengthen the
    §12 behavioral pre-flight for that surface.)*
@@ -248,4 +287,10 @@ expand this one.
    `impact` field is transcribed from, and both halves are already written above
    (## Context is the before, ## Goal is the after): confirm the prediction,
    don't reconstruct it from memory.
-   — <answer | none>
+   — Before: a colour develop emitted the whole sensor plane including the
+   optical-black masked border, at a different size and orientation than the mono
+   develop and LibRaw. After: `develop_color_into` / `develop_color_f32_into` crop
+   and orient to `output_dimensions` (ActiveArea → DefaultCrop → Orientation) — on a
+   real Canon 5D3 both colour and mono now output 5760×3840 instead of the 5920×3950
+   plane, matching `develop_into` and LibRaw, with the kept pixels byte-identical to
+   the old output.
