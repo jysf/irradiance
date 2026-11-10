@@ -50,7 +50,7 @@ handback:
   pr: 152
   completed_at: 2026-11-09
   notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id; 10,398,650 of it cache reads) at handback time — /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the few final PR-opening turns."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-09            # cost recorded at ship from transcript ffe512f3 (true 12,912,710 tok, floor 10,626,299 superseded); marked synced so handback-sync does not re-transcribe the floor
 ---
 
 # HANDOFF-105: colour develop crop to active area and geometry parity
