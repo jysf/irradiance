@@ -32,11 +32,11 @@ repo:
 # tokens_total: null AND say why in notes. Do not invent a number.
 handback:
   status: completed                # completed | blocked | rejected
-  tokens_total: __TOKENS__         # REAL combined count — what cost-audit reads
-  estimated_usd: __USD__
+  tokens_total: 19609670         # REAL combined count — what cost-audit reads
+  estimated_usd: 13.34
   duration_minutes: 75
   branch: claude/spec-039-build-4c9ff9
-  pr: __PR__
+  pr: 178
   completed_at: 2026-11-10
   notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns."
   synced_at: 2026-11-10
@@ -131,7 +131,7 @@ On success: fill the `handback:` front-matter (with a real `tokens_total`) and t
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-039-build-4c9ff9` → __PRLINK__
+- **Branch / PR:** `claude/spec-039-build-4c9ff9` → https://github.com/jysf/irradiance/pull/178
 - **Completed at:** 2026-11-10
 - **All acceptance criteria met?** yes. `plane::validate` (both paths, budget first,
   allocation-free, reads no strip bytes); `Error::StripBytesExceedFile` +
@@ -167,8 +167,8 @@ On success: fill the `handback:` front-matter (with a real `tokens_total`) and t
 
 ### Cost self-report
 
-- **Tokens (total):** __TOKENS__
-- **Estimated USD:** __USD__
+- **Tokens (total):** 19609670
+- **Estimated USD:** 13.34
 - **Duration (minutes):** ~75
 - **Source of the number:** session transcript `usage` records (summed, deduped by message id)
 
