@@ -192,8 +192,10 @@ jobs:
   # cargo-deny itself (the same `cargo install --locked` move the fuzz jobs use
   # for cargo-fuzz), pinned to 0.20.2 — the version cargo-deny-action@v2's image
   # runs for the two jobs above, so the proof is of the binary the gate uses.
-  # Measured green on both 0.20.2 and the local 0.19.9 (SPEC-055 build). If the
-  # action's image moves, move this pin with it. Mirrors `just deny-red-proof`.
+  # If the action's image moves, move this pin with it. The script forces
+  # `--color never`: this workflow's CARGO_TERM_COLOR=always otherwise colours
+  # cargo-deny's output and the script's greps miss (it went red at its control
+  # in CI on the build PR; SPEC-055 verify). Mirrors `just deny-red-proof`.
   licenses-red-proof:
     name: rust / license policy red-proof — GPL dev-dep, both graphs (must fail red)
     runs-on: ubuntu-latest
