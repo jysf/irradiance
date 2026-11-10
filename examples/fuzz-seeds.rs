@@ -184,8 +184,69 @@ fn plane_seeds() -> Vec<(&'static str, Vec<u8>)> {
                 tiff::compression7_dng_with_strip(tiff::Order::Little, 6, 4, 12, &strip)
             },
         ),
+        (
+            // SPEC-039 (DEC-050): a forged 65535 x 65535 uncompressed plane
+            // over a 14-byte strip. `validate` refuses it with PlaneTooLarge
+            // under the harness budget, before the harness allocates.
+            "forged-dims-uncompressed",
+            plane_fixture(tiff::Order::Little, 65_535, 65_535, 14, 512, 14, &Q2M_STRIP),
+        ),
+        (
+            // SPEC-039: the same forgery on the Compression-7 path, where the
+            // file-bytes bound does not apply and only the budget bounds n.
+            "forged-dims-compression7",
+            {
+                let samples: Vec<u16> = (0..4u32).map(|i| (i * 977 % 4096) as u16).collect();
+                let strip = tiff::lj92_strip(&samples, 2, 2, 12);
+                tiff::compression7_dng_with_strip(tiff::Order::Little, 65_535, 65_535, 12, &strip)
+            },
+        ),
+        (
+            // SPEC-039: sixteen one-row strips aliasing the same 64 bytes —
+            // each strip in bounds, together claiming more than the file.
+            // `validate` refuses it with StripBytesExceedFile.
+            "aliased-strips",
+            aliased_strips_seed(),
+        ),
     ]
 }
+
+/// Sixteen one-row 16-bit strips of a 32-wide plane, every `StripOffsets`
+/// value pointing at the same 64 payload bytes (`SPEC-039`): 1024 bytes
+/// declared in a 576-byte file. The strip arrays live at 256 and 320.
+fn aliased_strips_seed() -> Vec<u8> {
+    const STRIPS: u32 = 16;
+    const WIDTH: u32 = 32;
+    const PAYLOAD_AT: u32 = 512;
+    let order = tiff::Order::Little;
+    let strip_bytes = WIDTH * 2;
+    let mut entries = vec![
+        tiff::long(tiff::NEW_SUBFILE_TYPE, 0),
+        tiff::long(tiff::IMAGE_WIDTH, WIDTH),
+        tiff::long(tiff::IMAGE_LENGTH, STRIPS),
+        tiff::short(tiff::BITS_PER_SAMPLE, 16, order),
+        tiff::short(tiff::COMPRESSION, 1, order),
+        tiff::short(tiff::PHOTOMETRIC, tiff::LINEAR_RAW, order),
+        tiff::short(tiff::SAMPLES_PER_PIXEL, 1, order),
+        tiff::at_offset(tiff::STRIP_OFFSETS, 4, STRIPS, 256),
+        tiff::long(TAG_ROWS_PER_STRIP, 1),
+        tiff::at_offset(tiff::STRIP_BYTE_COUNTS, 4, STRIPS, 320),
+    ];
+    entries.sort_by_key(|e| e.tag);
+    let mut data = tiff::tiff(order, 8, &[tiff::Ifd::new(8, entries, 0)]);
+    data.resize((PAYLOAD_AT + strip_bytes) as usize, 0);
+    for i in 0..STRIPS as usize {
+        data[256 + 4 * i..260 + 4 * i].copy_from_slice(&PAYLOAD_AT.to_le_bytes());
+        data[320 + 4 * i..324 + 4 * i].copy_from_slice(&strip_bytes.to_le_bytes());
+    }
+    for (i, b) in data[PAYLOAD_AT as usize..].iter_mut().enumerate() {
+        *b = (i * 37) as u8;
+    }
+    data
+}
+
+/// `RowsPerStrip` (TIFF 6.0), restated as a raw number like the tags below.
+const TAG_ROWS_PER_STRIP: u16 = 278;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Seeds for `fuzz/fuzz_targets/develop.rs` (SPEC-014)

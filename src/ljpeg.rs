@@ -1310,6 +1310,12 @@ fn reconstruct_two_component(
 /// (`DEC-016`), sized `Nf · samples_per_line · lines`. The length check lives
 /// in the chosen reconstruction function.
 ///
+/// **EOI is optional** (`DEC-050` §4): the scan is complete once it has
+/// decoded exactly `width · height` samples, and the trailing `EOI` marker is
+/// never consulted. A stream with no `EOI` decodes `Ok`; a stream that ends
+/// before the sample count is reached is [`Error::Truncated`] (the bounded scan
+/// reader). Requiring `EOI` would reject valid files for no safety gain.
+///
 /// # Errors
 ///
 /// Any typed [`Error`] from header parsing, the length check

@@ -40,10 +40,12 @@ It is deliberately a **library, not an application**
   but unmeasured — see [`Cargo.toml`](Cargo.toml)).
 
 > **Status:** early (0.1.x, on crates.io). Uncompressed **monochrome** and
-> **Bayer** DNG develop work end to end. A bit-exact lossless-JPEG (SOF-3)
-> decoder exists internally but is not yet wired to DNG `Compression 7`, so
-> compressed planes are not decodable through the public API yet. See
-> [Scope](#scope-and-roadmap).
+> **Bayer** DNG develop work end to end, and monochrome DNG `Compression 7`
+> (lossless-JPEG, SOF-3) planes decode bit-exact through the public
+> `plane::unpack_into` — single- and two-component frames (`SPEC-043`/`046`/`044`).
+> Size the plane buffer with `plane::validate` first: it checks the layout and
+> your own pixel budget before you allocate. See
+> [tested DNG modes](#tested-dng-modes) and [Scope](#scope-and-roadmap).
 
 ## The pipeline
 
@@ -80,8 +82,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let container = Container::parse(&bytes)?;
     let sensor = container.sensor()?;
 
-    // 2. Unpack the raw sensor plane into a u16 buffer.
-    let mut raw = vec![0u16; sensor.width as usize * sensor.height as usize];
+    // 2. Preflight BEFORE allocating: `validate` checks the strip layout and
+    //    your own pixel budget (here 100 MP; `usize::MAX` = no limit), so a
+    //    forged width x height is a typed error, not an out-of-memory abort.
+    let n = plane::validate(&sensor, container.byte_order(), &bytes, 100_000_000)?;
+
+    //    Then unpack the raw sensor plane into a u16 buffer of exactly n samples.
+    let mut raw = vec![0u16; n];
     plane::unpack_into(&sensor, container.byte_order(), &bytes, &mut raw)?;
 
     // 3. Develop into a scene-linear image (levels + geometry pipeline).
@@ -114,6 +121,30 @@ irradiance::color::develop_color_into(&sensor, &raw, &mut rgb)?;
 The colour path applies `ActiveArea` → `DefaultCrop` → `Orientation` (the
 masked border is dropped) but not yet the `OpcodeList` stages (`WarpRectilinear`,
 `FixBadPixelsConstant`) that `develop_into` runs.
+
+## Tested DNG modes
+
+What the public `plane::validate` → `plane::unpack_into` route accepts today,
+and how each mode is tested. Tier A = hand-built fixtures, committed and run in
+CI; tier B = the real-file corpus (never committed, `DEC-003`), bit-exact against
+`dnglab --raw-checksum`.
+
+| Plane | Compression | Layout | Status | Tested by |
+|---|---|---|---|---|
+| Monochrome (`LinearRaw`), 8/12/14/16-bit | `1` (uncompressed) | one or many strips | ✔ supported | tier A + tier B (Leica Q2 Monochrom, Leica M Monochrom), bit-exact |
+| Bayer (CFA, RGGB family), 12/14/16-bit | `1` (uncompressed) | one or many strips | ✔ supported | tier A + tier B (Canon 5D Mark III, Nikon D300S 12-strip, …), bit-exact |
+| Monochrome, SOF-3 single-component (`Nf = 1`) | `7` (lossless JPEG) | one or many strips | ✔ supported | tier A (round-trip encoder fixtures, fuzzed) |
+| Monochrome, SOF-3 two-component column interleave (`Nf = 2`) | `7` (lossless JPEG) | one or many strips | ✔ supported | tier A + tier B (Leica M Monochrom Typ 246, Pentax K-3 III Monochrome DNG), bit-exact |
+| Any | any | **tiled** (`TileOffsets`) | ✘ `UnsupportedStripLayout` | tier A |
+| Bayer (CFA) inside lossless JPEG | `7` | — | ✘ not supported yet | — |
+| Any | other codes (vendor-private, lossy, …) | — | ✘ `UnsupportedCompression` | tier A + tier B (Pentax PEF, `65535`) |
+
+For every supported mode `validate` refuses a plane over the caller's
+`max_pixels` (`PlaneTooLarge`) before any other check. For an uncompressed plane
+its `Ok(n)` also guarantees the unpack succeeds and that `n` is bounded by the
+file's own bytes (`StripBytesExceedFile` refuses strips that alias); for a
+Compression-7 plane `n` is bounded only by `max_pixels`, and the SOF-3 frame
+shape is still checked at decode (`DEC-050`).
 
 ## Building and testing
 
@@ -153,13 +184,14 @@ waves:
 - **`PROJ-002` — Bayer colour develop** *(in progress)*: demosaic and the
   camera→sRGB colour transform are shipped; ColorChecker ΔE validation and the
   0.2.0 release are pending.
-- **`PROJ-003` — compressed planes** *(in progress)*: a clean-room lossless-JPEG
-  (SOF-3) decoder is built and fuzzed; binding it to DNG `Compression 7` is the
-  active stage.
+- **`PROJ-003` — compressed planes** *(shipped)*: a clean-room, patent-clean
+  lossless-JPEG (SOF-3) decoder, fuzzed, and bound to DNG `Compression 7`
+  through `plane::unpack_into` (`SPEC-043` routing, `SPEC-046` two-component
+  decode, `SPEC-044` bit-exact against `dnglab` on both held files).
 
-Intentionally **not** implemented yet (by design, not omission): public
-compressed-plane decode (until `PROJ-003` binds it), and the `ASCII`/signed DNG
-tag types. The long view — more vendor formats and beyond — is in
+Intentionally **not** implemented yet (by design, not omission): tiled planes,
+Bayer (CFA) planes inside lossless JPEG, compressions other than `1` and `7`,
+and the `ASCII`/signed DNG tag types. The long view — more vendor formats and beyond — is in
 [`docs/future-plans.md`](docs/future-plans.md); see [`projects/`](projects/)
 for active briefs.
 

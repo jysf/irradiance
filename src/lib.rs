@@ -488,6 +488,32 @@ pub enum Error {
         actual: usize,
     },
 
+    /// `SPEC-039` (`DEC-050`). An uncompressed plane's `StripByteCounts` sum to
+    /// more bytes than the whole file holds. Every strip is individually in
+    /// bounds by the time this is checked, so the strips must alias the same
+    /// bytes — the forged shape that would let a tiny file claim an arbitrarily
+    /// large plane. Non-overlapping strips always satisfy the bound, so a
+    /// well-formed file never trips it. Compressed planes are exempt (their
+    /// bytes legitimately expand); [`Error::PlaneTooLarge`] bounds those.
+    StripBytesExceedFile {
+        /// The sum of every `StripByteCounts` value, in bytes.
+        declared: u64,
+        /// The length of the whole file, in bytes.
+        file_len: usize,
+    },
+
+    /// `SPEC-039` (`DEC-050`). The plane's `width × height` exceeds the pixel
+    /// budget the caller passed to [`plane::validate`]. Checked first, before
+    /// any per-strip work, on both the uncompressed and the Compression-7 path
+    /// — for a compressed plane it is the only bound available before decode.
+    /// The limit is the caller's own number, not a library cap.
+    PlaneTooLarge {
+        /// `width × height`, computed as a `u64`.
+        pixels: u64,
+        /// The caller's `max_pixels`.
+        limit: usize,
+    },
+
     /// `SPEC-014`. `ActiveArea` is empty, inverted (`right <= left` or
     /// `bottom <= top`), or extends past the raw plane's own dimensions.
     InvalidActiveArea {
@@ -970,6 +996,19 @@ impl fmt::Display for Error {
                     f,
                     "width x height x bits_per_sample is {expected_bits} bits, but \
                      StripByteCounts x 8 is {strip_bits} bits"
+                )
+            }
+            Error::StripBytesExceedFile { declared, file_len } => {
+                write!(
+                    f,
+                    "strips declare {declared} bytes in total, exceeding the {file_len}-byte file \
+                     (the strips alias the same bytes)"
+                )
+            }
+            Error::PlaneTooLarge { pixels, limit } => {
+                write!(
+                    f,
+                    "plane of {pixels} pixel(s) exceeds the caller's limit of {limit}"
                 )
             }
             Error::PlaneBufferWrongLength { expected, actual } => {
