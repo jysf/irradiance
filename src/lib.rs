@@ -93,7 +93,11 @@
 //! `dst`, one `width·height` green plane the only scratch) and added
 //! [`color::develop_color_f32_into`], a scene-linear `f32` entry point equal to
 //! `to_linear_f32_into(develop_color_into(..))` to the bit — the `u16` render is
-//! unchanged (`DEC-042`).
+//! unchanged (`DEC-042`). `SPEC-050` made that compose crop and orient to the
+//! same geometry as [`develop::develop_into`] — `ActiveArea` → `DefaultCrop` →
+//! `Orientation`, output at [`develop::output_dimensions`], the masked border
+//! dropped — by scattering each developed pixel to its output slot as the fused
+//! kernel emits it; the kept pixels' colours are unchanged (`DEC-043`).
 //! Still absent, by design:
 //! `ASCII` and the signed field types (no DNG tag PROJ-001 reads needs them
 //! yet), and any compressed-plane decode (PROJ-003).
@@ -144,7 +148,7 @@ use core::fmt;
 /// the one signal a lockfile cannot carry. Bump it (`"2"`, `"3"`, …) in the
 /// same change that alters develop output; leave it alone for changes that
 /// cannot (docs, tests, refactors that are bit-identical). See `DEC-028`.
-pub const DEVELOP_VERSION: &str = "3";
+pub const DEVELOP_VERSION: &str = "4";
 
 /// libFuzzer entry for the SOF-3 lossless-JPEG decoder (`ljpeg::decode_into`,
 /// one- or two-component — `SPEC-046`) — `SPEC-038`, `DEC-036`.
@@ -586,12 +590,16 @@ pub enum Error {
         actual: usize,
     },
 
-    /// `SPEC-030`. [`demosaic::demosaic_into`]'s `dst` does not hold exactly
-    /// `sensor.width * sensor.height * 3` samples — the interleaved R, G, B
-    /// output buffer is caller-owned (`DEC-016`), and its length is the one
-    /// precondition checked before writing into it.
+    /// `SPEC-030`. An interleaved R, G, B output buffer has the wrong length:
+    /// [`demosaic::demosaic_into`]'s and [`color::to_srgb_linear_into`]'s `dst`
+    /// must hold exactly `sensor.width * sensor.height * 3` samples, and
+    /// [`color::develop_color_into`]'s / [`color::develop_color_f32_into`]'s
+    /// exactly [`develop::output_dimensions`]`(sensor)`'s product `* 3` — the
+    /// cropped, oriented geometry (`SPEC-050`, `DEC-043`). The buffer is
+    /// caller-owned (`DEC-016`), and its length is the one precondition checked
+    /// before writing into it.
     RgbBufferWrongLength {
-        /// `width * height * 3`, the required length.
+        /// The required length (see above for which product).
         expected: u64,
         /// `dst.len()` as given.
         actual: usize,
@@ -954,7 +962,7 @@ impl fmt::Display for Error {
             Error::RgbBufferWrongLength { expected, actual } => {
                 write!(
                     f,
-                    "demosaic RGB buffer holds {actual} sample(s), expected {expected} (width x height x 3)"
+                    "interleaved RGB buffer holds {actual} sample(s), expected {expected} (output width x output height x 3)"
                 )
             }
             Error::ColorSourceWrongLength { expected, actual } => {

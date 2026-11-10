@@ -22,7 +22,10 @@
 //! it is left to a follow-on, since this file's job is the MATH.
 
 use irradiance::color::{develop_color_f32_into, develop_color_into, to_srgb_linear_into};
-use irradiance::ifd::{ActiveArea, Cfa, Compression, Rational, Sensor};
+use irradiance::develop::{develop_into, output_dimensions};
+use irradiance::ifd::{
+    ActiveArea, Cfa, Compression, DefaultCropOrigin, DefaultCropSize, Rational, Sensor,
+};
 use irradiance::tone::to_linear_f32_into;
 use irradiance::Error;
 
@@ -564,9 +567,15 @@ fn a_perturbed_forward_matrix_turns_the_oracle_red() {
 // Compose — develop_color_into == normalize ∘ demosaic ∘ matrix.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Mirror of `color::normalize_mosaic`: per-2×2-position level-normalize.
+/// Mirror of `color::normalize_mosaic`: per-2×2-position level-normalize, the
+/// 2×2 slot counted from the `ActiveArea` origin (`DEC-040`; `(0, 0)` when the
+/// tag is absent, so every origin-free fixture is unchanged).
 fn reference_normalize(sensor: &Sensor, mosaic: &[u16]) -> Vec<u16> {
     let width = sensor.width as usize;
+    let (origin_top, origin_left) = sensor
+        .active_area
+        .map(|a| (a.top as usize, a.left as usize))
+        .unwrap_or((0, 0));
     let white_default = (1u64 << sensor.bits_per_sample).saturating_sub(1) as u32;
     let level_at = |levels: &[u32], pos: usize, scalar: Option<u32>, default: u32| -> u32 {
         match levels.get(pos).or_else(|| levels.last()) {
@@ -589,8 +598,8 @@ fn reference_normalize(sensor: &Sensor, mosaic: &[u16]) -> Vec<u16> {
         .iter()
         .enumerate()
         .map(|(pixel, &sample)| {
-            let row = pixel / width;
-            let col = pixel % width;
+            let row = (pixel / width).wrapping_sub(origin_top);
+            let col = (pixel % width).wrapping_sub(origin_left);
             let pos = match (row & 1, col & 1) {
                 (0, 0) => 0,
                 (0, _) => 1,
@@ -1291,7 +1300,7 @@ fn grey_stays_grey_across_origin_parities_and_bayer_phases() {
         for origin in ORIGIN_PARITIES {
             let sensor = grey_origin_sensor(&pattern, Some(origin));
             let mosaic = grey_mosaic(&pattern, origin);
-            let mut out = vec![0u16; mosaic.len() * 3];
+            let mut out = vec![0u16; output_rgb_len(&sensor)];
             develop_color_into(&sensor, &mosaic, &mut out)
                 .expect("a grey subject develops without error");
             let spread = max_channel_spread(&out);
@@ -1329,9 +1338,12 @@ fn plane_relative_phase_tints_an_odd_origin_grey() {
     );
 
     let honours_origin = grey_origin_sensor(&pattern, Some(origin));
-    let mut developed = vec![0u16; mosaic.len() * 3];
+    let mut developed = vec![0u16; output_rgb_len(&honours_origin)];
     develop_color_into(&honours_origin, &mosaic, &mut developed)
         .expect("origin-honouring develop is total");
+    // SPEC-050: the origin-honouring render is cropped to the ActiveArea, so
+    // compare it against the plane-relative render at the same source pixels.
+    let reference = crop_whole_plane(&honours_origin, &reference);
     assert_ne!(
         developed, reference,
         "declaring the ActiveArea origin did not move the output off the \
@@ -1359,9 +1371,12 @@ fn even_origin_is_byte_identical_to_plane_relative() {
             .expect("plane-relative develop is total");
 
         let declared = grey_origin_sensor(&pattern, Some(origin));
-        let mut developed = vec![0u16; mosaic.len() * 3];
+        let mut developed = vec![0u16; output_rgb_len(&declared)];
         develop_color_into(&declared, &mosaic, &mut developed)
             .expect("origin-honouring develop is total");
+        // SPEC-050: the declared render is cropped to the ActiveArea; the
+        // plane-relative render, taken at the same source pixels, must match.
+        let reference = crop_whole_plane(&declared, &reference);
 
         assert_eq!(
             developed, reference,
@@ -1373,10 +1388,10 @@ fn even_origin_is_byte_identical_to_plane_relative() {
 
 #[test]
 fn develop_color_does_not_panic_for_an_out_of_range_active_area() {
-    // An ActiveArea origin at or beyond the plane edge: `wrapping_sub` keeps the
-    // parity well-defined (its low bit is the true parity even above/left of the
-    // origin), so develop runs without panic for any origin value. Not a grey
-    // subject — only that no origin can index out of range or overflow.
+    // An ActiveArea origin at or beyond the plane edge. Since SPEC-050 the colour
+    // path resolves the full geometry (DEC-043), so such a rectangle is rejected
+    // with the same typed `InvalidActiveArea` the mono `develop_into` returns —
+    // never a panic, for any origin value, and whatever `dst` length is passed.
     let pattern = BAYER_PHASES[0];
     for origin in [
         (GREY_H, GREY_W),          // exactly at the far edge
@@ -1386,7 +1401,336 @@ fn develop_color_does_not_panic_for_an_out_of_range_active_area() {
         let sensor = grey_origin_sensor(&pattern, Some(origin));
         let mosaic: Vec<u16> = (0..GREY_W * GREY_H).map(|i| (i * 997) as u16).collect();
         let mut out = vec![0u16; mosaic.len() * 3];
-        develop_color_into(&sensor, &mosaic, &mut out)
-            .expect("an out-of-range ActiveArea origin must not panic");
+        match develop_color_into(&sensor, &mosaic, &mut out) {
+            Err(Error::InvalidActiveArea { .. }) => {}
+            other => panic!("origin {origin:?}: expected InvalidActiveArea, got {other:?}"),
+        }
+        let mut out_f32 = vec![0.0f32; mosaic.len() * 3];
+        match develop_color_f32_into(&sensor, &mosaic, &mut out_f32) {
+            Err(Error::InvalidActiveArea { .. }) => {}
+            other => panic!("origin {origin:?}: expected InvalidActiveArea, got {other:?}"),
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-050 — the colour path crops and orients to develop_into's geometry
+// (DEC-043): ActiveArea → DefaultCrop → Orientation, output at
+// output_dimensions(sensor), the masked border dropped. The crop moves the
+// frame, not the colours: every kept pixel is byte-identical to the whole-plane
+// develop (the SPEC-049 fused render, reproduced here by the independent
+// reference_develop_color) at its source pixel.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The interleaved-RGB `dst` length the colour develop expects for `sensor`:
+/// `output_dimensions(sensor)`'s product × 3, the same size callers of the mono
+/// `develop_into` compute (× 1 there).
+fn output_rgb_len(sensor: &Sensor) -> usize {
+    let (w, h) = output_dimensions(sensor).expect("fixture geometry is valid");
+    w as usize * h as usize * 3
+}
+
+/// Independent transcription of TIFF tag 274's eight `Orientation` cases as the
+/// output→crop map (where in the stored crop rectangle each displayed pixel
+/// comes from). Re-derived from the TIFF "row 0 / column 0" table here rather
+/// than read from `src/develop.rs`.
+fn ref_crop_source(orientation: u32, ox: u32, oy: u32, cw: u32, ch: u32) -> (u32, u32) {
+    match orientation {
+        1 => (ox, oy),
+        2 => (cw - 1 - ox, oy),
+        3 => (cw - 1 - ox, ch - 1 - oy),
+        4 => (ox, ch - 1 - oy),
+        5 => (oy, ox),
+        6 => (oy, ch - 1 - ox),
+        7 => (cw - 1 - oy, ch - 1 - ox),
+        8 => (cw - 1 - oy, ox),
+        _ => unreachable!("fixture orientations are 1..=8"),
+    }
+}
+
+/// Crop + orient a **whole-plane** interleaved-RGB render (`width·height·3`) to
+/// `sensor`'s geometry by gathering, for each output pixel, the triple at its
+/// source plane pixel — `ActiveArea` origin + `DefaultCropOrigin` (relative to
+/// the ActiveArea, `DEC-019`) + the orientation map. This is the expected
+/// SPEC-050 output: the same values, the frame moved.
+fn crop_whole_plane(sensor: &Sensor, whole: &[u16]) -> Vec<u16> {
+    let (top, left) = sensor
+        .active_area
+        .map(|a| (a.top, a.left))
+        .unwrap_or((0, 0));
+    let (active_w, active_h) = sensor
+        .active_area
+        .map(|a| (a.right - a.left, a.bottom - a.top))
+        .unwrap_or((sensor.width, sensor.height));
+    let (cox, coy) = sensor
+        .default_crop_origin
+        .map(|o| (o.x, o.y))
+        .unwrap_or((0, 0));
+    let (cw, ch) = sensor
+        .default_crop_size
+        .map(|s| (s.width, s.height))
+        .unwrap_or((active_w, active_h));
+    let orientation = sensor.orientation.unwrap_or(1);
+    let (ow, oh) = if orientation <= 4 { (cw, ch) } else { (ch, cw) };
+    let mut out = Vec::with_capacity((ow * oh * 3) as usize);
+    for oy in 0..oh {
+        for ox in 0..ow {
+            let (cx, cy) = ref_crop_source(orientation, ox, oy, cw, ch);
+            let px = (left + cox + cx) as usize;
+            let py = (top + coy + cy) as usize;
+            let i = (py * sensor.width as usize + px) * 3;
+            out.extend_from_slice(&whole[i..i + 3]);
+        }
+    }
+    out
+}
+
+/// Plane size of the SPEC-050 geometry fixture.
+const GEO_W: u32 = 20;
+const GEO_H: u32 = 16;
+
+/// A 20×16 colour sensor with a non-trivial geometry: an **odd-top** ActiveArea
+/// `(3, 2)–(15, 19)` (17×12, so the SPEC-047 phase offset is load-bearing), a
+/// `DefaultCrop` inset `(2, 1)` of size 13×9 inside it, and the given
+/// `orientation` (`None` = absent = 1). Per-slot blacks + a scalar white so the
+/// level slot matters too.
+fn geometry_fixture(pattern: &[u8], orientation: Option<u32>) -> Sensor {
+    let mut sensor = fused_fixture(GEO_W, GEO_H, pattern);
+    sensor.active_area = Some(ActiveArea {
+        top: 3,
+        left: 2,
+        bottom: 15,
+        right: 19,
+    });
+    sensor.default_crop_origin = Some(DefaultCropOrigin { x: 2, y: 1 });
+    sensor.default_crop_size = Some(DefaultCropSize {
+        width: 13,
+        height: 9,
+    });
+    sensor.orientation = orientation;
+    sensor
+}
+
+/// Every TIFF orientation, plus "absent" (which must behave as 1).
+const ALL_ORIENTATIONS: [Option<u32>; 9] = [
+    None,
+    Some(1),
+    Some(2),
+    Some(3),
+    Some(4),
+    Some(5),
+    Some(6),
+    Some(7),
+    Some(8),
+];
+
+#[test]
+fn colour_output_has_output_dimensions_geometry() {
+    // Orientation 6 (a 90° rotation) over the cropped fixture: the output is the
+    // 13×9 crop transposed to 9×13, so dst is 9·13·3 — the whole 20×16 plane
+    // (and its masked border) is gone.
+    let sensor = geometry_fixture(&BAYER_PHASES[0], Some(6));
+    assert_eq!(output_dimensions(&sensor).expect("valid geometry"), (9, 13));
+    let mosaic = varied_mosaic(GEO_W, GEO_H);
+
+    let mut out = vec![0u16; 9 * 13 * 3];
+    develop_color_into(&sensor, &mosaic, &mut out)
+        .expect("dst sized to output_dimensions·3 must be accepted");
+
+    // The whole-plane length is now the WRONG length (a typed error, no panic).
+    let mut whole_len = vec![0u16; mosaic.len() * 3];
+    match develop_color_into(&sensor, &mosaic, &mut whole_len) {
+        Err(Error::RgbBufferWrongLength { expected, actual }) => {
+            assert_eq!((expected, actual), (9 * 13 * 3, mosaic.len() * 3));
+        }
+        other => panic!("expected RgbBufferWrongLength, got {other:?}"),
+    }
+
+    // The masked border is gone: output [0, 0] is NOT the plane's (0, 0) border
+    // pixel, it is the oriented crop's first pixel.
+    let whole = reference_develop_color(&sensor, &mosaic);
+    assert_ne!(
+        out[0..3],
+        whole[0..3],
+        "output [0,0] still carries the masked-border pixel (0,0)"
+    );
+    assert_eq!(out, crop_whole_plane(&sensor, &whole));
+}
+
+#[test]
+fn colour_geometry_matches_the_mono_path() {
+    // For every orientation, the colour output has develop_into's dimensions AND
+    // takes each output pixel from the same source photosite develop_into does.
+    // The mono path is the oracle for WHERE: a mosaic whose sample is its own
+    // plane index, developed by develop_into with an identity level map (black 0,
+    // white 65535), returns at each output slot the index of its source pixel.
+    for orientation in ALL_ORIENTATIONS {
+        let sensor = geometry_fixture(&BAYER_PHASES[0], orientation);
+        let (ow, oh) = output_dimensions(&sensor).expect("valid geometry");
+        let (cw, ch) = (13, 9);
+        let expected_dims = if orientation.unwrap_or(1) <= 4 {
+            (cw, ch)
+        } else {
+            (ch, cw)
+        };
+        assert_eq!((ow, oh), expected_dims, "orientation {orientation:?}");
+
+        // Where: the mono source map.
+        let mut mono_sensor = sensor.clone();
+        mono_sensor.black_level = Some(0);
+        mono_sensor.white_level = Some(65535);
+        let index_plane: Vec<u16> = (0..GEO_W * GEO_H).map(|i| i as u16).collect();
+        let mut source_of = vec![0u16; (ow * oh) as usize];
+        develop_into(&mono_sensor, &index_plane, &mut source_of).expect("mono develop");
+
+        // What: the colour develop, cropped by the colour path itself.
+        let mosaic = varied_mosaic(GEO_W, GEO_H);
+        let mut colour = vec![0u16; (ow * oh * 3) as usize];
+        develop_color_into(&sensor, &mosaic, &mut colour)
+            .expect("colour develop at output_dimensions");
+
+        let whole = reference_develop_color(&sensor, &mosaic);
+        for (slot, &src) in source_of.iter().enumerate() {
+            let s = usize::from(src) * 3;
+            assert_eq!(
+                colour[slot * 3..slot * 3 + 3],
+                whole[s..s + 3],
+                "orientation {orientation:?}: output slot {slot} must come from the                  source photosite develop_into maps it to ({src})"
+            );
+        }
+    }
+}
+
+#[test]
+fn colour_crop_pixels_equal_the_whole_plane_develop_at_their_source() {
+    // The crop moves the frame, not the colours: across all four Bayer phases
+    // and every orientation, each kept pixel is byte-identical to the whole-plane
+    // develop (SPEC-047's origin-honouring colours, via the independent
+    // reference pipeline) at its DefaultCrop + inverse-orient source.
+    for pattern in BAYER_PHASES {
+        for orientation in ALL_ORIENTATIONS {
+            let sensor = geometry_fixture(&pattern, orientation);
+            let mosaic = varied_mosaic(GEO_W, GEO_H);
+            let mut out = vec![0u16; output_rgb_len(&sensor)];
+            develop_color_into(&sensor, &mosaic, &mut out).expect("cropped develop");
+
+            let whole = reference_develop_color(&sensor, &mosaic);
+            assert_eq!(
+                out,
+                crop_whole_plane(&sensor, &whole),
+                "phase {pattern:?} orientation {orientation:?}: a kept pixel moved value"
+            );
+        }
+    }
+    // And SPEC-047's grey-stays-grey holds on every kept pixel of a cropped,
+    // rotated odd-origin grey.
+    for pattern in BAYER_PHASES {
+        for origin in ORIGIN_PARITIES {
+            let mut sensor = grey_origin_sensor(&pattern, Some(origin));
+            sensor.default_crop_origin = Some(DefaultCropOrigin { x: 1, y: 1 });
+            sensor.default_crop_size = Some(DefaultCropSize {
+                width: 2,
+                height: 3,
+            });
+            sensor.orientation = Some(7);
+            let mosaic = grey_mosaic(&pattern, origin);
+            let mut out = vec![0u16; output_rgb_len(&sensor)];
+            develop_color_into(&sensor, &mosaic, &mut out).expect("cropped grey develops");
+            assert!(
+                max_channel_spread(&out) <= GREY_TOLERANCE,
+                "phase {pattern:?} origin {origin:?}: the cropped grey tinted"
+            );
+        }
+    }
+}
+
+#[test]
+fn develop_color_f32_still_equals_to_linear_at_new_dims() {
+    for pattern in BAYER_PHASES {
+        for orientation in ALL_ORIENTATIONS {
+            let sensor = geometry_fixture(&pattern, orientation);
+            let mosaic = varied_mosaic(GEO_W, GEO_H);
+            let len = output_rgb_len(&sensor);
+
+            let mut u16_out = vec![0u16; len];
+            develop_color_into(&sensor, &mosaic, &mut u16_out).expect("u16 develop");
+            let mut expected = vec![0.0f32; len];
+            to_linear_f32_into(&u16_out, &mut expected).expect("to_linear_f32_into");
+
+            let mut f32_out = vec![0.0f32; len];
+            develop_color_f32_into(&sensor, &mosaic, &mut f32_out)
+                .expect("f32 develop at output_dimensions");
+            assert_eq!(
+                f32_out, expected,
+                "phase {pattern:?} orientation {orientation:?}: f32 must equal                  to_linear_f32_into(develop_color_into(..)) at the new dimensions"
+            );
+
+            let mut whole_len = vec![0.0f32; mosaic.len() * 3];
+            match develop_color_f32_into(&sensor, &mosaic, &mut whole_len) {
+                Err(Error::RgbBufferWrongLength { expected, actual }) => {
+                    assert_eq!((expected, actual), (len as u64, mosaic.len() * 3));
+                }
+                other => panic!("expected RgbBufferWrongLength, got {other:?}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn trivial_geometry_is_byte_identical_to_the_whole_plane() {
+    // The pin: a full-plane ActiveArea, a full DefaultCrop and orientation 1
+    // resolve to the whole plane, so the SPEC-050 output equals the pre-SPEC-050
+    // whole-plane develop byte for byte (and equals the all-tags-absent render).
+    for (w, h) in FUSE_SIZES {
+        for pattern in BAYER_PHASES {
+            let absent = fused_fixture(w, h, &pattern);
+            let mut trivial = absent.clone();
+            trivial.active_area = Some(ActiveArea {
+                top: 0,
+                left: 0,
+                bottom: h,
+                right: w,
+            });
+            trivial.default_crop_origin = Some(DefaultCropOrigin { x: 0, y: 0 });
+            trivial.default_crop_size = Some(DefaultCropSize {
+                width: w,
+                height: h,
+            });
+            trivial.orientation = Some(1);
+            let mosaic = varied_mosaic(w, h);
+
+            let mut from_absent = vec![0u16; mosaic.len() * 3];
+            develop_color_into(&absent, &mosaic, &mut from_absent).expect("absent tags");
+            let mut from_trivial = vec![0u16; mosaic.len() * 3];
+            develop_color_into(&trivial, &mosaic, &mut from_trivial).expect("trivial tags");
+
+            let whole = reference_develop_color(&absent, &mosaic);
+            assert_eq!(from_absent, whole, "{w}×{h} {pattern:?}: absent tags");
+            assert_eq!(from_trivial, whole, "{w}×{h} {pattern:?}: trivial tags");
+        }
+    }
+}
+
+#[test]
+fn hostile_geometry_is_a_typed_error_on_the_colour_path() {
+    // DefaultCrop that does not fit, and an out-of-range Orientation: the colour
+    // path reuses resolve_geometry's typed rejections, never a panic.
+    let mosaic = varied_mosaic(GEO_W, GEO_H);
+    let mut dst = vec![0u16; mosaic.len() * 3];
+
+    let mut bad_crop = geometry_fixture(&BAYER_PHASES[0], None);
+    bad_crop.default_crop_size = Some(DefaultCropSize {
+        width: 17,
+        height: 9,
+    });
+    match develop_color_into(&bad_crop, &mosaic, &mut dst) {
+        Err(Error::InvalidDefaultCrop { .. }) => {}
+        other => panic!("expected InvalidDefaultCrop, got {other:?}"),
+    }
+
+    let bad_orientation = geometry_fixture(&BAYER_PHASES[0], Some(9));
+    match develop_color_into(&bad_orientation, &mosaic, &mut dst) {
+        Err(Error::UnsupportedOrientation { orientation: 9 }) => {}
+        other => panic!("expected UnsupportedOrientation, got {other:?}"),
     }
 }

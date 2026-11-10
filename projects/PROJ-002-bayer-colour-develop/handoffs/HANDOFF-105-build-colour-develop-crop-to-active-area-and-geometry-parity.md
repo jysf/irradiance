@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-09
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-050
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 10626299           # REAL combined count — what cost-audit reads
+  estimated_usd: 7.58
+  duration_minutes: 15
+  branch: claude/spec-050-colour-crop-geometry
+  pr: 152
+  completed_at: 2026-11-09
+  notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id; 10,398,650 of it cache reads) at handback time — /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the few final PR-opening turns."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -168,50 +168,41 @@ n/a (build cycle).
 ## Return Criteria — how to hand back
 
 **Completing this handoff means filling in the `handback:` front-matter block
-above AND the `## Handback` section below.** An unfilled handback is an
-incomplete cycle, and `just handback-sync` will tell the orchestrator so.
-
-On success:
-1. Fill the `handback:` front-matter — **including a real `tokens_total`**.
-2. Fill the `## Handback` section (the reflection is part of it, not optional).
-3. Set `handoff.status` → `completed` and `handback.status` → `completed`.
-4. Open a PR (build).
-
-If you cannot complete the task:
-1. Fill the `## Handback` section with what was done and what blocked you.
-2. Set `handoff.status` → `rejected`, `handback.status` → `blocked`.
-3. **Still report your token usage** — blocked work costs money too.
-4. Set the spec's `task.blocked: true` and add a question to
-   `/guidance/questions.yaml`.
-
----
-
-## Handback
+above AND the `## Handback
 
 *Filled in by the receiving agent. The orchestrator does not reconstruct any of
 this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** <branch> → PR #<n> (against `main`).
-- **Completed at:** <YYYY-MM-DD>
-- **All acceptance criteria met?** <yes/no + the evidence per criterion>
+- **Branch / PR:** `claude/spec-050-colour-crop-geometry` → PR #152 (against `main`).
+- **Completed at:** 2026-11-09
+- **All acceptance criteria met?** yes.
+  - *Output dims = `output_dimensions(sensor)`:* `colour_output_has_output_dimensions_geometry` (orientation 6 → 9×13 from a 13×9 crop; a whole-plane `dst` is now `RgbBufferWrongLength`), `colour_geometry_matches_the_mono_path` (all 8 orientations + absent). Real file: Canon 5D3 `5G4A9394.DNG` — `irr color` and `irr develop` both 5760×3840 (plane 5920×3950).
+  - *Masked border gone:* output [0,0] is no longer the plane's (0,0) border pixel (same test).
+  - *Colours unchanged on kept pixels:* `colour_crop_pixels_equal_the_whole_plane_develop_at_their_source` (4 phases × 9 orientation cases vs the independent reference pipeline, now ActiveArea-origin-aware) + the SPEC-047 grey-stays-grey on a cropped, orientation-7 grey across 4 origin parities × 4 phases. Direct evidence too: before touching code I captured today's whole-plane `develop_color_into` bytes for the odd-origin geometry fixture (4 phases); after the change all **3,744 kept pixels (4 phases × 8 orientations) were byte-identical** to those captured bytes at their source (source map taken from the mono `develop_into` on an index plane). Temporary harness, not committed.
+  - *Geometry matches mono:* `colour_geometry_matches_the_mono_path` uses `develop_into` on an index plane as the oracle for WHERE each output pixel comes from — every colour output slot matches.
+  - *f32 parity at new dims:* `develop_color_f32_still_equals_to_linear_at_new_dims` (4 phases × 9 orientation cases), plus its wrong-length typed error.
+  - *DEVELOP_VERSION / no panic / determinism / no dep:* `DEVELOP_VERSION` 3 → 4; hostile geometry is the typed `InvalidActiveArea` / `InvalidDefaultCrop` / `UnsupportedOrientation` (`hostile_geometry_is_a_typed_error_on_the_colour_path`, updated out-of-range-origin test); every write via `.get_mut`, all arithmetic checked/wrapping/saturating under the crate's deny lints; zero dependencies; `develop_color_fused` byte-for-byte untouched.
+  - *Red first:* all 9 new/updated colour tests failed against the whole-plane output before the change (the trivial-geometry pin passed both before and after, as intended); the round-trip unit test did not compile before the helper existed.
+  - *Gates:* `just test`, `just lint-ci`, `just fmt-check`, `just validate`, `just cost-audit` — all green.
+  - *Peak RSS (23.4 MP, Canon-like ActiveArea + DefaultCrop, median of 7):* u16 235,814,912 → **228,261,888 B** (−7.55 MB, exactly the smaller `dst`); f32 376,193,024 → **361,086,976 B** (−15.1 MB). No regression from SPEC-049. Time ≈1.05× (u16 399 → 420 ms) / ≈1.02× (f32 420 → 430 ms) — the per-pixel crop test in the sink. Recorded in `docs/provenance-ledger.md`.
 
 ### Cost self-report
 
-- **Tokens (total):** <REAL number from `/cost`>
-- **Estimated USD:** <tokens × rate>
-- **Duration (minutes):** <n>
-- **Source of the number:** <`/cost`, usage object, harness>
+- **Tokens (total):** 10,626,299
+- **Estimated USD:** ~$7.58 (Opus list rates; 10.4M of the tokens are cache reads)
+- **Duration (minutes):** ~15
+- **Source of the number:** sum of this session's own transcript usage records (deduped by message id), claude-opus-5-5. `/cost` is not callable as a tool in a delegated session.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:** <none / DEC-NNN>
-- **Deviations from spec:** <none / what and why>
-- **Follow-up work identified:** <none / what>
+- **New decisions emitted:** none (DEC-043 covers it).
+- **Deviations from spec:** (1) The sink uses an affine `base + crop_x·step_x + crop_y·step_y` read off `output_coords_from_crop` once, plus a row cursor, instead of calling the helper per pixel — a first cut calling it per pixel (with a per-pixel orientation match) cost ≈7.5% develop time; this cut costs ≈5%. Same mapping, pinned by the same tests. (2) `Geometry` / `resolve_geometry` / `oriented_dimensions` became `pub(crate)` so the colour path reuses them. (3) `Error::RgbBufferWrongLength`'s Display text changed from "demosaic RGB buffer … (width x height x 3)" to a neutral "interleaved RGB buffer … (output width x output height x 3)" since it now also covers the cropped colour dst. (4) Error order now mirrors `develop_into`: src length → geometry → dst length. (5) `irr color`, README and CHANGELOG updated for the new contract.
+- **Follow-up work identified:** the ≈5% sink overhead could be removed with a row-level emit API from the fused kernel (skip whole rows outside the crop, hand the sink a row slice) — only if the kernel can be touched later; out of scope under DEC-043. `WarpRectilinear`/`OpcodeList` on the colour path remains the known gap (README says so).
 
 ### Reflection (3 questions, short answers)
 
-1. **What was unclear in the spec or handoff that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec or handoff that slowed you down?** — Little. The one gap: the spec says "regenerate the colour goldens" but the colour goldens are the synthetic SPEC-047 tests in `tests/color_oracle.rs` (there is no stored golden file), and one of them — the out-of-range ActiveArea no-panic test — necessarily changes meaning (now a typed rejection, because the colour path resolves geometry).
+2. **Was there a constraint or decision that should have been listed but wasn't?** — DEC-041's time discipline: the spec asked only for "RSS must not regress", but a sink-side scatter has a small per-pixel time cost that is worth stating up front as an accepted trade.
+3. **If you did this task again, what would you do differently?** — Write the affine-stride sink first; the per-pixel orientation match was predictably the slow version.

@@ -102,29 +102,33 @@ use crate::ifd::{ActiveArea, Sensor};
 use crate::Error;
 
 /// Resolved geometry, defaults applied, every rectangle validated to fit.
-struct Geometry {
+///
+/// `pub(crate)` so the colour path ([`crate::color::develop_color_into`],
+/// `SPEC-050`, `DEC-043`) crops and orients to exactly this geometry rather than
+/// re-deriving it.
+pub(crate) struct Geometry {
     /// `ActiveArea`'s origin, in raw-plane coordinates (`(0, 0)` when the tag
     /// is absent — `SPEC-014` `AC3`'s `L1000622.DNG` case).
-    active_left: u32,
-    active_top: u32,
+    pub(crate) active_left: u32,
+    pub(crate) active_top: u32,
     /// `ActiveArea`'s own size — `SPEC-018`: this is the coordinate space
     /// `WarpRectilinear` operates in (see [`develop_into`]'s module doc,
     /// "Pipeline order"), distinct from `crop_width`/`crop_height` below.
-    active_width: u32,
-    active_height: u32,
+    pub(crate) active_width: u32,
+    pub(crate) active_height: u32,
     /// `DefaultCropOrigin`, relative to `ActiveArea`'s origin (`AC4`;
     /// `DEC-019`). `(0, 0)` when the tag is absent.
-    crop_origin_x: u32,
-    crop_origin_y: u32,
+    pub(crate) crop_origin_x: u32,
+    pub(crate) crop_origin_y: u32,
     /// `DefaultCropSize`. Defaults to the full active area when the tag is
     /// absent (the DNG specification's own stated default) — untested by any
     /// corpus file, since every decodable file carries an explicit size; only
     /// `hostile_geometry_does_not_panic`'s hand-built fixture reaches it.
-    crop_width: u32,
-    crop_height: u32,
+    pub(crate) crop_width: u32,
+    pub(crate) crop_height: u32,
     /// `Orientation`, defaulted to 1 (normal) when absent, validated to
     /// `1..=8`.
-    orientation: u32,
+    pub(crate) orientation: u32,
 }
 
 /// Resolve `ActiveArea` → `DefaultCrop` → `Orientation`, applying DNG's
@@ -132,7 +136,7 @@ struct Geometry {
 /// `AC6` names: an inverted or out-of-plane `ActiveArea`, a crop that does
 /// not fit inside it (including zero-sized), and an `Orientation` outside
 /// `1..=8`.
-fn resolve_geometry(sensor: &Sensor) -> Result<Geometry, Error> {
+pub(crate) fn resolve_geometry(sensor: &Sensor) -> Result<Geometry, Error> {
     let (active_top, active_left, active_bottom, active_right) = match sensor.active_area {
         Some(a) => (a.top, a.left, a.bottom, a.right),
         // Absent means "the whole raw plane is active" — DNG's own default,
@@ -210,7 +214,7 @@ fn resolve_geometry(sensor: &Sensor) -> Result<Geometry, Error> {
 
 /// The developed image's dimensions: `(crop_width, crop_height)`, swapped for
 /// an `Orientation` that rotates 90° (5-8) — `AC5`.
-fn oriented_dimensions(orientation: u32, width: u32, height: u32) -> (u32, u32) {
+pub(crate) fn oriented_dimensions(orientation: u32, width: u32, height: u32) -> (u32, u32) {
     match orientation {
         1..=4 => (width, height),
         // 5-8 (validated to 1..=8 by `resolve_geometry`'s caller).
@@ -267,6 +271,44 @@ fn crop_source_coords(
         // Unreachable: `orientation` is validated to `1..=8` before this is
         // ever called. A total match rather than a partial one, so this
         // function has no panicking path at all (`no-panics-on-untrusted-input`).
+        _ => (0, 0),
+    }
+}
+
+/// The inverse of [`crop_source_coords`]: map a pixel's position **within the
+/// crop rectangle** — `(0..crop_width, 0..crop_height)` — to its destination
+/// (post-orientation) position. Orientations 1-4 keep a `crop_width ×
+/// crop_height` output; 5-8 transpose it to `crop_height × crop_width`.
+///
+/// The mono path gathers (output → source, [`crop_source_coords`]); the colour
+/// path (`SPEC-050`, `DEC-043`) scatters each developed pixel straight into its
+/// output slot as the fused kernel emits it, so it needs the source → output
+/// direction. Derived by solving each of [`crop_source_coords`]'s eight cases
+/// for `(out_x, out_y)`: the mirrors (2, 3, 4) and the transpose (5) and its
+/// 180° companion (7) are their own inverses; the two 90° rotations (6, 8) swap
+/// roles with each other. Pinned by
+/// `output_coords_from_crop_is_the_inverse_of_crop_source_coords`, a round trip
+/// over every crop pixel of several shapes for all eight orientations.
+pub(crate) fn output_coords_from_crop(
+    orientation: u32,
+    crop_x: u32,
+    crop_y: u32,
+    crop_width: u32,
+    crop_height: u32,
+) -> (u32, u32) {
+    let flip_x = |v: u32| crop_width.saturating_sub(1).saturating_sub(v);
+    let flip_y = |v: u32| crop_height.saturating_sub(1).saturating_sub(v);
+    match orientation {
+        1 => (crop_x, crop_y),
+        2 => (flip_x(crop_x), crop_y),
+        3 => (flip_x(crop_x), flip_y(crop_y)),
+        4 => (crop_x, flip_y(crop_y)),
+        5 => (crop_y, crop_x),
+        6 => (flip_y(crop_y), crop_x),
+        7 => (flip_y(crop_y), flip_x(crop_x)),
+        8 => (crop_y, flip_x(crop_x)),
+        // Unreachable: `orientation` is validated to `1..=8` before this is
+        // ever called; a total match keeps this function panic-free.
         _ => (0, 0),
     }
 }
@@ -1125,6 +1167,45 @@ mod tests {
                 expect_c,
                 "orientation {orientation}, dest {dest_c:?}"
             );
+        }
+    }
+
+    #[test]
+    fn output_coords_from_crop_is_the_inverse_of_crop_source_coords() {
+        // SPEC-050 (DEC-043): the colour sink scatters crop→output, so its map
+        // must be the exact inverse of the mono gather's output→crop map. Over
+        // every crop pixel of several crop shapes (square, wide, tall, 1-wide,
+        // 1-tall) and all eight orientations: the round trip is the identity,
+        // the output coordinate lands inside the (transposed for 5-8) output
+        // rectangle, and no two crop pixels share an output slot.
+        for (crop_w, crop_h) in [(4, 4), (5, 3), (2, 7), (1, 6), (6, 1), (1, 1)] {
+            for orientation in 1..=8 {
+                let (out_w, out_h) = oriented_dimensions(orientation, crop_w, crop_h);
+                let mut seen = vec![false; (out_w * out_h) as usize];
+                for crop_y in 0..crop_h {
+                    for crop_x in 0..crop_w {
+                        let (out_x, out_y) =
+                            output_coords_from_crop(orientation, crop_x, crop_y, crop_w, crop_h);
+                        assert!(
+                            out_x < out_w && out_y < out_h,
+                            "orientation {orientation}, crop {crop_w}x{crop_h}: \
+                             ({crop_x},{crop_y}) -> ({out_x},{out_y}) outside {out_w}x{out_h}"
+                        );
+                        assert_eq!(
+                            crop_source_coords(orientation, out_x, out_y, crop_w, crop_h),
+                            (crop_x, crop_y),
+                            "orientation {orientation}, crop {crop_w}x{crop_h}: round trip"
+                        );
+                        let slot = (out_y * out_w + out_x) as usize;
+                        assert!(!seen[slot], "orientation {orientation}: slot reused");
+                        seen[slot] = true;
+                    }
+                }
+                assert!(
+                    seen.iter().all(|&s| s),
+                    "orientation {orientation}: slot missed"
+                );
+            }
         }
     }
 

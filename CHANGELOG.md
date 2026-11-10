@@ -19,6 +19,21 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **⚠ Colour develop now crops and orients like the mono develop — `dst` is
+  smaller** (`irradiance::color`, SPEC-050, PROJ-002) — `develop_color_into` and
+  `develop_color_f32_into` now apply `ActiveArea` → `DefaultCrop` → `Orientation`
+  exactly as `develop_into` does, so the optical-black masked border is dropped
+  and a rotated file comes out rotated. **Breaking for callers:** size `dst` from
+  `develop::output_dimensions(&sensor)` × 3, not `width × height × 3` (a
+  whole-plane `dst` is now `Error::RgbBufferWrongLength`), and a hostile geometry
+  is the same typed `InvalidActiveArea` / `InvalidDefaultCrop` /
+  `UnsupportedOrientation` the mono path returns. The kept pixels' colours are
+  **unchanged** — byte-identical to the previous whole-plane render at their
+  source; only the frame moves. A file with no `ActiveArea`/`DefaultCrop` and
+  orientation 1 is byte-identical to before. `DEVELOP_VERSION` 3 → 4; no new
+  scratch buffer (peak RSS falls by the smaller `dst`). `irr color` writes the
+  cropped image. `DEC-043`.
+
 - **Colour develop uses ~134 MB less peak memory, output unchanged**
   (`irradiance::color`, SPEC-049, PROJ-002) — `develop_color_into` was fused from
   three buffered passes into two: level-normalisation now runs once into a small

@@ -114,6 +114,7 @@
 //! implementation read. See `docs/provenance-ledger.md`.
 
 use crate::demosaic::develop_color_fused;
+use crate::develop::{oriented_dimensions, output_coords_from_crop, resolve_geometry};
 use crate::ifd::{active_area_origin, Rational, Sensor};
 use crate::Error;
 
@@ -230,9 +231,26 @@ pub fn to_srgb_linear_into(
 }
 
 /// Develop a raw **Bayer mosaic** (`width·height` `u16` samples) all the way to
-/// interleaved **linear-sRGB** `u16` (`width·height·3`): per-channel
+/// interleaved **linear-sRGB** `u16`, cropped and oriented to the same geometry
+/// as [`crate::develop::develop_into`] (`out_w·out_h·3`, where `(out_w, out_h)`
+/// is [`crate::develop::output_dimensions`]`(sensor)`): per-channel
 /// level-normalize → demosaic → colour matrix, fused into two memory-lean passes
-/// (`SPEC-033`; the `SPEC-049` fuse, `DEC-042`).
+/// (`SPEC-033`; the `SPEC-049` fuse, `DEC-042`; the `SPEC-050` crop, `DEC-043`).
+///
+/// **Geometry (`SPEC-050`, `DEC-043`).** The output is `ActiveArea` →
+/// `DefaultCrop` (relative to the ActiveArea, `DEC-019`) → `Orientation`, the
+/// masked border outside the `ActiveArea` and the margin outside the
+/// `DefaultCrop` dropped, dimensions swapped for a 90° orientation (5-8) —
+/// exactly the mono path's frame, so size `dst` from the public
+/// [`crate::develop::output_dimensions`] as `develop_into`'s callers do. The
+/// crop happens **at the sink**: the fused kernel still develops every plane
+/// pixel with the same neighbours (so a kept pixel's colour is byte-identical to
+/// the whole-plane develop at its source — the crop moves the frame, not the
+/// colours, and the `SPEC-047` ActiveArea-origin phase still holds), and each
+/// pixel is scattered straight into its output slot or dropped. No intermediate
+/// RGB buffer exists. (Before `SPEC-050` the output was the whole
+/// `width·height·3` plane, border included — a contract change, `DEVELOP_VERSION`
+/// 4.) `WarpRectilinear`/`OpcodeList` are not applied on this path.
 ///
 /// The per-channel level-normalize happens on the **mosaic, before demosaic**:
 /// black-subtract is per CFA colour and does not commute with interpolation, so
@@ -256,32 +274,17 @@ pub fn to_srgb_linear_into(
 /// # Errors
 ///
 /// - [`Error::ColorSourceWrongLength`] if `src.len() != width·height`.
-/// - [`Error::RgbBufferWrongLength`] if `dst.len() != width·height·3`.
+/// - [`Error::InvalidActiveArea`] / [`Error::InvalidDefaultCrop`] /
+///   [`Error::UnsupportedOrientation`] for a geometry
+///   [`crate::develop::develop_into`] would also reject.
+/// - [`Error::RgbBufferWrongLength`] if `dst.len() != out_w·out_h·3`.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] for a
 ///   non-CFA plane or an unsupported mosaic, or [`Error::MissingColorCalibration`]
 ///   if the colour matrix cannot be built — in that order (CFA before matrix).
 ///
 /// Never panics.
 pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
-    let pixels = pixel_count(sensor)?;
-    let rgb_len = pixels.checked_mul(3).ok_or(Error::RgbBufferWrongLength {
-        expected: u64::MAX,
-        actual: dst.len(),
-    })?;
-    let expected_src = usize::try_from(pixels).unwrap_or(usize::MAX);
-    let expected_dst = usize::try_from(rgb_len).unwrap_or(usize::MAX);
-    if src.len() != expected_src {
-        return Err(Error::ColorSourceWrongLength {
-            expected: pixels,
-            actual: src.len(),
-        });
-    }
-    if dst.len() != expected_dst {
-        return Err(Error::RgbBufferWrongLength {
-            expected: rgb_len,
-            actual: dst.len(),
-        });
-    }
+    let (expected_src, output) = check_color_buffers(sensor, src.len(), dst.len())?;
 
     // The one remaining scratch buffer: the `width·height` green plane.
     let mut green = vec![0u16; expected_src];
@@ -291,11 +294,18 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
     develop_color_fused(sensor, &mut green, &normalize, || {
         let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] =
             build_camera_to_srgb_linear(sensor)?;
+        let mut scatter = output;
         Ok(move |pixel: usize, r: u16, g: u16, b: u16| {
+            // Crop + orient at the sink (`DEC-043`): a pixel outside the
+            // DefaultCrop rectangle (the masked border included) is dropped
+            // before the matrix is even applied.
+            let Some(slot) = scatter.slot_of(pixel) else {
+                return;
+            };
             let rf = f64::from(r);
             let gf = f64::from(g);
             let bf = f64::from(b);
-            if let Some([out_r, out_g, out_b]) = dst_triples.get_mut(pixel) {
+            if let Some([out_r, out_g, out_b]) = dst_triples.get_mut(slot) {
                 *out_r = quantize(m00 * rf + m01 * gf + m02 * bf);
                 *out_g = quantize(m10 * rf + m11 * gf + m12 * bf);
                 *out_b = quantize(m20 * rf + m21 * gf + m22 * bf);
@@ -305,8 +315,9 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
 }
 
 /// Develop a raw **Bayer mosaic** (`width·height` `u16` samples) to interleaved
-/// **scene-linear sRGB** `f32` (`width·height·3`), sharing [`develop_color_into`]'s
-/// fused pipeline but writing `f32` directly so a float consumer (the Python
+/// **scene-linear sRGB** `f32` at [`develop_color_into`]'s cropped, oriented
+/// geometry (`out_w·out_h·3`, [`crate::develop::output_dimensions`]; `SPEC-050`),
+/// sharing [`develop_color_into`]'s fused pipeline but writing `f32` directly so a float consumer (the Python
 /// bindings, ML dataloaders) never holds the `u16` result and its `f32` copy at
 /// once (`SPEC-049`, `DEC-042`).
 ///
@@ -318,37 +329,26 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
 /// clamp-and-round and differ. As in [`crate::tone::to_linear_f32_into`] this is
 /// scene-linear, not display-encoded (the sRGB OETF is [`crate::tone`]'s).
 ///
+/// The crop + orient scatter is a pure rearrangement with no arithmetic, so it
+/// commutes with the quantise-then-divide: each kept pixel is quantised, then
+/// divided, then written to its output slot.
+///
 /// The only internal scratch is the `width·height` green plane; `src`/`dst` are
 /// caller-owned (`DEC-016`).
 ///
 /// # Errors
 ///
 /// - [`Error::ColorSourceWrongLength`] if `src.len() != width·height`.
-/// - [`Error::RgbBufferWrongLength`] if `dst.len() != width·height·3`.
+/// - [`Error::InvalidActiveArea`] / [`Error::InvalidDefaultCrop`] /
+///   [`Error::UnsupportedOrientation`] for a geometry
+///   [`crate::develop::develop_into`] would also reject.
+/// - [`Error::RgbBufferWrongLength`] if `dst.len() != out_w·out_h·3`.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] /
 ///   [`Error::MissingColorCalibration`], in that order (CFA before matrix).
 ///
 /// Never panics.
 pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> Result<(), Error> {
-    let pixels = pixel_count(sensor)?;
-    let rgb_len = pixels.checked_mul(3).ok_or(Error::RgbBufferWrongLength {
-        expected: u64::MAX,
-        actual: dst.len(),
-    })?;
-    let expected_src = usize::try_from(pixels).unwrap_or(usize::MAX);
-    let expected_dst = usize::try_from(rgb_len).unwrap_or(usize::MAX);
-    if src.len() != expected_src {
-        return Err(Error::ColorSourceWrongLength {
-            expected: pixels,
-            actual: src.len(),
-        });
-    }
-    if dst.len() != expected_dst {
-        return Err(Error::RgbBufferWrongLength {
-            expected: rgb_len,
-            actual: dst.len(),
-        });
-    }
+    let (expected_src, output) = check_color_buffers(sensor, src.len(), dst.len())?;
 
     let mut green = vec![0u16; expected_src];
     let normalize = make_normalizer(sensor, src);
@@ -357,11 +357,17 @@ pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> 
     develop_color_fused(sensor, &mut green, &normalize, || {
         let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] =
             build_camera_to_srgb_linear(sensor)?;
+        let mut scatter = output;
         Ok(move |pixel: usize, r: u16, g: u16, b: u16| {
+            // The same crop + orient scatter as `develop_color_into` — a pure
+            // rearrangement, so it commutes with the quantise-then-divide below.
+            let Some(slot) = scatter.slot_of(pixel) else {
+                return;
+            };
             let rf = f64::from(r);
             let gf = f64::from(g);
             let bf = f64::from(b);
-            if let Some([out_r, out_g, out_b]) = dst_triples.get_mut(pixel) {
+            if let Some([out_r, out_g, out_b]) = dst_triples.get_mut(slot) {
                 // Quantise to the identical integer path, THEN divide by 65535.0
                 // — the bit-exact definition of `to_linear_f32_into(quantize(..))`.
                 *out_r = f32::from(quantize(m00 * rf + m01 * gf + m02 * bf)) / 65535.0;
@@ -370,6 +376,158 @@ pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> 
             }
         })
     })
+}
+
+/// Validate a colour develop's buffers against `sensor`, in `develop_into`'s
+/// order: `src` is `width·height` ([`Error::ColorSourceWrongLength`]), then the
+/// geometry resolves (`resolve_geometry`'s typed `InvalidActiveArea` /
+/// `InvalidDefaultCrop` / `UnsupportedOrientation`), then `dst` is
+/// `output_dimensions·3` ([`Error::RgbBufferWrongLength`]). Returns the plane
+/// pixel count (the green-plane size) and the sink's crop/orient map.
+fn check_color_buffers(
+    sensor: &Sensor,
+    src_len: usize,
+    dst_len: usize,
+) -> Result<(usize, CropScatter), Error> {
+    let pixels = pixel_count(sensor)?;
+    let expected_src = usize::try_from(pixels).unwrap_or(usize::MAX);
+    if src_len != expected_src {
+        return Err(Error::ColorSourceWrongLength {
+            expected: pixels,
+            actual: src_len,
+        });
+    }
+
+    let output = CropScatter::new(sensor)?;
+    let rgb_len = u64::from(output.out_width)
+        .checked_mul(u64::from(output.out_height))
+        .and_then(|v| v.checked_mul(3))
+        .ok_or(Error::RgbBufferWrongLength {
+            expected: u64::MAX,
+            actual: dst_len,
+        })?;
+    if usize::try_from(rgb_len).ok() != Some(dst_len) {
+        return Err(Error::RgbBufferWrongLength {
+            expected: rgb_len,
+            actual: dst_len,
+        });
+    }
+    Ok((expected_src, output))
+}
+
+/// The colour path's crop + orient scatter (`SPEC-050`, `DEC-043`): maps each
+/// developed plane pixel, by its raster index, to its slot in the output — or
+/// drops it. It applies the mono path's resolved geometry (`ActiveArea` →
+/// `DefaultCrop`, relative to the ActiveArea per `DEC-019` → `Orientation`), so
+/// the colour output has [`crate::develop::output_dimensions`]'s shape.
+///
+/// Every orientation is a flip/transpose of the crop rectangle, so the output
+/// index is affine in the crop coordinates: `base + crop_x·step_x +
+/// crop_y·step_y`. The three coefficients are read off
+/// [`output_coords_from_crop`] once, here, rather than matching the orientation
+/// per pixel. The kernel emits each row's pixels together, so the row
+/// (`y`, and with it `base + crop_y·step_y`) is re-derived — one `checked_div` —
+/// only when the pixel index leaves the current row; any emit order is still
+/// correct, a pixel outside the cached row just re-derives it.
+struct CropScatter {
+    plane_width: usize,
+    /// The crop rectangle in raw-plane coordinates: `ActiveArea` origin +
+    /// `DefaultCropOrigin`, and `DefaultCropSize`.
+    crop_left: usize,
+    crop_top: usize,
+    crop_width: usize,
+    crop_height: usize,
+    /// [`crate::develop::output_dimensions`] — the crop, transposed for 5-8.
+    out_width: u32,
+    out_height: u32,
+    /// The affine output-index map (in output pixels, not samples).
+    base: i64,
+    step_x: i64,
+    step_y: i64,
+    /// The cached row: plane indices `row_start..row_end`, and its
+    /// `base + crop_y·step_y` (`None` when the row is outside the crop).
+    row_start: usize,
+    row_end: usize,
+    row_base: Option<i64>,
+}
+
+impl CropScatter {
+    fn new(sensor: &Sensor) -> Result<Self, Error> {
+        let geometry = resolve_geometry(sensor)?;
+        let orientation = geometry.orientation;
+        let (crop_width, crop_height) = (geometry.crop_width, geometry.crop_height);
+        let (out_width, out_height) = oriented_dimensions(orientation, crop_width, crop_height);
+
+        // The output index of crop pixel (cx, cy), via the inverse orientation map.
+        let index_of = |crop_x: u32, crop_y: u32| -> i64 {
+            let (out_x, out_y) =
+                output_coords_from_crop(orientation, crop_x, crop_y, crop_width, crop_height);
+            i64::from(out_y)
+                .wrapping_mul(i64::from(out_width))
+                .wrapping_add(i64::from(out_x))
+        };
+        let base = index_of(0, 0);
+        // A one-pixel-wide (or -tall) crop never moves along that axis, so its
+        // step is irrelevant; 0 keeps it from reading outside the rectangle.
+        let step_x = if crop_width > 1 {
+            index_of(1, 0).wrapping_sub(base)
+        } else {
+            0
+        };
+        let step_y = if crop_height > 1 {
+            index_of(0, 1).wrapping_sub(base)
+        } else {
+            0
+        };
+
+        let to_usize = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
+        Ok(Self {
+            plane_width: to_usize(sensor.width),
+            // Cannot overflow: `resolve_geometry` proved the crop fits inside
+            // the ActiveArea, which fits inside the `u32`-sized plane.
+            crop_left: to_usize(geometry.active_left.saturating_add(geometry.crop_origin_x)),
+            crop_top: to_usize(geometry.active_top.saturating_add(geometry.crop_origin_y)),
+            crop_width: to_usize(crop_width),
+            crop_height: to_usize(crop_height),
+            out_width,
+            out_height,
+            base,
+            step_x,
+            step_y,
+            row_start: 0,
+            row_end: 0,
+            row_base: None,
+        })
+    }
+
+    /// The output pixel index (into `dst`'s RGB triples) for plane pixel
+    /// `pixel = y·width + x`, or `None` if it lies outside the crop rectangle
+    /// (the masked border and the non-crop active margin are developed — their
+    /// green feeds neighbours — but never written).
+    fn slot_of(&mut self, pixel: usize) -> Option<usize> {
+        if pixel < self.row_start || pixel >= self.row_end {
+            self.enter_row(pixel);
+        }
+        let row_base = self.row_base?;
+        let crop_x = pixel
+            .wrapping_sub(self.row_start)
+            .checked_sub(self.crop_left)
+            .filter(|crop_x| *crop_x < self.crop_width)?;
+        let offset = i64::try_from(crop_x).ok()?.wrapping_mul(self.step_x);
+        usize::try_from(row_base.wrapping_add(offset)).ok()
+    }
+
+    /// Re-derive the cached row for `pixel`.
+    fn enter_row(&mut self, pixel: usize) {
+        let y = pixel.checked_div(self.plane_width).unwrap_or(0);
+        self.row_start = y.saturating_mul(self.plane_width);
+        self.row_end = self.row_start.saturating_add(self.plane_width);
+        self.row_base = y
+            .checked_sub(self.crop_top)
+            .filter(|crop_y| *crop_y < self.crop_height)
+            .and_then(|crop_y| i64::try_from(crop_y).ok())
+            .map(|crop_y| self.base.wrapping_add(crop_y.wrapping_mul(self.step_y)));
+    }
 }
 
 /// `width·height·3`, the interleaved-RGB sample count, as `u64` — errors (rather
