@@ -260,6 +260,21 @@ pub enum Error {
         limit: usize,
     },
 
+    /// The IFD entry tables walked so far declare more bytes, in total, than
+    /// the whole file holds (`DEC-046`, `SPEC-052`).
+    ///
+    /// Every table must lie inside the file, but tables at *distinct* offsets
+    /// may overlap the same bytes, so without this bound a small file could
+    /// drive a parse of millions of entries. A well-formed file's tables are
+    /// disjoint and sum to at most its length, so this never fires on one.
+    IfdTableBytesExceedFile {
+        /// The running total of `count × 12` table bytes at the point of
+        /// rejection (including the IFD that tipped it over).
+        declared: u64,
+        /// The length of the whole file, in bytes.
+        file_len: usize,
+    },
+
     /// A tag was present but carried a field type this reader does not read as
     /// an integer. The wider type model is `SPEC-004`'s.
     UnexpectedFieldType {
@@ -762,6 +777,12 @@ impl fmt::Display for Error {
             }
             Error::TooManyIfds { limit } => {
                 write!(f, "IFD walk reached the limit of {limit} directories")
+            }
+            Error::IfdTableBytesExceedFile { declared, file_len } => {
+                write!(
+                    f,
+                    "IFD entry tables declare {declared} bytes, exceeding the {file_len}-byte file"
+                )
             }
             Error::UnexpectedFieldType { tag, field_type } => {
                 write!(f, "tag {tag} has unreadable field type {field_type}")

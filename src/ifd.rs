@@ -844,7 +844,8 @@ impl<'a> Container<'a> {
     /// Depth-first: an IFD is recorded, then its `SubIFDs` are walked, then the
     /// chain continues. Fails with a typed [`Error`] on a bad header, a
     /// truncated read, a cycle, or a walk that exceeds [`MAX_IFD_DEPTH`] or
-    /// [`MAX_IFDS`].
+    /// [`MAX_IFDS`], or whose entry tables together declare more bytes than
+    /// the file holds ([`Error::IfdTableBytesExceedFile`], `DEC-046`).
     pub fn parse(data: &'a [u8]) -> Result<Container<'a>, Error> {
         let mark: [u8; 2] = data
             .get(0..2)
@@ -870,7 +871,9 @@ impl<'a> Container<'a> {
             ifds: Vec::new(),
         };
         let mut visited: Vec<u32> = Vec::new();
-        container.walk_chain(ifd0_offset, 0, None, &mut visited)?;
+        // DEC-046: running total of every walked IFD's entry-table bytes.
+        let mut table_bytes: u64 = 0;
+        container.walk_chain(ifd0_offset, 0, None, &mut visited, &mut table_bytes)?;
         Ok(container)
     }
 
@@ -908,6 +911,7 @@ impl<'a> Container<'a> {
         depth: u32,
         parent: Option<usize>,
         visited: &mut Vec<u32>,
+        table_bytes: &mut u64,
     ) -> Result<(), Error> {
         if depth > MAX_IFD_DEPTH {
             return Err(Error::IfdDepthExceeded {
@@ -928,7 +932,7 @@ impl<'a> Container<'a> {
                 return Err(Error::TooManyIfds { limit: MAX_IFDS });
             }
 
-            let (entries, next) = self.read_ifd(offset)?;
+            let (entries, next) = self.read_ifd(offset, table_bytes)?;
             // Index this IFD will occupy — the parent link for its SubIFDs.
             let index = self.ifds.len();
             self.ifds.push(Ifd {
@@ -943,7 +947,13 @@ impl<'a> Container<'a> {
             // the borrow of `self.ifds`, which the recursive call mutates.
             let subs = self.sub_ifd_offsets_of_last()?;
             for sub in subs {
-                self.walk_chain(sub, depth.saturating_add(1), Some(index), visited)?;
+                self.walk_chain(
+                    sub,
+                    depth.saturating_add(1),
+                    Some(index),
+                    visited,
+                    table_bytes,
+                )?;
             }
 
             offset = next;
@@ -952,7 +962,12 @@ impl<'a> Container<'a> {
     }
 
     /// Read the entry table at `offset` and the chain pointer after it.
-    fn read_ifd(&self, offset: u32) -> Result<(Vec<Entry>, u32), Error> {
+    ///
+    /// `table_bytes` is the walk's running total of entry-table bytes
+    /// (`DEC-046`); this IFD's `count × 12` is added to it, and the read is
+    /// refused before anything is allocated if the total passes the file
+    /// length.
+    fn read_ifd(&self, offset: u32, table_bytes: &mut u64) -> Result<(Vec<Entry>, u32), Error> {
         let at = offset_to_usize(offset)?;
         let count = read_u16(self.data, at, self.byte_order)?;
 
@@ -974,6 +989,27 @@ impl<'a> Container<'a> {
                 at: entries_at,
                 len: table_len,
             })?;
+
+        // DEC-046 — the aggregate entry-table byte guard (pre-0.2.0 review
+        // finding #1). Each table is already known to lie inside the file, but
+        // tables at DISTINCT offsets may overlap the same bytes, so without
+        // this a small file could make the walk parse millions of entries.
+        // Well-formed tables are disjoint and so sum to at most the file
+        // length; overlap only inflates the total. Checked after the bounds
+        // check above (so a single over-long table still reports `Truncated`)
+        // and before the allocation below (so an over-budget IFD allocates
+        // nothing). An overflowing total saturates and is rejected too.
+        let file_len = u64::try_from(self.data.len()).unwrap_or(u64::MAX);
+        *table_bytes = u64::try_from(table_len)
+            .ok()
+            .and_then(|len| table_bytes.checked_add(len))
+            .unwrap_or(u64::MAX);
+        if *table_bytes > file_len {
+            return Err(Error::IfdTableBytesExceedFile {
+                declared: *table_bytes,
+                file_len: self.data.len(),
+            });
+        }
 
         let mut entries = Vec::with_capacity(usize::from(count));
         // `as_chunks` rather than `chunks_exact`: it yields `&[u8; ENTRY_SIZE]`,

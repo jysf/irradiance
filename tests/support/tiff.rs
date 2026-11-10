@@ -741,6 +741,67 @@ pub fn empty() -> Vec<u8> {
     Vec::new()
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-052 — aliased entry tables (DEC-046, pre-0.2.0 review finding #1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A chain of `n` IFDs at **distinct** offsets 12 bytes apart, each declaring
+/// `count` entries, so every entry table overlaps the next one's.
+///
+/// Returns the bytes and the IFD offsets in chain order. Every per-IFD check
+/// passes (each table lies inside the file, no offset repeats, `n` stays under
+/// `MAX_IFDS`), yet the tables together declare `n × count × 12` bytes from a
+/// file of only `12 × (n - 1 + count) + 14` — the metadata amplification
+/// `DEC-046`'s aggregate guard exists to stop.
+///
+/// The layout is periodic with a 12-byte period starting at IFD0 (offset 8):
+///
+/// - IFD `k` sits at `o_k = 8 + 12k`; its `count` word is the first 2 bytes of
+///   period slot `k`.
+/// - Its table spans `[o_k + 2, o_k + 2 + 12 × count)`, which is every later
+///   IFD's `count` word and next-pointer too — the tables alias.
+/// - Its next pointer sits at `o_k + 2 + 12 × count` (bytes 2..6 of slot
+///   `k + count`) and holds `o_(k+1)`, or `0` for the last IFD so the chain ends
+///   cleanly. Count words (bytes 0..2) and next pointers (bytes 2..6) never
+///   collide, so every IFD reads back exactly as described.
+///
+/// The bytes inside a table that are not a count or a pointer are zero; the
+/// reader accepts any tag and field type in an entry header, and no next
+/// pointer reads as tag 330 (`SubIFDs`), so the walk visits exactly `n` IFDs.
+pub fn aliased_ifd_chain(order: Order, n: u32, count: u16) -> (Vec<u8>, Vec<u32>) {
+    let offset_of = |k: u32| 8 + 12 * k;
+    let offsets: Vec<u32> = (0..n).map(offset_of).collect();
+    let table = 12 * u32::from(count);
+    let len = if n == 0 {
+        8
+    } else {
+        // The last IFD's next pointer is the last thing in the file.
+        offset_of(n - 1) + 2 + table + 4
+    };
+
+    let mut out = vec![0u8; len as usize];
+    let ifd0 = if n == 0 { 0 } else { offset_of(0) };
+    out[0..2].copy_from_slice(&order.mark());
+    out[2..4].copy_from_slice(&order.u16(42));
+    out[4..8].copy_from_slice(&order.u32(ifd0));
+
+    for k in 0..n {
+        let at = offset_of(k) as usize;
+        out[at..at + 2].copy_from_slice(&order.u16(count));
+
+        let next_at = (offset_of(k) + 2 + table) as usize;
+        let next = if k + 1 < n { offset_of(k + 1) } else { 0 };
+        out[next_at..next_at + 4].copy_from_slice(&order.u32(next));
+    }
+    (out, offsets)
+}
+
+/// The fuzz seed / hostile-sweep form of [`aliased_ifd_chain`]: 32 IFDs of 32
+/// entries each declare 12,288 table bytes from a 770-byte file.
+pub fn aliased_ifd_tables() -> Vec<u8> {
+    aliased_ifd_chain(Order::Little, 32, 32).0
+}
+
 /// Every fixture, with the name it is stored and reported under.
 ///
 /// One list, consumed by both the hostile-input test and the fuzz-seed writer,
@@ -790,5 +851,8 @@ pub fn all() -> Vec<(&'static str, Vec<u8>)> {
         ),
         ("zero-entries", zero_entries()),
         ("no-ifd0", no_ifd0()),
+        // SPEC-052 — distinct-offset IFDs whose entry tables alias one region
+        // (DEC-046's aggregate table-bytes guard).
+        ("aliased-ifd-tables", aliased_ifd_tables()),
     ]
 }

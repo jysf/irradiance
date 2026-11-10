@@ -10,7 +10,9 @@
 //! seeded in [`ljpeg_seeds`] from a local LJ92 builder mirroring the oracle's
 //! `encode_lj92`).
 //!
-//! `SPEC-003`, extended by `SPEC-012` and `SPEC-014`. The `ifd` seeds are the
+//! `SPEC-003`, extended by `SPEC-012`, `SPEC-014` and `SPEC-052` (the
+//! `aliased-ifd-tables` seed for `DEC-046`'s aggregate table-bytes guard,
+//! added to the shared `tiff::all()` list). The `ifd` seeds are the
 //! hand-built tier-A fixtures in `tests/support/tiff.rs` — the same list
 //! `tests/ifd_reader.rs` asserts against, so a fixture cannot be added to the
 //! test lane and forgotten by the fuzz lane. The `plane` seeds are built
