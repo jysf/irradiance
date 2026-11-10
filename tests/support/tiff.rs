@@ -335,61 +335,110 @@ pub fn cfa_dng_16bit(order: Order, width: u32, height: u32, samples: &[u16]) -> 
 /// decodes to exactly `samples` (`cols * rows`, row-major, each below
 /// `2^precision`). Predictor 1, `Pt = 0`.
 pub fn lj92_strip(samples: &[u16], cols: usize, rows: usize, precision: u8) -> Vec<u8> {
-    assert_eq!(samples.len(), cols * rows, "samples must be cols * rows");
-    assert!((2..=16).contains(&precision), "precision must be 2..=16");
+    lj92_strip_components(samples, cols, rows, precision, 1, 0x11)
+}
 
-    // Prediction per T.81 H.1.2.1 with predictor 1: the first sample of the
-    // image predicts 2^(P-1); the rest of the first row predicts from the left
-    // (Ra); the first column of later rows predicts from above (Rb); everything
-    // else uses Ra. The difference is taken modulo 2^16 (`DEC-018`).
+/// [`lj92_strip`] generalised to the two-component (`Nf = 2`) column-interleave
+/// layout both held Compression-7 files use (`SPEC-046` / `DEC-037`) and to an
+/// arbitrary component `Hi/Vi` byte (`SPEC-053`).
+///
+/// `samples` is the de-interleaved plane, `plane_cols * rows` row-major. For
+/// `nf = 2`, `plane_cols` must be even: the frame declares `X = plane_cols / 2`
+/// samples per line and each scan MCU carries one sample of each column phase.
+/// Prediction (predictor 1) is held per component, so a sample's left
+/// neighbour is `nf` plane columns back and its upper neighbour is the same
+/// component one plane row up. `hv` is written into every component spec
+/// unchanged — the encoder itself always encodes as `H = V = 1`, so a non-`0x11`
+/// byte makes a stream whose header lies about its sampling (the hostile case
+/// `DEC-047` rejects). `nf = 1, hv = 0x11` is byte-identical to [`lj92_strip`].
+pub fn lj92_strip_components(
+    samples: &[u16],
+    plane_cols: usize,
+    rows: usize,
+    precision: u8,
+    nf: u8,
+    hv: u8,
+) -> Vec<u8> {
+    let nf_usize = usize::from(nf);
+    assert!(nf == 1 || nf == 2, "nf must be 1 or 2");
+    assert_eq!(
+        samples.len(),
+        plane_cols * rows,
+        "samples must be plane_cols * rows"
+    );
+    assert_eq!(
+        plane_cols % nf_usize,
+        0,
+        "plane_cols must be a multiple of nf"
+    );
+    assert!((2..=16).contains(&precision), "precision must be 2..=16");
+    let cols = plane_cols / nf_usize; // X, samples per line per component
+
+    // Prediction per T.81 H.1.2.1 with predictor 1, per component: the first
+    // sample of the image predicts 2^(P-1); the rest of the first row predicts
+    // from the left (Ra); the first column of later rows predicts from above
+    // (Rb); everything else uses Ra. The difference is taken modulo 2^16
+    // (`DEC-018`).
     let initial = 1i32 << (precision - 1);
     let mut writer = BitWriter::default();
     for r in 0..rows {
         for c in 0..cols {
-            let idx = r * cols + c;
-            let px = if idx == 0 {
-                initial
-            } else if c == 0 {
-                i32::from(samples[idx - cols])
-            } else {
-                i32::from(samples[idx - 1])
-            };
-            let raw = (i32::from(samples[idx]) - px).rem_euclid(65536);
-            let diff = if raw >= 32768 { raw - 65536 } else { raw };
-            // Category SSSS: the bit length of |diff|; 16 is the lone -32768
-            // case, which carries no additional bits (T.81 H.1.2.2).
-            let ssss = if diff == -32768 {
-                16
-            } else {
-                32 - diff.unsigned_abs().leading_zeros()
-            };
-            writer.put(ssss, 5);
-            if (1..16).contains(&ssss) {
-                let extra = if diff > 0 {
-                    diff as u32
+            for k in 0..nf_usize {
+                let idx = r * plane_cols + c * nf_usize + k;
+                let px = if r == 0 && c == 0 {
+                    initial
+                } else if c == 0 {
+                    i32::from(samples[idx - plane_cols])
                 } else {
-                    (diff + (1 << ssss) - 1) as u32
+                    i32::from(samples[idx - nf_usize])
                 };
-                writer.put(extra, ssss);
+                let raw = (i32::from(samples[idx]) - px).rem_euclid(65536);
+                let diff = if raw >= 32768 { raw - 65536 } else { raw };
+                // Category SSSS: the bit length of |diff|; 16 is the lone -32768
+                // case, which carries no additional bits (T.81 H.1.2.2).
+                let ssss = if diff == -32768 {
+                    16
+                } else {
+                    32 - diff.unsigned_abs().leading_zeros()
+                };
+                writer.put(ssss, 5);
+                if (1..16).contains(&ssss) {
+                    let extra = if diff > 0 {
+                        diff as u32
+                    } else {
+                        (diff + (1 << ssss) - 1) as u32
+                    };
+                    writer.put(extra, ssss);
+                }
             }
         }
     }
     let entropy = writer.finish();
 
     let mut data = vec![0xFF, 0xD8]; // SOI
-                                     // SOF3: Lf = 11, P, Y, X, Nf = 1, then one component spec (Ci, H/V, Tq).
-    data.extend_from_slice(&[0xFF, 0xC3, 0x00, 0x0B, precision]);
+                                     // SOF3: Lf = 8 + 3 Nf, P, Y, X, Nf, then one component spec (Ci, H/V, Tq)
+                                     // per component.
+    data.extend_from_slice(&[0xFF, 0xC3, 0x00, 8 + 3 * nf, precision]);
     data.extend_from_slice(&(rows as u16).to_be_bytes());
     data.extend_from_slice(&(cols as u16).to_be_bytes());
-    data.extend_from_slice(&[0x01, 0x00, 0x11, 0x00]);
+    data.push(nf);
+    for ci in 0..nf {
+        data.extend_from_slice(&[ci, hv, 0x00]);
+    }
     // DHT: one DC table (Tc = 0, Th = 0), 17 codes of length 5, symbols 0..=16.
     data.extend_from_slice(&[0xFF, 0xC4, 0x00, 2 + 1 + 16 + 17, 0x00]);
     let mut bits = [0u8; 16];
     bits[4] = 17;
     data.extend_from_slice(&bits);
     data.extend((0u8..=16).collect::<Vec<u8>>());
-    // SOS: Ls = 8, Ns = 1, Cs = 0, Td/Ta = 0, Ss = 1 (predictor), Se = 0, Ah/Al = 0.
-    data.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x08, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00]);
+    // SOS: Ls = 6 + 2 Ns, Ns = Nf, then (Cs, Td/Ta = 0) per component — every
+    // component shares the one DC table, as both held files do — then Ss = 1
+    // (predictor), Se = 0, Ah/Al = 0.
+    data.extend_from_slice(&[0xFF, 0xDA, 0x00, 6 + 2 * nf, nf]);
+    for cs in 0..nf {
+        data.extend_from_slice(&[cs, 0x00]);
+    }
+    data.extend_from_slice(&[0x01, 0x00, 0x00]);
     data.extend(entropy);
     data.extend_from_slice(&[0xFF, 0xD9]); // EOI
     data
