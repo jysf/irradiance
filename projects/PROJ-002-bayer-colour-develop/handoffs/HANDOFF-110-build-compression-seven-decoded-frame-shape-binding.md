@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-10
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-053
@@ -42,14 +42,14 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # tokens_total × your rate, or your harness's number
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # one line if unusual (rework, no meter, etc.)
+  status: completed                # completed | blocked | rejected
+  tokens_total: 12629153           # REAL combined count — what cost-audit reads
+  estimated_usd: 8.72
+  duration_minutes: 24
+  branch: claude/spec-053-build-570012
+  pr: 169
+  completed_at: 2026-11-10
+  notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -171,38 +171,46 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-053-build-570012` — https://github.com/jysf/irradiance/pull/169
+- **Completed at:** 2026-11-10
+- **All acceptance criteria met?** yes.
+  - Equal-area transpose (4 × 6 frame in a 6 × 4 strip, both byte orders) → `Err(LjpegPlaneShapeMismatch { 6, 4, 4, 6 })`; it returned a silent `Ok` before the guard (red run recorded below).
+  - Both component counts: `Nf=1` and `Nf=2` round-trip `Ok` when the shape matches; an `Nf=2` frame with `2·X == width` passes (pins the `× components` factor) and an `Nf=2` transpose is rejected.
+  - `Hi/Vi != 0x11` (0x22, 0x21, 0x12, 0x00) rejected on `Nf=1` and `Nf=2`, including a frame where only the second component is subsampled.
+  - Panic-free: five deny lints + `lint-ci` clean; the shape product is `saturating_mul` on `u16 × u8` widened to `u32` (cannot overflow; clippy's `manual_saturating_arithmetic` rejects the `checked_mul().unwrap_or(MAX)` form). `ljpeg` fuzz target 60 s clean (`cargo +nightly fuzz run ljpeg`, 4,894,453 runs in 61 s, zero crashes, including the new shape-invariant assertion).
+  - Red-proofs, control first (DEC-009): shape — control `err lossless JPEG: strip frame decodes to 4x6 … declares 6x4`, mutant (shape condition forced false in `src/plane.rs`) `ok …`; sampling — control `err … sampling factors 0x22 …`, mutant (condition forced false in `src/ljpeg.rs`) `ok …`.
+  - **Tier-B corpus (local, `IRRADIANCE_CORPUS_DIR` set):** both held Compression-7 DNGs decode `Ok` and bit-exact — `LEICA-M-MONOCHROM-TYP246/M2462362.DNG` 5984×4000 plane MD5 `c72e7d9579e2adaef9c6247841b8ac1d`, `PENTAX-K3III-MONO/K3III.DNG` 6304×4224 plane MD5 `98bae1339c25eb6e04fbac6b5f643189`, both equal to the manifest `raw_checksum` (`tests/ljpeg_shape_binding.rs::corpus_comp7_files_still_bit_exact`; the existing `plane_oracle` Compression-7 oracle also stays green).
+  - `DEVELOP_VERSION` unchanged (`"4"`).
+- **Red run before the fix** (guards absent, error variants already added so the file compiles): 4 of 8 failed — `equal_area_transposed_frame_is_rejected` got `Ok`, `nf2_effective_width_is_twice_samples_per_line` got `Ok`, `subsampled_component_is_rejected` got `Ok`, `line_count_mismatch_is_a_shape_mismatch` got the old `LjpegPlaneWrongLength`.
+- **Gates:** `just test` (with `IRRADIANCE_CORPUS_DIR` set; 0 failures), `just lint-ci`, `just fmt-check`, `just validate`, `just cost-audit` — all pass.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 12,629,153 (input 139 + cache write 180,616 + cache read 12,392,675 + output 55,723; 69 deduped API responses, all `claude-opus-5-5`). Excludes the final commit/report turns.
+- **Estimated USD:** ≈ $8.72 (Opus list rates)
+- **Duration (minutes):** ~24 (17:36–18:00 UTC)
+- **Source of the number:** this session's own transcript (`~/.claude/projects/…spec-053-build-570012/9ee95584-1abe-49c0-9c53-cca1feed9c91.jsonl`, anchored on the scratchpad UUID), `usage` summed over unique `message.id` (input + cache-creation + cache-read + output). `/cost` is not available inside a delegated desktop session, so the transcript `usage` is the harness report.
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - none (DEC-047 covers the build as written).
 - **Deviations from spec:**
-  - [list]
+  - The shape rule lives in a small `pub(crate) fn plane::check_strip_shape(frame, expected_width, expected_height)` called from `unpack_jpeg` before `decode_into`, rather than inline. Same site and semantics as DEC-047; factored so the `ljpeg` fuzz hook can run the exact same guard on every parsed header (the spec's "the fuzz target runs both guards on every input").
+  - The doc-hidden, `fuzzing`-feature-only `__fuzz_ljpeg` now returns `bool` (invariants held) and `fuzz/fuzz_targets/ljpeg.rs` asserts it. The library's lint policy denies `panic!`, so the assertion has to sit in the fuzz crate; `decode_into` / `parse_headers` / `unpack_into` signatures are unchanged as DEC-047 requires.
+  - An existing in-crate test (`plane::tests::compression7_frame_dimension_mismatch_is_typed_error`, a 3×2 frame in a 2×2 strip — unequal area) now expects `LjpegPlaneShapeMismatch` instead of `LjpegPlaneWrongLength`: the pre-decode shape check fires first, as the design places it. Noted in the CHANGELOG entry.
+  - `tests/support/tiff.rs` gained `lj92_strip_components(samples, plane_cols, rows, precision, nf, hv)` (`Nf=2` column-interleave + arbitrary `Hi/Vi`); `lj92_strip` now delegates to it and is byte-identical (asserted in the test, and every regenerated fuzz seed came out unchanged).
+  - New fuzz seeds: `fuzz/seeds/ljpeg/valid-two-component-p12.lj92`, `fuzz/seeds/ljpeg/subsampled-hv22.lj92`, `fuzz/seeds/plane/compression7-transposed-frame.tiff` (via `examples/fuzz-seeds.rs`).
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - `Error::LjpegUnsupportedComponentCount`'s doc comment and `Display` still say only single-component (`Nf = 1`) scans are supported; `Nf = 2` has been supported since SPEC-046. Message-only fix — fold into SPEC-040 (error kinds) or the 0.2.0 release sweep.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little; the line numbers were accurate. One gap: the spec says "the fuzz target runs both guards on every input", but the shape guard lives in `unpack_jpeg`, which the `ljpeg` target never reaches, and the hook cannot assert (the crate denies `panic!`). Resolving that took the small helper plus the `bool`-returning hook described above.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Clippy's `manual_saturating_arithmetic` (under `-D warnings` in `lint-ci`) rejects the spec's suggested `checked_mul … unwrap_or(MAX)` idiom; `saturating_mul` is the lint-clean form. Worth a line in the toolchain brief next to the arithmetic-side-effects guidance.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the `Nf=2` / `Hi/Vi` strip encoder first. Integration tests had no `Nf=2` SOF-3 builder (only the in-crate `cfg(test)` encoder had one), and every acceptance criterion needed it.

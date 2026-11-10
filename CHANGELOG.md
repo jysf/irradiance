@@ -23,6 +23,23 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   (the corpus DNGs' tables are ~0.003 % of the file). `MAX_IFDS`, `MAX_IFD_DEPTH`,
   `MAX_TAG_VALUES` and the cycle guard are unchanged. `DEC-046`.
 
+- **A wrong-shape Compression-7 strip is now refused instead of silently
+  mis-decoded** (`irradiance::plane`, SPEC-053, PROJ-002, pre-0.2.0 review finding
+  #2) — `unpack_into` sized each lossless-JPEG strip's row band to `rows × width`
+  and checked only that the SOF-3 frame's *area* matched, so a frame that is an
+  equal-area transpose of the strip (say 4 × 6 in a 6 × 4 band) decoded with the
+  wrong row stride and returned `Ok` with a garbled plane. The frame's effective
+  shape (`samples_per_line × components` by `lines`) is now bound to the strip's
+  declared width and rows before any sample is decoded; a mismatch — including an
+  unequal-area one, which used to surface as `LjpegPlaneWrongLength` — is
+  **`Error::LjpegPlaneShapeMismatch { expected_width, expected_height, decoded_width,
+  decoded_height }`**. Separately, a SOF-3 component declaring sampling factors
+  other than `H = V = 1` was decoded as if it were `H = V = 1`; it is now
+  **`Error::LjpegUnsupportedSampling { factor }`**. Both variants are additive
+  (`Error` is `#[non_exhaustive]`). Correctly shaped `H = V = 1` files decode
+  byte-identically — both held Compression-7 DNGs still match their pinned `dnglab`
+  checksums — so `DEVELOP_VERSION` is unchanged. `DEC-047`.
+
 ### Added
 
 - **`develop_color_f32_into`** (`irradiance::color`, SPEC-049, PROJ-002) — a public

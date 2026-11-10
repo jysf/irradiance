@@ -107,6 +107,11 @@ const MARKER_APP15: u8 = 0xEF;
 /// Comment segment.
 const MARKER_COM: u8 = 0xFE;
 
+/// The only supported SOF-3 component sampling byte: `Hi = 1` (high nibble),
+/// `Vi = 1` (low nibble). Anything else is [`Error::LjpegUnsupportedSampling`]
+/// (`DEC-047`; subsampled components are out of scope per `DEC-037`).
+const SAMPLING_H1_V1: u8 = 0x11;
+
 /// `2^n` for `n` in `0..=16`, without the shift/`pow` operators the crate root
 /// denies (`clippy::arithmetic_side_effects`). The bit reader needs `n <= 7`
 /// (a byte holds at most 8 unconsumed bits), `EXTEND` needs `n <= 15`, and the
@@ -332,6 +337,7 @@ impl HuffTable {
 /// [`Error::LjpegUnsupportedComponentCount`] (`Nf` outside `{1,2}`, or the
 /// scan's `Ns` not equal to the frame's `Nf`),
 /// [`Error::LjpegUnsupportedPrecision`] (`P` outside `2..=16`),
+/// [`Error::LjpegUnsupportedSampling`] (a component `Hi/Vi` other than `0x11`),
 /// [`Error::LjpegUnsupportedPredictor`] (`Ss` outside `1..=7`),
 /// [`Error::LjpegInvalidPointTransform`] (`Pt >= P`),
 /// [`Error::LjpegInvalidHuffmanTable`] (a malformed DHT, including a table
@@ -431,7 +437,9 @@ fn find_table(tables: &[(u8, HuffTable)], th: u8) -> Option<&HuffTable> {
 /// component specifications. Accepts `Nf ∈ {1, 2}` — the single-component case
 /// (`SPEC-037`) and the two-component column-interleave case both held
 /// Compression-7 files use (`SPEC-046` / `DEC-037`); `Nf` outside `{1,2}`
-/// (Bayer/CFA 3+) is rejected with [`Error::LjpegUnsupportedComponentCount`].
+/// (Bayer/CFA 3+) is rejected with [`Error::LjpegUnsupportedComponentCount`],
+/// and a component whose sampling byte is not `H=V=1` with
+/// [`Error::LjpegUnsupportedSampling`] (`DEC-047`).
 /// Returns `(precision, lines, samples_per_line, nf)`.
 fn parse_frame_header(data: &[u8], pos: &mut usize) -> Result<(u8, u16, u16, u8), Error> {
     let lf = read_u16_be(data, pos)?;
@@ -463,11 +471,16 @@ fn parse_frame_header(data: &[u8], pos: &mut usize) -> Result<(u8, u16, u16, u8)
     // for lossless there is no quantisation, and both held two-component files
     // are `H=V=1` (the §12 probe / `DEC-037`), so the interleave is one comp0
     // then one comp1 sample per grid position — no subsampling to track.
-    // (Subsampled `H`/`V`≠1 is out of scope — `DEC-037` — and no held file uses
-    // it.) The bytes are consumed to reach the next marker.
+    // Subsampled `H`/`V`≠1 is out of scope (`DEC-037`), so it is REFUSED here
+    // (`DEC-047`): decoding it as `H=V=1` would return a silently garbled
+    // plane. This runs for every SOF-3 stream — the single- and two-component
+    // paths and the fuzz hook alike.
     for _ in 0..nf {
         let _ci = read_u8(data, pos)?;
-        let _hv = read_u8(data, pos)?;
+        let hv = read_u8(data, pos)?;
+        if hv != SAMPLING_H1_V1 {
+            return Err(Error::LjpegUnsupportedSampling { factor: hv });
+        }
         let _tq = read_u8(data, pos)?;
     }
 

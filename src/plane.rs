@@ -264,11 +264,11 @@ fn unpack_byte_aligned(
 /// - [`Error::Truncated`] if a strip's declared offset/length runs past
 ///   `file`'s end.
 /// - [`Error::PlaneBufferWrongLength`] if `dst.len() != width * height`.
-/// - For a `Compression = 7` plane, any typed error from
-///   [`crate::ljpeg::decode_into`] — notably [`Error::LjpegPlaneWrongLength`]
-///   when a strip's SOF-3 frame dimensions disagree with its sized row band, and
-///   the `Ljpeg*` / [`Error::Truncated`] family on a malformed or truncated
-///   strip — never a panic. [`Error::UnsupportedBitDepth`] and
+/// - For a `Compression = 7` plane, [`Error::LjpegPlaneShapeMismatch`] when a
+///   strip's SOF-3 frame shape disagrees with the strip's declared geometry
+///   (`DEC-047`), and any typed error from [`crate::ljpeg::decode_into`] — the
+///   `Ljpeg*` / [`Error::Truncated`] family on a malformed, subsampled, or
+///   truncated strip — never a panic. [`Error::UnsupportedBitDepth`] and
 ///   [`Error::PackedSizeMismatch`] are uncompressed-only.
 ///
 /// A decoded sample above `WhiteLevel` is **not** an error (`DEC-029`, amending
@@ -459,6 +459,41 @@ fn unpack_uncompressed(
     Ok(())
 }
 
+/// Bind a parsed SOF-3 frame's shape to the geometry its strip declares
+/// (`DEC-047`): the frame's effective plane width `samples_per_line ×
+/// components` (the `Nf=2` column interleave is `2·X` wide — `SPEC-046`) must
+/// equal `expected_width`, and its `lines` must equal `expected_height`.
+///
+/// `ljpeg::decode_into` checks only the destination's AREA, so without this an
+/// equal-area transpose decodes to a silently mis-strided plane. Called by
+/// [`unpack_jpeg`] before each strip is decoded, and by the `ljpeg` fuzz hook
+/// on every parsed header.
+///
+/// # Errors
+///
+/// [`Error::LjpegPlaneShapeMismatch`] on any disagreement.
+pub(crate) fn check_strip_shape(
+    frame: &crate::ljpeg::Frame,
+    expected_width: u32,
+    expected_height: u32,
+) -> Result<(), Error> {
+    let decoded_height = u32::from(frame.lines);
+    // `u16 × u8` cannot overflow a `u32`; `saturating_mul` keeps the
+    // arithmetic lint satisfied, and an impossible overflow would still report
+    // as a mismatch rather than wrap into a false match.
+    let decoded_width =
+        u32::from(frame.samples_per_line).saturating_mul(u32::from(frame.components));
+    if decoded_width != expected_width || decoded_height != expected_height {
+        return Err(Error::LjpegPlaneShapeMismatch {
+            expected_width,
+            expected_height,
+            decoded_width,
+            decoded_height,
+        });
+    }
+    Ok(())
+}
+
 /// Route a DNG `Compression 7` (SOF-3 lossless JPEG) plane: each strip is an
 /// independent single-component SOF-3 datastream, decoded by
 /// [`crate::ljpeg::decode_into`] straight into its own `rows_in_strip × width`
@@ -480,10 +515,14 @@ fn unpack_uncompressed(
 /// - [`Error::MissingRowsPerStrip`] if a multi-strip plane (`N > 1`) carries no
 ///   usable `RowsPerStrip`.
 /// - [`Error::Truncated`] if a strip's declared offset/length runs past `file`.
-/// - any typed error from [`crate::ljpeg::decode_into`] — notably
-///   [`Error::LjpegPlaneWrongLength`] when a strip's SOF-3 frame dimensions
-///   disagree with its sized row band, and the `Ljpeg*` / [`Error::Truncated`]
-///   family on a malformed or truncated strip — never a panic.
+/// - [`Error::LjpegPlaneShapeMismatch`] if a strip's SOF-3 frame shape
+///   (`samples_per_line × components` by `lines`) is not the strip's declared
+///   `width × rows_in_strip` — checked before any sample is decoded, so an
+///   equal-area transpose is refused rather than mis-strided (`DEC-047`).
+/// - any typed error from [`crate::ljpeg::decode_into`] — the `Ljpeg*` /
+///   [`Error::Truncated`] family on a malformed or truncated strip (including
+///   [`Error::LjpegUnsupportedSampling`] for a subsampled component) — never a
+///   panic.
 fn unpack_jpeg(sensor: &Sensor, file: &[u8], dst: &mut [u16]) -> Result<(), Error> {
     // Same length precondition as the uncompressed path: the caller owns `dst`
     // and it must hold exactly one sample per pixel (`DEC-016`). No
@@ -549,9 +588,10 @@ fn unpack_jpeg(sensor: &Sensor, file: &[u8], dst: &mut [u16]) -> Result<(), Erro
         // the remaining buffer. `split_at_mut_checked` keeps the carve
         // bounds-checked and proves the strips never overrun the plane (an
         // undershoot is caught after the loop). Sizing the band to
-        // `rows_in_strip * width` is exactly what makes `decode_into`'s own
-        // `out.len() == X·Y` check the free frame-dimension consistency check
-        // (`LjpegPlaneWrongLength`).
+        // `rows_in_strip * width` also keeps `decode_into`'s own
+        // `out.len() == X·Y` area check meaningful, but the frame's SHAPE is
+        // bound explicitly below (`DEC-047`), since area alone admits a
+        // transpose.
         let samples_in_strip = u64::from(rows_in_strip)
             .checked_mul(u64::from(sensor.width))
             .and_then(|s| usize::try_from(s).ok())
@@ -574,11 +614,22 @@ fn unpack_jpeg(sensor: &Sensor, file: &[u8], dst: &mut [u16]) -> Result<(), Erro
         let end = at.checked_add(len).ok_or(Error::Truncated { at, len })?;
         let strip = file.get(at..end).ok_or(Error::Truncated { at, len })?;
 
+        // Bind the frame's SHAPE to this strip before decoding (`DEC-047`).
+        // `decode_into` fills `chunk` row-major by the frame's own width and
+        // checks only its AREA, so an equal-area transpose (a 4×6 frame in a
+        // 6×4 band) would decode to a silently mis-strided plane. The frame's
+        // effective width is `samples_per_line × components` (the `Nf=2`
+        // column interleave is `2·X` wide — SPEC-046); it must equal the
+        // sensor width, and its `lines` this strip's row count. The extra
+        // header parse is tens of bytes.
+        let (frame, _tables, _entropy_at) = crate::ljpeg::parse_headers(strip)?;
+        check_strip_shape(&frame, sensor.width, rows_in_strip)?;
+
         // Decode this strip's SOF-3 datastream into its row band. The returned
-        // `Frame` is not needed here — the row-band sizing already pins the
-        // dimensions — so it is dropped; every malformed / truncated /
-        // dimension-mismatched strip returns a typed `Error`, never a panic
-        // (inherited from SPEC-037/038, preserved by the binding).
+        // `Frame` is not needed — the shape check above already bound it — so
+        // it is dropped; `decode_into`'s own length check stays as a second,
+        // now-redundant guard. Every malformed / truncated strip returns a
+        // typed `Error`, never a panic (inherited from SPEC-037/038).
         crate::ljpeg::decode_into(strip, chunk)?;
 
         row_start = row_start.saturating_add(rows_in_strip);
@@ -801,8 +852,9 @@ mod tests {
     #[test]
     fn compression7_frame_dimension_mismatch_is_typed_error() {
         // The strip encodes a 3×2 = 6-sample SOF-3 frame, but the sensor sizes the
-        // single row band at 2×2 = 4. decode_into's own length check rejects the
-        // disagreement as a typed error — never a panic.
+        // single row band at 2×2 = 4. The pre-decode shape binding (`DEC-047`)
+        // rejects the disagreement as a typed error before decode_into's own
+        // length check is reached — never a panic.
         let samples = [10u16, 20, 30, 40, 50, 60]; // 3x2
         let strip = encode_lj92(&samples, 3, 2, 12, 1, 0, 0);
         let (file, locs) = plant_strips(&[&strip]);
@@ -812,9 +864,11 @@ mod tests {
         assert!(
             matches!(
                 err,
-                Error::LjpegPlaneWrongLength {
-                    expected: 6,
-                    got: 4
+                Error::LjpegPlaneShapeMismatch {
+                    expected_width: 2,
+                    expected_height: 2,
+                    decoded_width: 3,
+                    decoded_height: 2,
                 }
             ),
             "got {err:?}"

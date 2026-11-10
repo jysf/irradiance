@@ -172,20 +172,52 @@ pub const DEVELOP_VERSION: &str = "4";
 /// 65535` is this harness's choice, not a weakened library guarantee —
 /// `ljpeg::decode_into` would reject such a buffer with
 /// [`Error::LjpegPlaneWrongLength`] in any case), allocates a capped `u16`
-/// plane, drives the decoder, and drops the typed `Result`. Every byte string
-/// returns; nothing panics (`no-panics-on-untrusted-input`). It is held to the
-/// five-lint panic-free policy because it is compiled under `--all-features`.
+/// plane, and drives the decoder; a typed error itself is not inspected. Every
+/// byte string returns; nothing panics (`no-panics-on-untrusted-input`). It is
+/// held to the five-lint panic-free policy because it is compiled under
+/// `--all-features`.
+///
+/// `SPEC-053` (`DEC-047`): on every header that parses it also runs the strip
+/// shape binding (`plane::check_strip_shape`) and returns whether the shape
+/// invariants held — the frame's own effective shape (`samples_per_line ×
+/// components` by `lines`) is accepted, its non-square transpose is rejected
+/// with [`Error::LjpegPlaneShapeMismatch`], and a `decode_into` `Ok` returns
+/// the same frame the pre-decode parse saw (so `Ok` implies the decoded shape
+/// is the buffer's intended shape). The sampling-factor guard
+/// ([`Error::LjpegUnsupportedSampling`]) runs inside `parse_headers` on every
+/// input. `false` is an invariant violation the fuzz target turns into a
+/// crash; a rejected or oversized input is `true` (a typed error is success).
 #[cfg(feature = "fuzzing")]
 #[doc(hidden)]
-pub fn __fuzz_ljpeg(data: &[u8]) {
+#[must_use]
+pub fn __fuzz_ljpeg(data: &[u8]) -> bool {
     // The allocation THIS ENTRY is willing to make (see the `plane.rs` note).
     const MAX_PIXELS: u64 = 4_000_000;
 
     let Ok((frame, _table, _offset)) = ljpeg::parse_headers(data) else {
         // A rejected header is a success for the target: a typed error, never
         // a panic.
-        return;
+        return true;
     };
+
+    // The shape binding (`DEC-047`), on every parsed header: the frame's own
+    // effective shape must pass, and — when it is not square — its transpose
+    // (the equal-area wrong shape) must be refused with the typed error.
+    let effective_width =
+        u32::from(frame.samples_per_line).saturating_mul(u32::from(frame.components));
+    let lines = u32::from(frame.lines);
+    if plane::check_strip_shape(&frame, effective_width, lines).is_err() {
+        return false;
+    }
+    if effective_width != lines
+        && !matches!(
+            plane::check_strip_shape(&frame, lines, effective_width),
+            Err(Error::LjpegPlaneShapeMismatch { .. })
+        )
+    {
+        return false;
+    }
+
     // `Nf · X · Y`: the two-component column-interleave plane is `2·X` wide
     // (SPEC-046), so a two-component header must size `out` by its component
     // count or `decode_into` would always reject it with a length error before
@@ -194,16 +226,21 @@ pub fn __fuzz_ljpeg(data: &[u8]) {
         .checked_mul(u64::from(frame.samples_per_line))
         .and_then(|p| p.checked_mul(u64::from(frame.components)))
     else {
-        return;
+        return true;
     };
     if pixels > MAX_PIXELS {
-        return;
+        return true;
     }
     let Ok(len) = usize::try_from(pixels) else {
-        return;
+        return true;
     };
     let mut out = vec![0u16; len];
-    let _ = ljpeg::decode_into(data, &mut out);
+    match ljpeg::decode_into(data, &mut out) {
+        // `Ok` must report the frame the shape check bound: a decode that
+        // "succeeded" with a different shape is exactly the silent garble.
+        Ok(decoded) => decoded == frame,
+        Err(_) => true,
+    }
 }
 
 /// Errors produced while reading or developing a RAW file.
@@ -749,6 +786,37 @@ pub enum Error {
         /// `out.len()` as given.
         got: usize,
     },
+
+    /// `SPEC-053` (`DEC-047`). A `Compression = 7` strip's SOF-3 frame decodes
+    /// to a shape other than the strip's declared geometry. The frame's
+    /// effective plane width (`samples_per_line × components` — the
+    /// two-component column interleave is `2·X` wide) must equal the sensor's
+    /// `ImageWidth`, and its `lines` must equal the strip's row count. An
+    /// equal-area transpose would otherwise pass the
+    /// [`Error::LjpegPlaneWrongLength`] area check and be written with the
+    /// wrong row stride, so the shape — not just the area — is bound before
+    /// any sample is decoded.
+    LjpegPlaneShapeMismatch {
+        /// The strip's declared width (`ImageWidth`).
+        expected_width: u32,
+        /// The strip's declared row count.
+        expected_height: u32,
+        /// The frame's effective width, `samples_per_line × components`.
+        decoded_width: u32,
+        /// The frame's `lines` (`Y`).
+        decoded_height: u32,
+    },
+
+    /// `SPEC-053` (`DEC-047`). A SOF-3 frame component declares sampling
+    /// factors other than `H = V = 1`. Subsampled lossless-JPEG components are
+    /// out of scope (`DEC-037`), and decoding one as if it were `H = V = 1`
+    /// would silently garble the plane, so the frame is refused at header
+    /// parse time.
+    LjpegUnsupportedSampling {
+        /// The component's `Hi/Vi` byte as found (`H` in the high nibble, `V`
+        /// in the low); only `0x11` is supported.
+        factor: u8,
+    },
 }
 
 impl fmt::Display for Error {
@@ -1056,6 +1124,26 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "lossless JPEG: destination plane holds {got} sample(s), expected {expected} (lines x samples_per_line)"
+                )
+            }
+            Error::LjpegPlaneShapeMismatch {
+                expected_width,
+                expected_height,
+                decoded_width,
+                decoded_height,
+            } => {
+                write!(
+                    f,
+                    "lossless JPEG: strip frame decodes to {decoded_width}x{decoded_height} \
+                     (samples_per_line x components by lines), but the strip declares \
+                     {expected_width}x{expected_height}"
+                )
+            }
+            Error::LjpegUnsupportedSampling { factor } => {
+                write!(
+                    f,
+                    "lossless JPEG: component sampling factors {factor:#04x} are not supported \
+                     (only H = V = 1, 0x11)"
                 )
             }
         }

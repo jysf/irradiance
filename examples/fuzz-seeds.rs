@@ -172,6 +172,18 @@ fn plane_seeds() -> Vec<(&'static str, Vec<u8>)> {
             "compression7-sof3",
             compression7_seed(),
         ),
+        (
+            // SPEC-053 (DEC-047): a Compression-7 DNG declaring 6 x 4 whose
+            // SOF-3 frame is the equal-area transpose (4 wide x 6 lines). The
+            // pre-decode shape binding refuses it with LjpegPlaneShapeMismatch
+            // where it used to decode to a mis-strided Ok.
+            "compression7-transposed-frame",
+            {
+                let samples: Vec<u16> = (0..24u32).map(|i| (i * 131 % 4096) as u16).collect();
+                let strip = tiff::lj92_strip(&samples, 4, 6, 12);
+                tiff::compression7_dng_with_strip(tiff::Order::Little, 6, 4, 12, &strip)
+            },
+        ),
     ]
 }
 
@@ -770,7 +782,8 @@ fn lj_gen_samples(count: usize, precision: u8, pt: u8, seed: u32) -> Vec<u16> {
 /// across the full predictor set (`1..=7`), precisions {8, 12, 16}, a point
 /// transform, and a restart interval, plus the hostile shapes `SPEC-038` names:
 /// a truncated header, a valid header then a truncated scan, an over-subscribed
-/// DHT, `Nf != 1`, and a bad marker. Every one must `decode_into` to a typed
+/// DHT, `Nf != 1`, and a bad marker; and (`SPEC-053`) a valid two-component
+/// stream and a subsampled (`H = V = 2`) component. Every one must `decode_into` to a typed
 /// result (the valid ones to `Ok`, the hostile ones to a typed `Error`) and
 /// never panic — the in-crate replay test in `src/ljpeg.rs` asserts exactly that
 /// over this directory.
@@ -854,6 +867,23 @@ fn ljpeg_seeds() -> Vec<(&'static str, Vec<u8>)> {
     // Hostile: a reserved/unexpected marker where a header segment belongs.
     // next_marker reads it; parse_headers → LjpegUnexpectedMarker { marker: 1 }.
     seeds.push(("bad-marker", vec![0xFF, LJ_MARKER_SOI, 0xFF, 0x01]));
+
+    // SPEC-053 (DEC-047). Valid: a two-component (Nf = 2) column-interleave
+    // stream, the layout both held Compression-7 files use, so the fuzzer
+    // reaches the Nf = 2 shape (2 x samples_per_line wide) from a decoding seed.
+    let two_component: Vec<u16> = (0..8u32 * 3).map(|i| (i * 211 % 4096) as u16).collect();
+    seeds.push((
+        "valid-two-component-p12",
+        tiff::lj92_strip_components(&two_component, 8, 3, 12, 2, 0x11),
+    ));
+
+    // Hostile: an otherwise valid stream whose component declares H = V = 2.
+    // parse_frame_header → LjpegUnsupportedSampling { factor: 0x22 }.
+    let subsampled: Vec<u16> = (0..4u32 * 3).map(|i| (i * 97 % 4096) as u16).collect();
+    seeds.push((
+        "subsampled-hv22",
+        tiff::lj92_strip_components(&subsampled, 4, 3, 12, 1, 0x22),
+    ));
 
     seeds
 }

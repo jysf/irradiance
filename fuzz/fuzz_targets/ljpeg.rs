@@ -30,11 +30,26 @@
 //! precision, point transform and restart, plus the hostile shapes (truncated
 //! header, truncated scan, oversized DHT, `Nf != 1`, bad marker). No corpus
 //! file is used as a seed (`DEC-003`).
+//!
+//! `SPEC-053` (`DEC-047`): both decoded-frame guards run on every input. The
+//! sampling-factor rejection (`Hi/Vi != 0x11`) sits in the header parse every
+//! input goes through; the strip shape binding runs on every parsed header,
+//! and the hook reports whether its invariants held — the frame's own shape
+//! accepted, its non-square transpose refused, and a decode `Ok` reporting the
+//! same frame the shape check bound. A broken invariant is asserted here, so
+//! libFuzzer records it as a crash. Seeds add a subsampled (`H = V = 2`)
+//! component and a two-component frame.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    irradiance::__fuzz_ljpeg(data);
+    // `__fuzz_ljpeg` returns `false` only when a DEC-047 shape invariant broke:
+    // a frame's own shape rejected, its transpose accepted, or a decode `Ok`
+    // reporting a frame other than the one the shape check bound (SPEC-053).
+    assert!(
+        irradiance::__fuzz_ljpeg(data),
+        "SOF-3 shape-binding invariant violated (DEC-047)"
+    );
 });
