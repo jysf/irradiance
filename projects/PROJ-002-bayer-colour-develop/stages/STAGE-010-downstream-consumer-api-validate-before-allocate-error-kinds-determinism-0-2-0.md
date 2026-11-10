@@ -125,20 +125,20 @@ is a maintainer decision recorded on the release spec.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-052 (frame) — [S] **(A) Parser resource guard** (review #1): aggregate
+- [x] SPEC-052 (ship) — [S] **(A) Parser resource guard** (review #1): aggregate
       IFD entry/byte budget across the walk + reject aliased entry tables, so a
       ~770 KB file cannot drive a ~72 MiB parse. Independent. Emits a DEC (budget).
-- [ ] SPEC-053 (frame) — [S] **(B) Compression-7 shape binding** (review #2): bind the
+- [x] SPEC-053 (ship) — [S] **(B) Compression-7 shape binding** (review #2): bind the
       decoded `Frame` shape (width × `Nf`, height) to the strip, rejecting the
       equal-area wrong-shape case that currently returns `Ok(())`. Independent.
-- [ ] SPEC-054 (build) — [M] **(C) Required-processing validation + `Sensor` API**
+- [x] SPEC-054 (ship) — [M] **(C) Required-processing validation + `Sensor` API**
       (review #3): keep `OpcodeList2` bytes, typed error when a list needs an
       unsupported op (mono + colour); make `Sensor` non-exhaustive. **DESIGNED
       2026-11-10 (DEC-049); build-ready, HANDOFF-112.** Flags-aware scan at every
       develop entry + `Error::UnsupportedRequiredOpcode`; `Sensor` sealed + 7 `tests/`
       fixtures migrated to a dev-feature constructor; corpus probed safe (no file
       carries `OpcodeList2`). Design-heavy; gates E.
-- [ ] SPEC-055 (frame) — [S] **(D) Licence gate dev-graph + package surface**
+- [x] SPEC-055 (ship) — [S] **(D) Licence gate dev-graph + package surface**
       (review #4/#6): evaluate the dev-dependency graph (root + `fuzz/`) with a
       mutation red-proof; `irr` package disposition + a package-target-list check.
       Independent. Emits a DEC (`irr` disposition).
@@ -157,7 +157,20 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
       checks): the full public-struct non-exhaustive sweep, a tier-B corpus evidence
       run on the candidate SHA, a package target list, deny-on-dev-graph. depends_on:
       all of A–E + SPEC-040 + SPEC-041.
-**Count:** 0 shipped / 8 active / 0 pending
+**Count:** 4 shipped / 4 active / 0 pending
+
+> **Pre-0.2.0 P1 wave SHIPPED 2026-11-10** — groups A–D (SPEC-052/053/054/055)
+> merged to `main` (PRs #167/#169/#175/#174) and bookkept. Wave cost 71,251,157
+> tokens / $49.97 across 8 delegated build+verify sessions (A 11.40M/$8.44, B
+> 16.46M/$11.51, C 26.19M/$17.96, D 17.20M/$12.06). All four verdicts clean (A/B
+> APPROVED; C/D PUNCH LIST, both punch items fixed and shipped in the verify
+> supersets). Remaining: **E (SPEC-039)** — now unblocked (depends A–C) — then
+> SPEC-040 (needs a DEC), SPEC-041, and **F (SPEC-042)** release 0.2.0. Group-C
+> verify raised three non-blocking follow-ups for E/F: a malformed opcode-list tag
+> is still read as absent (can hide a mandatory opcode); the public stage
+> functions (`demosaic_into*`, `to_srgb_linear_into`, `apply_warp_into`) skip the
+> required-processing check; and plain `cargo test` (without `--all-features`) no
+> longer compiles the integration tests.
 
 ### Dependency graph (DEC-045)
 

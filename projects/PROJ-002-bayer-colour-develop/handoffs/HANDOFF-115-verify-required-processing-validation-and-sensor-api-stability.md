@@ -24,15 +24,16 @@ repo:
   id: irradiance
 
 handback:
-  status: null
-  tokens_total: null               # REAL combined count — `/cost`
-  estimated_usd: null
+  status: completed
+  agent: claude-opus-5-5
+  tokens_total: 7521269            # REAL combined count — `/cost`
+  estimated_usd: 5.25
   duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null
-  notes: null
-  synced_at: null
+  branch: claude/spec-054-verify-rebased
+  pr: 175
+  completed_at: 2026-11-10
+  notes: "claude-opus-5-5 verify. Verdict PUNCH LIST — code approved as-is at cd05206; the one punch item was a doc-only HANDOFF-112 restoration (fixed, shipped via the rebased #175). Removing the check from each of the 5 real develop entries in turn broke 6-7 tests each (per-entry coverage confirmed); corpus bit-exact via a hash probe across 8 files; DEVELOP_VERSION unchanged; fuzz clean. The mono f32/threaded entries named in the brief do not exist. tokens_total summed from the session transcript (/cost is not callable in a delegated session)."
+  synced_at: 2026-11-10
 ---
 
 # HANDOFF-115: VERIFY required-processing validation + the Sensor API seal (SPEC-054, group C)

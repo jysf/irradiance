@@ -24,15 +24,16 @@ repo:
   id: irradiance
 
 handback:
-  status: null
-  tokens_total: null               # REAL combined count — `/cost`
-  estimated_usd: null
+  status: completed
+  agent: claude-opus-5-5
+  tokens_total: 3831612            # REAL combined count — `/cost`
+  estimated_usd: 2.79
   duration_minutes: null
-  branch: null
+  branch: claude/spec-053-verify-f53864
   pr: null
-  completed_at: null
-  notes: null
-  synced_at: null
+  completed_at: 2026-11-10
+  notes: "claude-opus-5-5 verify. Verdict APPROVED at 90f4898, no code change needed. Tests, lint, both red-proofs and the bit-exact corpus check all pass; DEVELOP_VERSION unchanged; fuzz clean (ljpeg 3.35M, plane 3.10M). tokens_total summed from the session transcript (/cost is not callable in a delegated session)."
+  synced_at: 2026-11-10
 ---
 
 # HANDOFF-114: VERIFY the Compression-7 decoded-frame shape binding (SPEC-053, group B)

@@ -31,15 +31,16 @@ repo:
 # token number from your own interface (`/cost` in Claude Code). If your platform
 # exposes none, set tokens_total: null AND say why in notes. Do not invent one.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null
+  status: completed
+  agent: claude-opus-5-5
+  tokens_total: 4376521            # REAL combined count — what cost-audit reads
+  estimated_usd: 3.15
   duration_minutes: null
-  branch: null
+  branch: claude/spec-052-verify-3a8c9a
   pr: null
-  completed_at: null
-  notes: null
-  synced_at: null
+  completed_at: 2026-11-10
+  notes: "claude-opus-5-5 verify. Verdict APPROVED at 75f681a, no code change needed. A counting-allocator probe confirmed the guard cuts a 790 KB hostile file from 402 MB to 787 KB; both corpus DNGs still parse; red-proof reproduced. tokens_total summed from the session transcript (/cost is not callable in a delegated session)."
+  synced_at: 2026-11-10
 ---
 
 # HANDOFF-113: VERIFY the parser resource guard (SPEC-052, group A)
