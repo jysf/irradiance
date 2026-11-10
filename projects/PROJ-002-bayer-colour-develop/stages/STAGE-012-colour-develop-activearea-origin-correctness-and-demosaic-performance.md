@@ -117,9 +117,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-050 (shipped on 2026-11-09) [M] — **P0-follow / §3B:** crop the colour output to the active area, remove the masked border, and bring full DefaultCrop/Orientation parity with `develop_into` (the contract-changing geometry the P0 offset deferred, DEC-040 → DEC-043). Design shipped: DEC-043 crops **at the sink** (scatter each developed pixel to its output slot, kernel byte-for-byte, SPEC-049's memory shape preserved), DEVELOP_VERSION 3→4, goldens regenerated.
 - [x] SPEC-048 (shipped on 2026-11-07) [M] — **P1:** demosaic interior fast path (per-row slices, no per-pixel reflect / checked-div on the interior); output bit-identical, before/after ms recorded (DEC-041).
 - [x] SPEC-049 (shipped on 2026-11-07) [M] — **P2:** fuse `develop_color_into`'s scratch passes (normalise each row ONCE into a rolling row cache — #147's normalise-on-read regressed time 2.76x and was revised in #148 — write linear sRGB in pass 2) to drop ~134 MB at no speed cost, and add `develop_color_f32_into`; output bit-identical, peak-RSS recorded (DEC-042).
-- [ ] (not yet written) [S] — **P3 (optional):** opt-in row-band demosaic threading via `std::thread::scope`, default 1 thread; output bit-identical.
+- [ ] SPEC-051 (design) [S] — **P3 (optional):** opt-in row-band demosaic threading via `std::thread::scope`, caller-specified thread count, default 1; output bit-identical + deterministic, no new dependency / no `unsafe`. Framed 2026-11-09; DEC-044 (threading model) written at design. Key design question: `SPEC-050`'s output scatter means input row-bands don't map to disjoint `dst` slices under a 90° orientation — resolve without `unsafe`/a buffer, or thread `demosaic_into` and defer the colour-path scatter.
 
-**Count:** 4 shipped / 0 active / 1 pending
+**Count:** 4 shipped / 1 active / 0 pending
 
 ## Design Notes
 
