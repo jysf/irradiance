@@ -280,6 +280,50 @@ fn parse_fix_bad_pixels_constant_params(params: &[u8], id: u32) -> Result<(u32, 
     Ok((constant, bayer_phase))
 }
 
+/// One opcode's framing, its parameter block sliced but not interpreted.
+struct RawOpcode<'a> {
+    id: u32,
+    flags: u32,
+    params: &'a [u8],
+}
+
+/// Read the opcode framing (`id, version, flags, size, params`) at `*pos` and
+/// advance `*pos` past it — the one reader [`parse_opcode_list`] and
+/// [`check_required_processing`] share, so both see identical framing and
+/// identical framing errors.
+///
+/// # Errors
+///
+/// [`Error::Truncated`] if a header field or the declared parameter block runs
+/// past the end of `bytes`; [`Error::MalformedOpcodeParams`] if the declared
+/// size cannot be represented as a `usize`.
+fn read_raw_opcode<'a>(bytes: &'a [u8], pos: &mut usize) -> Result<RawOpcode<'a>, Error> {
+    let mut at = *pos;
+    let id = read_u32_be(bytes, at)?;
+    at = at.checked_add(4).ok_or(Error::Truncated { at, len: 4 })?;
+    let _version = read_u32_be(bytes, at)?;
+    at = at.checked_add(4).ok_or(Error::Truncated { at, len: 4 })?;
+    let flags = read_u32_be(bytes, at)?;
+    at = at.checked_add(4).ok_or(Error::Truncated { at, len: 4 })?;
+    let size = read_u32_be(bytes, at)?;
+    at = at.checked_add(4).ok_or(Error::Truncated { at, len: 4 })?;
+
+    let size_usize = usize::try_from(size).map_err(|_| Error::MalformedOpcodeParams {
+        id,
+        declared_size: size,
+    })?;
+    let params_end = at.checked_add(size_usize).ok_or(Error::Truncated {
+        at,
+        len: size_usize,
+    })?;
+    let params = bytes.get(at..params_end).ok_or(Error::Truncated {
+        at,
+        len: size_usize,
+    })?;
+    *pos = params_end;
+    Ok(RawOpcode { id, flags, params })
+}
+
 /// Parse a complete `OpcodeList` byte stream (DNG 1.7.0.0 Chapter 7).
 ///
 /// Panic-free on adversarial input (`no-panics-on-untrusted-input`): every
@@ -302,36 +346,7 @@ pub fn parse_opcode_list(bytes: &[u8]) -> Result<Vec<Opcode>, Error> {
 
     let mut opcodes = Vec::new();
     for _ in 0..count {
-        let id = read_u32_be(bytes, pos)?;
-        pos = pos
-            .checked_add(4)
-            .ok_or(Error::Truncated { at: pos, len: 4 })?;
-        let _version = read_u32_be(bytes, pos)?;
-        pos = pos
-            .checked_add(4)
-            .ok_or(Error::Truncated { at: pos, len: 4 })?;
-        let flags = read_u32_be(bytes, pos)?;
-        pos = pos
-            .checked_add(4)
-            .ok_or(Error::Truncated { at: pos, len: 4 })?;
-        let size = read_u32_be(bytes, pos)?;
-        pos = pos
-            .checked_add(4)
-            .ok_or(Error::Truncated { at: pos, len: 4 })?;
-
-        let size_usize = usize::try_from(size).map_err(|_| Error::MalformedOpcodeParams {
-            id,
-            declared_size: size,
-        })?;
-        let params_end = pos.checked_add(size_usize).ok_or(Error::Truncated {
-            at: pos,
-            len: size_usize,
-        })?;
-        let params = bytes.get(pos..params_end).ok_or(Error::Truncated {
-            at: pos,
-            len: size_usize,
-        })?;
-        pos = params_end;
+        let RawOpcode { id, flags, params } = read_raw_opcode(bytes, &mut pos)?;
 
         match id {
             OPCODE_ID_WARP_RECTILINEAR => {
@@ -420,6 +435,125 @@ pub fn parse_fix_bad_pixels_constant(bytes: &[u8]) -> Result<Option<u32>, Error>
         Opcode::FixBadPixelsConstant { constant, .. } => Some(constant),
         Opcode::WarpRectilinear { .. } | Opcode::Unknown { .. } => None,
     }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Required-processing validation — `SPEC-054`, `DEC-049`
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Which develop path is asking, and so which opcodes it applies (`DEC-049`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DevelopPath {
+    /// [`crate::develop::develop_into`]: the first `FixBadPixelsConstant` in
+    /// `OpcodeList1` and the first `WarpRectilinear` in `OpcodeList3`.
+    Mono,
+    /// [`crate::color::develop_color_into`] and its `f32` / threaded variants:
+    /// no opcode at all.
+    Colour,
+}
+
+impl DevelopPath {
+    /// The opcode ID this path applies from `OpcodeList{list}` — its FIRST
+    /// instance only, because the mono appliers resolve the list with
+    /// `find_map` — or `None` when the path applies nothing from that list.
+    /// Nothing applies `OpcodeList2`.
+    fn applied_id(self, list: u8) -> Option<u32> {
+        match (self, list) {
+            (DevelopPath::Mono, 1) => Some(OPCODE_ID_FIX_BAD_PIXELS_CONSTANT),
+            (DevelopPath::Mono, 3) => Some(OPCODE_ID_WARP_RECTILINEAR),
+            _ => None,
+        }
+    }
+}
+
+/// Check that every **mandatory** opcode in `lists` (`OpcodeList1`/`2`/`3`, in
+/// that order; `None` = absent) is one `path` actually applies — `SPEC-054`,
+/// `DEC-049`. Called at the top of every public develop entry, before any
+/// allocation or decode, so a file that requires processing this build does not
+/// perform is refused instead of developed to a plausible-looking wrong image.
+///
+/// This walks the **raw framing** with flags, not [`parse_opcode_list`]'s typed
+/// output: the typed parse keeps `Flags` only on [`Opcode::Unknown`], and cannot
+/// see list position or a second instance, so it cannot answer the question.
+///
+/// Rule, per opcode in list `n`: `Flags` bit 0 set (optional) → skippable.
+/// Unset (mandatory) → it must be exactly the instance `path` applies (the
+/// first opcode with [`DevelopPath::applied_id`]'s ID in that list, whatever
+/// that first instance's own flags); otherwise:
+///
+/// - a recognized opcode ID (`WarpRectilinear`, `FixBadPixelsConstant`) →
+///   [`Error::UnsupportedRequiredOpcode`] `{ list: n, id }`;
+/// - an unrecognized ID → [`Error::UnsupportedMandatoryOpcode`] `{ id }`, the
+///   same error [`parse_opcode_list`] has always given for it.
+///
+/// Parameter blocks are not interpreted here — the mono appliers still parse
+/// the opcodes they apply and report [`Error::MalformedOpcodeParams`]
+/// themselves. Panic-free on hostile bytes: the shared framing reader is fully
+/// checked, and the declared `count` never pre-allocates (each iteration
+/// consumes at least 16 bytes or fails).
+///
+/// # Errors
+///
+/// [`Error::UnsupportedRequiredOpcode`] / [`Error::UnsupportedMandatoryOpcode`]
+/// as above; [`Error::Truncated`] / [`Error::MalformedOpcodeParams`] for broken
+/// framing (a present list is read in full even when every opcode in it is
+/// optional, matching [`parse_opcode_list`]).
+pub(crate) fn check_required_processing(
+    lists: [Option<&[u8]>; 3],
+    path: DevelopPath,
+) -> Result<(), Error> {
+    for (list, bytes) in (1u8..=3).zip(lists) {
+        if let Some(bytes) = bytes {
+            check_list(bytes, list, path.applied_id(list))?;
+        }
+    }
+    Ok(())
+}
+
+/// [`check_required_processing`] over a parsed [`crate::ifd::Sensor`]'s three
+/// opcode lists — the form every public develop entry calls.
+pub(crate) fn check_sensor_required_processing(
+    sensor: &crate::ifd::Sensor,
+    path: DevelopPath,
+) -> Result<(), Error> {
+    check_required_processing(
+        [
+            sensor.opcode_list_1.as_deref(),
+            sensor.opcode_list_2.as_deref(),
+            sensor.opcode_list_3.as_deref(),
+        ],
+        path,
+    )
+}
+
+/// One list of [`check_required_processing`]: `applied_id` is the ID whose
+/// first instance this path applies from this list, if any.
+fn check_list(bytes: &[u8], list: u8, applied_id: Option<u32>) -> Result<(), Error> {
+    let count = read_u32_be(bytes, 0)?;
+    let mut pos: usize = 4;
+    let mut applied_seen = false;
+
+    for _ in 0..count {
+        let RawOpcode { id, flags, .. } = read_raw_opcode(bytes, &mut pos)?;
+
+        // The applier consumes the first instance of its ID, optional or not;
+        // every later instance is not applied.
+        let is_applied = applied_id == Some(id) && !applied_seen;
+        if applied_id == Some(id) {
+            applied_seen = true;
+        }
+
+        if is_applied || flags & FLAG_OPTIONAL != 0 {
+            continue;
+        }
+        return Err(match id {
+            OPCODE_ID_WARP_RECTILINEAR | OPCODE_ID_FIX_BAD_PIXELS_CONSTANT => {
+                Error::UnsupportedRequiredOpcode { list, id }
+            }
+            other => Error::UnsupportedMandatoryOpcode { id: other },
+        });
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -629,5 +763,167 @@ mod tests {
     fn no_fix_bad_pixels_constant_opcode_is_none_not_an_error() {
         let bytes = opcode_list(&[raw_opcode(999, 0x0104_0000, 1, &[])]);
         assert_eq!(parse_fix_bad_pixels_constant(&bytes).expect("parses"), None);
+    }
+
+    // ── check_required_processing (SPEC-054, DEC-049) ───────────────────────
+
+    const MANDATORY: u32 = 0;
+    const OPTIONAL: u32 = FLAG_OPTIONAL;
+
+    fn fbpc(flags: u32) -> Vec<u8> {
+        raw_opcode(
+            OPCODE_ID_FIX_BAD_PIXELS_CONSTANT,
+            0x0103_0000,
+            flags,
+            &[0; 8],
+        )
+    }
+
+    fn warp(flags: u32) -> Vec<u8> {
+        let params = warp_rectilinear_params([1.0, 0.0, 0.0, 0.0], [0.0, 0.0], 0.5, 0.5);
+        raw_opcode(OPCODE_ID_WARP_RECTILINEAR, 0x0104_0000, flags, &params)
+    }
+
+    /// Run the check with `bytes` as the only present list, in slot `list`.
+    fn check_one(bytes: &[u8], list: u8, path: DevelopPath) -> Result<(), Error> {
+        let mut lists: [Option<&[u8]>; 3] = [None; 3];
+        lists[usize::from(list - 1)] = Some(bytes);
+        check_required_processing(lists, path)
+    }
+
+    fn required(list: u8, id: u32) -> String {
+        format!("{:?}", Error::UnsupportedRequiredOpcode { list, id })
+    }
+
+    #[test]
+    fn no_lists_and_empty_lists_pass_on_both_paths() {
+        for path in [DevelopPath::Mono, DevelopPath::Colour] {
+            assert!(check_required_processing([None; 3], path).is_ok());
+            let empty = opcode_list(&[]);
+            for list in 1..=3 {
+                assert!(check_one(&empty, list, path).is_ok());
+            }
+        }
+    }
+
+    #[test]
+    fn mono_applied_set_is_first_fbpc_in_list_1_and_first_warp_in_list_3() {
+        let l1 = opcode_list(&[fbpc(MANDATORY)]);
+        let l3 = opcode_list(&[warp(MANDATORY)]);
+        assert!(check_required_processing([Some(&l1), None, Some(&l3)], DevelopPath::Mono).is_ok());
+        // ...and every other placement of the same mandatory opcodes is not applied.
+        let cases = [
+            (1, warp(MANDATORY), OPCODE_ID_WARP_RECTILINEAR),
+            (2, fbpc(MANDATORY), OPCODE_ID_FIX_BAD_PIXELS_CONSTANT),
+            (2, warp(MANDATORY), OPCODE_ID_WARP_RECTILINEAR),
+            (3, fbpc(MANDATORY), OPCODE_ID_FIX_BAD_PIXELS_CONSTANT),
+        ];
+        for (list, op, id) in cases {
+            let err = check_one(&opcode_list(&[op]), list, DevelopPath::Mono).unwrap_err();
+            assert_eq!(format!("{err:?}"), required(list, id));
+        }
+    }
+
+    #[test]
+    fn colour_applies_nothing() {
+        for list in 1..=3 {
+            for (op, id) in [
+                (fbpc(MANDATORY), OPCODE_ID_FIX_BAD_PIXELS_CONSTANT),
+                (warp(MANDATORY), OPCODE_ID_WARP_RECTILINEAR),
+            ] {
+                let err = check_one(&opcode_list(&[op]), list, DevelopPath::Colour).unwrap_err();
+                assert_eq!(format!("{err:?}"), required(list, id));
+            }
+        }
+    }
+
+    #[test]
+    fn only_the_first_instance_is_applied() {
+        // A second mandatory instance is the `find_map` gap.
+        let two = opcode_list(&[fbpc(MANDATORY), fbpc(MANDATORY)]);
+        let err = check_one(&two, 1, DevelopPath::Mono).unwrap_err();
+        assert_eq!(
+            format!("{err:?}"),
+            required(1, OPCODE_ID_FIX_BAD_PIXELS_CONSTANT)
+        );
+        // The first instance is the applied one whatever its own flags, so a
+        // mandatory one behind an optional one is NOT applied.
+        let behind = opcode_list(&[fbpc(OPTIONAL), fbpc(MANDATORY)]);
+        assert!(check_one(&behind, 1, DevelopPath::Mono).is_err());
+        // Optional duplicates are always fine.
+        let dup = opcode_list(&[warp(MANDATORY), warp(OPTIONAL), warp(OPTIONAL)]);
+        assert!(check_one(&dup, 3, DevelopPath::Mono).is_ok());
+    }
+
+    #[test]
+    fn optional_opcodes_are_skipped_everywhere() {
+        let all_optional = opcode_list(&[
+            fbpc(OPTIONAL),
+            warp(OPTIONAL),
+            raw_opcode(999, 0x0104_0000, OPTIONAL, &[1, 2]),
+            // Any flags word with bit 0 set is optional (bit 1 = preview-skip).
+            raw_opcode(998, 0x0104_0000, 0b11, &[]),
+        ]);
+        for path in [DevelopPath::Mono, DevelopPath::Colour] {
+            for list in 1..=3 {
+                assert!(check_one(&all_optional, list, path).is_ok());
+            }
+        }
+    }
+
+    #[test]
+    fn mandatory_unknown_keeps_its_existing_error_in_every_list() {
+        let bytes = opcode_list(&[raw_opcode(999, 0x0104_0000, MANDATORY, &[])]);
+        for path in [DevelopPath::Mono, DevelopPath::Colour] {
+            for list in 1..=3 {
+                let err = check_one(&bytes, list, path).unwrap_err();
+                assert!(
+                    matches!(err, Error::UnsupportedMandatoryOpcode { id: 999 }),
+                    "{err:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn broken_framing_is_reported_even_when_every_opcode_is_optional() {
+        let mut bytes = opcode_list(&[fbpc(OPTIONAL)]);
+        bytes.pop();
+        let err = check_one(&bytes, 2, DevelopPath::Colour).unwrap_err();
+        assert!(matches!(err, Error::Truncated { .. }), "{err:?}");
+        // A huge declared count over a short stream fails, never loops.
+        let mut huge = u32::MAX.to_be_bytes().to_vec();
+        huge.extend_from_slice(&fbpc(OPTIONAL));
+        let err = check_one(&huge, 1, DevelopPath::Mono).unwrap_err();
+        assert!(matches!(err, Error::Truncated { .. }), "{err:?}");
+        let err = check_one(&[0, 0], 3, DevelopPath::Mono).unwrap_err();
+        assert!(matches!(err, Error::Truncated { .. }), "{err:?}");
+    }
+
+    #[test]
+    fn lists_are_checked_in_order_1_2_3() {
+        let l1 = opcode_list(&[warp(MANDATORY)]);
+        let l2 = opcode_list(&[fbpc(MANDATORY)]);
+        let err = check_required_processing([Some(&l1), Some(&l2), None], DevelopPath::Colour)
+            .unwrap_err();
+        assert_eq!(format!("{err:?}"), required(1, OPCODE_ID_WARP_RECTILINEAR));
+    }
+
+    #[test]
+    fn shared_framing_reader_keeps_parse_opcode_list_errors_unchanged() {
+        // The refactor onto `read_raw_opcode` must report the same offsets.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes.extend_from_slice(&68u32.to_be_bytes());
+        let err = parse_opcode_list(&bytes).unwrap_err();
+        assert!(
+            matches!(err, Error::Truncated { at: 20, len: 68 }),
+            "{err:?}"
+        );
+        let err = parse_opcode_list(&bytes[..10]).unwrap_err();
+        assert!(matches!(err, Error::Truncated { at: 8, len: 4 }), "{err:?}");
     }
 }

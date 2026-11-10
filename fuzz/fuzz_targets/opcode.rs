@@ -29,16 +29,55 @@
 //! corpus and that smoke test can never drift apart) — the real 28-byte
 //! `OpcodeList1` payload (byte-identical across all three decodable Q2M
 //! frames) plus three hand-truncated/adversarial variants.
+//!
+//! `SPEC-054` extends it over the required-processing check (`DEC-049`): the
+//! same bytes go through `__fuzz_required_processing` (the `fuzzing`-feature
+//! hook onto the `pub(crate)` check) in every list slot, with two cross-path
+//! invariants asserted in `check_required` below.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 
 use irradiance::opcode::{parse_fix_bad_pixels_constant, parse_opcode_list};
+use irradiance::{Error, __fuzz_required_processing};
+
+/// `SPEC-054` / `DEC-049`: the required-processing check every public develop
+/// entry runs, over the same hostile bytes, in each list slot and in all three
+/// at once. Two invariants beyond "never panics":
+///
+/// 1. The colour path applies nothing and the mono path applies a superset,
+///    so a list set the colour check accepts, the mono check must accept.
+/// 2. The check and `parse_opcode_list` share one framing reader, so a list
+///    the colour check accepts (every opcode optional, framing intact) must
+///    not be one the parser rejects as truncated or as a mandatory unknown.
+fn check_required(lists: [Option<&[u8]>; 3], parsed: &Result<Vec<irradiance::opcode::Opcode>, Error>) {
+    let [mono_ok, colour_ok] = __fuzz_required_processing(lists);
+    assert!(
+        !colour_ok || mono_ok,
+        "colour accepted a list set the mono path rejected: {lists:?}"
+    );
+    if colour_ok && lists.iter().any(Option::is_some) {
+        assert!(
+            !matches!(
+                parsed,
+                Err(Error::Truncated { .. } | Error::UnsupportedMandatoryOpcode { .. })
+            ),
+            "the check accepted framing the parser rejects: {parsed:?}"
+        );
+    }
+}
 
 fuzz_target!(|data: &[u8]| {
     // A rejected input is a SUCCESS for this target: the parser said no
     // with a typed error instead of panicking.
-    let _ = parse_opcode_list(data);
+    let parsed = parse_opcode_list(data);
     let _ = parse_fix_bad_pixels_constant(data);
+
+    for slot in 0..3 {
+        let mut lists: [Option<&[u8]>; 3] = [None; 3];
+        lists[slot] = Some(data);
+        check_required(lists, &parsed);
+    }
+    check_required([Some(data); 3], &parsed);
 });

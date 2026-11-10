@@ -767,6 +767,12 @@ fn crop_and_orient_from_active_into(
 ///
 /// # Errors
 ///
+/// - [`Error::UnsupportedRequiredOpcode`] (checked first, `SPEC-054`) if any
+///   opcode list carries a mandatory opcode this path does not apply — anything
+///   in `OpcodeList2`, or anything beyond the first `FixBadPixelsConstant` in
+///   `OpcodeList1` and the first `WarpRectilinear` in `OpcodeList3`; or
+///   [`Error::UnsupportedMandatoryOpcode`] for an unrecognized mandatory ID in
+///   any list.
 /// - [`Error::SourcePlaneWrongLength`] / [`Error::DevelopBufferWrongLength`]
 ///   if `src`/`dst` do not hold exactly the length required.
 /// - [`Error::InvalidActiveArea`] if `ActiveArea` is empty, inverted, or
@@ -784,6 +790,11 @@ fn crop_and_orient_from_active_into(
 /// - Whatever [`crate::opcode::parse_warp_rectilinear`] or
 ///   [`crate::warp::apply_warp_into`] return, if `OpcodeList3` is present.
 pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
+    // Required-processing validation FIRST, before any allocation or decode
+    // (`SPEC-054`, `DEC-049`): a mandatory opcode this path will not apply is a
+    // typed error, never a silently-uncorrected image.
+    crate::opcode::check_sensor_required_processing(sensor, crate::opcode::DevelopPath::Mono)?;
+
     let expected_src = u64::from(sensor.width)
         .checked_mul(u64::from(sensor.height))
         .ok_or(Error::SourcePlaneWrongLength {
@@ -943,6 +954,7 @@ mod tests {
             orientation: None,
             opcode_lists: [false, false, false],
             opcode_list_1: None,
+            opcode_list_2: None,
             opcode_list_3: None,
             color_filter: None,
             // SPEC-026 colour metadata — additive, not read by this fixture.

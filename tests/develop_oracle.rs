@@ -148,10 +148,11 @@ fn decode_and_develop(
     let sensor = container
         .sensor()
         .unwrap_or_else(|e| panic!("sensor {path}: {e}"));
-    let sensor_no_warp = Sensor {
-        opcode_list_1: None,
-        opcode_list_3: None,
-        ..sensor.clone()
+    let sensor_no_warp = {
+        let mut built = sensor.clone();
+        built.opcode_list_1 = None;
+        built.opcode_list_3 = None;
+        built
     };
 
     let pixel_count = sensor.width as usize * sensor.height as usize;
@@ -201,40 +202,11 @@ fn cached_fixture(
 /// Mirrors `tests/develop.rs`'s own `minimal_sensor`; redefined locally
 /// because integration test binaries do not share code across files.
 fn minimal_sensor(width: u32) -> Sensor {
-    Sensor {
-        ifd_index: 0,
-        width,
-        height: 1,
-        bits_per_sample: 14,
-        samples_per_pixel: 1,
-        photometric: 34892,
-        compression: Compression::Uncompressed,
-        rows_per_strip: None,
-        strip_offsets: vec![],
-        strip_byte_counts: vec![],
-        black_level: None,
-        white_level: None,
-        black_level_repeat_dim: None,
-        active_area: None,
-        default_crop_origin: None,
-        default_crop_size: None,
-        orientation: None,
-        opcode_lists: [false, false, false],
-        opcode_list_1: None,
-        opcode_list_3: None,
-        color_filter: None,
-        // SPEC-026 colour metadata — additive, not read by this fixture.
-        color_matrix_1: None,
-        color_matrix_2: None,
-        forward_matrix_1: None,
-        forward_matrix_2: None,
-        as_shot_neutral: None,
-        calibration_illuminant_1: None,
-        calibration_illuminant_2: None,
-        black_levels: vec![],
-        white_levels: vec![],
-        malformed_tags: vec![],
-    }
+    let mut built = Sensor::test_fixture();
+    built.width = width;
+    built.height = 1;
+    built.bits_per_sample = 14;
+    built
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -646,39 +618,15 @@ fn inject_orientation_identity_fault(develop_rs: &Path) {
 /// `orientation_fixture_sensor`.
 const PROBE_MAIN: &str = r#"
 fn main() {
-    let sensor = irradiance::ifd::Sensor {
-        ifd_index: 0,
-        width: 3,
-        height: 2,
-        bits_per_sample: 14,
-        samples_per_pixel: 1,
-        photometric: 34892,
-        compression: irradiance::ifd::Compression::Uncompressed,
-        rows_per_strip: None,
-        strip_offsets: vec![],
-        strip_byte_counts: vec![],
-        black_level: Some(0),
-        white_level: Some(u32::from(u16::MAX)),
-        black_level_repeat_dim: None,
-        active_area: None,
-        default_crop_origin: None,
-        default_crop_size: None,
-        orientation: Some(6),
-        opcode_lists: [false, false, false],
-        opcode_list_1: None,
-        opcode_list_3: None,
-        color_filter: None,
-        // SPEC-026 colour metadata — additive, not read by this fixture.
-        color_matrix_1: None,
-        color_matrix_2: None,
-        forward_matrix_1: None,
-        forward_matrix_2: None,
-        as_shot_neutral: None,
-        calibration_illuminant_1: None,
-        calibration_illuminant_2: None,
-        black_levels: vec![],
-        white_levels: vec![],
-        malformed_tags: vec![],
+    let sensor = {
+        let mut built = irradiance::ifd::Sensor::test_fixture();
+        built.width = 3;
+        built.height = 2;
+        built.bits_per_sample = 14;
+        built.black_level = Some(0);
+        built.white_level = Some(u32::from(u16::MAX));
+        built.orientation = Some(6);
+        built
     };
     let src: [u16; 6] = [0, 1, 2, 10, 11, 12];
     let mut dst = [0u16; 6];
@@ -728,6 +676,10 @@ fn build_and_run_probe(dir: &Path) -> Vec<u16> {
             "--release",
             "--bin",
             "develop_oracle_probe",
+            // The probe builds its `Sensor` from the dev-only constructor
+            // (`Sensor` is `#[non_exhaustive]`, SPEC-054).
+            "--features",
+            "test-fixtures",
             "--quiet",
         ])
         .current_dir(dir)

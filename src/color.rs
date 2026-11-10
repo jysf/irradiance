@@ -252,7 +252,11 @@ pub fn to_srgb_linear_into(
 /// pixel is scattered straight into its output slot or dropped. No intermediate
 /// RGB buffer exists. (Before `SPEC-050` the output was the whole
 /// `width·height·3` plane, border included — a contract change, `DEVELOP_VERSION`
-/// 4.) `WarpRectilinear`/`OpcodeList` are not applied on this path.
+/// 4.) **No opcode is applied on this path** (`WarpRectilinear`,
+/// `FixBadPixelsConstant`, any `OpcodeList`) — so, per `SPEC-054` / `DEC-049`,
+/// a file whose opcode lists carry any **mandatory** opcode is refused with a
+/// typed error before anything is allocated; optional opcodes are skipped, as
+/// the DNG spec permits.
 ///
 /// The per-channel level-normalize happens on the **mosaic, before demosaic**:
 /// black-subtract is per CFA colour and does not commute with interpolation, so
@@ -275,6 +279,10 @@ pub fn to_srgb_linear_into(
 ///
 /// # Errors
 ///
+/// - [`Error::UnsupportedRequiredOpcode`] (checked first, `SPEC-054`) if any
+///   opcode list carries a mandatory recognized opcode — this path applies
+///   none — or [`Error::UnsupportedMandatoryOpcode`] for a mandatory
+///   unrecognized one; [`Error::Truncated`] for a broken opcode list.
 /// - [`Error::ColorSourceWrongLength`] if `src.len() != width·height`.
 /// - [`Error::InvalidActiveArea`] / [`Error::InvalidDefaultCrop`] /
 ///   [`Error::UnsupportedOrientation`] for a geometry
@@ -286,6 +294,7 @@ pub fn to_srgb_linear_into(
 ///
 /// Never panics.
 pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
+    check_colour_required_processing(sensor)?;
     let (expected_src, output) = check_color_buffers(sensor, src.len(), dst.len())?;
 
     // The one remaining scratch buffer: the `width·height` green plane.
@@ -340,6 +349,8 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
 ///
 /// # Errors
 ///
+/// - [`Error::UnsupportedRequiredOpcode`] / [`Error::UnsupportedMandatoryOpcode`]
+///   / [`Error::Truncated`] first, exactly as [`develop_color_into`] (`SPEC-054`).
 /// - [`Error::ColorSourceWrongLength`] if `src.len() != width·height`.
 /// - [`Error::InvalidActiveArea`] / [`Error::InvalidDefaultCrop`] /
 ///   [`Error::UnsupportedOrientation`] for a geometry
@@ -350,6 +361,7 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
 ///
 /// Never panics.
 pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> Result<(), Error> {
+    check_colour_required_processing(sensor)?;
     let (expected_src, output) = check_color_buffers(sensor, src.len(), dst.len())?;
 
     let mut green = vec![0u16; expected_src];
@@ -422,6 +434,9 @@ pub fn develop_color_into_threaded(
     dst: &mut [u16],
     threads: usize,
 ) -> Result<(), Error> {
+    // Its own door, so its own check (`SPEC-054`): the banded path below never
+    // passes through `develop_color_into`.
+    check_colour_required_processing(sensor)?;
     if threads <= 1 {
         return develop_color_into(sensor, src, dst);
     }
@@ -463,6 +478,9 @@ pub fn develop_color_f32_into_threaded(
     dst: &mut [f32],
     threads: usize,
 ) -> Result<(), Error> {
+    // Its own door, so its own check (`SPEC-054`), as in
+    // `develop_color_into_threaded`.
+    check_colour_required_processing(sensor)?;
     if threads <= 1 {
         return develop_color_f32_into(sensor, src, dst);
     }
@@ -483,6 +501,13 @@ pub fn develop_color_f32_into_threaded(
             f32::from(quantize(m20 * rf + m21 * gf + m22 * bf)) / 65535.0,
         ];
     })
+}
+
+/// The colour path's required-processing check (`SPEC-054`, `DEC-049`): it
+/// applies no opcode, so any mandatory opcode in any list is refused. Every
+/// public colour entry calls this first, before any allocation or decode.
+fn check_colour_required_processing(sensor: &Sensor) -> Result<(), Error> {
+    crate::opcode::check_sensor_required_processing(sensor, crate::opcode::DevelopPath::Colour)
 }
 
 /// What a threaded colour develop needs, resolved once before spawning.
@@ -1505,6 +1530,7 @@ mod tests {
             orientation: None,
             opcode_lists: [false, false, false],
             opcode_list_1: None,
+            opcode_list_2: None,
             opcode_list_3: None,
             color_filter: None,
             color_matrix_1: meta.color_matrix_1,

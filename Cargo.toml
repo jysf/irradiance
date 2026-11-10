@@ -67,6 +67,15 @@ fuzzing = []
 # library code behind it. Its only effect is to enable the internal `irr` bin
 # above (`required-features`). SPEC-055, DEC-048.
 irr = []
+# Dev-only, NOT a runtime dependency (SPEC-054, DEC-049; same shape as `fuzzing`
+# above). An empty feature that compiles in the doc-hidden
+# `Sensor::test_fixture` constructor. `Sensor` is `#[non_exhaustive]` (a sealed
+# parser-output view), so the separate `tests/` crate cannot write a
+# `Sensor { .. }` literal; its fixtures start from this constructor instead.
+# Every test and example invocation runs with `--all-features` (`just test`, CI),
+# so they compile; the published crate (default features) leaves it off and
+# gains no construction path. Carries no dependency.
+test-fixtures = []
 
 # Zero dependencies by design (SPIKE-001; this spec's handoff). Adding one
 # needs a DEC — see guidance/constraints.yaml `no-new-top-level-deps-without-decision`.
