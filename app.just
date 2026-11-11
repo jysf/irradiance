@@ -74,6 +74,23 @@ lint:
 fmt-check:
     cargo fmt --check
 
+# doc-check — rustdoc with warnings denied, on the --all-features and
+# --no-default-features surfaces (SPEC-056). 0.2.0 shipped 19 public docs linking
+# private items (rendered as plain text on docs.rs) because nothing built the
+# docs. Fix by rewording, never by #[allow] or --document-private-items. Prints
+# which rustdoc answered (PATCH-004). CI runs it as the `docs` job on @stable.
+# Rustdoc gate — `cargo doc` with -D warnings, both feature surfaces.
+doc-check:
+    ./scripts/doc-check.sh
+
+# SPEC-056's red-proof for `just doc-check` (oracle-must-be-shown-red covers
+# gates; DEC-009). Copies the crate to a temp dir, runs the gate on the UNMUTATED
+# copy as a negative control (must pass), injects one public doc comment linking
+# a private item, and asserts the gate fails with rustdoc's
+# private_intra_doc_links error naming the injected item. Working tree untouched.
+doc-check-red-proof:
+    ./scripts/doc-check-red-proof.sh
+
 # Type check — Rust has no separate typecheck; `check` is the fast path
 typecheck:
     cargo check --all-targets --all-features

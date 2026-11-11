@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-11
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-056
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 19174151           # REAL combined count — what cost-audit reads
+  estimated_usd: 13.09             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 30
+  branch: claude/spec-056-build-b1
+  pr: https://github.com/jysf/irradiance/pull/193
+  completed_at: 2026-11-11
+  notes: "FLOOR taken live just before the handback commit (docs/cost-tracking.md rule 6): session transcript a2bbac90-a1bd-4857-94f7-94b92579e8c9.jsonl, 96 unique message.ids, all claude-opus-5-5, no subagents; input 195 + cache-creation 212,456 + cache-read 18,900,990 + output 60,510 (max per message). USD at opus-5-5 list rates in 5/out 25 per MTok, cache read x0.10, cache writes x2.0 (1-hour TTL). The last few wrap-up messages are not in it; re-sum the same file after the session ends."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -160,38 +160,64 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-056-build-b1` (cut from fresh `origin/main` @ c4cf729) → https://github.com/jysf/irradiance/pull/193. Build commit 1973abf; this handback is a second commit on the same branch.
+- **Completed at:** 2026-11-11
+- **All acceptance criteria met?** yes.
+  - **Unreadable list refused:** for lists 1, 2 and 3 a fixture whose list entry's payload offset runs past EOF parses `Ok`, has the tag in `malformed_tags` (asserted inside the fixture builder, along with `opcode_lists[n]` true and the field `None`), and returns `Error::UnreadableOpcodeList { list: n }` from `develop_into` and from all four colour entries. Order is deterministic: unreadable lists 1+3 report list 1; a mandatory unsupported opcode in a readable list 2 wins over an unreadable list 3 (each list's unreadable check runs before its own scan, lists in order).
+  - **Error shape:** variant in `Error` with doc citing SPEC-056/DEC-053, `Display` "OpcodeList{n} is present but unreadable (malformed tag entry); its required processing cannot be confirmed", `kind()` arm → `Corrupt`. `tests/error_kind.rs` table updated (56 variants, Corrupt 26) and DEC-051 got a short "later additions" note, because that test's own comment says the table, the count and DEC-051 move together.
+  - **Primitives guarded:** `demosaic_into`, `demosaic_into_threaded`, `to_srgb_linear_into` call the public check first with `DevelopPath::Colour`. There are 12 tests, one per primitive per case: mandatory gives `UnsupportedRequiredOpcode`, unreadable gives `UnreadableOpcodeList`, and optional-only and opcode-free give `Ok`.
+  - **Public check:** `pub fn opcode::check_required_processing(&Sensor, DevelopPath)`. `DevelopPath` is `pub` and `#[non_exhaustive]`; a test matches it from `tests/` and needs the wildcard arm. The list-level helper is now `pub(crate) check_lists(lists, unreadable, path)`. An agreement test shows the public check returns exactly what `develop_into` (mono) or each colour entry returns, across 20 fixtures. 15 of them refuse (7 mono, 8 colour).
+  - **Appliers documented:** `apply_warp_into` and `apply_fix_bad_pixels_constant` each have a "Required processing — the caller validates" section that links the public check. The stale `Sensor::opcode_lists` doc is rewritten.
+  - **Docs clean and gated:** 19 private links reworded to plain code formatting, with no `#[allow]` and no `--document-private-items`. `just doc-check` (`scripts/doc-check.sh`) runs `--all-features` and `--no-default-features` with `-D warnings` and prints the rustdoc it used. Both are 0 errors. `just doc-check-red-proof` passes: the control copy is green, and an injected `pub fn` whose doc links the private `ljpeg` module fails. That failure is attributed to the injected item, 1 of 1 diagnostics, by `rustdoc::private_intra_doc_links`. CI jobs `docs` and `docs-red-proof` were **observed green on the PR head** with `gh run view 43112012702` (head 1973abf, conclusion success). All 44 PR checks passed.
+  - **CARGO_TARGET_DIR-proof:** each of the 7 staged builds calls `.env_remove("CARGO_TARGET_DIR")`, with an identical comment. Red on main: `CARGO_TARGET_DIR=$(mktemp -d) cargo test --all-features --test develop -- fix_bad_pixels_red_proof_control_is_green` fails with `spawn …/target/release/fix_bad_pixels_probe: No such file or directory`. After the fix, **command run:** `CARGO_TARGET_DIR=$(mktemp -d) cargo test --all-features --no-fail-fast` (the body of `just test`). Exit 0, 539 passed. Afterwards the temp target held only `debug/` and `tmp/`, so no staged release build wrote into it. `CARGO_TARGET_DIR=$(mktemp -d) just test` was also run; it failed only at `error_kind` (the variant count, fixed above) and every nested-cargo test passed.
+  - **Corpus unchanged (DEC-003, local):** a scratch probe crate was built twice, against an `origin/main` worktree and against this branch. It develops each of the 8 held DNGs on its own path and prints FNV-1a-64 digests of every output. The two outputs are **identical**, and every result is `Ok`. Bayer files run `develop_color_into`, `demosaic_into`, `demosaic_into_threaded` and `to_srgb_linear_into`; mono files run `develop_into`. Digests (digest/len):
+    - 5D III: `902ba0ddb8d4d98e/66355200`
+    - D300S: `3c02ff0cb9494f15/36636672`
+    - Q2-Mono L1021223: `70ee1ab38fe6582a`
+    - L1026016: `1ad81565269b7eac`
+    - L1026192: `262e7a30777ae55c`
+    - M Monochrom: `be519c006f4eb545`
+    - Typ 246: `ff880af33175285c`
+    - K-3 III: `ab4b018e2b8cc1cd`
+
+    The Q2-Mono files carry lists [1, 3], readable. No file has an opcode-list tag in `malformed_tags`; the K-3 III's only malformed tag is 50713. `IRRADIANCE_CORPUS_DIR=~/PSeven/experiments/crustimg_redo_plus/images just test` passed (539, 1 ignored, 9/9 corpus present). `DEVELOP_VERSION` is unchanged.
+  - **Gates (local):** all green.
+    - `just test` (with the corpus dir)
+    - `lint-ci` (clippy 0.1.98, pinned)
+    - `lint-no-allow`, `lint-fuzz`, `fmt-check`
+    - `validate`, `cost-audit`
+    - `gate-audit` (11 scripts, including the new `doc-check.sh`)
+    - `deny`, `deny-fuzz`
+    - `doc-check`, `doc-check-red-proof`
+    - `msrv` (1.90.0)
+    - `decisions-index --check`
+  - **Failing tests observed red on main first:** see Reflection 3 for how. There were 9 failures, every one `got Ok(())`, while all controls stayed green. The nested `required_processing_red_proof` was extended: unreadable list 2 on `develop_into`, unreadable list 1 on the four colour entries, and mandatory plus unreadable on the three primitives. Its injection moved to `check_lists`' loop, which now holds both halves, so the mutant goes silent `ok` on all of them while the control reproduces the typed errors.
+  - **Fuzz:** `opcode` target (drives the check through `__fuzz_required_processing`), 60 s, 2,428,859 runs, clean. It needed `PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run …`; without the PATH prefix the inner cargo is Homebrew's (the documented `+toolchain` trap).
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 19,174,151. This is a **floor**, taken live just before the handback commit. It counts 96 unique `message.id`s, all `claude-opus-5-5`, with no subagents. Breakdown: input 195, cache creation 212,456, cache read 18,900,990, output 60,510.
+- **Estimated USD:** 13.09 (opus-5-5 at in 5 / out 25 per MTok, cache read ×0.10, 1-hour cache writes ×2.0)
+- **Duration (minutes):** ~30 (transcript 22:17–22:44Z at measurement)
+- **Source of the number:** this session's transcript `a2bbac90-a1bd-4857-94f7-94b92579e8c9.jsonl`, measured per docs/cost-tracking.md "Measuring a cycle". Re-sum the same file after the session ends.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none. DEC-051 gained a "later additions" paragraph recording `UnreadableOpcodeList` → `Corrupt` (DEC-053), so its table stays the single reference.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - `check_lists` takes a third argument, the per-list unreadable flags. The unreadable refusal therefore lives inside the same ordered loop as the scan; that is what makes "list n's unreadable check before list n's scan" literal. It also means one red-proof injection disables both halves. The fuzz hook passes `[false; 3]`, so the fuzz surface is unchanged.
+  - The doc gate is a script (`scripts/doc-check.sh`) called by the `just` recipe, by CI and by the red-proof. A bare recipe would not do, because the red-proof must run the exact gate over a mutated copy. Because it is a script, `gate-audit` now audits it too.
+  - The spec named `tests/error_kind.rs` nowhere, but it pins the variant count. It was updated to 56 / Corrupt 26.
+  - CHANGELOG: the two Known-limitations bullets were removed from the `[0.2.0]` section as the spec said. `[Unreleased]` has Fixed/Added/Changed entries. There is no version bump.
+- **Follow-up work identified:** none required. Optional: the fuzz hook could also fuzz the unreadable flags, but they are a trivial early-return, so this is low value.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little. One thing not listed was `tests/error_kind.rs`, whose hard-coded variant count, together with its "update DEC-051 too" comment, is a second place every new `Error` variant must touch. It showed up only as a red in the full run. Also, the fixture builder offers no "make this entry unreadable" knob, so I patched the little-endian IFD0 entry's offset in the test, and asserted it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-051's "table, count and DEC move together" rule (via `tests/error_kind.rs`) belongs in any spec that adds an `Error` variant.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — The red-on-main run used a Debug-string assertion for `UnreadableOpcodeList` (the variant did not exist yet), then switched to the typed `matches!`. I would write that two-step plan into the spec's Failing Tests up front. I would also run `cargo test --no-fail-fast` under the temp `CARGO_TARGET_DIR` first, since it surfaces every red in one pass.

@@ -31,7 +31,7 @@
 //! # `DEC-008`'s two paths
 //!
 //! - **Sub-byte samples** (`bits_per_sample` not a multiple of 8 — 12 or 14 in
-//!   this corpus): an MSB-first bit stream, read with [`BitReader`]. The TIFF
+//!   this corpus): an MSB-first bit stream, read with `BitReader`. The TIFF
 //!   byte-order tag does not apply; the packing is defined in bits, not
 //!   bytes.
 //! - **Byte-aligned samples** (a multiple of 8 — 8 or 16 here): plain

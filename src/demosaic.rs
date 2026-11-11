@@ -59,7 +59,7 @@
 //! reason a plain clamp-to-edge would be wrong here (it would read a
 //! wrong-colour neighbour). HA samples at **offset 2** (`WW`/`EE`/`NN`/`SS`),
 //! so a single reflection of `-2` / `len+1` lands back in range only once a
-//! dimension is `≥ 3`; on a shorter axis the final clamp in [`reflect`] engages
+//! dimension is `≥ 3`; on a shorter axis the final clamp in `reflect` engages
 //! so a degenerate 1- or 2-wide mosaic still cannot index out of range (safe,
 //! no panic — the AC's 1×1 / 2×2 / 3×5 cases).
 //!
@@ -69,11 +69,11 @@
 //! (every pixel at least two rows and two columns from each edge) a neighbour
 //! read at offset ±1 or ±2 is always in range, so [`demosaic_into`] reads those
 //! neighbours by **direct index into per-row slices** of `src` (and, in pass 2,
-//! the finalized greens in `dst`), skipping [`reflect`], [`plane_index`] and the
+//! the finalized greens in `dst`), skipping `reflect`, `plane_index` and the
 //! per-pixel `(x, y)` recovery that the border path still pays for. The
 //! **kernel arithmetic is reused verbatim** — the same classifiers, second
 //! differences, predictors, rounding and clamp (`green_from_neighbours` /
-//! `diagonal_from_neighbours` / [`colour_difference`]) applied to the same
+//! `diagonal_from_neighbours` / `colour_difference`) applied to the same
 //! neighbour values in the same order — so the output is **bit-identical** to
 //! the all-reflecting implementation (the existing golden hashes are the gate,
 //! and `interior_fast_path_matches_the_reference_demosaic` is the proof). The
@@ -218,6 +218,12 @@ impl BayerPhase {
 ///
 /// # Errors
 ///
+/// - Whatever [`crate::opcode::check_required_processing`] returns for
+///   [`crate::opcode::DevelopPath::Colour`], checked first: this path applies
+///   no opcode, so a mandatory opcode in any list is
+///   [`Error::UnsupportedRequiredOpcode`] /
+///   [`Error::UnsupportedMandatoryOpcode`], and a present-but-unreadable list
+///   is [`Error::UnreadableOpcodeList`] (`SPEC-056`, `DEC-053`).
 /// - [`Error::NotAColorFilterArray`] if `sensor.color_filter` is `None` (a
 ///   monochrome plane has nothing to demosaic).
 /// - [`Error::UnsupportedCfaPattern`] if the CFA is not a 2×2 Bayer of the
@@ -232,6 +238,9 @@ impl BayerPhase {
 /// saturating/checked operations whose inputs are provably far from `i32`'s
 /// range at 16-bit sample depth.
 pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
+    // The colour path applies no opcode, so refuse a file whose declared
+    // processing it would skip, before anything else (`SPEC-056`, `DEC-053`).
+    crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Colour)?;
     let cfa = sensor
         .color_filter
         .as_ref()
@@ -421,7 +430,8 @@ pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<()
 ///
 /// # Errors
 ///
-/// Exactly [`demosaic_into`]'s, in the same order: every input the threaded path
+/// Exactly [`demosaic_into`]'s, in the same order (the required-processing
+/// check first, before any thread is spawned): every input the threaded path
 /// does not accept (a non-CFA plane, an unsupported mosaic, a wrong-length
 /// buffer) is handed to [`demosaic_into`], which returns its typed error.
 ///
@@ -435,6 +445,9 @@ pub fn demosaic_into_threaded(
     dst: &mut [u16],
     threads: usize,
 ) -> Result<(), Error> {
+    // First, before any thread or allocation (`SPEC-056`, `DEC-053`). The
+    // fallbacks to `demosaic_into` below check again; that is cheap.
+    crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Colour)?;
     if threads <= 1 {
         return demosaic_into(sensor, src, dst);
     }

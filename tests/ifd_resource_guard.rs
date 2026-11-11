@@ -362,6 +362,10 @@ fn stage_probe_crate(dest: &Path, mutate: bool) {
 fn build_and_run_probe(dir: &Path, fixture: &Path) -> String {
     let build = std::process::Command::new("cargo")
         .args(["build", "--release", "--bin", "ifd_guard_probe", "--quiet"])
+        // Isolate the staged crate's build in its own `target/` (SPEC-056): an
+        // inherited CARGO_TARGET_DIR would put the probe elsewhere, and would
+        // build a mutated staged crate into the caller's shared target dir.
+        .env_remove("CARGO_TARGET_DIR")
         .current_dir(dir)
         .output()
         .expect("spawn cargo build");

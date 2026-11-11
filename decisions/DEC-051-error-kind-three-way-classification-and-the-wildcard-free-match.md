@@ -94,6 +94,10 @@ later without breaking callers, and `Error` stays `#[non_exhaustive]` and unchan
 `LjpegInvalidPointTransform`, `LjpegInvalidHuffmanTable`, `LjpegMissingMarker`,
 `LjpegUnexpectedMarker`, `LjpegPlaneShapeMismatch`.
 
+*Later additions (each classified by its own decision, recorded here so the table
+stays the one reference):* `UnreadableOpcodeList` → **`Corrupt`** (`DEC-053`,
+`SPEC-056`, 0.2.1), making `Corrupt` 26 and the enum 56.
+
 The build must re-derive this table against the live enum and pin **every** variant in
 a test (one representative constructed per variant, asserted to the kind above); the
 table here is authored against `src/lib.rs` at 2026-11-10 (~55 variants) and is the

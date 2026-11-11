@@ -330,6 +330,27 @@ jobs:
       - run: mkdir -p fuzz/corpus/ljpeg
       - run: cargo +nightly fuzz run ljpeg fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=60
 
+  # SPEC-056: rustdoc with warnings denied (both feature surfaces). 0.2.0
+  # shipped 19 private intra-doc links because no job built the docs.
+  docs:
+    name: rust / docs (rustdoc -D warnings)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: ./scripts/doc-check.sh
+
+  # The doc gate's red-proof (oracle-must-be-shown-red covers gates; DEC-009):
+  # control green on an unmutated copy, then one injected public doc linking a
+  # private item must fail by lint name.
+  docs-red-proof:
+    name: rust / docs red-proof — private intra-doc link (must fail red)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: ./scripts/doc-check-red-proof.sh
+
   msrv:
     name: rust / MSRV (1.90.0)
     runs-on: ubuntu-latest

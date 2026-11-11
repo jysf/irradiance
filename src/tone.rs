@@ -30,7 +30,7 @@
 //! # Determinism — the table is the point (`AC4`/`AC7`, `DEC-002`)
 //!
 //! The sRGB mapping is a committed, generated const lookup table
-//! ([`crate::tone_table`], produced by `examples/gen-tone-table.rs`). The
+//! (`crate::tone_table`, produced by `examples/gen-tone-table.rs`). The
 //! library runs **no** `powf`/`exp`/`ln` on the encode path — it does an
 //! integer lookup — and `to_linear_f32_into` is a single IEEE division. The
 //! transcendental runs exactly once, in the generator, producing committed
@@ -78,7 +78,7 @@ pub fn to_linear_f32_into(linear: &[u16], dst: &mut [f32]) -> Result<(), Error> 
     Ok(())
 }
 
-/// Display-referred 16-bit sRGB `u16` via the committed [`SRGB_ENCODE_16`]
+/// Display-referred 16-bit sRGB `u16` via the committed `SRGB_ENCODE_16`
 /// table (`AC2`).
 ///
 /// `0 → 0`, `65535 → 65535`; monotonic non-decreasing across the full domain;
@@ -103,7 +103,7 @@ pub fn encode_srgb16_into(linear: &[u16], dst: &mut [u16]) -> Result<(), Error> 
     Ok(())
 }
 
-/// Display-referred 8-bit sRGB `u8` via the committed [`SRGB_ENCODE_8`] table
+/// Display-referred 8-bit sRGB `u8` via the committed `SRGB_ENCODE_8` table
 /// (`AC3`).
 ///
 /// `0 → 0`, `65535 → 255`; monotonic non-decreasing; within ±1 of the analytic

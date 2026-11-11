@@ -8,6 +8,47 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Fixed
+
+- **An `OpcodeList` tag that is present but unreadable now refuses the develop**
+  (`irradiance::opcode`, SPEC-056, STAGE-014, PROJ-002; closes a 0.2.0 Known
+  limitation) — a list whose payload offset or length does not fit the file was read
+  as absent (DEC-012), so a file declaring required processing in a list this library
+  could not read developed without it. Parsing stays tolerant (the file reads, the
+  field is `None`, the tag is in `Sensor::malformed_tags`), but every `develop_*`
+  entry and the colour stage primitives now return the new
+  **`Error::UnreadableOpcodeList { list }`** (`ErrorKind::Corrupt`; additive, `Error`
+  is `#[non_exhaustive]`). Lists are checked in order 1, 2, 3. No held corpus file
+  is affected: every one still develops byte-identically, and `DEVELOP_VERSION` is
+  unchanged. `DEC-053`.
+- **The Sensor-taking stage primitives now run the required-processing check**
+  (SPEC-056; closes a 0.2.0 Known limitation) — see **Changed**.
+- **`cargo doc` with warnings denied is clean** (SPEC-056) — 19 public docs linked
+  private items (rendered as plain text on docs.rs); they are reworded, not
+  silenced. New gate `just doc-check` (CI `docs`) and its mutation red-proof
+  `just doc-check-red-proof` (CI `docs-red-proof`).
+- **The nested-cargo red-proof tests work with `CARGO_TARGET_DIR` set** (SPEC-056)
+  — all 7 staged probe builds now build in their own `target/`, so the probe is
+  found and a mutated staged crate never builds into the caller's target dir.
+
+### Added
+
+- **`opcode::check_required_processing(sensor, path)`** and the
+  **`opcode::DevelopPath`** enum (`Mono`, `Colour`; `#[non_exhaustive]`)
+  (SPEC-056, DEC-053) — the check every develop entry asks first, public so a caller
+  composing the primitives itself (in particular the `Sensor`-less opcode appliers
+  `warp::apply_warp_into` and `develop::apply_fix_bad_pixels_constant`) can ask the
+  same question.
+
+### Changed
+
+- **⚠ `demosaic::demosaic_into`, `demosaic::demosaic_into_threaded` and
+  `color::to_srgb_linear_into` now refuse** a `Sensor` that declares processing the
+  colour path does not apply — a mandatory opcode (`UnsupportedRequiredOpcode` /
+  `UnsupportedMandatoryOpcode`) or an unreadable list (`UnreadableOpcodeList`) —
+  before any work, exactly as `develop_color_into` does (SPEC-056, DEC-053). Files
+  without opcode lists, or with optional-only lists, are unaffected.
+
 ## [0.2.0] - 2026-11-10
 
 The Bayer colour release (SPEC-042, DEC-052): everything since `0.1.1` — the Bayer
@@ -471,15 +512,6 @@ No colour-*accuracy* claim is made yet — see **Known limitations**.
   against its own independent transcriptions, but it has not yet been measured
   against a physical reference: the ColorChecker ΔE2000 oracle (SPEC-035) is
   blocked on capturing the chart. Treat colour as plausible, not calibrated.
-- **A malformed `OpcodeList` tag is read as absent** (DEC-012), so a file that
-  declares required opcode processing in a list this library cannot even parse
-  develops without it instead of being refused. No held corpus file does this.
-  Fix planned for `0.2.1` (SPEC-056).
-- **The stage functions below `develop_*` skip the required-processing check.**
-  `demosaic_into*`, `to_srgb_linear_into` and `apply_warp_into` do not refuse a
-  file with required opcodes the way every `develop_*` entry point does (SPEC-054);
-  only a caller composing those primitives directly is affected. Fix planned for
-  `0.2.1` (SPEC-056).
 - **The colour develop does not run the `OpcodeList` stages** (`WarpRectilinear`,
   `FixBadPixelsConstant`) that `develop_into` runs. A file that *requires* them is
   refused with `Error::UnsupportedRequiredOpcode` (SPEC-054); optional ones are
