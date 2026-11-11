@@ -1234,6 +1234,112 @@ impl fmt::Display for Error {
 
 impl core::error::Error for Error {}
 
+/// The coarse class of an [`Error`], returned by [`Error::kind`] (`SPEC-040`,
+/// `DEC-051`).
+///
+/// It answers one question a batch consumer has about a failed file: skip it,
+/// log it as bad data, or fix the calling code. Only the three kinds are
+/// stable; an individual [`Error`] variant may be re-classified in a later
+/// release. `#[non_exhaustive]` so a fourth kind can be added without breaking
+/// a caller's `match`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ErrorKind {
+    /// The input is well-formed for its format but uses a format, version,
+    /// feature or variant this library does not implement — a different or
+    /// later decoder could read it. Remedy: skip it or use another tool.
+    Unsupported,
+    /// The input bytes are malformed, truncated, internally inconsistent, or
+    /// hostile (exceed a structural limit, alias, or carry out-of-range
+    /// values). Remedy: the file is bad.
+    Corrupt,
+    /// The outcome was decided by an argument the caller passed, not by the
+    /// file: a buffer of the wrong length, or the caller's own pixel budget
+    /// ([`Error::PlaneTooLarge`]). Remedy: fix the call.
+    CallerError,
+}
+
+impl Error {
+    /// Classifies this error as [`ErrorKind::Unsupported`],
+    /// [`ErrorKind::Corrupt`] or [`ErrorKind::CallerError`] (`DEC-051`).
+    ///
+    /// Total and infallible. The classification is advisory routing: only the
+    /// three kinds are a stability promise, not the kind of any one variant.
+    #[must_use]
+    pub fn kind(&self) -> ErrorKind {
+        // No wildcard arm, deliberately (DEC-051). `Error` is defined in this
+        // crate, so this match must name every variant even though `Error` is
+        // `#[non_exhaustive]` downstream; a new variant fails to compile here
+        // until it is classified. Do not add `_ =>` to silence that error.
+        match self {
+            // The caller's argument decided it: a mis-sized buffer, or the
+            // caller's own `max_pixels` budget (DEC-050).
+            Error::PlaneBufferWrongLength { .. }
+            | Error::PlaneTooLarge { .. }
+            | Error::SourcePlaneWrongLength { .. }
+            | Error::DevelopBufferWrongLength { .. }
+            | Error::WarpSourceWrongLength { .. }
+            | Error::WarpDestWrongLength { .. }
+            | Error::FixBadPixelsPlaneWrongLength { .. }
+            | Error::OutputBufferWrongLength { .. }
+            | Error::DemosaicSourceWrongLength { .. }
+            | Error::RgbBufferWrongLength { .. }
+            | Error::ColorSourceWrongLength { .. }
+            | Error::LjpegPlaneWrongLength { .. } => ErrorKind::CallerError,
+
+            // Well-formed input this library does not decode. A non-TIFF or a
+            // TIFF with no RAW sensor IFD is "not a file I read", and a file
+            // with no usable colour calibration cannot be colour-developed.
+            Error::NotTiff { .. }
+            | Error::UnsupportedTiffVersion { .. }
+            | Error::NoSensorIfd
+            | Error::UnsupportedCompression { .. }
+            | Error::UnsupportedBitDepth { .. }
+            | Error::UnsupportedStripLayout { .. }
+            | Error::UnsupportedOrientation { .. }
+            | Error::UnsupportedMandatoryOpcode { .. }
+            | Error::UnsupportedRequiredOpcode { .. }
+            | Error::UnsupportedWarpTangentialTerms { .. }
+            | Error::NotAColorFilterArray
+            | Error::UnsupportedCfaPattern { .. }
+            | Error::MissingColorCalibration
+            | Error::LjpegUnsupportedProcess { .. }
+            | Error::LjpegUnsupportedComponentCount { .. }
+            | Error::LjpegUnsupportedPrecision { .. }
+            | Error::LjpegUnsupportedPredictor { .. }
+            | Error::LjpegUnsupportedSampling { .. } => ErrorKind::Unsupported,
+
+            // Malformed, truncated, inconsistent or hostile bytes, including
+            // out-of-range values read from the file (the Invalid* variants).
+            Error::Truncated { .. }
+            | Error::CyclicIfd { .. }
+            | Error::IfdDepthExceeded { .. }
+            | Error::TooManyIfds { .. }
+            | Error::IfdTableBytesExceedFile { .. }
+            | Error::UnexpectedFieldType { .. }
+            | Error::ValueOverflow { .. }
+            | Error::MalformedRationalValue { .. }
+            | Error::RationalValueOutOfRange { .. }
+            | Error::TagTooLarge { .. }
+            | Error::MissingTag { .. }
+            | Error::OffsetOutOfRange { .. }
+            | Error::NoSensorIfdCandidatesMalformed { .. }
+            | Error::MissingRowsPerStrip { .. }
+            | Error::PackedSizeMismatch { .. }
+            | Error::StripBytesExceedFile { .. }
+            | Error::InvalidActiveArea { .. }
+            | Error::InvalidDefaultCrop { .. }
+            | Error::InvalidLevels { .. }
+            | Error::MalformedOpcodeParams { .. }
+            | Error::LjpegInvalidPointTransform { .. }
+            | Error::LjpegInvalidHuffmanTable
+            | Error::LjpegMissingMarker { .. }
+            | Error::LjpegUnexpectedMarker { .. }
+            | Error::LjpegPlaneShapeMismatch { .. } => ErrorKind::Corrupt,
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(
     // Test code is not a parse/decode path exercised on untrusted input

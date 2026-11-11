@@ -86,6 +86,17 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **`Error::kind()` and `ErrorKind { Unsupported, Corrupt, CallerError }`**
+  (`irradiance`, SPEC-040, PROJ-002) — a stable three-way classification of every
+  `Error`, so a batch consumer can route a failure without matching ~55 variants:
+  `Unsupported` (a well-formed file this library does not decode — skip it),
+  `Corrupt` (malformed, truncated or hostile bytes — a bad file), `CallerError` (a
+  wrong-length buffer or the caller's own `max_pixels` budget — fix the call).
+  `ErrorKind` is `#[non_exhaustive]`; only the three kinds are a stability promise,
+  and an individual variant may be re-classified later. `kind()` is a wildcard-free
+  match, so a new `Error` variant cannot compile until it is classified. Additive:
+  no `Error` variant, `Display` text or error-production site changed. `DEC-051`.
+
 - **`plane::validate`** (`irradiance::plane`, SPEC-039) — the allocation-free,
   panic-free validate-before-allocate preflight: returns `Ok(n)` (`n = width ×
   height`, the exact `dst` length `unpack_into` wants) or the same typed error
