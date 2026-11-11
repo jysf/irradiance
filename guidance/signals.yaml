@@ -56,14 +56,20 @@ signals:
   - id: pre-register-the-tolerance
     type: golden-path
     summary: "State a numeric acceptance threshold — and its falsifier — in writing BEFORE measuring anything."
-    evidence: "SPIKE-001 Q5: >=85 and 'a missing warp must land far below 85' were both written down before the first score was computed; both survived. N=1."
+    evidence: "SPIKE-001 Q5 (N=1); DEC-054 / SPEC-035 design, 2026-11-11 (N=2). Original: SPIKE-001 Q5: >=85 and 'a missing warp must land far below 85' were both written down before the first score was computed; both survived. N=1."
     bar: "N=3"
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-11-06
+    last_touched: 2026-11-11
     raised_by: claude
     notes: |
+      ══ PROJ-001 CLOSE, 2026-11-11: REVIEWED — watch, N=2 ══
+      Second instance: DEC-054 (SPEC-035 ColorChecker oracle) pre-registers its
+      bound (mean dE00 <= 6, max <= 15) AND its falsifier (unity-WB / matrix-swap
+      faults must push mean > 12) before the capture exists, and states that a
+      failed honest run is a finding, not a reason to move the bound. N=2 of a
+      N=3 bar; promote only on a third instance.
       ══ PROJ-003 CLOSE, 2026-11-06: REVIEWED — kept at watch (N=1) ══
       Still N=1 (SPIKE-001); below its N=3 bar. The PROJ-003-close gate fix stops a
       watch golden-path from blocking a project close, so it need not be forced
@@ -113,9 +119,14 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-11-06
+    last_touched: 2026-11-11
     raised_by: claude
     notes: |
+      ══ PROJ-001 CLOSE, 2026-11-11: STANDING RISK — watch ══
+      Re-asked the close question: no regression is known to have reached main
+      because CI could not see the corpus. Every recent verify (STAGE-010/012 waves)
+      ran the tier-B bit-exact check locally and recorded it in the handback.
+      Kept at watch per DEC-003; no action.
       ══ PROJ-003 CLOSE, 2026-11-06: STANDING RISK — watch ══
       CI cannot run tier-B corpus tests (DEC-003 keeps corpus files uncommitted), so a
       green badge does not prove bit-exactness; the bit-exact oracles run locally.
@@ -417,9 +428,14 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-21
-    last_touched: 2026-11-06
+    last_touched: 2026-11-11
     raised_by: human
     notes: |
+      ══ PROJ-001 CLOSE, 2026-11-11: REVIEWED — watch ══
+      Still carrying its weight: the PROJ-002 waves used FU-N ids across
+      build -> verify -> follow-up spec (e.g. the SPEC-054 verify follow-ups became
+      SPEC-056's Context via SPEC-042's deferral). Still not promoted; the
+      template write-up recommended at PROJ-003's close is not done yet.
       ══ PROJ-003 CLOSE, 2026-11-06: REVIEWED — kept at watch; write up for the template ══
       The ship-blocking/follow-up split stays codified in AGENTS.md section 15 and
       carried its weight across all of PROJ-003 (SB-N / FU-N used throughout). The
@@ -759,7 +775,7 @@ signals:
   - id: flat-rate-overstates-cached-sessions
     type: process-debt
     summary: "rate_per_mtok: 6.60 applied flat computes 2.7x the true cost on a 97.5%-cache-read session."
-    evidence: "N=5, four sessions and two models before this one, always the same direction. (1) SPEC-007 verify: $19.35 per-component at published Opus rates vs $51.06 flat — 2.6x. (2) PATCH-001, SPEC-005's build on claude-sonnet-5: $13.55 actual vs $198.76 flat — 14.7x, because the flat rate ALSO ignores which model ran. (3) SPEC-010 verify: $21.33 vs $68.39 — 3.2x. (4) SPEC-012 verify, 2026-09-04: the reviewer reported $207 at a flat $15/MTok and SAID PLAINLY it was "a ceiling, not an estimate"; measured per-component on a 98.3% cache-read session it is $33.22 — 6.2x. Honest labelling, and still the wrong number to leave in a field named estimated_usd. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them. (5) SPEC-015 build, 2026-09-05, claude-sonnet-5: transcript summed 228 input / 212,083 output / 445,454 cache-write (all 1h) / 39,271,015 cache-read = 40,409,158 combined, 97.3% cache-read. Per-component at published Sonnet rates ($3/$15/$6/$0.30 per MTok input/output/1h-write/read): $17.80. AGENTS.md §4's own fallback (`tokens_total × input rate, no cache discount`) gives $121.23 — 6.8x, squarely inside the N=4 spread (2.6x-14.7x) this signal already names, not a new failure mode."
+    evidence: "N=5, four sessions and two models before this one, always the same direction. (1) SPEC-007 verify: $19.35 per-component at published Opus rates vs $51.06 flat — 2.6x. (2) PATCH-001, SPEC-005's build on claude-sonnet-5: $13.55 actual vs $198.76 flat — 14.7x, because the flat rate ALSO ignores which model ran. (3) SPEC-010 verify: $21.33 vs $68.39 — 3.2x. (4) SPEC-012 verify, 2026-09-04: the reviewer reported $207 at a flat $15/MTok and SAID PLAINLY it was \"a ceiling, not an estimate\"; measured per-component on a 98.3% cache-read session it is $33.22 — 6.2x. Honest labelling, and still the wrong number to leave in a field named estimated_usd. Every session in this project is 93-98% cache-read, so the flat figure is wrong for all of them. (5) SPEC-015 build, 2026-09-05, claude-sonnet-5: transcript summed 228 input / 212,083 output / 445,454 cache-write (all 1h) / 39,271,015 cache-read = 40,409,158 combined, 97.3% cache-read. Per-component at published Sonnet rates ($3/$15/$6/$0.30 per MTok input/output/1h-write/read): $17.80. AGENTS.md §4's own fallback (`tokens_total × input rate, no cache discount`) gives $121.23 — 6.8x, squarely inside the N=4 spread (2.6x-14.7x) this signal already names, not a new failure mode."
     bar: null
     status: done
     disposition_at: project-close

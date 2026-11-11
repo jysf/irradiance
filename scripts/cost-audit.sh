@@ -48,8 +48,17 @@ if ! has_projects; then
     success "cost-audit: no projects yet — nothing shipped, nothing to audit."
     exit 0
 fi
-project=$(get_active_project)
-project_dir="${REPO_ROOT}/projects/${project}"
+# Every project, not only the active one (PROJ-001 close, 2026-11-11). This gate
+# was scoped to get_active_project, so a project stopped being audited the moment
+# it closed: its shipped specs, patches and stages left the gate's sight, and
+# cost-audit-red-proof (which mutates STAGE-002, a PROJ-001 stage) went vacuous
+# the day PROJ-001 shipped. A shipped artifact's cost does not stop mattering when
+# its project closes; that is exactly when the rollups read it.
+project_dirs=()
+for d in "${REPO_ROOT}"/projects/PROJ-*/; do
+    [ -d "$d" ] && project_dirs+=("${d%/}")
+done
+[ "${#project_dirs[@]}" -gt 0 ] || die "cost-audit: has_projects passed but no projects/PROJ-*/ directory was found"
 
 offenders=0
 warnings=()
@@ -74,7 +83,7 @@ while IFS= read -r f; do
     fi
     imp=$(spec_implausible_cost_cycles "$f")
     [ -n "$imp" ] && warnings+=("${name}: ${imp}")
-done < <(find_all_specs "$project_dir")
+done < <(for project_dir in "${project_dirs[@]}"; do find_all_specs "$project_dir"; done)
 
 # Patches (DEC-003) are gated the same way, but their metered cycles are
 # `patch verify` (a patch has no separate build cycle).
@@ -97,7 +106,7 @@ while IFS= read -r f; do
     fi
     imp=$(spec_implausible_cost_cycles "$f" patch verify)
     [ -n "$imp" ] && warnings+=("${name}: ${imp}")
-done < <(find_all_patches "$project_dir")
+done < <(for project_dir in "${project_dirs[@]}"; do find_all_patches "$project_dir"; done)
 
 # Stages (PATCH-002). AGENTS.md's stage template says "THE ORCHESTRATOR FILLS
 # THIS — not the human" about `orchestration_cost`, and until this gate existed
@@ -134,7 +143,7 @@ while IFS= read -r f; do
         [ "$JSON_OUT" = 1 ] || printf "  %-58s missing cost on: %s\n" "$name" "$reason"
         offenders=$((offenders + 1))
     fi
-done < <(find_all_stages "$project_dir")
+done < <(for project_dir in "${project_dirs[@]}"; do find_all_stages "$project_dir"; done)
 
 # Machine-readable findings (DEC-001 §2) — which artifact is missing which
 # metered cycle, so an agent can fix it rather than screen-scrape.

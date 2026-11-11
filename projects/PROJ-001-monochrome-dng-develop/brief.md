@@ -4,8 +4,8 @@
 
 project:
   id: PROJ-001
-  status: active
-  activity: blocked
+  status: shipped
+  activity: null
   priority: high
   target_ship: null
 
@@ -13,9 +13,9 @@ repo:
   id: irradiance
 
 created_at: 2026-08-15
-shipped_at: null
+shipped_at: 2026-11-11
 
-closed_reason: null
+closed_reason: shipped
 
 value:
   thesis: >
@@ -43,10 +43,32 @@ value:
     - "PROJ-001 validates against one camera, one firmware, one frame — Leica-specific assumptions could hide until a second DNG source arrives"
 
 value_realized:
-  thesis_held: null
-  signals_observed: []
-  evidence: null
-  notes: null
+  thesis_held: partly
+  signals_observed:
+    - "Q2M plane MD5 equals `dnglab analyze --raw-checksum` EXACTLY across the held Q2M frames, with a red-proof (SPEC-012/013); later extended to every held mono file incl. the M Monochrom and both Compression-7 files (PROJ-003)"
+    - "The library reports real sensor dimensions, bit depth, black/white levels, ActiveArea/DefaultCrop and Orientation from the sensor IFD, not the preview (SPEC-004/014/015; `irr ifd`), verified against dnglab and exiftool by the metadata oracle (SPEC-005/010)"
+    - "The parser survives its fuzz corpus with typed errors and no panics (SPEC-003 onward; fuzz graph linted under -D warnings, SPEC-011)"
+    - "Every algorithm carries a provenance-ledger row (docs/provenance-ledger.md)"
+  evidence: >
+    Four of the five success signals were observed. The core claim held: a
+    permissive, pure-Rust, zero-dependency library develops an uncompressed
+    monochrome DNG to a correct image, with the plane bit-exact against an
+    independent implementation. That covers bad-pixel and warp opcodes, geometry,
+    and a tone curve with three output modes (STAGE-001..003). It also shipped to
+    crates.io (0.1.1, then 0.2.0). Not observed: the crustyimg success signal
+    ("crustyimg web q2m.dng produces an image worth publishing"). That work is
+    crustyimg-side and still unscheduled there, so STAGE-004 moved to PROJ-004.
+  notes: >
+    "Partly" for two reasons. (1) The consumer-integration signal transferred
+    rather than landed: a success signal that depends on another repo's calendar
+    should be stated as a cross-repo dependency from the start, not a project
+    deliverable. (2) "Roughly one module's worth of code" undershot. The
+    deliverable is several modules (ifd, plane, opcode, develop, warp, tone) plus a
+    large gate and oracle harness, and most of the effort went into proving
+    correctness (red-proofs, gate audits, CI truthfulness), not decoding. The
+    single-source risk (dnglab is built on rawler) was mitigated with analytic
+    fixtures. Full independence arrives with PROJ-002's ColorChecker oracle
+    (SPEC-035).
 
 roadmap:
   - item: "Bayer develop — CFA model, clean-room MHC demosaic, colour matrices, ColorChecker ΔE"
@@ -139,12 +161,13 @@ than by reading anyone's code. That is the cleanest provenance available.
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [ ] STAGE-001 (proposed) — Foundations: corpus, TIFF/IFD reader, DNG tag model, metadata oracle
-- [ ] STAGE-002 (proposed) — The monochrome plane: unpack, bit-exact oracle, levels and geometry
-- [ ] STAGE-003 (proposed) — Opcodes and output: bad pixels, WarpRectilinear, tone curve, develop oracle
-- [ ] STAGE-004 (proposed) — crustyimg integration: `raw-develop` feature, adapter, metadata truthfulness
+- [x] STAGE-001 (shipped 2026-08-22) — Foundations: corpus, TIFF/IFD reader, DNG tag model, metadata oracle
+- [x] STAGE-002 (shipped 2026-09-06) — The monochrome plane: unpack, bit-exact oracle, levels and geometry
+- [x] STAGE-003 (shipped 2026-10-27) — Opcodes and output: bad pixels, WarpRectilinear, tone curve, develop oracle
+- [→] STAGE-004 (moved to PROJ-004, 2026-11-11) — crustyimg integration: implemented crustyimg-side (its PROJ-016/STAGE-056), unscheduled there
+- [x] STAGE-005 (shipped 2026-11-11) — Harden the harness: gates, the oracle's parser, the second cargo graph (added 2026-08-30; 4 leftover [XS] outlines moved to PROJ-002 STAGE-014)
 
-**Count:** 0 shipped / 0 active / 4 pending
+**Count:** 4 shipped / 0 active / 0 pending (1 moved)
 
 Each stage ends at a **stopping point** where the maintainer reviews before the
 next begins. Effort estimates live in each stage file, in hours rather than
@@ -168,10 +191,45 @@ calendar, because pace is the maintainer's to set.
 
 *Filled in when status moves to shipped.*
 
-- **Did we deliver the outcome in "What This Project Is"?** <yes/no + notes>
-- **How many stages did it actually take?** <number, compare to plan>
-- **What changed between starting and shipping?** <one or two sentences>
+*Written at close, 2026-11-11 (Prompt 1e, run by the orchestrator).*
+
+- **Did we deliver the outcome in "What This Project Is"?** Mostly. Everything on
+  irradiance's side shipped, and every layer is verified against an independent
+  implementation or analytic fixtures, each with a red-proof:
+  - the container reader;
+  - the sensor-plane decode, bit-exact;
+  - the two opcodes the Q2M actually carries;
+  - three-stage geometry;
+  - the tone curve and its three output modes.
+
+  irradiance went to crates.io (DEC-028). The crustyimg command-line integration
+  did not land. It is crustyimg-side work that crustyimg has not scheduled, so
+  STAGE-004 moved to PROJ-004 rather than holding this project open.
+- **How many stages did it actually take?** Five were planned or added:
+  - four planned: STAGE-001..004;
+  - STAGE-005 added on 2026-08-30 for harness debt that STAGE-001 measured.
+
+  Four shipped and one moved. The work comes to 23 specs (SPEC-001..023), 4
+  patches (PATCH-001..004) and 2 spikes.
+- **What changed between starting and shipping?** The project's centre of gravity
+  moved from decoding to *proving*. STAGE-001 shipped having found that a CI gate
+  had never once passed, 17 consecutive red runs (PATCH-001). That reshaped the
+  repo's disciplines:
+  - every gate gets a red-proof;
+  - gate-audit runs over the gates;
+  - CI must be observed green on the claimed SHA.
+
+  Meanwhile, PROJ-002 and PROJ-003 overtook the integration stage.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Already codified during the project: AGENTS.md §16's four rules and the
+    "two cargo graphs, two invocations" rule. Nothing new to land at close.
+  - New, at close: **a success signal that depends on another repo's schedule
+    should be framed as a cross-repo dependency, not a project deliverable.**
+    Otherwise the project can only close "partly". Recorded here; N=1, not a
+    signal yet.
 - **What did we defer to the next project?**
-  - <one-line items>
+  - STAGE-004 (crustyimg integration) moved to PROJ-004. It ships when crustyimg's
+    PROJ-016/STAGE-056 ships.
+  - STAGE-005's four [XS] harness outlines moved to PROJ-002 STAGE-014
+    (0.2.x maintenance).
+  - Fully independent colour/tone truth (ColorChecker ΔE) is PROJ-002's SPEC-035.
