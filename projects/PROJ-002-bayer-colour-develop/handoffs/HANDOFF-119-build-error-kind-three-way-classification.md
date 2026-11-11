@@ -10,7 +10,7 @@ handoff:
   from_role: architect
   to_role: implementer
   created_at: 2026-11-10
-  status: pending
+  status: completed
 
 task:
   spec_id: SPEC-040
@@ -22,14 +22,14 @@ repo:
   id: irradiance
 
 handback:
-  status: null
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null
-  notes: null
+  status: completed
+  tokens_total: 5756260            # REAL combined count — what cost-audit reads
+  estimated_usd: 4.20
+  duration_minutes: 25
+  branch: claude/spec-040-build-ed86ac
+  pr: 182
+  completed_at: 2026-11-10
+  notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input 82 + cache write 122,174 + cache read 5,608,811 + output 25,193, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns. synced_at left null for handback-sync."
   synced_at: null
 ---
 
@@ -84,17 +84,22 @@ even if blocked.
 ## Handback
 
 ### Execution notes
-- **Branch / PR:** [link]  **Completed at:** YYYY-MM-DD  **All criteria met?** yes/no
-- **Compile-time exhaustiveness confirmed?** (throwaway dummy variant — did `kind()` fail to compile?)
-- **For verify:** the verdict + commit SHA.
+- **Branch / PR:** `claude/spec-040-build-ed86ac` → https://github.com/jysf/irradiance/pull/182  **Completed at:** 2026-11-10  **All criteria met?** yes
+- **Table re-derived against the live enum:** the `Error` variant set parsed from `src/lib.rs` at f30c1ef is **identical** to DEC-051's table — 55 variants, 12 `CallerError` / 18 `Unsupported` / 25 `Corrupt`. No drift, no new variant, nothing classified outside the table.
+- **Compile-time exhaustiveness confirmed?** Yes. Adding a throwaway `DummyUnclassified` variant to `Error` produced `error[E0004]: non-exhaustive patterns: &Error::DummyUnclassified not covered` in `kind()` (and in `Display`); the dummy was removed and the tree restored before commit.
+- **The test bites (own mutation checks, all reverted):** moving `PlaneTooLarge` into the `Corrupt` arm turned `every_variant_classified` and `spec_039_additions_classified` red ("PlaneTooLarge: got Corrupt, DEC-051 says CallerError"); a dummy variant classified in `kind()` but absent from the test table failed with `Error variants missing from the DEC-051 table: ["DummyUnclassified"]`.
+- **How the test catches a missing variant:** an integration test cannot match `Error` exhaustively (it is `#[non_exhaustive]` downstream), so `every_variant_classified` parses the variant names out of `src/lib.rs` (`include_str!`) and requires the representative table to cover exactly that set, plus DEC-051's 55 / 12 / 18 / 25 counts.
+- **Gates:** `just test` — 23 binaries, **512 passed, 0 failed** (507 before + 5 new), corpus present. `just lint` and `just lint-no-allow` green. `cargo fmt --check` clean.
+- **Untouched:** no `Error` variant, `Display` text or error-production site changed; `kind()` is total and infallible (no panic path).
 
 ### Cost self-report
-- **Tokens (total):** <real number>  **Estimated USD:** <n>  **Duration (min):** <n>  **Source:** `/cost` | transcript | harness
+- **Tokens (total):** 5,756,260  **Estimated USD:** 4.20  **Duration (min):** ~25  **Source:** transcript (this session's usage records, deduped by message id; claude-opus-5-5)
 
 ### Drift and new artifacts
-- **New decisions:** <DEC-NNN or none>  **Deviations:** <list>  **Follow-ups:** <list>
+- **New decisions:** none  **Deviations:** none from DEC-051. Two additive tests beyond the three named in the spec: `dec_051_judgment_calls` (pins `NotTiff`/`NoSensorIfd`/`MissingColorCalibration` → Unsupported vs. `NoSensorIfdCandidatesMalformed`/`MissingTag` → Corrupt) and `error_kind_is_copy_and_comparable`.
+- **Follow-ups:** none required. Note for maintainers: adding an `Error` variant now needs three edits in step — the `kind()` arm (compiler-enforced), the `tests/error_kind.rs` table (test-enforced, by name), and DEC-051's table / counts.
 
 ### Reflection
-1. What was unclear? — <answer>
-2. A constraint/decision that should have been listed? — <answer>
-3. What would you do differently? — <answer>
+1. What was unclear? — Nothing material; DEC-051's table was complete and exact against the live enum.
+2. A constraint/decision that should have been listed? — No. The spec's "a variant missing from the test is a gap the test itself surfaces" needed a mechanism an integration test can't get from exhaustiveness; parsing the enum's variant names from source was the simplest one.
+3. What would you do differently? — Nothing; most wall time was the full `just test` red-proof rebuilds.
