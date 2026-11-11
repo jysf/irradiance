@@ -163,7 +163,7 @@ out-of-memory abort.
   `plane::unpack_into`; both held files (Leica M Monochrom Typ 246, Pentax K-3 III
   Mono) match `dnglab`'s raw checksum exactly.
 - **Faster and leaner.** Demosaic ~1.69× faster (24 MP median 533.0 → 316.2 ms);
-  colour develop ~134 MB less peak memory on a 23 MP frame (358.7 → 224.9 MB); an
+  colour develop ~134 MiB less peak memory on a 23 MP frame (358.7 → 224.9 MiB); an
   opt-in `*_threaded` variant scales ~3.3–3.7× at 4 threads, byte-identical output.
 - **`DEVELOP_VERSION` is now `"4"`** (was `"1"` in `0.1.1`) — bumped by the three
   colour-develop output changes since (scene-white adaptation, the `ActiveArea`

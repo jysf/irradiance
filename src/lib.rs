@@ -145,8 +145,8 @@ use core::fmt;
 /// The develop **algorithm epoch** — bumped whenever the develop pipeline's
 /// output changes for the same input bytes (a new or changed opcode, a tone
 /// change, a geometry fix), **independently of the crate's semver**. The crate
-/// version (`Cargo.toml`) tracks API compatibility and stays `0.1.x` across
-/// many epochs; this string tracks output identity.
+/// version (`Cargo.toml`) tracks API compatibility and stays on one semver
+/// line across many epochs; this string tracks output identity.
 ///
 /// It exists for downstream determinism, not for this library's own use.
 /// `crustyimg` folds it into its build-cache key, so `crustyimg build
