@@ -669,12 +669,8 @@ fn colour_fixture_sensor() -> Sensor {
     built.white_level = Some(15000);
     built.black_level_repeat_dim = Some([2, 2]);
     built.orientation = Some(1);
-    built.color_filter = Some(Cfa {
-        repeat_dim: [2, 2],
-        pattern: vec![0, 1, 1, 2],
-        plane_color: vec![0, 1, 2],
-        layout: 1,
-    });
+    // `Cfa` is `#[non_exhaustive]` (DEC-052); the dev-only fixture is 2×2 RGGB.
+    built.color_filter = Some(Cfa::test_fixture());
     built.color_matrix_1 = matrix([7234, -1413, -600, -3631, 11150, 2850, -382, 1335, 6437]);
     built.color_matrix_2 = matrix([6722, -635, -963, -4287, 12460, 2028, -908, 2162, 5668]);
     built.forward_matrix_1 = matrix([7868, 92, 1683, 2291, 8615, -906, 27, -4752, 12976]);

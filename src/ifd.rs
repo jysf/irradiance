@@ -612,7 +612,14 @@ pub struct Rational {
 /// that carries a readable `CFAPattern`; `None` for a monochrome `LinearRaw`
 /// plane. See [`Container::sensor`] for the interpretation-class parse
 /// (`DEC-012`).
+///
+/// **A parser-output view, sealed with `#[non_exhaustive]`** (`SPEC-042`,
+/// `DEC-052`; the sweep `Sensor` began, `DEC-049`): [`Container::sensor`]
+/// builds it and consumers read it, so a future field is additive, not
+/// breaking. Outside this crate a `Cfa` cannot be built with a struct literal;
+/// its public fields stay readable, assignable and matchable with `..`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Cfa {
     /// `CFARepeatPatternDim` (tag 33421): the repeating pattern's
     /// `[rows, columns]` — `[2, 2]` for a Bayer mosaic.
@@ -626,6 +633,28 @@ pub struct Cfa {
     /// `CFALayout` (tag 50711): the physical mosaic layout; the DNG default 1
     /// (rectangular) when the tag is absent.
     pub layout: u32,
+}
+
+impl Cfa {
+    /// A 2×2 RGGB `Cfa` with the DNG-default plane colour and layout, for the
+    /// crate's own integration tests and examples — **dev-only**, compiled in
+    /// solely under the `test-fixtures` cargo feature (`SPEC-042`, `DEC-052`;
+    /// the same shape as [`Sensor::test_fixture`]).
+    ///
+    /// `#[non_exhaustive]` stops the separate `tests/` crate from writing a
+    /// `Cfa { .. }` literal, so fixtures start here and assign the public
+    /// fields they exercise (`pattern`, `repeat_dim`, …). The published crate
+    /// (default features) does not contain it.
+    #[cfg(feature = "test-fixtures")]
+    #[doc(hidden)]
+    pub fn test_fixture() -> Cfa {
+        Cfa {
+            repeat_dim: [2, 2],
+            pattern: vec![0, 1, 1, 2],
+            plane_color: vec![0, 1, 2],
+            layout: 1,
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

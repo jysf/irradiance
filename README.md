@@ -39,7 +39,7 @@ It is deliberately a **library, not an application**
 - **Edition 2021**, MSRV `1.90` (the measured floor; the true floor is lower
   but unmeasured — see [`Cargo.toml`](Cargo.toml)).
 
-> **Status:** early (0.1.x, on crates.io). Uncompressed **monochrome** and
+> **Status:** early (0.2.x, on crates.io). Uncompressed **monochrome** and
 > **Bayer** DNG develop work end to end, and monochrome DNG `Compression 7`
 > (lossless-JPEG, SOF-3) planes decode bit-exact through the public
 > `plane::unpack_into` — single- and two-component frames (`SPEC-043`/`046`/`044`).
@@ -66,7 +66,7 @@ Add the crate from crates.io:
 
 ```toml
 [dependencies]
-irradiance = "0.1"
+irradiance = "0.2"
 ```
 
 End to end — read a DNG's bytes, develop, and display-encode to 8-bit sRGB:

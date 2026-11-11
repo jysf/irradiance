@@ -310,12 +310,9 @@ fn fixture_sensor(width: u32, height: u32) -> Sensor {
 
 /// A 2×2 RGGB CFA with the DNG-default plane colour.
 fn rggb() -> Cfa {
-    Cfa {
-        repeat_dim: [2, 2],
-        pattern: vec![0, 1, 1, 2],
-        plane_color: vec![0, 1, 2],
-        layout: 1,
-    }
+    // `Cfa` is `#[non_exhaustive]` (DEC-052): start from the dev-only fixture,
+    // which is already 2×2 RGGB with the DNG-default plane colour and layout.
+    Cfa::test_fixture()
 }
 
 /// Nine `num/10000` rationals (row-major) for a synthetic matrix.
@@ -632,12 +629,9 @@ fn develop_color_composes_normalize_demosaic_matrix() {
 
 /// A 2×2 Bayer CFA with the DNG-default plane colour for a given phase pattern.
 fn phase_cfa(pattern: &[u8]) -> Cfa {
-    Cfa {
-        repeat_dim: [2, 2],
-        pattern: pattern.to_vec(),
-        plane_color: vec![0, 1, 2],
-        layout: 1,
-    }
+    let mut cfa = Cfa::test_fixture();
+    cfa.pattern = pattern.to_vec();
+    cfa
 }
 
 /// The pre-fuse colour-develop composition, built from independent transcriptions
@@ -1205,12 +1199,7 @@ fn grey_asn_f64() -> [f64; 3] {
 /// plane-relative origin `(0, 0)`, i.e. the pre-DEC-040 behaviour).
 fn grey_origin_sensor(pattern: &[u8], sensor_origin: Option<(u32, u32)>) -> Sensor {
     let mut s = fixture_sensor(GREY_W, GREY_H);
-    s.color_filter = Some(Cfa {
-        repeat_dim: [2, 2],
-        pattern: pattern.to_vec(),
-        plane_color: vec![0, 1, 2],
-        layout: 1,
-    });
+    s.color_filter = Some(phase_cfa(pattern));
     s.forward_matrix_1 = Some(forward_matrix_d50());
     s.as_shot_neutral = Some(nikon_asn());
     s.black_levels = SLOT_BLACK.to_vec();

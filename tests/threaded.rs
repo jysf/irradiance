@@ -46,12 +46,10 @@ fn sensor(width: u32, height: u32, pattern: &[u8]) -> Sensor {
         built.width = width;
         built.height = height;
         built.photometric = 32803;
-        built.color_filter = Some(Cfa {
-            repeat_dim: [2, 2],
-            pattern: pattern.to_vec(),
-            plane_color: vec![0, 1, 2],
-            layout: 1,
-        });
+        // `Cfa` is `#[non_exhaustive]` (DEC-052): start from the dev-only fixture.
+        let mut cfa = Cfa::test_fixture();
+        cfa.pattern = pattern.to_vec();
+        built.color_filter = Some(cfa);
         built.forward_matrix_1 = Some(forward_matrix);
         built.as_shot_neutral = Some(vec![
             Rational { num: 1, den: 2 },
