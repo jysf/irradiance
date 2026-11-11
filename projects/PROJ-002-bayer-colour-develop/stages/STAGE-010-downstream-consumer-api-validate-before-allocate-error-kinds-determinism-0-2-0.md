@@ -151,12 +151,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
       2026-11-10 (DEC-050); build-ready, HANDOFF-117.** A–C shipped, so depends_on is
       satisfied. Group C's two verify follow-ups are deferred here (DEC-050 §Scope),
       not folded in. depends_on: A, B, C (SPEC-052, SPEC-053, SPEC-054).
-- [ ] SPEC-040 (build) — [S] **`Error::kind()` / `ErrorKind`**:
+- [x] SPEC-040 (ship) — [S] **`Error::kind()` / `ErrorKind`**:
       `{ Unsupported, Corrupt, CallerError }`, non-exhaustive, via a **wildcard-free**
       `match` (compiler enforces "a new variant cannot land unclassified") + an exhaustive
       per-variant test. **DESIGNED 2026-11-10 (DEC-051); build-ready, HANDOFF-119.**
       depends_on: SPEC-039 (shipped).
-- [ ] SPEC-041 (build) — [S] **Cross-arch determinism evidence**: tier-A synthetic Bayer
+- [x] SPEC-041 (ship) — [S] **Cross-arch determinism evidence**: tier-A synthetic Bayer
       fixtures, committed golden hashes for the three outputs, a linux x86_64 + macOS
       arm64 CI matrix; name any float path that could diverge; oracle shown red.
       **DESIGNED 2026-11-10 (no new DEC — rests on DEC-016/018/033); build-ready,
@@ -165,7 +165,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
       checks): the full public-struct non-exhaustive sweep, a tier-B corpus evidence
       run on the candidate SHA, a package target list, deny-on-dev-graph. depends_on:
       all of A–E + SPEC-040 + SPEC-041.
-**Count:** 5 shipped / 3 active / 0 pending
+**Count:** 7 shipped / 1 active / 0 pending
 
 > **Pre-0.2.0 P1 wave SHIPPED 2026-11-10** — groups A–D (SPEC-052/053/054/055)
 > merged to `main` (PRs #167/#169/#175/#174) and bookkept. Wave cost 71,251,157

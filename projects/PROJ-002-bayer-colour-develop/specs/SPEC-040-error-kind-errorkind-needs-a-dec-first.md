@@ -6,14 +6,14 @@
 task:
   id: SPEC-040
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved         # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -63,11 +63,29 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-119
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 5756260
+      estimated_usd: 4.20
+      duration_minutes: 25
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input 82 + cache write 122,174 + cache read 5,608,811 + output 25,193, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns. synced_at left null for handback-sync."
+    - cycle: verify
+      handoff: HANDOFF-121
+      agent: claude-opus-5-5
+      interface: other
+      tokens_total: 1651196
+      estimated_usd: 1.44
+      duration_minutes: null
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 verify. Verdict APPROVED at de30009 (PR #182), no code change. 512 tests pass, lint green, all 55 variants match DEC-051 (12 CallerError / 18 Unsupported / 25 Corrupt), the four judgment calls hold. Proved the no-wildcard guarantee in a scratch copy: a dummy variant fails E0004 in kind() even after being given a Display arm. tokens_total summed from the session transcript (/cost is not callable in a delegated session)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 7407456
+    estimated_usd: 5.64
+    session_count: 2
 ---
 
 # SPEC-040: **`Error::kind()` / `ErrorKind`** (needs a DEC first):

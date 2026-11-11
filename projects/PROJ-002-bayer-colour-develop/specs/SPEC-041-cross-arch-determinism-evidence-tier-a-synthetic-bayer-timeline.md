@@ -17,9 +17,9 @@ Cycle prompts live in `prompts/SPEC-041-<cycle>.md`.
   division; the `f64` colour path named but unmeasured); oracle shown red (perturbed run
   fails). A found divergence becomes its own spec — no kernel change. Spec moved `frame →
   build`; HANDOFF-120 prepared.
-- [~] **build** — delegated via HANDOFF-120. Branch `claude/spec-041-build-<suffix>` from
+- [x] **build** (claude-opus-5-5 cold, PR #181 → rebased #183 merged) — delegated via HANDOFF-120. Branch `claude/spec-041-build-29eaff` from
   freshly-merged `main`. Committed hashes + the two-OS matrix + the red-proof + the
   float-path doc; gates; PR; fill the handback.
-- [ ] **verify** — cold review: the matrix runs on BOTH arches, hashes asserted on both,
+- [x] **verify** (claude-opus-5-5 cold, 2026-11-10) — ✅ APPROVED at f307abe; 514 tests, both CI determinism legs ran on their real arches (ubuntu x86_64 + macos arm64), the red-proof bites, hashes reproduced locally; no PR, no change. Confirmed: the matrix runs on BOTH arches, hashes asserted on both,
   the red-proof bites, float paths named honestly, no kernel changed to force agreement.
-- [ ] **ship** — merge, recover true build/verify cost, brag, stage bookkeeping.
+- [x] **ship** (2026-11-10) — code merged via PR #183 (rebased superset of #181). Cost 9,525,484 tok / $6.99 (build 7.21M/$5.16 + verify 2.31M/$1.83). brag logged; STAGE-010 → 7 shipped / 1 active.

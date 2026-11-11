@@ -30,7 +30,7 @@ handback:
   pr: 182
   completed_at: 2026-11-10
   notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input 82 + cache write 122,174 + cache read 5,608,811 + output 25,193, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns. synced_at left null for handback-sync."
-  synced_at: null
+  synced_at: 2026-11-10
 ---
 
 # HANDOFF-119: Build `Error::kind()` / `ErrorKind` (SPEC-040)

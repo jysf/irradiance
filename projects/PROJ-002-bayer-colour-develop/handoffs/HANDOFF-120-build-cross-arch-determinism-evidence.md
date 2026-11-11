@@ -30,7 +30,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/181
   completed_at: 2026-11-10
   notes: "claude-opus-5-5, transcript-summed (bd02789d). Committed hashes HELD on ubuntu-latest x86_64 and macos-latest arm64, dev and release profiles (CI run 42947290870). No kernel change, no new dep."
-  synced_at: null
+  synced_at: 2026-11-10
 ---
 
 # HANDOFF-120: Build the cross-arch determinism evidence (SPEC-041)
