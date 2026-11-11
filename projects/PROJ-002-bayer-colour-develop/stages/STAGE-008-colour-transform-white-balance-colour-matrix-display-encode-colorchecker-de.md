@@ -143,7 +143,7 @@ specs at `cycle: frame`; the `[S]`/`[M]`/`[L]` tag carries onto `task.complexity
       to SPEC-033. No public API change. Bit-exact analytic oracle + perturbed-CM2 red-proof;
       verified ✅ on real Canon (FM(g), g≈0.426) + Nikon (inv(CM(g)), g≈0.763). Build+verify 30.9M tok / $67.28.
       (The ColorMatrix-path scene-white→D50 CAT is deferred — SPEC-035's ΔE judges.)
-- [ ] SPEC-035 (frame) — [M] **ColorChecker ΔE oracle (GATED on the maintainer's
+- [ ] SPEC-035 (design — capture addendum pending; DEC-054) — [M] **ColorChecker ΔE oracle (GATED on the maintainer's
       ColorChecker shot)**: render the chart, measure per-patch **ΔE2000** vs the known
       ColorChecker reference (Lab/sRGB), with a red-proof (a wrong matrix/WB spikes ΔE).
       The fully-independent colour-accuracy capstone — the oracle PROJ-001 could not reach.
