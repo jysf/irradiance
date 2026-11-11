@@ -10,6 +10,19 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Security
 
+- **A forged sensor size can no longer drive the caller into an out-of-memory
+  abort** (`irradiance::plane`, SPEC-039, PROJ-002, pre-0.2.0 review finding #5) —
+  `plane::unpack_into` checks the layout only after the caller has allocated `dst`,
+  so a forged `ImageWidth`/`ImageLength` made the caller request gigabytes first,
+  and the abort is uncatchable from a host such as a Python worker. The new
+  preflight **`plane::validate(sensor, byte_order, file, max_pixels)`** runs before
+  any allocation: it checks the caller's own pixel budget **first** (on both the
+  uncompressed and the Compression-7 path — for a compressed plane it is the only
+  bound available, since a few hundred compressed bytes legitimately expand to a
+  multi-megapixel plane), then every pre-decode check `unpack_into` runs, through
+  the same shared helpers. `max_pixels` is the caller's number, not a library cap
+  (`usize::MAX` = no limit). `DEC-050`.
+
 - **The container parser can no longer be amplified by aliased IFD tables**
   (`irradiance::ifd`, SPEC-052, PROJ-002, pre-0.2.0 review finding #1) — IFD entry
   tables at *distinct* offsets may overlap the same file bytes, so a small hostile
@@ -73,6 +86,21 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **`plane::validate`** (`irradiance::plane`, SPEC-039) — the allocation-free,
+  panic-free validate-before-allocate preflight: returns `Ok(n)` (`n = width ×
+  height`, the exact `dst` length `unpack_into` wants) or the same typed error
+  `unpack_into` would return, plus the budget refusal. For an uncompressed plane
+  `Ok(n)` guarantees the unpack succeeds and `n × bits ≤ 8 × file.len()`; for a
+  Compression-7 plane it covers the structural checks, and the SOF-3 frame-shape
+  binding (`DEC-047`) and sample decode stay decode-time checks. Reads no strip
+  bytes. `DEC-050`.
+- **`Error::PlaneTooLarge { pixels, limit }`** and **`Error::StripBytesExceedFile
+  { declared, file_len }`** (SPEC-039) — additive (`Error` is `#[non_exhaustive]`).
+- **Fuzz smoke jobs for `ifd`, `plane` and `ljpeg`** (CI, SPEC-039) — 60 s each,
+  alongside `opcode`/`warp_opcode`; these targets were only compiled before. The
+  `plane` target now drives the `validate → allocate(capped) → unpack_into`
+  contract both ways, with forged-dimension and aliased-strip seeds.
+
 - **`Sensor::opcode_list_2`** (`irradiance::ifd`, SPEC-054) — `OpcodeList2`'s raw
   bytes, kept on read like `opcode_list_1`/`opcode_list_3` (a malformed tag is
   `None` and listed in `malformed_tags`, `DEC-012`).
@@ -88,6 +116,24 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   API change.
 
 ### Changed
+
+- **`plane::unpack_into` refuses uncompressed strips that alias** (SPEC-039) — it
+  now shares `validate`'s checks, including the new rule that an uncompressed
+  plane's `StripByteCounts` may not sum to more than the file length
+  (`Error::StripBytesExceedFile`). Non-overlapping strips always satisfy it; no
+  corpus file trips it. For a Compression-7 plane every strip's layout and in-file
+  bounds are now checked before the first strip is decoded (previously strip by
+  strip, interleaved with the decode), so a file with both a bad strip table and a
+  bad SOF-3 stream reports the layout error. Every other input keeps its error and
+  its error precedence — a wrong-length `dst` still wins over a bad layout.
+- **A SOF-3 scan with no trailing EOI marker is documented as valid** (SPEC-039,
+  `DEC-050` §4) — the scan completes on sample count; truncation before that is
+  `Error::Truncated`. Behaviour unchanged, now pinned by a test.
+- **README, conformance matrix: Compression-7 is decodable** — the README status
+  block and PROJ-003 scope line, and the Leica M Monochrom (Typ 246) and Pentax
+  K-3 III Monochrome rows, still described Compression-7 as unwired/pending; both
+  held files decode bit-exact since SPEC-043/046/044. Added a tested-DNG-modes
+  table to the README.
 
 - **`cargo install irradiance` no longer installs the internal `irr` tool**
   (`Cargo.toml`, SPEC-055, PROJ-002, pre-0.2.0 review finding #6) — `irr` is a

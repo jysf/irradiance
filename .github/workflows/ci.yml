@@ -260,6 +260,43 @@ jobs:
       - run: mkdir -p fuzz/corpus/opcode
       - run: cargo +nightly fuzz run opcode fuzz/corpus/opcode fuzz/seeds/opcode -- -max_total_time=60
 
+  # SPEC-039 (DEC-050 §6). Until now the `ifd`, `plane` and `ljpeg` targets
+  # (and their committed seed corpora) were only COMPILED, by the fuzz-graph
+  # clippy job; none ran in CI. Each gets the same 60s smoke run as `opcode`
+  # above. `plane` drives the `sensor -> validate -> allocate(capped) ->
+  # unpack_into` preflight contract on both the uncompressed and the
+  # Compression-7 path; `ljpeg` drives the SOF-3 decoder directly; `ifd` the
+  # container walk upstream of both.
+  fuzz-ifd:
+    name: rust / fuzz smoke — ifd (60s)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: mkdir -p fuzz/corpus/ifd
+      - run: cargo +nightly fuzz run ifd fuzz/corpus/ifd fuzz/seeds/ifd -- -max_total_time=60
+
+  fuzz-plane:
+    name: rust / fuzz smoke — plane (60s)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: mkdir -p fuzz/corpus/plane
+      - run: cargo +nightly fuzz run plane fuzz/corpus/plane fuzz/seeds/plane -- -max_total_time=60
+
+  fuzz-ljpeg:
+    name: rust / fuzz smoke — ljpeg (60s)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: mkdir -p fuzz/corpus/ljpeg
+      - run: cargo +nightly fuzz run ljpeg fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=60
+
   msrv:
     name: rust / MSRV (1.90.0)
     runs-on: ubuntu-latest

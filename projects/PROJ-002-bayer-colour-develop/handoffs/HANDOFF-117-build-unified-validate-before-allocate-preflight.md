@@ -15,7 +15,7 @@ handoff:
   from_role: architect
   to_role: implementer
   created_at: 2026-11-10
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-039
@@ -31,15 +31,15 @@ repo:
 # number from your own interface. If your platform exposes none, set
 # tokens_total: null AND say why in notes. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null
-  notes: null
-  synced_at: null
+  status: completed                # completed | blocked | rejected
+  tokens_total: 19609670         # REAL combined count — what cost-audit reads
+  estimated_usd: 13.34
+  duration_minutes: 75
+  branch: claude/spec-039-build-4c9ff9
+  pr: 178
+  completed_at: 2026-11-10
+  notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns."
+  synced_at: 2026-11-10
 ---
 
 # HANDOFF-117: Build the unified validate-before-allocate preflight (SPEC-039, group E)
@@ -125,40 +125,86 @@ You are **not** the agent that implemented this. Review it cold.
 ## Return Criteria — how to hand back
 
 On success: fill the `handback:` front-matter (with a real `tokens_total`) and the
-`## Handback` section, set `handoff.status` → `completed` and `handback.status` →
-`completed`, and open the PR. If blocked: fill `## Handback` with what blocked you, set
-`handoff.status` → `rejected` / `handback.status` → `blocked`, still report tokens, set
-the spec's `task.blocked: true`, and add a question to `/guidance/questions.yaml`.
-
----
-
-## Handback
+`## Handback
 
 *Filled in by the receiving agent. The orchestrator transcribes, it does not reconstruct.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **Tier-B corpus:** bit-exact? trips neither new error? (the local run result)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-039-build-4c9ff9` → https://github.com/jysf/irradiance/pull/178
+- **Completed at:** 2026-11-10
+- **All acceptance criteria met?** yes. `plane::validate` (both paths, budget first,
+  allocation-free, reads no strip bytes); `Error::StripBytesExceedFile` +
+  `Error::PlaneTooLarge` + `Display`; `unpack_into` refactored onto the shared
+  `plane_kind` / `pixel_product` / `StripWalk` / `check_strips` helpers with
+  `PlaneBufferWrongLength` still winning; EOI-optional doc on `ljpeg::decode_into`
+  + `eoi_optional` test (no decoder change); `tests/plane_validate.rs` (11 tests +
+  3 red-proofs); `fuzz/fuzz_targets/plane.rs` on the
+  `validate → allocate(capped) → unpack_into` contract + 3 new seeds
+  (`forged-dims-uncompressed`, `forged-dims-compression7`, `aliased-strips`);
+  `fuzz-ifd` / `fuzz-plane` / `fuzz-ljpeg` 60 s CI jobs; README (status block,
+  usage now calls `validate`, PROJ-003 scope, new tested-DNG-modes table),
+  CHANGELOG `[Unreleased]`, conformance matrix (Typ 246 + K-3 III rows) and a
+  provenance-ledger row.
+- **Red-proofs (control first, DEC-009), all shown red:**
+  coverage removed → control `err PackedSizeMismatch { expected_bits: 256, strip_bits: 128 }`, mutant `ok 16`;
+  aliasing removed → control `err StripBytesExceedFile { declared: 25600, file_len: 8320 }`, mutant `ok 12800` (which breaks `n·bits ≤ 8·len`);
+  budget removed → control `err PlaneTooLarge { pixels: 8, limit: 4 }`, mutant `ok 8`.
+- **Gates:** `just test` (with `IRRADIANCE_CORPUS_DIR` set) green: 22 test binaries, 507 passed, 0 failed, 0 corpus skips; `just lint` green
+  (clippy `-D warnings` + `fmt --check`); `just lint-no-allow` green; fuzz-graph
+  clippy green; `just fuzz-plane 120` → 12,168,303 runs / 121 s, no crash;
+  `ljpeg` and `ifd` 30 s local smoke clean (ljpeg 1,976,793 runs, ifd 2,697,950 runs).
+- **Tier-B corpus:** bit-exact, and trips neither new error. Local run of
+  `corpus_files_validate_and_trip_neither_new_error` with `IRRADIANCE_CORPUS_DIR`
+  set, 9/9 files present: the 8 DNGs (Leica Q2 Monochrom ×3, Leica M Monochrom,
+  Leica M Typ 246 [Compression-7, Nf=2, MM], Pentax K-3 III DNG [Compression-7],
+  Canon 5D Mark III, Nikon D300S 12-strip) each `validate(.., usize::MAX)` → `Ok(w·h)`
+  and `unpack_into` → plane MD5 == the manifest's pinned `dnglab` checksum; the
+  K-3 III PEF (`Compression 65535`) is refused by both with the same
+  `UnsupportedCompression`. No file returns `StripBytesExceedFile` or
+  `PlaneTooLarge`. The existing tier-B suites (plane/develop/colour oracles,
+  `ljpeg_shape_binding`) also pass on the refactored `unpack_into`.
 
 ### Cost self-report
 
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 19609670
+- **Estimated USD:** 13.34
+- **Duration (minutes):** ~75
+- **Source of the number:** session transcript `usage` records (summed, deduped by message id)
 
 ### Drift and new artifacts
 
-- **New decisions emitted:** `DEC-NNN` — <title> (if any)
-- **Deviations from spec:** [list]
-- **Follow-up work identified:** [any new specs for the stage backlog]
+- **New decisions emitted:** none (DEC-050 built as written).
+- **Deviations from spec:**
+  - DEC-050 §3 lists "supported precision" among the Compression-7 pre-decode
+    checks. `unpack_jpeg` runs no precision check before decoding (the precision is
+    the SOF-3 frame's own `P`, inside the strip bytes `validate` must not read), so
+    `validate` adds none either — adding one to `validate` alone would break the
+    "same variant" contract, and adding it to `unpack_into` would change behaviour
+    for shipped files. Precision stays a decode-time check.
+  - Compression-7 error precedence among *strips*: per Design §5 ("the structural
+    pass then decode"), every strip's layout/bounds/coverage is now checked before
+    the first strip is decoded. Before, strip *k*'s decode error could win over strip
+    *k+1*'s truncation, and an undershoot was reported after decoding. Only a file
+    with both a bad strip table and a bad SOF-3 stream sees a different variant.
+    Recorded in the CHANGELOG `Changed` entry.
+  - `StripBytesExceedFile` is checked after the existing per-strip checks and
+    coverage (so every pre-existing error keeps its precedence); it is shared by
+    `unpack_into` — the "newly-rejected forged overlap" the spec's Outputs allow.
+- **Follow-up work identified:** none new. (The deferred group-C follow-ups stay
+  deferred per DEC-050 §Scope.) Minor: `cargo fmt --manifest-path fuzz/Cargo.toml`
+  wants to reformat `fuzz/fuzz_targets/opcode.rs` — the fuzz graph has no fmt gate;
+  left untouched.
 
 ### Reflection (3 questions, short answers)
 
-1. **What was unclear in the spec or handoff that slowed you down?** — <answer>
-2. **Was there a constraint or decision that should have been listed but wasn't?** — <answer>
-3. **If you did this task again, what would you do differently?** — <answer>
+1. **What was unclear in the spec or handoff that slowed you down?** — Only DEC-050
+   §3's "supported precision" for Compression-7, which has no pre-decode form
+   without reading strip bytes; resolved as above. `Sensor` being sealed (SPEC-054)
+   meant tests had to build real TIFFs — a small general strip-table builder in the
+   test file covered every case.
+2. **Was there a constraint or decision that should have been listed but wasn't?** —
+   No.
+3. **If you did this task again, what would you do differently?** — Start the full
+   corpus `just test` in the background earlier; it is the long pole (~25 min
+   locally with the corpus present).
