@@ -142,7 +142,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
       (review #4/#6): evaluate the dev-dependency graph (root + `fuzz/`) with a
       mutation red-proof; `irr` package disposition + a package-target-list check.
       Independent. Emits a DEC (`irr` disposition).
-- [ ] SPEC-039 (build) — [M] **(E) Validate-before-allocate completion + docs**
+- [x] SPEC-039 (ship) — [M] **(E) Validate-before-allocate completion + docs**
       (review #5): one `plane::validate(sensor, byte_order, file, max_pixels)` over
       both the uncompressed and the Compression-7 path, with a caller-selected pixel
       budget checked first as the universal pre-allocation guard; reconcile
@@ -161,7 +161,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
       checks): the full public-struct non-exhaustive sweep, a tier-B corpus evidence
       run on the candidate SHA, a package target list, deny-on-dev-graph. depends_on:
       all of A–E + SPEC-040 + SPEC-041.
-**Count:** 4 shipped / 4 active / 0 pending
+**Count:** 5 shipped / 3 active / 0 pending
 
 > **Pre-0.2.0 P1 wave SHIPPED 2026-11-10** — groups A–D (SPEC-052/053/054/055)
 > merged to `main` (PRs #167/#169/#175/#174) and bookkept. Wave cost 71,251,157

@@ -38,7 +38,7 @@ handback:
   branch: claude/spec-039-build-4c9ff9
   pr: 178
   completed_at: 2026-11-10
-  notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns."
+  notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns. (synced_at was reset to null at ship: the build session stamped it but the cost never reached SPEC-039's cost.sessions, so handback-sync re-transcribes it here.)"
   synced_at: 2026-11-10
 ---
 

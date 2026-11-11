@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-03
-  status: pending                  # pending | accepted | completed | rejected
+  status: superseded               # pending | accepted | completed | rejected — superseded by HANDOFF-117 (SPEC-039 re-scoped to group E, DEC-045/DEC-050); never dispatched
 
 task:
   spec_id: SPEC-039
