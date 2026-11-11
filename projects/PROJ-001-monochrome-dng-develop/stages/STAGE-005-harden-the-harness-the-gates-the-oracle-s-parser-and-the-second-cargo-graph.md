@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-005                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-08-30
-shipped_at: null
+shipped_at: 2026-11-11
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -47,7 +47,11 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 22638747
+      estimated_usd: 17.09
+      recorded_at: 2026-11-11
+      notes: "Stage-close orchestration, measured not guessed. STAGE-005 never had its own orchestrating session (its six specs shipped piecemeal from STAGE-001..003 orchestration, already booked there), so the only observable stage-grain spend is the session that closed it. This is that session's transcript total at recording time (claude-opus-5-5, 106 messages deduped by message.id; 220 in / 101,201 out / 345,558 1h cache-write / 22,191,768 cache-read; priced per component at Opus list rates per docs/cost-tracking.md). It is a CEILING for STAGE-005: the same session also ran the post-0.2.0 review, the SPEC-056 and SPEC-035 designs and the PROJ-001 close. Do NOT re-book this figure to STAGE-014 or STAGE-008."                      # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -126,15 +130,15 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-010 (shipped on 2026-09-03) [M] Distinguish an unparseable tool reading from an absent tag
 - [x] SPEC-011 (shipped on 2026-10-28) [S] Lint the fuzz crate — the second cargo graph
 - [x] SPEC-016 (shipped on 2026-10-27) [S] `just validate` parses the front matter it validates — rescoped 2026-09-06 from L; four other harness lies split out below
-- [ ] (not yet written) [XS] `corpus-status` states only what it checked — SPEC-016 pre-rescope AC1; measurements at git 3238dcb
-- [ ] (not yet written) [XS] `req()`'s single-value assumption is enforced, not documented — SPEC-016 pre-rescope AC2; carries SPEC-005/FU-2 and SPEC-010/FU-2 (mis-dispositioned twice); measurements at git 3238dcb
-- [ ] (not yet written) [XS] `SUPPORTED_BITS` cannot outrun its tests — SPEC-016 pre-rescope AC3; carries SPEC-012/FU-1; measurements at git 3238dcb
-- [ ] (not yet written) [XS] plane fuzz seeds reach `SampleExceedsWhiteLevel` — SPEC-016 pre-rescope AC4; carries SPEC-012/FU-2; measurements at git 3238dcb
+- [→] (moved to PROJ-002 STAGE-014, 2026-11-11) [XS] `corpus-status` states only what it checked — SPEC-016 pre-rescope AC1; measurements at git 3238dcb
+- [→] (moved to PROJ-002 STAGE-014, 2026-11-11) [XS] `req()`'s single-value assumption is enforced, not documented — SPEC-016 pre-rescope AC2; carries SPEC-005/FU-2 and SPEC-010/FU-2 (mis-dispositioned twice); measurements at git 3238dcb
+- [→] (moved to PROJ-002 STAGE-014, 2026-11-11) [XS] `SUPPORTED_BITS` cannot outrun its tests — SPEC-016 pre-rescope AC3; carries SPEC-012/FU-1; measurements at git 3238dcb
+- [→] (moved to PROJ-002 STAGE-014, 2026-11-11) [XS] plane fuzz seeds reach `SampleExceedsWhiteLevel` — SPEC-016 pre-rescope AC4; carries SPEC-012/FU-2; measurements at git 3238dcb
 - [x] SPEC-021 (shipped on 2026-10-27) [S] Narrow SPEC-020's develop oracle scope excluding warp-bearing pixels — DEC-026 amends DEC-005; the two SPEC-018 `#[ignore]`'d oracle tests reframed to a passing characterization + explicit Orientation skip; dnglab implements no DNG opcodes (DEC-024 F2) and ignores Orientation (SPEC-018/FU-6, SPEC-017/FU-2)
 - [x] SPEC-022 (shipped on 2026-10-27) [XS] develop's warp branch must develop the FIXED plane, not raw `src` — carries SPEC-017/FU-10; AC9 asserts only the no-warp branch (`src/develop.rs:826`), the `:842` warp branch every real Q2M frame takes is unasserted (severing it leaves the whole suite green)
 - [x] SPEC-023 (shipped on 2026-10-28) [S] Audit every gate script for the mute-death shape — generalises SPEC-016's one-gate fix: a bespoke `gate-audit` + red-proof over the gates, fixing the 3 reachable offenders incl. SPEC-016's two follow-ups (validate's process-sub exit, handback-sync's superseded-skip)
 
-**Count:** 6 shipped / 4 active / 0 pending
+**Count:** 6 shipped / 0 active / 0 pending — 4 unwritten [XS] outlines moved to PROJ-002 STAGE-014 at PROJ-001's close (2026-11-11)
 
 ## Design Notes
 
@@ -165,3 +169,38 @@ too.
 
 **None.** Every spec here is independent of the others and of STAGE-002. That is
 the point: this stage exists so the debt has an owner, not so it blocks anything.
+
+## Stage-Level Reflection
+
+*Written at PROJ-001's close, 2026-11-11 (Prompt 1d, run by the orchestrator).*
+
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. All three measured
+  gaps are closed:
+  - The metadata oracle tells an absent tag from an unparseable one (SPEC-010).
+  - The fuzz graph is linted under `-D warnings`, with its own red-proof (SPEC-011,
+    DEC-027).
+  - Every gate script is audited mechanically for the mute-death shape, and the
+    audit is itself a gate with a red-proof (SPEC-023).
+
+  SPEC-016, SPEC-021 and SPEC-022 were harness lies found along the way, and they
+  shipped here as well.
+- **How many specs did it actually take?** Six shipped against the three gaps in the
+  plan. SPEC-016 was rescoped from L to S, and four of its original acceptance
+  criteria became the [XS] outlines that move out at this close.
+- **How many outlines survived unchanged?** Not framed with `just frame-stage`, so
+  there is nothing to count.
+- **What changed between starting and shipping?** The stage became the home for
+  harness debt in general, not only the three gaps it was opened for, and it was
+  never run as an active stage of its own. The specs shipped one at a time between
+  STAGE-002 and STAGE-003 on appetite, as the stage file said they could.
+- **Lessons that should update AGENTS.md, templates, or constraints?**
+  - None new. The lessons this stage produced were codified as they landed:
+    - `a-gate-that-fails-mutely-is-a-gate-that-never-ran` (AGENTS.md §16);
+    - the "two cargo graphs need two invocations" rule in `constraints.yaml`.
+- **Signals dispositioned at this close?** No `stage-close` lesson signal is owned
+  by STAGE-005, so none were walked here. The project-close walk is recorded in
+  `guidance/signals.yaml` under PROJ-001's close.
+- **Should any spec-level reflections be promoted to stage-level lessons?**
+  - No. The four leftover [XS] harness items are below any lesson bar and are
+    simply work, re-homed to PROJ-002 STAGE-014 (0.2.x maintenance) so they keep an
+    owner.

@@ -10,7 +10,7 @@ stage:
   target_complete: null             # optional: YYYY-MM-DD
 
 project:
-  id: PROJ-001                      # parent project
+  id: PROJ-004                      # parent project — moved from PROJ-001 at its close, 2026-11-11
 repo:
   id: irradiance
 
@@ -54,6 +54,17 @@ orchestration_cost:
 ---
 
 # STAGE-004: crustyimg integration: raw-develop feature and metadata truthfulness
+
+> **Moved 2026-11-11** from PROJ-001 (closed) to PROJ-004. Status at the move:
+> - The **irradiance side is unblocked**: 0.2.0 is on crates.io, so the
+>   path-dependency-without-version publish blocker (DEC-028) is gone.
+> - The **work is crustyimg-side**, as its PROJ-016/STAGE-056 (`proposed`, not
+>   scheduled; crustyimg is on SPEC-159 as of 2026-11-10).
+> - The two backlog outlines below are crustyimg specs. This stage tracks them and
+>   answers API needs. It ships when crustyimg's STAGE-056 ships.
+> - Settled design answers O1–O6 are in the maintainer's memory notes.
+> - The library now **develops colour** (PROJ-002), so the "monochrome only" and
+>   "one camera" wording below is out of date. Refresh it when this stage goes active.
 
 ## What This Stage Is
 
