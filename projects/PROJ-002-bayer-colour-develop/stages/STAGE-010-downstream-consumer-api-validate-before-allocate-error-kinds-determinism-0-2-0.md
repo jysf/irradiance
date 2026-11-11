@@ -161,10 +161,13 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
       arm64 CI matrix; name any float path that could diverge; oracle shown red.
       **DESIGNED 2026-11-10 (no new DEC — rests on DEC-016/018/033); build-ready,
       HANDOFF-120.** Independent.
-- [ ] SPEC-042 (frame) — [S] **(F) Release `0.2.0`** (release spec, DEC-028 publish
-      checks): the full public-struct non-exhaustive sweep, a tier-B corpus evidence
-      run on the candidate SHA, a package target list, deny-on-dev-graph. depends_on:
-      all of A–E + SPEC-040 + SPEC-041.
+- [ ] SPEC-042 (build) — [M] **(F) Release `0.2.0`** (release spec, DEC-028 publish
+      checks): the `Cfa`/`WarpRect`/`Opcode` non-exhaustive seal, semver 0.2.0, CHANGELOG
+      promotion + release notes, a tier-B corpus evidence run on the candidate SHA, the
+      package target list + deny-on-dev-graph confirmation; two-phase (Phase 1 prep PR;
+      Phase 2 tag + publish human-gated). **DESIGNED 2026-11-10 (DEC-052); build-ready,
+      HANDOFF-123.** The two group-C opcode follow-ups are deferred to SPEC-056/0.2.1; no
+      colour-accuracy claim. depends_on: all of A–E + SPEC-040 + SPEC-041 (all shipped).
 **Count:** 7 shipped / 1 active / 0 pending
 
 > **Pre-0.2.0 P1 wave SHIPPED 2026-11-10** — groups A–D (SPEC-052/053/054/055)
