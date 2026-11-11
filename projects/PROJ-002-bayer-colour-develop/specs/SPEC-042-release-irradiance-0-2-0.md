@@ -15,12 +15,12 @@
 task:
   id: SPEC-042
   type: release                    # epic | story | task | bug | chore | release
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship — Phase 1 shipped; Phase 2 (tag+publish) human-gated
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
 
 project:
@@ -52,11 +52,29 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-123
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 14900000
+      estimated_usd: 9.80
+      duration_minutes: 25
+      recorded_at: 2026-11-11
+      notes: "Phase 1 prep-complete, cut-deferred. Cfa/WarpRect/Opcode sealed; self dev-dep makes bare cargo test work; 0.2.0 + CHANGELOG + release notes + pre-flight; tier-B 9/9 sha256 + 8/8 decodable bit-exact vs dnglab; just test 519/0/1, lint, deny, deny-fuzz, package-targets-check, publish dry-run all green. No tag, no publish."
+    - cycle: verify
+      handoff: HANDOFF-124
+      agent: claude-opus-5-5
+      interface: other
+      tokens_total: 7044993
+      estimated_usd: 4.72
+      duration_minutes: null
+      recorded_at: 2026-11-11
+      notes: "claude-opus-5-5 verify of the 0.2.0 Phase-1 prep. Verdict PUNCH LIST — two doc-only fixes (the DEVELOP_VERSION doc comment said the crate stays 0.1.x, stale in the 0.2.0 package and permanent on docs.rs once published; MB vs MiB in the release notes), shipped via the rebased-superset PR #187 (contains all of #186). Everything else clean at d273296: Cfa/WarpRect/Opcode sealed with no catch-all arm, 519 tests pass both with --all-features and bare (the self dev-dependency works), cargo publish --dry-run clean (packages v0.2.0, 19 files, records d273296, no self dev-dep in the published manifest), semver + CHANGELOG + notes correct, no v0.2 tag and crates.io still at 0.1.1 (Phase 2 not started), the SPEC-056 items not implemented. tokens_total from the session transcript (/cost is not callable in a delegated session)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 21944993
+    estimated_usd: 14.52
+    session_count: 2
 ---
 
 # SPEC-042: Release irradiance 0.2.0

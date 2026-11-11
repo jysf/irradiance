@@ -31,7 +31,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/186
   completed_at: 2026-11-10
   notes: "Phase 1 prep-complete, cut-deferred. Cfa/WarpRect/Opcode sealed; self dev-dep makes bare cargo test work; 0.2.0 + CHANGELOG + release notes + pre-flight; tier-B 9/9 sha256 + 8/8 decodable bit-exact vs dnglab; just test 519/0/1, lint, deny, deny-fuzz, package-targets-check, publish dry-run all green. No tag, no publish."
-  synced_at: null
+  synced_at: 2026-11-11
 ---
 
 # HANDOFF-123: Build the 0.2.0 release prep (SPEC-042, group F, Phase 1)
