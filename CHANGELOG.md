@@ -96,6 +96,15 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   and an individual variant may be re-classified later. `kind()` is a wildcard-free
   match, so a new `Error` variant cannot compile until it is classified. Additive:
   no `Error` variant, `Display` text or error-production site changed. `DEC-051`.
+- **Cross-arch determinism evidence** (`tests/determinism.rs`, SPEC-041, PROJ-002) —
+  committed 64-bit FNV-1a hashes of `plane::unpack_into`, `demosaic::demosaic_into`
+  and `tone::to_linear_f32_into` output over four tier-A synthetic Bayer fixtures
+  (RGGB/BGGR/GRBG/GBRG at 16/14/12/8-bit, both byte orders), asserted by a new CI
+  `determinism` job on `ubuntu-latest` (x86_64) **and** `macos-latest` (arm64), in
+  the dev and release profiles. The oracle is shown red (a one-bit sample flip moves
+  all three hashes). `docs/determinism.md` names every float path: `to_linear_f32_into`
+  is one correctly-rounded IEEE `f32` division; the `f64` colour (`DEC-033`) and warp
+  paths are named as **unmeasured**. No library code changed; no new dependency.
 
 - **`plane::validate`** (`irradiance::plane`, SPEC-039) — the allocation-free,
   panic-free validate-before-allocate preflight: returns `Ok(n)` (`n = width ×

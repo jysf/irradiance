@@ -139,6 +139,39 @@ jobs:
       - run: cargo run --quiet --all-features --example corpus-status
       - run: cargo test --all-features
 
+  # SPEC-041. Cross-arch determinism EVIDENCE: tests/determinism.rs asserts
+  # committed FNV-1a hashes of unpack_into, demosaic_into and to_linear_f32_into
+  # over tier-A synthetic Bayer fixtures (no corpus file, DEC-003). The same
+  # committed constants must hold on BOTH arches below — that agreement is the
+  # measurement; on one arch alone the test only proves "unchanged".
+  # `fail-fast: false` so a divergence on one arch never cancels the other's
+  # report. The first step pins the arch each leg really ran on (macos-latest
+  # is arm64), so a runner-image change cannot quietly make both legs x86_64.
+  # The release-profile run shows optimisation does not change the bytes either.
+  # A divergence is a finding for a NEW spec — never edit a kernel or a
+  # committed hash to make this green (docs/determinism.md).
+  determinism:
+    name: rust / determinism (${{ matrix.os }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: macos-latest
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: runner arch is ${{ matrix.arch }}
+        run: |
+          echo "uname -m: $(uname -m)"
+          rustc -vV | grep '^host:'
+          test "$(uname -m)" = "${{ matrix.arch }}"
+      - run: cargo test --test determinism
+      - run: cargo test --release --test determinism
+
   licenses:
     name: rust / license policy (cargo-deny)
     runs-on: ubuntu-latest
