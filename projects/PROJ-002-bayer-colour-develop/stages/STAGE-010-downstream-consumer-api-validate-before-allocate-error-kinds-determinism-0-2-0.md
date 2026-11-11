@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-010                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold — Phase 1 (prep) done; crates.io cut (Phase 2) is the human step
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-03
-shipped_at: null
+shipped_at: 2026-11-11
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -48,10 +48,11 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
-                                    #   estimated_usd: N
-                                    #   recorded_at: YYYY-MM-DD
-                                    #   notes: "framing + spec breakdown"
+  sessions:
+    - tokens_total: 204730076
+      estimated_usd: 406.84
+      recorded_at: 2026-11-11
+      notes: "STAGE-010 orchestration floor, measured from this orchestrator session's transcript (scratchpad uuid fd689c1d), deduped by message id: 546 messages, 98% cache-read, Opus list rates. Covers the whole wave's framing, the A-F spec/DEC design, the cold build/verify dispatch and all the ship bookkeeping. Excludes the delegated cold build/verify sessions, which are counted per-spec (wave delegated total ~177M across groups A-F)."
 ---
 
 # STAGE-010: Downstream consumer API: validate-before-allocate, error kinds, determinism, 0.2.0
@@ -161,14 +162,14 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
       arm64 CI matrix; name any float path that could diverge; oracle shown red.
       **DESIGNED 2026-11-10 (no new DEC — rests on DEC-016/018/033); build-ready,
       HANDOFF-120.** Independent.
-- [ ] SPEC-042 (build) — [M] **(F) Release `0.2.0`** (release spec, DEC-028 publish
+- [x] SPEC-042 (ship) — [M] **(F) Release `0.2.0`** (release spec, DEC-028 publish
       checks): the `Cfa`/`WarpRect`/`Opcode` non-exhaustive seal, semver 0.2.0, CHANGELOG
       promotion + release notes, a tier-B corpus evidence run on the candidate SHA, the
       package target list + deny-on-dev-graph confirmation; two-phase (Phase 1 prep PR;
       Phase 2 tag + publish human-gated). **DESIGNED 2026-11-10 (DEC-052); build-ready,
       HANDOFF-123.** The two group-C opcode follow-ups are deferred to SPEC-056/0.2.1; no
       colour-accuracy claim. depends_on: all of A–E + SPEC-040 + SPEC-041 (all shipped).
-**Count:** 7 shipped / 1 active / 0 pending
+**Count:** 8 shipped / 0 active / 0 pending
 
 > **Pre-0.2.0 P1 wave SHIPPED 2026-11-10** — groups A–D (SPEC-052/053/054/055)
 > merged to `main` (PRs #167/#169/#175/#174) and bookkept. Wave cost 71,251,157
@@ -224,18 +225,38 @@ A (052)  B (053)  C (054)  D (055)   041      ← ready now, fan out in parallel
 *Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
 FIRST_SESSION_PROMPTS.md to draft this.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** **Yes (prep-complete).** All
+  four deliverables' code is on `main`: allocation-free `plane::validate` with a proven,
+  caller-budgeted bound (SPEC-039), stable `Error::kind` / `ErrorKind` (SPEC-040), measured
+  cross-arch determinism evidence on a linux-x86_64 + macOS-arm64 CI matrix (SPEC-041), and
+  the 0.2.0 release prep (SPEC-042 Phase 1). Plus the four pre-0.2.0 P1 hardening fixes
+  (SPEC-052/053/054/055) the external review added. **The one deliverable still open is
+  "irradiance 0.2.0 on crates.io" — that is Phase 2 (tag `v0.2.0` + `cargo publish`), a
+  human-gated cut; the release ships "prep-complete, cut-deferred".**
+- **How many specs did it actually take?** **8** (SPEC-052/053/054/055 + 039/040/041/042)
+  vs. the original pre-review plan of 4 (SPEC-039–042). The external pre-0.2.0 code review
+  (PR #161) added the four P1 groups A–D and re-scoped E, doubling the stage (DEC-045).
+- **How many outlines survived unchanged?** N/A — not framed with `just frame-stage`; the
+  backlog was re-planned mid-stage by DEC-045 around the review's A–F grouping.
+- **What changed between starting and shipping?** An external pre-0.2.0 code review held
+  0.2.0 for four P1 findings, expanding the stage from 4 specs to 8 and re-scoping SPEC-039
+  to depend on A–C.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - **Force-push to update an open PR branch is denied by the auto-mode classifier** (Git
+    Destructive) → rebase to a FRESH branch + a NEW PR (hit N=3 this wave: D #172→#174, C
+    #173→#175, SPEC-041 #181→#183). Worth codifying in the delegated-cycle flow.
+  - **A delegated build session can stamp its handoff's `synced_at` without the cost
+    reaching the spec's `cost.sessions`** → at ship, verify the spec's `cost.sessions`
+    (not just `synced_at`) and reset `synced_at: null` to re-sync (hit on SPEC-039).
+  - **A superseded handoff must carry `handoff.status: superseded`** or `handback-sync`
+    counts it pending and exits 1 (hit on HANDOFF-084).
+- **Signals dispositioned at this close?** (Prompt 1d step 7)
+  - `parser-accepts-what-pipeline-cannot-honor` (N≥2) was the spine of the P1 wave — the
+    IFD byte guard (A), the Comp-7 shape binding (B) and the required-opcode validation (C)
+    each close an instance; **codified** in DEC-046/047/049. Still `watch` for further
+    instances (the deferred malformed-opcode-tag case is one). No silent carry.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - The two group-C verify follow-ups (malformed `OpcodeList` tag read as absent; stage
+    functions skipping the required-processing check) and the two F non-blocking items
+    (`cargo doc` private-item links; `tests/develop.rs` under `CARGO_TARGET_DIR`) → a
+    focused 0.2.1 housekeeping spec (SPEC-056). Recorded as `watch`, not codified.
