@@ -24,8 +24,8 @@ repo:
 
 handback:
   status: completed
-  tokens_total: 13600000           # REAL combined count — what cost-audit reads (transcript sum, rounded up to cover the post-fill PR turns; see Cost self-report)
-  estimated_usd: 9.00
+  tokens_total: 14900000           # REAL combined count — what cost-audit reads (transcript sum 14,742,867 after the PR opened, rounded up for the closing turns)
+  estimated_usd: 9.80
   duration_minutes: 25
   branch: claude/spec-042-build-b5e5da
   pr: https://github.com/jysf/irradiance/pull/186
@@ -104,7 +104,7 @@ even if blocked.
 - **For verify:** n/a (build cycle).
 
 ### Cost self-report
-- **Tokens (total):** 13,600,000 (transcript sum at handback fill: 12,978,292 — in 153 / cache-write 166,275 / cache-read 12,767,105 / out 44,759 — rounded up to cover the PR/push turns after the fill; the exact final figure is in the session's closing report)  **Estimated USD:** ~9.00  **Duration (min):** ~25  **Source:** transcript (`5f7124cf-d5bc-469e-9f2a-93ced8bd9bbd.jsonl`, claude-opus-5-5)
+- **Tokens (total):** 14,900,000 (transcript sum after the PR opened: 14,742,867 — in 171 / cache-write 176,870 / cache-read 14,511,964 / out 53,862 — rounded up for the closing commit)  **Estimated USD:** ~9.80  **Duration (min):** ~25  **Source:** transcript (`5f7124cf-d5bc-469e-9f2a-93ced8bd9bbd.jsonl`, claude-opus-5-5)
 
 ### Drift and new artifacts
 - **New decisions:** none.
