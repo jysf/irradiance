@@ -151,12 +151,16 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
       2026-11-10 (DEC-050); build-ready, HANDOFF-117.** A–C shipped, so depends_on is
       satisfied. Group C's two verify follow-ups are deferred here (DEC-050 §Scope),
       not folded in. depends_on: A, B, C (SPEC-052, SPEC-053, SPEC-054).
-- [ ] SPEC-040 (frame) — [S] **`Error::kind()` / `ErrorKind`** (needs a DEC first):
-      `{ Unsupported, Corrupt, CallerError }`, non-exhaustive, exhaustive-in-tests
-      classification table. depends_on: SPEC-039.
-- [ ] SPEC-041 (frame) — [S] **Cross-arch determinism evidence**: tier-A synthetic Bayer
+- [ ] SPEC-040 (build) — [S] **`Error::kind()` / `ErrorKind`**:
+      `{ Unsupported, Corrupt, CallerError }`, non-exhaustive, via a **wildcard-free**
+      `match` (compiler enforces "a new variant cannot land unclassified") + an exhaustive
+      per-variant test. **DESIGNED 2026-11-10 (DEC-051); build-ready, HANDOFF-119.**
+      depends_on: SPEC-039 (shipped).
+- [ ] SPEC-041 (build) — [S] **Cross-arch determinism evidence**: tier-A synthetic Bayer
       fixtures, committed golden hashes for the three outputs, a linux x86_64 + macOS
-      arm64 CI matrix; name any float path that could diverge. Independent.
+      arm64 CI matrix; name any float path that could diverge; oracle shown red.
+      **DESIGNED 2026-11-10 (no new DEC — rests on DEC-016/018/033); build-ready,
+      HANDOFF-120.** Independent.
 - [ ] SPEC-042 (frame) — [S] **(F) Release `0.2.0`** (release spec, DEC-028 publish
       checks): the full public-struct non-exhaustive sweep, a tier-B corpus evidence
       run on the candidate SHA, a package target list, deny-on-dev-graph. depends_on:

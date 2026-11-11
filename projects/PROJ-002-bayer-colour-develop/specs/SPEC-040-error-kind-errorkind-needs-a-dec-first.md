@@ -6,7 +6,7 @@
 task:
   id: SPEC-040
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: build                     # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -31,8 +31,8 @@ handoff:
   created_at: null
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: [no-panics-on-untrusted-input]                  # [constraint-id-1, constraint-id-2]
+  decisions: [DEC-051]             # [DEC-NNN, DEC-MMM]
+  constraints: [no-panics-on-untrusted-input, library-not-application]
   related_specs: [SPEC-039]                # [SPEC-NNN]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
@@ -72,10 +72,10 @@ cost:
 
 # SPEC-040: **`Error::kind()` / `ErrorKind`** (needs a DEC first):
 
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-040]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
+> **DESIGNED 2026-11-10 (DEC-051), `cycle: build`.** The three-kind classification
+> rubric and the full per-variant table live in **DEC-051** — read it first; this spec
+> is the build contract against it. SPEC-039 shipped, so the last new failure paths
+> (`PlaneTooLarge`, `StripBytesExceedFile`) are present to classify.
 
 ## Context
 
@@ -87,52 +87,49 @@ Decide and add a stable `Error::kind() -> ErrorKind { Unsupported, Corrupt, Call
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **DEC-051** — the rubric, the full per-variant table, the wildcard-free-match decision, and the four flagged judgment calls. Read first.
+- **`src/lib.rs`** — the `Error` enum (`#[non_exhaustive]`, ~55 variants) and its `Display`; add `ErrorKind` + `impl Error { pub fn kind(&self) }` here.
+- **`tests/`** — where the exhaustive classification test lands; `tests/support/` for any constructor helpers.
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:** `src/lib.rs` (new `ErrorKind` enum + `Error::kind()`); `CHANGELOG.md` (`[Unreleased] → Added`); `docs/provenance-ledger.md` (one row — own prior code, class 3, a classification over this crate's own `Error`).
+- **Files created:** `tests/error_kind.rs` — the exhaustive per-variant classification test.
+- **New public API:**
+  - `#[non_exhaustive] pub enum ErrorKind { Unsupported, Corrupt, CallerError }` (derive `Debug, Clone, Copy, PartialEq, Eq`).
+  - `impl Error { pub fn kind(&self) -> ErrorKind }` — a `match self { … }` with **no `_ =>` arm**.
+- **No new flags; no new `Error` variant; no `Display` change; no change to how any error is produced.**
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] `ErrorKind { Unsupported, Corrupt, CallerError }` is public and `#[non_exhaustive]`; `Error::kind(&self) -> ErrorKind` is public.
+- [ ] `kind()` is a wildcard-free `match` over every variant — **adding a dummy variant to `Error` makes `kind()` fail to compile** (the implementer confirms this locally and notes it in the handback; the shipped code has no dummy).
+- [ ] Every current variant is classified exactly as DEC-051's table says; the classification test constructs a representative of **each** variant and asserts its kind (a variant missing from the test is a gap the test itself surfaces).
+- [ ] The three kinds map a consumer's decision: `Unsupported` ⇒ skip, `Corrupt` ⇒ bad file, `CallerError` ⇒ caller bug; the SPEC-039 additions `PlaneTooLarge` (`CallerError`) and `StripBytesExceedFile` (`Corrupt`) are classified per DEC-051's judgment calls.
+- [ ] `just test` (`--all-features`) and `just lint` pass; no panic path added (`kind()` is total and infallible); `library-not-application` holds (no binary surface).
+- [ ] No existing test changes behaviour; `Display` text and every error's production site are untouched.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
-
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- **`tests/error_kind.rs`**
+  - `"every_variant_classified"` — constructs one representative of each `Error` variant and asserts `.kind()` equals DEC-051's assignment (grouped `Unsupported` / `Corrupt` / `CallerError` lists).
+  - `"the_three_buckets_are_distinct"` — asserts a known `Unsupported` (e.g. `UnsupportedCompression`), a known `Corrupt` (e.g. `Truncated`), and a known `CallerError` (e.g. `PlaneBufferWrongLength`) return three different kinds.
+  - `"spec_039_additions_classified"` — asserts `PlaneTooLarge` ⇒ `CallerError` and `StripBytesExceedFile` ⇒ `Corrupt`.
+  - *(No red-proof needed: the compiler's exhaustiveness is the guarantee that a new variant cannot land unclassified — stronger than a mutation test. The build reflection must still report that it confirmed the compile-time failure on a throwaway dummy variant.)*
 
 ## Non-Goals
 
 - No new `Error` variants and no change to existing variants or `Display` text
-- No `is_unsupported` boolean alias unless the DEC chooses one
-- No per-variant stability promise beyond the three kinds
+- No `is_unsupported` boolean alias (DEC-051 rejected it)
+- No per-variant stability promise beyond the three kinds (a variant may be re-classified later)
 - No change to how any error is produced
+- No 4th kind for 0.2.0 (DEC-051); the release (SPEC-042) and determinism (SPEC-041) are separate
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- Read DEC-051 first; re-derive the per-variant table against the live `src/lib.rs` enum (it may have drifted since 2026-11-10) and classify any variant the table missed by the rubric, flagging it in the handback.
+- `kind()` has **no** `_ =>` arm — that is the load-bearing choice; do not add one even to silence a transiently-incomplete match.
+- `just test` already bakes in `--all-features`; do not pass the bare flag.
 
 ---
 
