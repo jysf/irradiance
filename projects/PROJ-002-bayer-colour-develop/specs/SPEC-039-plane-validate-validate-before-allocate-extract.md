@@ -6,12 +6,12 @@
 task:
   id: SPEC-039
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship — re-designed as group E after A–C (DEC-045/DEC-050)
+  cycle: ship  # frame | design | build | verify | ship — re-designed as group E after A–C (DEC-045/DEC-050)
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
-  complexity_actual: null
-  verify_verdict: null
+  complexity_actual: M
+  verify_verdict: approved
 
 project:
   id: PROJ-002
@@ -38,11 +38,29 @@ value_link: "the allocation-boundary half of STAGE-010's 'safe to depend on from
 
 cost:
   tokens_estimate: 18000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-117
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 19609670
+      estimated_usd: 13.34
+      duration_minutes: 75
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 build session. tokens_total = sum of this session's transcript usage records (input + cache write + cache read + output, deduped by message id) at handback time; /cost is not callable as a tool in a delegated session; USD at Opus list rates. Excludes the final commit/report turns. (synced_at was reset to null at ship: the build session stamped it but the cost never reached SPEC-039's cost.sessions, so handback-sync re-transcribes it here.)"
+    - cycle: verify
+      handoff: HANDOFF-118
+      agent: claude-opus-5-5
+      interface: other
+      tokens_total: 4344310
+      estimated_usd: 3.20
+      duration_minutes: null
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 verify. Verdict APPROVED at 2f256f0 (PR #178), no code change needed. 507 tests pass + corpus 9/9, lint, CI all green incl the new ifd/plane/ljpeg fuzz smoke jobs, plane fuzz 9,940,571 runs clean; an independent mutation confirmed validate and unpack_into share one check (no drift). tokens_total summed from the session transcript (/cost is not callable in a delegated session)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 23953980
+    estimated_usd: 16.54
+    session_count: 2
 ---
 
 # SPEC-039: `plane::validate` — the unified validate-before-allocate preflight (group E)
