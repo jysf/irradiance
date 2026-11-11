@@ -245,7 +245,9 @@ cutter; `N/A` = does not apply to a source crate.
         --dry-run` both report `irradiance v0.2.0`; `git tag -l 'v0.2*'` is empty
         (no premature or duplicate tag); `.repo-context.yaml` `spec.version.scheme:
         semver` (already set — no change needed). `just build-info` stamps the
-        candidate as `v0.1.1-<n>-g<sha>` until the tag exists.
+        candidate as `v0.1.1-<n>-g<sha>` until the tag exists. The dry-run's
+        packaged `.cargo_vcs_info.json` carries `git.sha1` = the candidate commit
+        `6843083`, so the provenance mechanism is shown working pre-cut.
       - `[cut]` on the merged release commit: `git tag -a v0.2.0 -m "irradiance
         0.2.0"`, then `git tag --points-at HEAD` prints exactly `v0.2.0` and
         `just build-info` prints `v0.2.0`. **Build provenance for a source crate:**
