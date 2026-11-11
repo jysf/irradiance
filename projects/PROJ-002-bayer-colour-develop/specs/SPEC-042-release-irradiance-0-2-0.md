@@ -15,7 +15,7 @@
 task:
   id: SPEC-042
   type: release                    # epic | story | task | bug | chore | release
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: build                     # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -35,7 +35,7 @@ handoff:
   created_at: null
 
 references:
-  decisions: [DEC-028]                    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-028, DEC-006, DEC-045, DEC-052]   # publish checks, changelog→version, the wave, the seal + semver
   constraints: []                  # [constraint-id-1, constraint-id-2]
   related_specs: [SPEC-039, SPEC-040, SPEC-041]                # [SPEC-NNN]
 
@@ -61,15 +61,13 @@ cost:
 
 # SPEC-042: Release irradiance 0.2.0
 
-> **⚠ HELD + SCOPE EXPANDED (DEC-045, 2026-11-10).** 0.2.0 is held until the
-> four P1 code-review findings ship (groups A–E). This release spec is group F
-> and is **blocked by A–E + SPEC-040 + SPEC-041**. Beyond the Context below it
-> now also owns, per DEC-045 and the pre-0.2.0 review: the full public-struct
-> non-exhaustive sweep (`Cfa`/`WarpRect`/`Opcode`/…; `Sensor` is already done in
-> group C), a **tier-B corpus evidence run on the candidate SHA**
-> (`IRRADIANCE_CORPUS_DIR`), a **package target list** check (no stray binary),
-> and **deny-on-dev-graph** confirmation (group D). Design this only after A–E
-> land. Do not cut a partial 0.2.0 — the maintainer chose to hold for all P1s.
+> **DESIGNED 2026-11-10 (DEC-052), `cycle: build`.** All blockers shipped — groups
+> A–E (SPEC-052/053/054/055/039) + SPEC-040 + SPEC-041 are on `main`. This is the
+> group-F release. **Read DEC-052 first:** it decides the `Cfa`/`WarpRect`/`Opcode`
+> seal, the semver `0.2.0` version, the deferral of two group-C opcode follow-ups to a
+> 0.2.1 spec (SPEC-056), and that 0.2.0 does not wait for colour accuracy. The build is
+> **two-phase**: Phase 1 (this spec's build) is the reversible prep PR; Phase 2 (the tag
+> + `cargo publish`) is **human-gated** and the spec ships "prep-complete, cut-deferred".
 
 ## Context
 
@@ -77,15 +75,59 @@ Source `feedback/2026-11-02-pyirradiance-requests.md` item 2. The published crat
 
 ## Release Scope
 
-- **Version / tag:** the exact tag you will cut, in this app's scheme
-  (`spec.version.scheme` in `.repo-context.yaml`; default `calver` →
-  `vYYYY.MM.PATCH`). Run `just next-version` for the suggested next tag. This is
-  the *app* version — NOT the top-level `VERSION` file (that's template
-  provenance). See `docs/versioning.md`.
-- **What's included:** the shipped specs / patches in this release
-- **Delivery shapes:** which of {binary · package · service · library} this
-  release produces — this decides which pre-flight categories below apply, and
-  which version scheme fits (semver for a library/public API; calver otherwise).
+### Decided for 0.2.0 (DEC-052)
+
+- **Version / tag:** `0.2.0`, **semver** — set `spec.version.scheme: semver` in
+  `.repo-context.yaml` (public-API library). Tag `v0.2.0`; a minor bump over the live
+  `0.1.1`. The top-level `VERSION` file (template provenance) is left alone.
+- **What's included (on `main` since `0.1.1`):** `demosaic::demosaic_into` + the colour
+  develop path (STAGE-007/008/012), `tone::to_linear_f32_into`, `DEVELOP_VERSION`,
+  `plane::validate` (SPEC-039), `Error::kind` / `ErrorKind` (SPEC-040), the determinism
+  evidence (SPEC-041), the pre-0.2.0 P1 hardening (SPEC-052/053/054/055), and this spec's
+  `Cfa`/`WarpRect`/`Opcode` seal.
+- **Delivery shape:** library + crates.io **package** (no binary — the `irr` dev tool is
+  feature-gated out, SPEC-055). Semver applies; the binary/service pre-flight categories
+  are `N/A`.
+- **Known limitations, named in the release notes (not gates):** the two deferred group-C
+  opcode follow-ups (a malformed `OpcodeList` tag read as absent; the stage functions
+  skipping the required-processing check) → **SPEC-056 / 0.2.1**; and **no colour-accuracy
+  claim** — SPEC-035 (ColorChecker ΔE) is blocked on the physical chart.
+
+## Build work (Phase 1 — reversible prep, the implementer's cycle)
+
+Everything here lands as one CI-gated PR; it is fully revertible. The tag + publish are
+Phase 2 (below), human-gated.
+
+1. **Seal the public parser-output types** (DEC-052 §1): add `#[non_exhaustive]` to `Cfa`
+   (`src/ifd.rs`), `WarpRect` and the `Opcode` enum (`src/opcode.rs`). Confirm in-crate
+   matches still compile (in-crate exhaustive matches stay legal); do **not** add a
+   crate-wide wildcard. Migrate the `tests/` `Cfa`/`WarpRect`/`Opcode` literal fixtures
+   onto the existing dev-only `test-fixtures` feature (extend it with constructors, the
+   `fuzzing`/SPEC-054 precedent).
+2. **Follow-up (3) — make bare `cargo test` compile** (DEC-052 §3): add a dev-dependency on
+   this crate with the dev features on (`irradiance = { path = ".", features =
+   ["test-fixtures", "irr"] }`) so the sealed fixtures build without `--all-features`.
+3. **Version + metadata** (DEC-028): `Cargo.toml` `version = "0.2.0"`; confirm
+   `license` / `description` / `keywords` / `categories` / `repository` are publish-ready;
+   `.repo-context.yaml` `spec.version.scheme: semver`.
+4. **CHANGELOG** (DEC-006): promote `[Unreleased]` to `## [0.2.0] - <date>`; a fresh empty
+   `[Unreleased]` on top.
+5. **Release notes:** run `just release-notes`, edit to a user-facing headline; name the
+   two deferred opcode follow-ups and the absence of a colour-accuracy claim under
+   **Known limitations**.
+6. **Tier-B corpus evidence run on the candidate SHA** (`IRRADIANCE_CORPUS_DIR`): record
+   the bit-exact develop/decode result for every held file in the handback — this is the
+   release's real-file evidence (never committed, DEC-003).
+7. **Confirm the already-landed guards:** `just package-targets-check` (no stray binary in
+   the package, SPEC-055) and `just deny` + `just deny-fuzz` (dev-graph licence, SPEC-055)
+   pass on the candidate.
+8. Fill the **Release Pre-Flight** checklist below with the instance commands and `[now]`
+   / `[cut]` / `N/A` timing; `just test` (`--all-features`) + `just lint` green;
+   `cargo publish --dry-run` clean (`[now]`).
+
+**Phase 2 (human-gated, after Phase 1 merges — NOT in the build cycle):** tag `v0.2.0` on
+the release commit, `cargo publish`, verify the published crate installs on a clean host.
+The spec ships **prep-complete, cut-deferred**; the implementer does not tag or publish.
 
 ## Release Notes
 
