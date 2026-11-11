@@ -28,7 +28,7 @@ handback:
   estimated_usd: 9.00
   duration_minutes: 25
   branch: claude/spec-042-build-b5e5da
-  pr: PR_URL_PLACEHOLDER
+  pr: https://github.com/jysf/irradiance/pull/186
   completed_at: 2026-11-10
   notes: "Phase 1 prep-complete, cut-deferred. Cfa/WarpRect/Opcode sealed; self dev-dep makes bare cargo test work; 0.2.0 + CHANGELOG + release notes + pre-flight; tier-B 9/9 sha256 + 8/8 decodable bit-exact vs dnglab; just test 519/0/1, lint, deny, deny-fuzz, package-targets-check, publish dry-run all green. No tag, no publish."
   synced_at: null
@@ -88,7 +88,7 @@ even if blocked.
 ## Handback
 
 ### Execution notes
-- **Branch / PR:** `claude/spec-042-build-b5e5da` → PR_URL_PLACEHOLDER  **Completed at:** 2026-11-10  **All Phase-1 deliverables met?** yes
+- **Branch / PR:** `claude/spec-042-build-b5e5da` → https://github.com/jysf/irradiance/pull/186  **Completed at:** 2026-11-10  **All Phase-1 deliverables met?** yes
 - **Candidate SHA:** `6843083` (code + CHANGELOG + README + spec notes/pre-flight); a follow-up docs-only commit fills this handback and the pre-flight SHA line (neither file is in the published package).
 - **What landed:**
   - `#[non_exhaustive]` on `Cfa` (`src/ifd.rs`), `WarpRect` and the `Opcode` enum (`src/opcode.rs`); the old "`#[non_exhaustive]`-free by choice" note on `Opcode` rewritten to cite DEC-052. In-crate matches (`src/opcode.rs` `find_map` matches, `src/warp.rs`) compile unchanged — no wildcard added anywhere.
