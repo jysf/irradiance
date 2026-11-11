@@ -1,6 +1,6 @@
 [package]
 name = "irradiance"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 # Measured, not guessed — see guidance/toolchain-brief.md and
 # projects/PROJ-001-monochrome-dng-develop/specs/SPEC-001-*.md. 1.90.0 is the
@@ -68,13 +68,14 @@ fuzzing = []
 # above (`required-features`). SPEC-055, DEC-048.
 irr = []
 # Dev-only, NOT a runtime dependency (SPEC-054, DEC-049; same shape as `fuzzing`
-# above). An empty feature that compiles in the doc-hidden
-# `Sensor::test_fixture` constructor. `Sensor` is `#[non_exhaustive]` (a sealed
-# parser-output view), so the separate `tests/` crate cannot write a
-# `Sensor { .. }` literal; its fixtures start from this constructor instead.
-# Every test and example invocation runs with `--all-features` (`just test`, CI),
-# so they compile; the published crate (default features) leaves it off and
-# gains no construction path. Carries no dependency.
+# above). An empty feature that compiles in the doc-hidden `test_fixture`
+# constructors on `Sensor` (SPEC-054) and on `Cfa` and `WarpRect` (SPEC-042,
+# DEC-052). Those types are `#[non_exhaustive]` (sealed parser-output views), so
+# the separate `tests/` crate cannot write a struct literal for them; its
+# fixtures start from these constructors instead. The self dev-dependency below
+# turns it on for every test/example build, so a bare `cargo test` compiles; the
+# published crate (default features) leaves it off and gains no construction
+# path. Carries no dependency.
 test-fixtures = []
 
 # Zero dependencies by design (SPIKE-001; this spec's handoff). Adding one
@@ -82,6 +83,16 @@ test-fixtures = []
 [dependencies]
 
 [dev-dependencies]
+# DEV-ONLY self dependency (SPEC-042, DEC-052 §3; the group-C verify follow-up
+# DEC-050 recorded). It enables the dev-only `test-fixtures` and `irr` features
+# for every test, example and bench build, so a bare `cargo test` (no
+# `--all-features`) compiles the integration tests — they build the sealed
+# `Sensor`/`Cfa`/`WarpRect` from `test_fixture()` and run the `irr` bin. A
+# path-only dev-dependency is stripped from the published manifest by
+# `cargo package`, so the released crate is unaffected; it adds no crate to the
+# graph (it is this crate), so "zero dependencies" and DEC-010 still hold.
+irradiance = { path = ".", features = ["test-fixtures", "irr"] }
+
 # DEV-ONLY, and that is load-bearing: `toml` parses tests/corpus/manifest.toml
 # for the corpus tests and the `corpus-status` example. It is never compiled
 # into the library, so "irradiance has no dependencies" stays true as written

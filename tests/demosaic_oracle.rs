@@ -55,12 +55,19 @@ fn fixture_sensor(width: u32, height: u32, color_filter: Option<Cfa>) -> Sensor 
 /// A 2×2 Bayer CFA with the DNG-default plane colour, for the given phase
 /// (e.g. `[0, 1, 1, 2]` = RGGB, `[2, 1, 1, 0]` = BGGR).
 fn bayer(pattern: [u8; 4]) -> Cfa {
-    Cfa {
-        repeat_dim: [2, 2],
-        pattern: pattern.to_vec(),
-        plane_color: vec![0, 1, 2],
-        layout: 1,
-    }
+    // `Cfa` is `#[non_exhaustive]` (DEC-052): start from the dev-only fixture.
+    let mut cfa = Cfa::test_fixture();
+    cfa.pattern = pattern.to_vec();
+    cfa
+}
+
+/// A `Cfa` with an arbitrary repeat dim and pattern (DNG-default plane colour
+/// and layout) — for the unsupported / hostile shapes `bayer` cannot express.
+fn cfa_shape(repeat_dim: [u32; 2], pattern: Vec<u8>) -> Cfa {
+    let mut cfa = Cfa::test_fixture();
+    cfa.repeat_dim = repeat_dim;
+    cfa.pattern = pattern;
+    cfa
 }
 
 const RGGB: [u8; 4] = [0, 1, 1, 2];
@@ -617,12 +624,7 @@ fn an_unsupported_cfa_is_a_typed_error() {
     let mut dst = [0u16; 48];
 
     // A non-RGGB-family 2×2 pattern (two reds, no blue) is not a Bayer mosaic.
-    let not_bayer = Cfa {
-        repeat_dim: [2, 2],
-        pattern: vec![0, 0, 1, 2],
-        plane_color: vec![0, 1, 2],
-        layout: 1,
-    };
+    let not_bayer = cfa_shape([2, 2], vec![0, 0, 1, 2]);
     let sensor = fixture_sensor(4, 4, Some(not_bayer));
     let err = demosaic_into(&sensor, &mosaic, &mut dst).expect_err("not a Bayer mosaic");
     assert!(
@@ -631,12 +633,7 @@ fn an_unsupported_cfa_is_a_typed_error() {
     );
 
     // A non-2×2 repeat dim (an X-Trans-shaped 6×6) is also unsupported here.
-    let xtrans_shaped = Cfa {
-        repeat_dim: [6, 6],
-        pattern: vec![1; 36],
-        plane_color: vec![0, 1, 2],
-        layout: 1,
-    };
+    let xtrans_shaped = cfa_shape([6, 6], vec![1; 36]);
     let sensor = fixture_sensor(4, 4, Some(xtrans_shaped));
     let err = demosaic_into(&sensor, &mosaic, &mut dst).expect_err("repeat_dim != [2,2]");
     assert!(
@@ -724,18 +721,8 @@ fn degenerate_dims_do_not_panic() {
 
 #[test]
 fn demosaic_is_panic_free_on_hostile_cfa() {
-    let not_bayer = Cfa {
-        repeat_dim: [2, 2],
-        pattern: vec![0, 0, 1, 2], // two reds, no blue — not a Bayer
-        plane_color: vec![0, 1, 2],
-        layout: 1,
-    };
-    let xtrans = Cfa {
-        repeat_dim: [6, 6],
-        pattern: vec![1; 36], // non-2×2 repeat dim
-        plane_color: vec![0, 1, 2],
-        layout: 1,
-    };
+    let not_bayer = cfa_shape([2, 2], vec![0, 0, 1, 2]); // two reds, no blue — not a Bayer
+    let xtrans = cfa_shape([6, 6], vec![1; 36]); // non-2×2 repeat dim
 
     // (width, height, cfa, src_len, dst_len) — hostile shapes crossing a
     // dimension, a CFA, and buffer lengths that may or may not match
@@ -804,10 +791,11 @@ fn run_irr_demosaic(dng: &[u8]) -> std::process::Output {
 }
 
 // `irr` is behind the `irr` feature (SPEC-055, DEC-048). Cargo still sets
-// CARGO_BIN_EXE_irr without it but does not build the binary, so a plain
-// `cargo test` on a clean target would fail to spawn it. Ignored (a visible
-// skip, not a silent pass) unless the feature is on; `just test` and CI use
-// `--all-features`, so it always runs there.
+// CARGO_BIN_EXE_irr without it but does not build the binary, so a build
+// without the feature would fail to spawn it. The self dev-dependency in
+// Cargo.toml (SPEC-042, DEC-052) turns `irr` on for every test build, so a bare
+// `cargo test` runs this as well as `just test` / CI (`--all-features`); the
+// ignore stays as a visible skip, not a silent pass, should that ever change.
 #[test]
 #[cfg_attr(
     not(feature = "irr"),

@@ -89,13 +89,11 @@ const FRAME_COEFFICIENTS: [(&str, [f64; 4]); 3] = [
 ];
 
 fn warp_rect(kr: [f64; 4]) -> WarpRect {
-    WarpRect {
-        kr,
-        kt: [0.0, 0.0],
-        cx: 0.5,
-        cy: 0.5,
-        planes: 1,
-    }
+    // `WarpRect` is `#[non_exhaustive]` (DEC-052): start from the dev-only
+    // fixture (centred, no tangential terms, one plane) and set `kr`.
+    let mut warp = WarpRect::test_fixture();
+    warp.kr = kr;
+    warp
 }
 
 /// The optical center and `m` (half-diagonal, DNG 1.7.0.0 §6.4.1) for a

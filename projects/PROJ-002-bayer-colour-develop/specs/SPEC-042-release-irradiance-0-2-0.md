@@ -140,12 +140,74 @@ each shipped spec's outward outcome (Reflection Q5). Then edit: lead with the
 headline, group related items, drop the SPEC ids. Specs that answered `none` have
 no user-visible outcome and are correctly absent — do not back-fill them.
 
-**Headline:** <the single thing a user most gains from this release>
+*Seeded with `just release-notes PROJ-002` + `just release-notes PROJ-003` on
+2026-11-10, then edited (SPEC ids dropped, related items grouped). The GitHub
+release text for `v0.2.0` is this section.*
 
-- <capability — before → after, with the confirming number if one exists>
-- <...>
+**Headline:** irradiance now develops **Bayer colour** DNGs and decodes **lossless-JPEG
+(`Compression 7`)** DNGs — still pure Rust, zero runtime dependencies, permissively
+licensed, and refusing hostile input with a typed error instead of a panic or an
+out-of-memory abort.
 
-**Breaking / action required:** <none | what broke and what the user must do>
+**New capability**
+- **Bayer colour develop.** Before, only monochrome DNGs developed. Now a Bayer-CFA
+  DNG (uncompressed, single- or multi-strip) unpacks bit-exact against `dnglab`,
+  demosaics with a patent-clean Hamilton-Adams kernel (`demosaic::demosaic_into`),
+  and colour-develops — white balance, dual-illuminant camera→XYZ, Bradford
+  adaptation, sRGB — through `color::develop_color_into`, cropped and oriented
+  like the monochrome develop.
+- **Scene-linear float output.** `tone::to_linear_f32_into` and
+  `color::develop_color_f32_into` write `f32` directly (for Python bindings and ML
+  loaders), equal to the `u16` path to the bit.
+- **Lossless-JPEG DNGs decode.** A `Compression 7` sensor plane now decodes through
+  `plane::unpack_into`; both held files (Leica M Monochrom Typ 246, Pentax K-3 III
+  Mono) match `dnglab`'s raw checksum exactly.
+- **Faster and leaner.** Demosaic ~1.69× faster (24 MP median 533.0 → 316.2 ms);
+  colour develop ~134 MB less peak memory on a 23 MP frame (358.7 → 224.9 MB); an
+  opt-in `*_threaded` variant scales ~3.3–3.7× at 4 threads, byte-identical output.
+- **`DEVELOP_VERSION` is now `"4"`** (was `"1"` in `0.1.1`) — bumped by the three
+  colour-develop output changes since (scene-white adaptation, the `ActiveArea`
+  origin, crop/orient parity), so a cache keyed on it re-develops.
+
+**Safer on untrusted input**
+- **`plane::validate(sensor, byte_order, file, max_pixels)`** — run it before you
+  allocate: a forged sensor size can no longer drive the caller into an
+  out-of-memory abort; your own pixel budget is checked first.
+- Aliased IFD tables can no longer amplify parsing (a ~770 KB file used to drive
+  ~6.3M entry reads); a wrong-shape `Compression 7` strip is refused, not silently
+  mis-decoded; a DNG that *requires* opcode processing the develop does not perform
+  is refused (`Error::UnsupportedRequiredOpcode`) instead of developing to a
+  plausible wrong image.
+- **`Error::kind()` → `ErrorKind { Unsupported, Corrupt, CallerError }`** — route a
+  failure (skip / bad file / fix the call) without matching ~55 variants.
+- **Cross-architecture determinism evidence** — committed output hashes for
+  unpack, demosaic and the linear-float path agree on linux-x86_64 and macos-arm64.
+- `cargo install irradiance` no longer installs the internal `irr` dev tool.
+
+**Breaking / action required:** this is a `0.x` minor bump, so Cargo treats it as
+incompatible with `0.1`: change your dependency to `irradiance = "0.2"`. Code
+changes are needed only if you (a) **construct** `Sensor`, `Cfa` or `WarpRect`
+with a struct literal, or (b) **match** `Opcode` exhaustively — all four are now
+`#[non_exhaustive]` parser-output types, so use the value the parser returns and
+add a `_` arm. Field reads, field assignment and `..` patterns are unchanged. Also
+newly refused (typed errors, not panics): uncompressed strips whose byte counts
+exceed the file, and files requiring opcode processing the develop cannot apply.
+
+**Known limitations**
+- **No colour-accuracy claim yet.** The colour path is verified against independent
+  transcriptions, not against a physical reference; the ColorChecker ΔE2000
+  measurement is blocked on capturing the chart. Treat colour as plausible, not
+  calibrated.
+- **A malformed `OpcodeList` tag is read as absent**, so a file that declares
+  required processing in a list this library cannot parse develops without it
+  rather than being refused. No held corpus file does this. Planned for `0.2.1`.
+- **The stage functions below `develop_*`** (`demosaic_into*`,
+  `to_srgb_linear_into`, `apply_warp_into`) **skip the required-processing check**
+  that every `develop_*` entry point performs; only callers composing those
+  primitives directly are affected. Planned for `0.2.1`.
+- **The colour develop does not run the `OpcodeList` stages** (`WarpRectilinear`,
+  `FixBadPixelsConstant`) that the monochrome `develop_into` runs; a file that
+  *requires* them is refused with a typed error, and optional ones are skipped.
 
 ## Release cut is two-phase
 
@@ -173,38 +235,52 @@ notarization propagation) → **deferred, verified by whoever runs the cut** —
 it honestly as deferred, don't tick it as done in-session. Mark categories that
 don't apply to this release's delivery shape as `N/A` with one word why.
 
-- [ ] **1. Version / tag integrity & build provenance** — exactly one release tag points
-      at the release commit; the version baked into the artifact matches the tag;
-      no stale or duplicate tag on the same commit. **And the shipped artifact
-      reports its own build provenance** (version + commit SHA) that matches the
-      release commit — `just build-info` is the stamp; it must be injected into
-      the build (DEC-008, `docs/versioning.md`). A user should be able to trace
-      exactly what they're running back to source.
-      - Command / evidence: <REPLACE — e.g. `git tag --points-at HEAD` and
-        `<app> --version` reports the `just build-info` ref>
-- [ ] **2. Artifact trust on a clean host** — a freshly-downloaded artifact is
-      trusted by a machine that didn't build it (code-signing / notarization /
-      OS quarantine — Gatekeeper, SmartScreen). "Does a stranger's machine run
-      it without a scary prompt or a block?"
-      - Command / evidence: <REPLACE — download the release asset on a second
-        machine and run it>
-- [ ] **3. Distribution-channel trust** — a *new* user can install cleanly
-      through each published channel (package-manager tap/registry trust gates,
-      first-install auth). "Install it the way a stranger would, on a machine
-      that never saw the source."
-      - Command / evidence: <REPLACE — e.g. `brew install …` on a clean host>
-- [ ] **4. Data isolation** — a dev / test / CI build can never read or migrate
-      **production** data. Confirm the prod data path is unreachable from a
-      non-prod binary.
-      - Command / evidence: <REPLACE — run the built binary with the dev env and
-        assert it cannot resolve the prod DSN>
-- [ ] **5. Runtime smoke on a clean host** — the *shipped* artifact runs (not
-      just builds) on a fresh install: it starts, answers, and its headline
-      capability works end-to-end.
-      - Command / evidence: <REPLACE — the one command that proves it works>
-- [ ] **6. Rollback / uninstall** — there is a known, tested way to withdraw or
-      downgrade the release. Exercise it at least once.
-      - Command / evidence: <REPLACE — e.g. `brew uninstall …` / re-tag prior>
+**Delivery shape: library + crates.io package (source crate, no binary).** Filled
+2026-11-10 by the Phase-1 build (HANDOFF-123). `[now]` = verified on the candidate
+in the build session; `[cut]` = only checkable at Phase 2, verified by the human
+cutter; `N/A` = does not apply to a source crate.
+
+- [x] **1. Version / tag integrity & build provenance** — partly `[now]`, rest `[cut]`.
+      - `[now]` `Cargo.toml` `version = "0.2.0"`; `cargo metadata` and `cargo publish
+        --dry-run` both report `irradiance v0.2.0`; `git tag -l 'v0.2*'` is empty
+        (no premature or duplicate tag); `.repo-context.yaml` `spec.version.scheme:
+        semver` (already set — no change needed). `just build-info` stamps the
+        candidate as `v0.1.1-<n>-g<sha>` until the tag exists.
+      - `[cut]` on the merged release commit: `git tag -a v0.2.0 -m "irradiance
+        0.2.0"`, then `git tag --points-at HEAD` prints exactly `v0.2.0` and
+        `just build-info` prints `v0.2.0`. **Build provenance for a source crate:**
+        `cargo publish` from a clean tree embeds `.cargo_vcs_info.json` (`git.sha1`)
+        in the `.crate`; after publishing, confirm that sha1 equals the tagged
+        commit (`curl -sL https://static.crates.io/crates/irradiance/irradiance-0.2.0.crate
+        | tar -xzO irradiance-0.2.0/.cargo_vcs_info.json`). `DEVELOP_VERSION` (`"4"`)
+        is the pixel-identity stamp (DEC-028).
+- [x] **2. Artifact trust on a clean host** — `N/A`: source crate; there is no signed
+      or notarized binary (the `irr` dev tool is feature-gated out of the package,
+      SPEC-055).
+- [ ] **3. Distribution-channel trust** — `[cut]`.
+      - `[now]` (closest pre-cut proxy): `cargo publish --dry-run` packages and
+        compiles the crate in isolation from the registry-resolved manifest
+        (the path-only self dev-dependency is stripped); `just
+        package-targets-check` unpacks the `.crate` and builds it with default
+        features — no executable.
+      - `[cut]` on a host that never saw the source: `cargo new probe && cd probe
+        && cargo add irradiance@0.2.0 && cargo build`; confirm
+        <https://crates.io/crates/irradiance> shows 0.2.0 and the docs.rs build is
+        green.
+- [x] **4. Data isolation** — `N/A`: a library with no I/O and no data store.
+- [ ] **5. Runtime smoke on a clean host** — `[now]` on the candidate, `[cut]` on the
+      published crate.
+      - `[now]` `just test` (`--all-features`) green with tier-B 9/9 present, every
+        held file bit-exact (see the HANDOFF-123 handback); a bare `cargo test`
+        (no `--all-features`) compiles the integration tests.
+      - `[cut]` in the clean-host `probe` crate above: parse + `plane::validate` +
+        `unpack_into` + `develop_into` one held DNG (the README's end-to-end
+        example) and confirm it returns `Ok` with the expected dimensions.
+- [ ] **6. Rollback / uninstall** — `[cut]`. The withdrawal path is `cargo yank
+      --version 0.2.0` (consumers on `"0.2"` fall back to nothing; `"0.1"` users are
+      unaffected); it was exercised on 2026-10-29 when `0.1.0` was yanked (DEC-028
+      history). Run only if the published crate is broken; an un-yank is `cargo yank
+      --undo --version 0.2.0`. A git rollback of the prep is a revert of this PR.
 
 If a real release surfaces a category this list doesn't cover, record it in
 `guidance/signals.yaml` (`type: process-debt`) so a close can grow the generic
@@ -215,6 +291,20 @@ categories (DEC-006 keeps them category-level, not command-level).
 Gotchas specific to *this* release — a channel that's slow to propagate, a
 signing cert that expires, an env var the release runner needs. Keep short — the
 full context graph lives in the handoff file.
+
+**Phase 2 runbook (human cutter, after the Phase-1 PR merges):**
+1. `git checkout main && git pull` — clean tree, HEAD is the merged prep commit.
+2. `cargo publish --dry-run` once more on that exact commit (clean, no `--allow-dirty`).
+3. `git tag -a v0.2.0 -m "irradiance 0.2.0"` and `git push origin v0.2.0`.
+4. `cargo publish` (your crates.io token).
+5. Pre-flight items 1, 3, 5 `[cut]` halves: `.cargo_vcs_info.json` sha1 = tag commit;
+   clean-host `cargo add irradiance@0.2.0` + the README example; docs.rs green.
+6. Optional: a GitHub release on `v0.2.0` with the `## Release Notes` text above.
+7. Append the one-line `## Cut Record` below.
+
+Gotcha: the self dev-dependency (`irradiance = { path = "." … }`) is path-only, so
+`cargo package` strips it from the published manifest — the `.crate` has no
+self-reference. The dry-run in this PR confirms it.
 
 ## Cut Record
 

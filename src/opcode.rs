@@ -97,11 +97,15 @@ use crate::Error;
 
 /// One opcode from an `OpcodeList`, decoded far enough to be useful.
 ///
-/// `#[non_exhaustive]`-free by choice, unlike [`Error`]: this enum is grown
-/// by whichever opcode spec lands next (`SPEC-017`'s coordination contract),
-/// not by external callers matching on it, so there is no compatibility
-/// reason to hide today's variant set.
+/// **Sealed with `#[non_exhaustive]`** (`SPEC-042`, `DEC-052`, overriding the
+/// earlier "`#[non_exhaustive]`-free by choice" note): this enum is grown by
+/// whichever opcode spec lands next (`SPEC-017`'s coordination contract), so
+/// a new variant must be additive for consumers. A match outside this crate
+/// needs a wildcard arm; in-crate matches stay exhaustive on purpose, so a new
+/// variant is still a visible compile error here. The seal is on the variant
+/// *set* only — each variant can still be built with a literal.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Opcode {
     /// DNG 1.7.0.0 §6.4.1, `OpcodeID` 1 — see [`WarpRect`] for the fields'
     /// meaning. `planes` is `N` from the byte stream, kept for round-trip
@@ -151,7 +155,13 @@ pub enum Opcode {
 /// A separate, smaller type than [`Opcode::WarpRectilinear`] so
 /// [`crate::develop`] and [`crate::warp`] depend on this shape only, not on
 /// the whole [`Opcode`] enum SPEC-017 also extends.
+///
+/// **A parser-output view, sealed with `#[non_exhaustive]`** (`SPEC-042`,
+/// `DEC-052`): the parser builds it and consumers read it, so a future field
+/// is additive, not breaking. Outside this crate a `WarpRect` cannot be built
+/// with a struct literal; its public fields stay readable and assignable.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct WarpRect {
     /// Radial coefficients `kr0..kr3`: `f(r) = kr0 + kr1*r^2 + kr2*r^4 + kr3*r^6`.
     pub kr: [f64; 4],
@@ -168,6 +178,30 @@ pub struct WarpRect {
     /// `N` as read from the byte stream — informational only; see the
     /// module docs for why the applier does not need to branch on it.
     pub planes: u32,
+}
+
+impl WarpRect {
+    /// An identity `WarpRect` (`kr = [1, 0, 0, 0]`, no tangential terms,
+    /// centred, one plane) for the crate's own integration tests and examples
+    /// — **dev-only**, compiled in solely under the `test-fixtures` cargo
+    /// feature (`SPEC-042`, `DEC-052`; the same shape as
+    /// [`crate::ifd::Sensor::test_fixture`]).
+    ///
+    /// `#[non_exhaustive]` stops the separate `tests/` crate from writing a
+    /// `WarpRect { .. }` literal, so fixtures start here and assign the public
+    /// fields they exercise. The published crate (default features) does not
+    /// contain it.
+    #[cfg(feature = "test-fixtures")]
+    #[doc(hidden)]
+    pub fn test_fixture() -> WarpRect {
+        WarpRect {
+            kr: [1.0, 0.0, 0.0, 0.0],
+            kt: [0.0, 0.0],
+            cx: 0.5,
+            cy: 0.5,
+            planes: 1,
+        }
+    }
 }
 
 /// Read a big-endian `u32` at `at`, bounds-checked.

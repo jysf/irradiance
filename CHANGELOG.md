@@ -8,6 +8,17 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-10
+
+The Bayer colour release (SPEC-042, DEC-052): everything since `0.1.1` — the Bayer
+mosaic, Hamilton-Adams demosaic and colour develop (PROJ-002), DNG `Compression 7`
+lossless-JPEG decode (PROJ-003), and the pre-0.2.0 review hardening (STAGE-010:
+SPEC-052/053/054/055/039/040/041). Semver: in `0.x` a minor bump is the
+compatibility boundary, so consumers move from `"0.1"` to `"0.2"` deliberately;
+the `⚠` entries under **Changed** are the ones that can need a code change. Tier-B
+corpus evidence was re-run on the release candidate (every held file bit-exact).
+No colour-*accuracy* claim is made yet — see **Known limitations**.
+
 ### Security
 
 - **A forged sensor size can no longer drive the caller into an out-of-memory
@@ -128,6 +139,14 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   `Sensor::test_fixture()` blank constructor for this crate's own integration
   tests. Off by default; carries no dependency.
 
+- **Opt-in threaded demosaic and colour develop** (`irradiance::demosaic`,
+  `irradiance::color`, SPEC-051, PROJ-002) — `demosaic_into_threaded`,
+  `develop_color_into_threaded` and `develop_color_f32_into_threaded` take a
+  thread count and split the output into row bands (`std::thread::scope`, no new
+  dependency, no `unsafe`). On an M4 Pro a 5712×4096 colour develop runs ~1.95×
+  faster at 2 threads and ~3.69× at 4; demosaic ~1.83× / ~3.30×. Output is
+  byte-identical to the single-thread functions, and `threads = 1` is unchanged.
+  `DEC-044`. (Entry added at the 0.2.0 cut; it was missing from `[Unreleased]`.)
 - **`develop_color_f32_into`** (`irradiance::color`, SPEC-049, PROJ-002) — a public
   colour-develop entry point that writes scene-linear `f32` directly, equal to
   `to_linear_f32_into(develop_color_into(..))` to the bit (it quantises to `u16`,
@@ -137,6 +156,18 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **⚠ `Cfa`, `WarpRect` and `Opcode` are now `#[non_exhaustive]`** (`irradiance::ifd`,
+  `irradiance::opcode`, SPEC-042, PROJ-002) — completing the parser-output seal
+  `Sensor` began (SPEC-054). They are built by the parser and read by consumers, so
+  a future field or opcode variant is now additive, not breaking. Action required
+  only if you **construct** a `Cfa` or `WarpRect` with a struct literal (use the
+  value the parser returns instead) or **match** `Opcode` exhaustively (add a `_`
+  arm). Reading fields, assigning them, and `Cfa { pattern, .. }` patterns are
+  unchanged; each `Opcode` variant can still be built with a literal. The dev-only
+  `test-fixtures` feature gains doc-hidden `Cfa::test_fixture` /
+  `WarpRect::test_fixture` constructors for the crate's own tests (not part of the
+  published API), and a self dev-dependency enables it so a bare `cargo test`
+  compiles. `DEC-052`.
 - **`plane::unpack_into` refuses uncompressed strips that alias** (SPEC-039) — it
   now shares `validate`'s checks, including the new rule that an uncompressed
   plane's `StripByteCounts` may not sum to more than the file length
@@ -432,6 +463,27 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   interpretation-class field — a malformed CFA tag costs that field, never the file
   (DEC-012) — and the mosaic plane still reads bit-exact. No demosaic or colour
   yet; the monochrome path is byte-for-byte unchanged.
+
+### Known limitations
+
+- **No colour-accuracy claim.** The colour develop path ships (white balance,
+  dual-illuminant camera→XYZ, Bradford adaptation, sRGB), and it is bit-exact
+  against its own independent transcriptions, but it has not yet been measured
+  against a physical reference: the ColorChecker ΔE2000 oracle (SPEC-035) is
+  blocked on capturing the chart. Treat colour as plausible, not calibrated.
+- **A malformed `OpcodeList` tag is read as absent** (DEC-012), so a file that
+  declares required opcode processing in a list this library cannot even parse
+  develops without it instead of being refused. No held corpus file does this.
+  Fix planned for `0.2.1` (SPEC-056).
+- **The stage functions below `develop_*` skip the required-processing check.**
+  `demosaic_into*`, `to_srgb_linear_into` and `apply_warp_into` do not refuse a
+  file with required opcodes the way every `develop_*` entry point does (SPEC-054);
+  only a caller composing those primitives directly is affected. Fix planned for
+  `0.2.1` (SPEC-056).
+- **The colour develop does not run the `OpcodeList` stages** (`WarpRectilinear`,
+  `FixBadPixelsConstant`) that `develop_into` runs. A file that *requires* them is
+  refused with `Error::UnsupportedRequiredOpcode` (SPEC-054); optional ones are
+  skipped.
 
 ## [0.1.1] - 2026-10-29
 
