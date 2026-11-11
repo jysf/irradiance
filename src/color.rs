@@ -22,8 +22,8 @@
 //!    expects raw camera values, and `D` already counted white balance (the
 //!    original `inv(CM1)·D` tinted grey magenta; fixed in `DEVELOP_VERSION` 2).
 //! 3. **XYZ(D50) → linear sRGB**: the committed constant `C = S · B`, where
-//!    [`BRADFORD_D50_TO_D65`] (`B`) is the Bradford chromatic adaptation and
-//!    [`SRGB_FROM_XYZ_D65`] (`S`) is IEC 61966-2-1's linear-sRGB-from-XYZ(D65).
+//!    `BRADFORD_D50_TO_D65` (`B`) is the Bradford chromatic adaptation and
+//!    `SRGB_FROM_XYZ_D65` (`S`) is IEC 61966-2-1's linear-sRGB-from-XYZ(D65).
 //!
 //! `M = C · cam2xyz` (`= C · FM1 · D`, or `C · CA · inv(CM1)`).
 //!
@@ -43,7 +43,7 @@
 //! matrices are then lerped at the converged `g` (`FM(g)` when both forward
 //! matrices are present, else `inv(CM(g))`) and `cam2xyz` built from them exactly
 //! as the single-illuminant path does. The weight is computed **once per image**,
-//! off the per-pixel path. See [`interpolation_weight`].
+//! off the per-pixel path. See `interpolation_weight`.
 //!
 //! When the interpolation preconditions are not met — no `ColorMatrix2`, a
 //! missing or unknown `CalibrationIlluminant`, `T1 == T2`, or a degenerate step
@@ -199,6 +199,11 @@ const MCCAMY_C0: f64 = 5520.33;
 ///
 /// # Errors
 ///
+/// - Whatever [`crate::opcode::check_required_processing`] returns for
+///   [`crate::opcode::DevelopPath::Colour`], checked first: a mandatory opcode
+///   in any list ([`Error::UnsupportedRequiredOpcode`] /
+///   [`Error::UnsupportedMandatoryOpcode`]) or a present-but-unreadable list
+///   ([`Error::UnreadableOpcodeList`]) refuses (`SPEC-056`, `DEC-053`).
 /// - [`Error::ColorSourceWrongLength`] if `camera_rgb.len() != width·height·3`.
 /// - [`Error::RgbBufferWrongLength`] if `dst.len() != width·height·3`.
 /// - [`Error::MissingColorCalibration`] if `sensor` carries no usable
@@ -212,6 +217,9 @@ pub fn to_srgb_linear_into(
     camera_rgb: &[u16],
     dst: &mut [u16],
 ) -> Result<(), Error> {
+    // Camera-referred pixels on the colour path, which applies no opcode:
+    // refuse first, as every colour develop does (`SPEC-056`, `DEC-053`).
+    check_colour_required_processing(sensor)?;
     let rgb_len = interleaved_rgb_len(sensor)?;
     let expected = usize::try_from(rgb_len).unwrap_or(usize::MAX);
     if camera_rgb.len() != expected {
@@ -268,7 +276,7 @@ pub fn to_srgb_linear_into(
 /// rolling cache of recent rows, writes the finalised green into a single
 /// `width·height` green plane, then interpolates red/blue, assembles the
 /// camera-RGB triple in registers, and applies the colour matrix
-/// ([`build_camera_to_srgb_linear`]) straight into `dst`. The `u16` output is
+/// (`build_camera_to_srgb_linear`) straight into `dst`. The `u16` output is
 /// **byte-identical** to the pre-fuse `normalize → demosaic_into → matrix`
 /// composition (the colour goldens and `tests/color_oracle.rs`'s byte-equivalence
 /// test are the gate).
@@ -334,7 +342,7 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
 ///
 /// The value written is **exactly** `to_linear_f32_into(develop_color_into(..))`:
 /// each channel is quantised to `u16` first — the identical clamp-and-round
-/// [`quantize`] (`DEC-018`) the integer path uses — and then divided by
+/// `quantize` (`DEC-018`) the integer path uses — and then divided by
 /// `65535.0`, matching [`crate::tone::to_linear_f32_into`] to the bit. The raw
 /// `f64` matrix result is **not** divided directly; that would skip the
 /// clamp-and-round and differ. As in [`crate::tone::to_linear_f32_into`] this is
@@ -507,7 +515,7 @@ pub fn develop_color_f32_into_threaded(
 /// applies no opcode, so any mandatory opcode in any list is refused. Every
 /// public colour entry calls this first, before any allocation or decode.
 fn check_colour_required_processing(sensor: &Sensor) -> Result<(), Error> {
-    crate::opcode::check_sensor_required_processing(sensor, crate::opcode::DevelopPath::Colour)
+    crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Colour)
 }
 
 /// What a threaded colour develop needs, resolved once before spawning.

@@ -93,6 +93,7 @@
 //! semantics, and this build's own algorithm (not read from any
 //! implementation) for the kernel — see `docs/provenance-ledger.md`.
 
+use crate::ifd::{Sensor, TAG_OPCODE_LIST_1, TAG_OPCODE_LIST_2, TAG_OPCODE_LIST_3};
 use crate::Error;
 
 /// One opcode from an `OpcodeList`, decoded far enough to be useful.
@@ -476,13 +477,23 @@ pub fn parse_fix_bad_pixels_constant(bytes: &[u8]) -> Result<Option<u32>, Error>
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Which develop path is asking, and so which opcodes it applies (`DEC-049`).
+///
+/// Passed to [`check_required_processing`] by anyone composing the stage
+/// primitives themselves (`SPEC-056`, `DEC-053`). `#[non_exhaustive]`: a later
+/// path (or a later opcode a path learns to apply) is an addition, not a break.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DevelopPath {
-    /// [`crate::develop::develop_into`]: the first `FixBadPixelsConstant` in
-    /// `OpcodeList1` and the first `WarpRectilinear` in `OpcodeList3`.
+#[non_exhaustive]
+pub enum DevelopPath {
+    /// The monochrome path, [`crate::develop::develop_into`]. It applies the
+    /// first `FixBadPixelsConstant` in `OpcodeList1` and the first
+    /// `WarpRectilinear` in `OpcodeList3`, and nothing from `OpcodeList2`.
     Mono,
-    /// [`crate::color::develop_color_into`] and its `f32` / threaded variants:
-    /// no opcode at all.
+    /// The colour path: [`crate::color::develop_color_into`] and its `f32` /
+    /// threaded variants, and the colour stage primitives
+    /// ([`crate::demosaic::demosaic_into`],
+    /// [`crate::demosaic::demosaic_into_threaded`],
+    /// [`crate::color::to_srgb_linear_into`]). It applies no opcode at all, so
+    /// any mandatory opcode in any list is refused.
     Colour,
 }
 
@@ -500,11 +511,62 @@ impl DevelopPath {
     }
 }
 
-/// Check that every **mandatory** opcode in `lists` (`OpcodeList1`/`2`/`3`, in
-/// that order; `None` = absent) is one `path` actually applies — `SPEC-054`,
-/// `DEC-049`. Called at the top of every public develop entry, before any
-/// allocation or decode, so a file that requires processing this build does not
-/// perform is refused instead of developed to a plausible-looking wrong image.
+/// Check that `sensor` declares no processing `path` will not perform — the
+/// question every public develop entry asks first (`SPEC-054`, `DEC-049`;
+/// extended by `SPEC-056`, `DEC-053`).
+///
+/// Every `develop_*` entry and every stage primitive that takes a [`Sensor`]
+/// and yields developed or camera-referred pixels
+/// ([`crate::demosaic::demosaic_into`],
+/// [`crate::demosaic::demosaic_into_threaded`],
+/// [`crate::color::to_srgb_linear_into`]) already calls this. A **composer**
+/// needs it when building a pipeline from the opcode appliers, which take no
+/// `Sensor` and so cannot check for themselves:
+/// [`crate::warp::apply_warp_into`] (`OpcodeList3`) and
+/// [`crate::develop::apply_fix_bad_pixels_constant`] (`OpcodeList1`). Call it
+/// with the path whose opcodes your composition applies; if you apply neither
+/// opcode, ask with [`DevelopPath::Colour`].
+///
+/// Lists are checked in order 1, 2, 3. For each list:
+///
+/// 1. If its tag is present but unreadable (recorded in
+///    [`Sensor::malformed_tags`], `DEC-012`), the check refuses: the library
+///    cannot show that a list it cannot read holds no mandatory opcode.
+/// 2. Otherwise every **mandatory** opcode in it (`Flags` bit 0 unset) must be
+///    exactly the instance `path` applies (the first opcode with that path's
+///    ID in that list). Optional opcodes are always skippable.
+///
+/// Reads only the sensor's fields; allocates nothing and never panics on a
+/// hostile `Sensor`.
+///
+/// # Errors
+///
+/// - [`Error::UnreadableOpcodeList`] `{ list }` when an `OpcodeList` tag is
+///   present but its payload could not be read.
+/// - [`Error::UnsupportedRequiredOpcode`] `{ list, id }` for a mandatory,
+///   recognized opcode `path` does not apply.
+/// - [`Error::UnsupportedMandatoryOpcode`] `{ id }` for a mandatory opcode ID
+///   this reader does not recognize.
+/// - [`Error::Truncated`] / [`Error::MalformedOpcodeParams`] for broken list
+///   framing (a present list is read in full even when every opcode in it is
+///   optional).
+pub fn check_required_processing(sensor: &Sensor, path: DevelopPath) -> Result<(), Error> {
+    let unreadable = [TAG_OPCODE_LIST_1, TAG_OPCODE_LIST_2, TAG_OPCODE_LIST_3]
+        .map(|tag| sensor.malformed_tags.contains(&tag));
+    check_lists(
+        [
+            sensor.opcode_list_1.as_deref(),
+            sensor.opcode_list_2.as_deref(),
+            sensor.opcode_list_3.as_deref(),
+        ],
+        unreadable,
+        path,
+    )
+}
+
+/// The body of [`check_required_processing`] over raw list bytes
+/// (`OpcodeList1`/`2`/`3`, in that order; `None` = absent or unreadable) and
+/// each list's "present but unreadable" flag.
 ///
 /// This walks the **raw framing** with flags, not [`parse_opcode_list`]'s typed
 /// output: the typed parse keeps `Flags` only on [`Opcode::Unknown`], and cannot
@@ -520,23 +582,23 @@ impl DevelopPath {
 /// - an unrecognized ID → [`Error::UnsupportedMandatoryOpcode`] `{ id }`, the
 ///   same error [`parse_opcode_list`] has always given for it.
 ///
+/// A list flagged unreadable refuses with [`Error::UnreadableOpcodeList`]
+/// before its own scan, so with several defects the lowest list's is reported.
+///
 /// Parameter blocks are not interpreted here — the mono appliers still parse
 /// the opcodes they apply and report [`Error::MalformedOpcodeParams`]
 /// themselves. Panic-free on hostile bytes: the shared framing reader is fully
 /// checked, and the declared `count` never pre-allocates (each iteration
 /// consumes at least 16 bytes or fails).
-///
-/// # Errors
-///
-/// [`Error::UnsupportedRequiredOpcode`] / [`Error::UnsupportedMandatoryOpcode`]
-/// as above; [`Error::Truncated`] / [`Error::MalformedOpcodeParams`] for broken
-/// framing (a present list is read in full even when every opcode in it is
-/// optional, matching [`parse_opcode_list`]).
-pub(crate) fn check_required_processing(
+pub(crate) fn check_lists(
     lists: [Option<&[u8]>; 3],
+    unreadable: [bool; 3],
     path: DevelopPath,
 ) -> Result<(), Error> {
-    for (list, bytes) in (1u8..=3).zip(lists) {
+    for (list, (bytes, unreadable)) in (1u8..=3).zip(lists.into_iter().zip(unreadable)) {
+        if unreadable {
+            return Err(Error::UnreadableOpcodeList { list });
+        }
         if let Some(bytes) = bytes {
             check_list(bytes, list, path.applied_id(list))?;
         }
@@ -544,23 +606,7 @@ pub(crate) fn check_required_processing(
     Ok(())
 }
 
-/// [`check_required_processing`] over a parsed [`crate::ifd::Sensor`]'s three
-/// opcode lists — the form every public develop entry calls.
-pub(crate) fn check_sensor_required_processing(
-    sensor: &crate::ifd::Sensor,
-    path: DevelopPath,
-) -> Result<(), Error> {
-    check_required_processing(
-        [
-            sensor.opcode_list_1.as_deref(),
-            sensor.opcode_list_2.as_deref(),
-            sensor.opcode_list_3.as_deref(),
-        ],
-        path,
-    )
-}
-
-/// One list of [`check_required_processing`]: `applied_id` is the ID whose
+/// One list of [`check_lists`]: `applied_id` is the ID whose
 /// first instance this path applies from this list, if any.
 fn check_list(bytes: &[u8], list: u8, applied_id: Option<u32>) -> Result<(), Error> {
     let count = read_u32_be(bytes, 0)?;
@@ -822,7 +868,7 @@ mod tests {
     fn check_one(bytes: &[u8], list: u8, path: DevelopPath) -> Result<(), Error> {
         let mut lists: [Option<&[u8]>; 3] = [None; 3];
         lists[usize::from(list - 1)] = Some(bytes);
-        check_required_processing(lists, path)
+        check_lists(lists, [false; 3], path)
     }
 
     fn required(list: u8, id: u32) -> String {
@@ -832,7 +878,7 @@ mod tests {
     #[test]
     fn no_lists_and_empty_lists_pass_on_both_paths() {
         for path in [DevelopPath::Mono, DevelopPath::Colour] {
-            assert!(check_required_processing([None; 3], path).is_ok());
+            assert!(check_lists([None; 3], [false; 3], path).is_ok());
             let empty = opcode_list(&[]);
             for list in 1..=3 {
                 assert!(check_one(&empty, list, path).is_ok());
@@ -844,7 +890,7 @@ mod tests {
     fn mono_applied_set_is_first_fbpc_in_list_1_and_first_warp_in_list_3() {
         let l1 = opcode_list(&[fbpc(MANDATORY)]);
         let l3 = opcode_list(&[warp(MANDATORY)]);
-        assert!(check_required_processing([Some(&l1), None, Some(&l3)], DevelopPath::Mono).is_ok());
+        assert!(check_lists([Some(&l1), None, Some(&l3)], [false; 3], DevelopPath::Mono).is_ok());
         // ...and every other placement of the same mandatory opcodes is not applied.
         let cases = [
             (1, warp(MANDATORY), OPCODE_ID_WARP_RECTILINEAR),
@@ -938,8 +984,12 @@ mod tests {
     fn lists_are_checked_in_order_1_2_3() {
         let l1 = opcode_list(&[warp(MANDATORY)]);
         let l2 = opcode_list(&[fbpc(MANDATORY)]);
-        let err = check_required_processing([Some(&l1), Some(&l2), None], DevelopPath::Colour)
-            .unwrap_err();
+        let err = check_lists(
+            [Some(&l1), Some(&l2), None],
+            [false; 3],
+            DevelopPath::Colour,
+        )
+        .unwrap_err();
         assert_eq!(format!("{err:?}"), required(1, OPCODE_ID_WARP_RECTILINEAR));
     }
 

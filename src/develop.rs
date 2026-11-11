@@ -442,7 +442,7 @@ fn lower_median(sorted: &[u16]) -> Option<u16> {
 ///    excluded.
 /// 2. Neighbours whose value equals `constant` are excluded (they are
 ///    themselves bad).
-/// 3. With `>= 1` valid neighbour, replace with [`lower_median`] of the
+/// 3. With `>= 1` valid neighbour, replace with `lower_median` of the
 ///    valid ones.
 /// 4. With `0` valid neighbours, the pixel is left AT `constant` and is
 ///    **not** counted in the returned total — `AC5`'s `count > 0` refers to
@@ -452,6 +452,16 @@ fn lower_median(sorted: &[u16]) -> Option<u16> {
 ///    build's `## Notes`-required separate reporting, kept out of the
 ///    `AC4`-pinned `Result<usize, Error>` signature rather than widened
 ///    into a tuple).
+///
+/// # Required processing — the caller validates
+///
+/// This is the **applier** of `OpcodeList1`'s `FixBadPixelsConstant`, not a
+/// develop entry: it takes no [`crate::ifd::Sensor`], so it cannot see the
+/// file's other opcodes or whether a list was unreadable (`SPEC-056`,
+/// `DEC-053`). A caller composing its own pipeline from this function owns
+/// that question and should ask it first with
+/// [`crate::opcode::check_required_processing`] (`DevelopPath::Mono` if it
+/// also applies `OpcodeList3`'s `WarpRectilinear`, as [`develop_into`] does).
 ///
 /// # Errors
 ///
@@ -793,7 +803,7 @@ pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(),
     // Required-processing validation FIRST, before any allocation or decode
     // (`SPEC-054`, `DEC-049`): a mandatory opcode this path will not apply is a
     // typed error, never a silently-uncorrected image.
-    crate::opcode::check_sensor_required_processing(sensor, crate::opcode::DevelopPath::Mono)?;
+    crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Mono)?;
 
     let expected_src = u64::from(sensor.width)
         .checked_mul(u64::from(sensor.height))

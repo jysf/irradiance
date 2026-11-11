@@ -22,7 +22,7 @@ use irradiance::{Error, ErrorKind};
 
 /// One representative of every `Error` variant, paired with `DEC-051`'s kind.
 /// Grouped in `DEC-051`'s order: 12 `CallerError`, 18 `Unsupported`,
-/// 25 `Corrupt`.
+/// 26 `Corrupt` (25 at 0.2.0, plus `UnreadableOpcodeList`, SPEC-056/DEC-053).
 fn dec_051_table() -> Vec<(Error, ErrorKind)> {
     use ErrorKind::{CallerError, Corrupt, Unsupported};
     vec![
@@ -163,8 +163,10 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             Error::LjpegUnsupportedSampling { factor: 0x21 },
             Unsupported,
         ),
-        // Corrupt (25).
+        // Corrupt (26).
         (Error::Truncated { at: 8, len: 12 }, Corrupt),
+        // SPEC-056, DEC-053: a present-but-unreadable OpcodeList.
+        (Error::UnreadableOpcodeList { list: 1 }, Corrupt),
         (Error::CyclicIfd { offset: 8 }, Corrupt),
         (Error::IfdDepthExceeded { limit: 8 }, Corrupt),
         (Error::TooManyIfds { limit: 256 }, Corrupt),
@@ -347,8 +349,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        55,
-        "parsed {} variants from src/lib.rs; DEC-051 classified 55",
+        56,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053) classified 56",
         declared.len()
     );
 
@@ -366,11 +368,11 @@ fn every_variant_classified() {
         .collect();
     assert!(wrong.is_empty(), "misclassified: {wrong:#?}");
 
-    // DEC-051's bucket sizes: 12 / 18 / 25.
+    // DEC-051's bucket sizes: 12 / 18 / 26 (DEC-053 added one Corrupt).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
     assert_eq!(count(ErrorKind::CallerError), 12);
     assert_eq!(count(ErrorKind::Unsupported), 18);
-    assert_eq!(count(ErrorKind::Corrupt), 25);
+    assert_eq!(count(ErrorKind::Corrupt), 26);
 }
 
 #[test]

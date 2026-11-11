@@ -28,12 +28,14 @@ mod tiff;
 
 use irradiance::color::{
     develop_color_f32_into, develop_color_f32_into_threaded, develop_color_into,
-    develop_color_into_threaded,
+    develop_color_into_threaded, to_srgb_linear_into,
 };
+use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
 use irradiance::develop::{develop_into, output_dimensions};
 use irradiance::ifd::{Container, Rational, Sensor};
+use irradiance::opcode::{check_required_processing, DevelopPath};
 use irradiance::plane::unpack_into;
-use irradiance::Error;
+use irradiance::{Error, ErrorKind};
 
 use opcode_support::{opcode_list, raw_opcode, warp_rectilinear_params};
 use tiff::Order;
@@ -99,7 +101,13 @@ fn fixture_bytes(cfa: bool, lists: &[Option<Vec<u8>>; 3]) -> Vec<u8> {
 }
 
 fn fixture(cfa: bool, lists: [Option<Vec<u8>>; 3]) -> (Sensor, Vec<u16>) {
-    let data = fixture_bytes(cfa, &lists);
+    fixture_from_bytes(cfa, &fixture_bytes(cfa, &lists))
+}
+
+/// [`fixture`] over already-built DNG bytes (e.g. one whose opcode-list entry
+/// was made unreadable by [`make_list_unreadable`]).
+fn fixture_from_bytes(cfa: bool, data: &[u8]) -> (Sensor, Vec<u16>) {
+    let data = data.to_vec();
     let container = Container::parse(&data).expect("fixture parses");
     let mut sensor = container.sensor().expect("fixture has a sensor IFD");
     let mut plane = vec![0u16; (W * H) as usize];
@@ -444,12 +452,17 @@ fn copy_dir_recursive(src: &Path, dst: &Path) {
     }
 }
 
-/// The first statement of `check_required_processing` in `src/opcode.rs`. If it
-/// moves, the red-proof fails loudly rather than silently mutating nothing.
-const CHECK_NEEDLE: &str = "    for (list, bytes) in (1u8..=3).zip(lists) {";
+/// The first statement of `check_lists` (the body of the public
+/// `check_required_processing`) in `src/opcode.rs`. If it moves, the red-proof
+/// fails loudly rather than silently mutating nothing. Since `SPEC-056` the
+/// same loop also holds the unreadable-list refusal, so one injection disables
+/// both halves of the check.
+const CHECK_NEEDLE: &str =
+    "    for (list, (bytes, unreadable)) in (1u8..=3).zip(lists.into_iter().zip(unreadable)) {";
 
-/// Disable `DEC-049`'s check: it returns `Ok(())` before reading any list,
-/// leaving the rest of the pipeline untouched.
+/// Disable the check (`DEC-049`, `DEC-053`): it returns `Ok(())` before
+/// reading any list or unreadable flag, leaving the rest of the pipeline
+/// untouched.
 fn inject_check_removed(opcode_rs: &Path) {
     let src = std::fs::read_to_string(opcode_rs)
         .unwrap_or_else(|e| panic!("read {}: {e}", opcode_rs.display()));
@@ -514,6 +527,20 @@ fn main() {
         "develop_color_f32_into_threaded" => irradiance::color::develop_color_f32_into_threaded(
             &sensor, &plane, &mut vec![0f32; px * 3], 4,
         ),
+        // SPEC-056: the colour stage primitives, on the raw plane's own size.
+        "demosaic_into" => {
+            let n = sensor.width as usize * sensor.height as usize * 3;
+            irradiance::demosaic::demosaic_into(&sensor, &plane, &mut vec![0u16; n])
+        }
+        "demosaic_into_threaded" => {
+            let n = sensor.width as usize * sensor.height as usize * 3;
+            irradiance::demosaic::demosaic_into_threaded(&sensor, &plane, &mut vec![0u16; n], 4)
+        }
+        "to_srgb_linear_into" => {
+            let n = sensor.width as usize * sensor.height as usize * 3;
+            let camera: Vec<u16> = (0..n).map(|i| (i % 4096) as u16).collect();
+            irradiance::color::to_srgb_linear_into(&sensor, &camera, &mut vec![0u16; n])
+        }
         other => panic!("unknown entry {other}"),
     };
     match r {
@@ -555,6 +582,10 @@ fn build_probe(dir: &Path) -> PathBuf {
             "required_opcode_probe",
             "--quiet",
         ])
+        // Isolate the staged crate's build in its own `target/` (SPEC-056): an
+        // inherited CARGO_TARGET_DIR would put the probe elsewhere, and would
+        // build a mutated staged crate into the caller's shared target dir.
+        .env_remove("CARGO_TARGET_DIR")
         .current_dir(dir)
         .output()
         .expect("spawn cargo build");
@@ -625,6 +656,30 @@ fn required_processing_red_proof() {
         [list(&[fbpc(MANDATORY)]), None, None],
     );
 
+    // SPEC-056: a present-but-unreadable list (its lost content a mandatory
+    // unknown opcode), on list 2 for the mono path and list 1 for colour.
+    let write_unreadable = |name: &str, cfa: bool, unreadable: u8| -> PathBuf {
+        let lists: [Option<Vec<u8>>; 3] = std::array::from_fn(|i| {
+            if i + 1 == usize::from(unreadable) {
+                list(&[unknown(MANDATORY)])
+            } else {
+                None
+            }
+        });
+        let mut data = fixture_bytes(cfa, &lists);
+        make_list_unreadable(&mut data, unreadable);
+        let path = fixtures_dir.0.join(name);
+        std::fs::write(&path, data).expect("write fixture");
+        path
+    };
+    let mono_unreadable_l2 = write_unreadable("mono-unreadable-list-2.dng", false, 2);
+    let colour_unreadable_l1 = write_unreadable("colour-unreadable-list-1.dng", true, 1);
+    const PRIMITIVES: [&str; 3] = [
+        "demosaic_into",
+        "demosaic_into_threaded",
+        "to_srgb_linear_into",
+    ];
+
     const COLOUR: [&str; 4] = [
         "develop_color_into",
         "develop_color_f32_into",
@@ -651,6 +706,30 @@ fn required_processing_red_proof() {
             "err UnsupportedRequiredOpcode { list: 1, id: 4 }".to_string(),
         ));
     }
+    cases.push((
+        "develop_into",
+        &mono_unreadable_l2,
+        "err UnreadableOpcodeList { list: 2 }".to_string(),
+    ));
+    for entry in COLOUR {
+        cases.push((
+            entry,
+            &colour_unreadable_l1,
+            "err UnreadableOpcodeList { list: 1 }".to_string(),
+        ));
+    }
+    for entry in PRIMITIVES {
+        cases.push((
+            entry,
+            &colour_l1,
+            "err UnsupportedRequiredOpcode { list: 1, id: 4 }".to_string(),
+        ));
+        cases.push((
+            entry,
+            &colour_unreadable_l1,
+            "err UnreadableOpcodeList { list: 1 }".to_string(),
+        ));
+    }
 
     // CONTROL first (DEC-009): the unmutated copy must reproduce the honest
     // tree — the optional/applied-only controls develop, every required case
@@ -659,7 +738,7 @@ fn required_processing_red_proof() {
     stage_probe_crate(&control_dir.0, false);
     let control_bin = build_probe(&control_dir.0);
     assert_eq!(run_probe(&control_bin, "develop_into", &control_mono), "ok");
-    for entry in COLOUR {
+    for entry in COLOUR.into_iter().chain(PRIMITIVES) {
         assert_eq!(
             run_probe(&control_bin, entry, &control_colour),
             "ok",
@@ -694,5 +773,336 @@ fn required_processing_red_proof() {
             "RED-PROOF ({entry}, {}): control={honest:?} mutant={mutant:?}",
             fixture.display()
         );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-056 / DEC-053 §1 — an OpcodeList that is PRESENT but UNREADABLE refuses
+// the develop with `Error::UnreadableOpcodeList { list }` (kind `Corrupt`),
+// while the read itself stays tolerant (DEC-012): the file parses, the field is
+// `None`, and the tag is in `malformed_tags`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LIST_TAGS: [u16; 3] = [51008, 51009, 51022];
+
+/// Rewrite the IFD0 entry for `OpcodeList{list}` so its payload offset runs far
+/// past EOF: `payload()` then fails, so the reader records the tag in
+/// `malformed_tags` and leaves the field `None`. The fixture is little-endian
+/// with IFD0 at offset 8 (`tiff::dng_16bit_with_opcode_lists`).
+fn make_list_unreadable(data: &mut [u8], list: u8) {
+    let tag = LIST_TAGS[usize::from(list - 1)];
+    let count = usize::from(u16::from_le_bytes([data[8], data[9]]));
+    let mut patched = 0;
+    for i in 0..count {
+        let at = 10 + i * 12;
+        if u16::from_le_bytes([data[at], data[at + 1]]) == tag {
+            data[at + 8..at + 12].copy_from_slice(&0xFFFF_FF00u32.to_le_bytes());
+            patched += 1;
+        }
+    }
+    assert_eq!(patched, 1, "OpcodeList{list} entry must exist exactly once");
+}
+
+/// A fixture whose list `unreadable` is present but unreadable. That list's
+/// (lost) content is a MANDATORY unknown opcode — the silent-wrong case: were
+/// its bytes readable, every path would refuse it. Every other list is given
+/// optional-only content, which every path accepts.
+fn unreadable_fixture(cfa: bool, unreadable: u8) -> (Sensor, Vec<u16>) {
+    let lists: [Option<Vec<u8>>; 3] = std::array::from_fn(|i| {
+        if i + 1 == usize::from(unreadable) {
+            list(&[unknown(MANDATORY)])
+        } else {
+            list(&[fbpc(OPTIONAL), warp(OPTIONAL)])
+        }
+    });
+    let mut data = fixture_bytes(cfa, &lists);
+    make_list_unreadable(&mut data, unreadable);
+    let (sensor, plane) = fixture_from_bytes(cfa, &data);
+    // Guard the fixture itself: it must be "present but unreadable", never a
+    // quietly absent tag.
+    let tag = LIST_TAGS[usize::from(unreadable - 1)];
+    assert!(
+        sensor.malformed_tags.contains(&tag),
+        "fixture: tag {tag} must be in malformed_tags, got {:?}",
+        sensor.malformed_tags
+    );
+    assert!(
+        sensor.opcode_lists[usize::from(unreadable - 1)],
+        "tag present"
+    );
+    let field = match unreadable {
+        1 => &sensor.opcode_list_1,
+        2 => &sensor.opcode_list_2,
+        _ => &sensor.opcode_list_3,
+    };
+    assert!(field.is_none(), "an unreadable list's field is None");
+    (sensor, plane)
+}
+
+#[track_caller]
+fn assert_unreadable(r: Result<(), Error>, list: u8) {
+    assert!(
+        matches!(r, Err(Error::UnreadableOpcodeList { list: l }) if l == list),
+        "expected UnreadableOpcodeList {{ list: {list} }}, got {r:?}"
+    );
+}
+
+fn mono_sensor(sensor: &Sensor, plane: &[u16]) -> Result<(), Error> {
+    develop_into(sensor, plane, &mut vec![0u16; out_len(sensor, 1)])
+}
+
+fn colour_sensor(entry: ColourEntry, sensor: &Sensor, plane: &[u16]) -> Result<(), Error> {
+    let n = out_len(sensor, 3);
+    match entry {
+        ColourEntry::U16 => develop_color_into(sensor, plane, &mut vec![0u16; n]),
+        ColourEntry::F32 => develop_color_f32_into(sensor, plane, &mut vec![0f32; n]),
+        ColourEntry::U16Threaded => {
+            develop_color_into_threaded(sensor, plane, &mut vec![0u16; n], 4)
+        }
+        ColourEntry::F32Threaded => {
+            develop_color_f32_into_threaded(sensor, plane, &mut vec![0f32; n], 4)
+        }
+    }
+}
+
+/// The read stays tolerant: the file still parses and unpacks (DEC-012).
+#[test]
+fn unreadable_opcode_list_still_parses() {
+    for list in 1..=3 {
+        for cfa in [false, true] {
+            let _ = unreadable_fixture(cfa, list);
+        }
+    }
+}
+
+/// Per-list, mono path: lists 1, 2 and 3 each refuse `develop_into`.
+#[test]
+fn mono_unreadable_opcode_list_is_refused_per_list() {
+    for list in 1..=3 {
+        let (sensor, plane) = unreadable_fixture(false, list);
+        assert_unreadable(mono_sensor(&sensor, &plane), list);
+    }
+}
+
+/// Every colour develop entry refuses every unreadable list.
+#[test]
+fn colour_unreadable_opcode_list_is_refused_on_every_entry() {
+    for list in 1..=3 {
+        let (sensor, plane) = unreadable_fixture(true, list);
+        for entry in COLOUR_ENTRIES {
+            assert_unreadable(colour_sensor(entry, &sensor, &plane), list);
+        }
+    }
+}
+
+/// Deterministic order: with lists 1 and 3 both unreadable, list 1 is reported.
+#[test]
+fn the_lowest_unreadable_list_is_reported_first() {
+    let lists = [list(&[fbpc(OPTIONAL)]), None, list(&[warp(OPTIONAL)])];
+    let mut data = fixture_bytes(false, &lists);
+    make_list_unreadable(&mut data, 1);
+    make_list_unreadable(&mut data, 3);
+    let (sensor, plane) = fixture_from_bytes(false, &data);
+    assert_unreadable(mono_sensor(&sensor, &plane), 1);
+}
+
+/// The unreadable check for list n comes before list n's scan, but a list
+/// earlier in order is scanned first: a mandatory unsupported opcode in a
+/// readable list 2 wins over an unreadable list 3.
+#[test]
+fn an_earlier_lists_scan_error_precedes_a_later_unreadable_list() {
+    let lists = [None, list(&[fbpc(MANDATORY)]), list(&[warp(OPTIONAL)])];
+    let mut data = fixture_bytes(false, &lists);
+    make_list_unreadable(&mut data, 3);
+    let (sensor, plane) = fixture_from_bytes(false, &data);
+    assert_required(mono_sensor(&sensor, &plane), 2, ID_FBPC);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-056 / DEC-053 §2 — the Sensor-taking stage primitives run the colour
+// path's check first. One test per primitive per case (mandatory, unreadable,
+// optional-only, opcode-free).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The three primitives, each its own door (§12).
+#[derive(Debug, Clone, Copy)]
+enum Primitive {
+    Demosaic,
+    DemosaicThreaded,
+    ToSrgbLinear,
+}
+
+fn primitive(p: Primitive, sensor: &Sensor, plane: &[u16]) -> Result<(), Error> {
+    let n = sensor.width as usize * sensor.height as usize * 3;
+    match p {
+        Primitive::Demosaic => demosaic_into(sensor, plane, &mut vec![0u16; n]),
+        Primitive::DemosaicThreaded => demosaic_into_threaded(sensor, plane, &mut vec![0u16; n], 4),
+        Primitive::ToSrgbLinear => {
+            // Camera-space RGB input of the right length; values are irrelevant.
+            let camera: Vec<u16> = (0..n).map(|i| (i % 4096) as u16).collect();
+            to_srgb_linear_into(sensor, &camera, &mut vec![0u16; n])
+        }
+    }
+}
+
+fn primitive_mandatory(p: Primitive) {
+    let (sensor, plane) = fixture(true, [list(&[fbpc(MANDATORY)]), None, None]);
+    assert_required(primitive(p, &sensor, &plane), 1, ID_FBPC);
+}
+
+fn primitive_unreadable(p: Primitive) {
+    let (sensor, plane) = unreadable_fixture(true, 2);
+    assert_unreadable(primitive(p, &sensor, &plane), 2);
+}
+
+fn primitive_optional_only(p: Primitive) {
+    let opt = || list(&[fbpc(OPTIONAL), warp(OPTIONAL), unknown(OPTIONAL)]);
+    let (sensor, plane) = fixture(true, [opt(), opt(), opt()]);
+    primitive(p, &sensor, &plane)
+        .unwrap_or_else(|e| panic!("{p:?}: optional-only must succeed, got {e:?}"));
+}
+
+fn primitive_opcode_free(p: Primitive) {
+    let (sensor, plane) = fixture(true, [None, None, None]);
+    primitive(p, &sensor, &plane)
+        .unwrap_or_else(|e| panic!("{p:?}: opcode-free must succeed, got {e:?}"));
+}
+
+#[test]
+fn demosaic_into_refuses_a_mandatory_opcode() {
+    primitive_mandatory(Primitive::Demosaic);
+}
+#[test]
+fn demosaic_into_refuses_an_unreadable_list() {
+    primitive_unreadable(Primitive::Demosaic);
+}
+#[test]
+fn demosaic_into_accepts_optional_only() {
+    primitive_optional_only(Primitive::Demosaic);
+}
+#[test]
+fn demosaic_into_accepts_opcode_free() {
+    primitive_opcode_free(Primitive::Demosaic);
+}
+
+#[test]
+fn demosaic_into_threaded_refuses_a_mandatory_opcode() {
+    primitive_mandatory(Primitive::DemosaicThreaded);
+}
+#[test]
+fn demosaic_into_threaded_refuses_an_unreadable_list() {
+    primitive_unreadable(Primitive::DemosaicThreaded);
+}
+#[test]
+fn demosaic_into_threaded_accepts_optional_only() {
+    primitive_optional_only(Primitive::DemosaicThreaded);
+}
+#[test]
+fn demosaic_into_threaded_accepts_opcode_free() {
+    primitive_opcode_free(Primitive::DemosaicThreaded);
+}
+
+#[test]
+fn to_srgb_linear_into_refuses_a_mandatory_opcode() {
+    primitive_mandatory(Primitive::ToSrgbLinear);
+}
+#[test]
+fn to_srgb_linear_into_refuses_an_unreadable_list() {
+    primitive_unreadable(Primitive::ToSrgbLinear);
+}
+#[test]
+fn to_srgb_linear_into_accepts_optional_only() {
+    primitive_optional_only(Primitive::ToSrgbLinear);
+}
+#[test]
+fn to_srgb_linear_into_accepts_opcode_free() {
+    primitive_opcode_free(Primitive::ToSrgbLinear);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-056 — the public check and the error's shape.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `opcode::check_required_processing` is callable from outside the crate and
+/// answers exactly what the matching develop answers, across the SPEC-054
+/// fixture shapes plus the unreadable ones.
+#[test]
+fn public_check_agrees_with_every_develop_entry() {
+    let shapes: Vec<[Option<Vec<u8>>; 3]> = vec![
+        [None, None, None],
+        [list(&[fbpc(MANDATORY)]), None, list(&[warp(MANDATORY)])],
+        [
+            list(&[fbpc(OPTIONAL), warp(OPTIONAL), unknown(OPTIONAL)]),
+            None,
+            None,
+        ],
+        [None, list(&[fbpc(MANDATORY)]), None],
+        [list(&[fbpc(MANDATORY), fbpc(MANDATORY)]), None, None],
+        [None, None, list(&[unknown(MANDATORY)])],
+        [None, None, list(&[fbpc(MANDATORY)])],
+    ];
+    let mut cases: Vec<(bool, Sensor, Vec<u16>)> = Vec::new();
+    for cfa in [false, true] {
+        for lists in &shapes {
+            let (sensor, plane) = fixture(cfa, lists.clone());
+            cases.push((cfa, sensor, plane));
+        }
+        for unreadable in 1..=3 {
+            let (sensor, plane) = unreadable_fixture(cfa, unreadable);
+            cases.push((cfa, sensor, plane));
+        }
+    }
+    let mut refused = 0;
+    for (cfa, sensor, plane) in &cases {
+        if *cfa {
+            let check = format!(
+                "{:?}",
+                check_required_processing(sensor, DevelopPath::Colour)
+            );
+            for entry in COLOUR_ENTRIES {
+                let dev = format!("{:?}", colour_sensor(entry, sensor, plane));
+                assert_eq!(check, dev, "{entry:?}");
+            }
+            if check != "Ok(())" {
+                refused += 1;
+            }
+        } else {
+            let check = format!("{:?}", check_required_processing(sensor, DevelopPath::Mono));
+            assert_eq!(check, format!("{:?}", mono_sensor(sensor, plane)), "mono");
+            if check != "Ok(())" {
+                refused += 1;
+            }
+        }
+    }
+    // Not vacuous: most shapes refuse on at least one path.
+    assert!(
+        refused >= 10,
+        "only {refused} refusals — the agreement test is vacuous"
+    );
+}
+
+/// `DevelopPath` is `#[non_exhaustive]` downstream: this match needs the
+/// wildcard arm to compile (a missing one is error E0004 outside the crate).
+#[test]
+fn develop_path_is_public_and_non_exhaustive() {
+    fn name(p: DevelopPath) -> &'static str {
+        match p {
+            DevelopPath::Mono => "mono",
+            DevelopPath::Colour => "colour",
+            _ => "other",
+        }
+    }
+    assert_eq!(name(DevelopPath::Mono), "mono");
+    assert_eq!(name(DevelopPath::Colour), "colour");
+}
+
+#[test]
+fn unreadable_opcode_list_is_corrupt_and_displays_the_list() {
+    for list in 1..=3u8 {
+        let e = Error::UnreadableOpcodeList { list };
+        assert_eq!(e.kind(), ErrorKind::Corrupt);
+        let msg = e.to_string();
+        assert!(msg.contains(&format!("OpcodeList{list}")), "{msg}");
+        assert!(msg.contains("unreadable"), "{msg}");
     }
 }

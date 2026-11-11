@@ -213,9 +213,19 @@ fn source_coord(
 /// into `dst` — same shape as `src` (DNG 1.7.0.0 §6.4.1: the warp maps the
 /// input extent to itself, `AC6`).
 ///
-/// A no-op ([`is_identity`]) copies `src` into `dst` unchanged, bit-for-bit
+/// A no-op (`is_identity`) copies `src` into `dst` unchanged, bit-for-bit
 /// (`AC5`) — no coordinate arithmetic, no rounding, so there is no floating-
 /// point path that could disagree with an exact copy.
+///
+/// # Required processing — the caller validates
+///
+/// This is the **applier** of `OpcodeList3`'s `WarpRectilinear`, not a develop
+/// entry: it takes no [`crate::ifd::Sensor`], so it cannot see the file's other
+/// opcodes or whether a list was unreadable (`SPEC-056`, `DEC-053`). A caller
+/// composing its own pipeline from this function owns that question and should
+/// ask it first with [`crate::opcode::check_required_processing`]
+/// (`DevelopPath::Mono` if it also applies `OpcodeList1`'s
+/// `FixBadPixelsConstant`, as [`crate::develop::develop_into`] does).
 ///
 /// # Errors
 ///

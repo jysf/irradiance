@@ -244,10 +244,12 @@ pub fn __fuzz_ljpeg(data: &[u8]) -> bool {
 }
 
 /// libFuzzer entry for the required-processing check
-/// (`opcode::check_required_processing`, `pub(crate)`) — `SPEC-054`,
+/// (`opcode::check_lists`, the `pub(crate)` raw-bytes body of
+/// [`opcode::check_required_processing`]) — `SPEC-054`,
 /// `DEC-049`. Same `fuzzing`-feature gating and `#[doc(hidden)]` rationale as
 /// [`__fuzz_ljpeg`]: compiled in only for the `irradiance-fuzz` crate, so the
-/// check stays internal (group E's unified preflight will absorb it).
+/// raw-bytes body stays internal (the `Sensor`-level check is public since
+/// `SPEC-056`).
 ///
 /// Runs `lists` (`OpcodeList1`/`2`/`3`) through the check for both develop
 /// paths and returns `[mono_ok, colour_ok]`, so the fuzz target can assert the
@@ -257,8 +259,8 @@ pub fn __fuzz_ljpeg(data: &[u8]) -> bool {
 #[doc(hidden)]
 pub fn __fuzz_required_processing(lists: [Option<&[u8]>; 3]) -> [bool; 2] {
     [
-        opcode::check_required_processing(lists, opcode::DevelopPath::Mono).is_ok(),
-        opcode::check_required_processing(lists, opcode::DevelopPath::Colour).is_ok(),
+        opcode::check_lists(lists, [false; 3], opcode::DevelopPath::Mono).is_ok(),
+        opcode::check_lists(lists, [false; 3], opcode::DevelopPath::Colour).is_ok(),
     ]
 }
 
@@ -629,6 +631,20 @@ pub enum Error {
         id: u32,
     },
 
+    /// `SPEC-056`, `DEC-053`. An `OpcodeList1`/`2`/`3` tag is **present but
+    /// unreadable** — its payload offset or length does not fit the file — so
+    /// the develop cannot confirm the list holds no mandatory opcode it would
+    /// skip. Parsing stays tolerant (`DEC-012`): the file still reads, the
+    /// list's field is `None`, and its tag is in
+    /// [`ifd::Sensor::malformed_tags`]. Only a develop (every `develop_*`
+    /// entry, the colour stage primitives, and
+    /// [`opcode::check_required_processing`]) refuses, rather than render as if
+    /// the unreadable list required nothing.
+    UnreadableOpcodeList {
+        /// Which opcode list (1, 2 or 3) is unreadable.
+        list: u8,
+    },
+
     /// `SPEC-018`. A [`opcode::WarpRect`] carries non-zero tangential
     /// coefficients (`kt0`/`kt1`). Every Q2M frame measures `kt0 = kt1 =
     /// 0.0`; [`warp::apply_warp_into`] implements the pure-radial path only
@@ -753,7 +769,7 @@ pub enum Error {
     MissingColorCalibration,
 
     /// `SPEC-036`. A SOF (start-of-frame) marker selects a JPEG process this
-    /// decoder does not implement. [`ljpeg`] decodes only **SOF3** (lossless,
+    /// decoder does not implement. `ljpeg` decodes only **SOF3** (lossless,
     /// Huffman — ITU-T T.81 Annex H, DNG `Compression 7`); baseline/extended
     /// DCT (SOF0/1), progressive (SOF2), differential (SOF5/6/7) and arithmetic
     /// (SOF9/10/11) are each this typed error rather than a misdecode. The
@@ -764,7 +780,7 @@ pub enum Error {
     },
 
     /// `SPEC-036`. A SOF3 frame (or its scan) declares a component count this
-    /// front-end does not handle. [`ljpeg`] decodes the **single-component**
+    /// front-end does not handle. `ljpeg` decodes the **single-component**
     /// (`Nf == 1`) case only; a multi-component / Bayer-in-LJ92 scan
     /// (`Nf != 1`) is a later spec's scope and refused here, never guessed at.
     LjpegUnsupportedComponentCount {
@@ -838,7 +854,7 @@ pub enum Error {
 
     /// `SPEC-037`. The caller's destination buffer handed to lossless-JPEG
     /// reconstruction does not hold exactly `lines × samples_per_line`
-    /// samples. [`ljpeg::reconstruct`] takes no allocator (`DEC-016`; the
+    /// samples. `ljpeg::reconstruct` takes no allocator (`DEC-016`; the
     /// caller owns the `u16` plane), so this length is the one precondition it
     /// checks before writing — the lossless-JPEG sibling of
     /// [`Error::PlaneBufferWrongLength`], following the crate's `*WrongLength`
@@ -1087,6 +1103,12 @@ impl fmt::Display for Error {
                     "OpcodeList{list} requires opcode {id} (not marked optional), which this develop path does not apply"
                 )
             }
+            Error::UnreadableOpcodeList { list } => {
+                write!(
+                    f,
+                    "OpcodeList{list} is present but unreadable (malformed tag entry); its required processing cannot be confirmed"
+                )
+            }
             Error::UnsupportedWarpTangentialTerms { kt0, kt1 } => {
                 write!(
                     f,
@@ -1312,6 +1334,7 @@ impl Error {
             // Malformed, truncated, inconsistent or hostile bytes, including
             // out-of-range values read from the file (the Invalid* variants).
             Error::Truncated { .. }
+            | Error::UnreadableOpcodeList { .. }
             | Error::CyclicIfd { .. }
             | Error::IfdDepthExceeded { .. }
             | Error::TooManyIfds { .. }

@@ -718,8 +718,12 @@ pub struct Sensor {
     /// Per-frame, never a camera constant: two frames from the same body
     /// differ (`docs/measured-q2m-dng.md`).
     pub orientation: Option<u32>,
-    /// Presence of `OpcodeList1`/`2`/`3`. Presence only — decoding the opcode
-    /// streams is STAGE-003.
+    /// Presence of `OpcodeList1`/`2`/`3`: `true` when the tag entry exists,
+    /// whether or not its payload could be read. The bytes of a readable list
+    /// are in `opcode_list_1`/`_2`/`_3`; a present list whose payload could not
+    /// be read leaves that field `None` and its tag in `malformed_tags`, and
+    /// every develop then refuses with [`Error::UnreadableOpcodeList`]
+    /// (`SPEC-056`, `DEC-053`; see [`crate::opcode::check_required_processing`]).
     pub opcode_lists: [bool; 3],
     /// `OpcodeList1`'s raw bytes (tag 51008 / `0xC740`), when present and
     /// readable. **Bytes only** — parsing them into
@@ -1634,7 +1638,7 @@ impl<'a> Container<'a> {
     /// `DEC-012`: fields below are commented **structural** (a malformed read
     /// propagates via `?` and fails the whole file — "what exists" is the
     /// plane) or **interpretation** (a malformed read costs that field alone,
-    /// via [`Container::cost_the_field`], and the file still reads).
+    /// via `Container::cost_the_field`, and the file still reads).
     pub fn sensor(&self) -> Result<Sensor, Error> {
         let (matches, unreadable) = self.scan_sensor();
         let ifd_index = *matches
