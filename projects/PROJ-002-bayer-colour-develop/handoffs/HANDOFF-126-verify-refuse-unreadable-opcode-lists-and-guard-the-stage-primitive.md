@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-11
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-056
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                     # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
+  verdict: approved                    # verify handoffs: approved | punch-list | rejected
+  basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 8053981               # REAL combined count — what cost-audit reads
+  estimated_usd: 5.72              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 25
+  branch: claude/spec-056-verify-handback
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  completed_at: 2026-11-11               # YYYY-MM-DD
+  notes: "FLOOR taken live before the handback commit (docs/cost-tracking.md rule 6): transcript 8b5e64da-637a-4eba-9162-422f40773bbf.jsonl in the spec-056-verify-4123a1 worktree project dir, 51 unique message.ids, all claude-opus-5-5, no subagents; input 127 + cache-creation 130,095 + cache-read 7,905,121 + output 18,638 (max per message). USD at opus-5-5 list rates in 5/out 25 per MTok, cache read x0.10, cache writes x2.0. Re-sum the same file after the session ends. Verdict is on code commit 1973abf; PR 193 was already squash-merged to main as dd70dea (identical src/tests) before this verify ran." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -200,43 +200,84 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-056-verify-handback`, cut from `origin/main` @ `dd70dea`. It carries the HANDOFF-126 mint (cherry-picked) and this handback, as a docs-only PR (see `handback.pr`). The review itself ran on `origin/claude/spec-056-verify-base` (`a8d8055` = build head `93f2862` + the handoff).
+- **Completed at:** 2026-11-11
+- **All acceptance criteria met?** yes. I re-checked every SPEC-056 AC myself and took none from HANDOFF-125 on trust.
+- **Verdict:** ✅ **APPROVED at `1973abf`**. That is the code commit; branch head `93f2862` only adds handback docs.
+  - PR #193 was already squash-merged to `main` as `dd70dea` before this verify ran.
+  - `git diff 93f2862 dd70dea -- src tests scripts .github app.just CHANGELOG.md fuzz` is empty, so the approved code is exactly what is on `main`.
+
+**Evidence (all run in this session):**
+
+- **Gates, local, all rc=0:**
+  - `IRRADIANCE_CORPUS_DIR=~/PSeven/experiments/crustimg_redo_plus/images just test`: 539 passed, 0 failed, 1 ignored; the corpus tests ran.
+  - `lint-ci` (clippy 0.1.98, pinned), `lint-no-allow`, `fmt-check`.
+  - `validate`, `cost-audit`, `gate-audit`.
+  - `deny`, `deny-fuzz`.
+  - `doc-check`, `doc-check-red-proof`.
+  - `msrv` (1.90.0).
+  - `just decisions-audit --changed`: advisory only. It flags DEC-053, DEC-049 and others as governing the touched files, and the change is consistent with them.
+- **Adversarial mutation.** I ran these in a scratch copy with its own target dir, using `cargo test --test required_processing` and skipping the nested red-proof. The control was 43 of 43 green. I removed each guard in turn, and every mutant was killed:
+  - **A:** the `UnreadableOpcodeList` return in `check_lists` (`opcode.rs:600`). 8 tests red: mono per-list, colour every-entry, the unreadable test of all 3 primitives, the agreement test, and the ordering test.
+  - **B:** the check in `develop_into` (`develop.rs:806`). 11 tests red, including `mono_unreadable_opcode_list_is_refused_per_list`.
+  - **C to G:** the check call in each colour function separately (`color.rs` lines 222, 305, 372, 447 and 491).
+    - C, `to_srgb_linear_into`: 3 tests red (mandatory and unreadable).
+    - D to G, `develop_color_into`, `develop_color_f32_into`, `develop_color_into_threaded` and `develop_color_f32_into_threaded`: 8 tests red each, including `colour_unreadable_opcode_list_is_refused_on_every_entry`.
+    - So every colour entry is pinned by its own guard, not through a shared callee.
+  - **H and I:** `demosaic_into` (`demosaic.rs:243`) and `demosaic_into_threaded` (`:450`). 3 tests red each (mandatory and unreadable). The threaded mutant is really killed: the 4-thread fixture takes the banded path, not the fallback to `demosaic_into`.
+  - **Scratch test, not committed:** all 3 primitives refuse an unreadable list 1, 2 and 3 each. The committed suite uses list 2 for the primitives. The test is green on the honest tree and red under mutants A, C, H and I.
+- **The fixtures are really unreadable.** `unreadable_fixture` asserts three things: the tag is in `malformed_tags`, `opcode_lists[n]` is true, and the field is `None`. `make_list_unreadable` asserts it patched exactly one entry.
+- **The red-proofs are real.**
+  - `required_processing_red_proof` builds the unmutated control first, then the mutant. In the control, the optional-only and opcode-free cases develop, and every required case returns its typed error. The required cases include the new ones: unreadable list 2 on mono, unreadable list 1 on the 4 colour entries, and the 3 primitives.
+  - `doc-check-red-proof`: the control is green, and the injected link is caught 1 of 1 by `rustdoc::private_intra_doc_links`.
+  - **My own doc-check break:** in a scratch copy I restored the link on one of the 19 fixed docs (`build_camera_to_srgb_linear` in the doc of `develop_color_into`). `scripts/doc-check.sh` exited 101 with "public documentation for `develop_color_into` links to private item `build_camera_to_srgb_linear`". With the copy reverted, the gate is green again.
+- **CARGO_TARGET_DIR.** Command run: `CARGO_TARGET_DIR=$(mktemp -d) cargo test --all-features --no-fail-fast --test develop --test develop_oracle --test ifd_resource_guard --test ljpeg_shape_binding --test plane_oracle --test plane_validate --test required_processing`.
+  - Exit 0, and all 7 nested-cargo tests passed: `fix_bad_pixels_red_proof_control_is_green`, `red_proof_no_op_applier_leaves_bad_pixel_at_zero`, `ifd_guard_red_proof`, `sampling_red_proof` and `shape_red_proof`, `the_bayer_red_proof_control_is_green` and `the_ljpeg_red_proof_control_is_green`, the three `validate_red_proof_*` tests, and `required_processing_red_proof`.
+  - Afterwards the outer temp target held only `debug/` and `tmp/`: no `release/` dir and no probe binary.
+  - All 7 sites carry an identical `.env_remove("CARGO_TARGET_DIR")`.
+- **Corpus bit-exact (DEC-003, local).** I built a scratch probe crate twice, against `c4cf729` (`main` before SPEC-056) and against the build tree, and ran it over all 8 held tier-B DNGs. It hashes every output buffer with FNV-1a-64.
+  - The outputs are identical on both trees, and every result is `Ok`.
+  - Bayer files (5D III, D300S) ran `develop_color_into`, `demosaic_into`, `demosaic_into_threaded` and `to_srgb_linear_into`. Mono files (M Monochrom, Typ 246, Q2-Mono ×3, K-3 III DNG) ran `develop_into`.
+  - The develop digests match HANDOFF-125's, e.g. 5D III `902ba0ddb8d4d98e`, D300S `3c02ff0cb9494f15`, K-3 III `ab4b018e2b8cc1cd`.
+  - No file has an opcode-list tag in `malformed_tags`. The Q2-Mono files carry lists 1 and 3, both readable; the K-3 III's only malformed tag is 50713.
+  - `K3III.PEF`, also in that folder, gives `UnsupportedCompression 65535` on both trees; it is not one of the 8.
+  - `DEVELOP_VERSION` is "4", unchanged.
+- **Public surface.**
+  - In the source, `DevelopPath` is `pub` and `#[non_exhaustive]`.
+  - `check_required_processing(&Sensor, DevelopPath)` is public. `public_check_agrees_with_every_develop_entry` matches it against every develop entry over 20 fixtures.
+  - The docs of `apply_warp_into` and `apply_fix_bad_pixels_constant` each have a "Required processing — the caller validates" section linking the public check.
+  - The `kind()` arm returns `Corrupt`, and `Display` names the list.
+- **CHANGELOG.** `[Unreleased]` has Fixed, Added and Changed entries. Both closed Known-limitations bullets are removed. `Cargo.toml` is still `0.2.0`, and there is no new dependency.
+- **CI observed with `gh run view`.** On PR #193, runs 43112012702 (`1973abf`) and 43114313160 (head `93f2862`) both concluded `success`, including `docs (rustdoc -D warnings)` and `docs red-proof`. All 44 checks were SUCCESS. CI on `main` @ `dd70dea` is also success.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 8,053,981. This is a FLOOR, measured live before the handback commit.
+- **Estimated USD:** 5.72
+- **Duration (minutes):** ~25 (transcript 23:23–23:46Z at measurement)
+- **Source of the number:** this session's transcript `8b5e64da-637a-4eba-9162-422f40773bbf.jsonl` (the scratchpad-dir UUID), measured per docs/cost-tracking.md "Measuring a cycle". It counts 51 unique `message.id`s, all claude-opus-5-5, taking each message's largest output, with no subagents. Breakdown: input 127, cache creation 130,095, cache read 7,905,121, output 18,638.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none blocking. The build reported these, and I accept them as reasonable:
+  - `check_lists` takes the unreadable flags, so the per-list order is literal.
+  - The doc gate is a script, so the red-proof runs the exact gate.
+  - `tests/error_kind.rs` and a DEC-051 "later additions" note were updated.
+  - The rustdoc-link rewording is filed under CHANGELOG **Fixed** rather than **Changed**. This is cosmetic.
+- **Follow-up work identified (optional, non-blocking):**
+  - The committed primitive tests use unreadable list 2 only. A loop over lists 1, 2 and 3 for the three primitives would make "each list, each door" explicit. I verified it in scratch, and the mechanism is shared, so the risk is low.
+  - `develop_path_is_public_and_non_exhaustive` only proves the wildcard arm compiles. The real check comes from `lint-ci`'s `-D warnings`: on an exhaustive enum the wildcard would raise `unreachable_patterns` and fail the lint. So the test proves it only together with the lint gate, not alone.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Only that PR #193 had already been merged before the verify ran, while the handoff assumes an open PR. So the handback PR is cut from `main`, not stacked on the build branch.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. One trap cost me a wasted corpus run with `irr`: in zsh, an unquoted variable holding a multi-word command is passed as a single argument. A Rust probe crate that hashes full buffers is the reliable corpus check.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would again start the long gate suite and the mutation copy in parallel from the first minute. For the corpus, I would go straight to a probe crate instead of `irr`'s summary output.
