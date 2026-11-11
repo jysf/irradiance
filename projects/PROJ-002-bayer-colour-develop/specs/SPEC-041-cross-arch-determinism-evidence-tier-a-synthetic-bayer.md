@@ -6,14 +6,14 @@
 task:
   id: SPEC-041
   type: story                      # epic | story | task | bug | chore
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: ship                      # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved         # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
@@ -63,11 +63,29 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-120
+      agent: claude-opus-5
+      interface: other
+      tokens_total: 7213996
+      estimated_usd: 5.16
+      duration_minutes: 12
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5, transcript-summed (bd02789d). Committed hashes HELD on ubuntu-latest x86_64 and macos-latest arm64, dev and release profiles (CI run 42947290870). No kernel change, no new dep."
+    - cycle: verify
+      handoff: HANDOFF-122
+      agent: claude-opus-5-5
+      interface: other
+      tokens_total: 2311488
+      estimated_usd: 1.83
+      duration_minutes: null
+      recorded_at: 2026-11-10
+      notes: "claude-opus-5-5 verify. Verdict APPROVED at f307abe (PR #181, superseded by the rebased #183), no code change. Tests 514/0, lint green, both CI determinism legs ran on their real arches (ubuntu x86_64 + macos arm64), the red-proof bites (a one-bit sample flip moves all three hashes), and the hashes reproduced locally. tokens_total summed from the session transcript (/cost is not callable in a delegated session)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 9525484
+    estimated_usd: 6.99
+    session_count: 2
 ---
 
 # SPEC-041: **Cross-arch determinism evidence**: tier-A synthetic Bayer
