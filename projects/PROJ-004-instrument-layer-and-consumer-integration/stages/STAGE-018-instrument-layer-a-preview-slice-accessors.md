@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-018                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -87,8 +87,8 @@ additive, and needs no new decoder, so it works on every file irradiance already
   pointer range in tests), and the accessor does not allocate per preview.
 - **Typed errors, never panics.** Offsets or lengths outside the file, overflow,
   multi-strip previews whose strips are not contiguous, and unreadable identifying tags
-  all return typed errors, classified in `ErrorKind` (DEC-051). Writer-built fixtures
-  (STAGE-013) cover each case, and a fuzz target covers the accessor.
+  all return typed errors, classified in `ErrorKind` (DEC-051). Tier-A fixtures
+  cover each case, and a fuzz target covers the accessor.
 - **No collateral change.** Existing `Container`, `Sensor` and develop outputs are
   byte-identical, and there is no new dependency.
 
@@ -97,8 +97,9 @@ additive, and needs no new decoder, so it works on every file irradiance already
 ### In scope
 - The accessor, a `Preview<'a>` type (`#[non_exhaustive]`, following DEC-052), and
   any new error variants.
-- Writer-built tier-A fixtures for previews: strip and old-style
-  `JPEGInterchangeFormat` layouts, if the corpus shows the latter.
+- Tier-A preview fixtures (`tests/support/tiff.rs` and the STAGE-013 writer). The design
+  probe found no `JPEGInterchangeFormat` preview in the corpus, so it is refused, not
+  supported (DEC-057).
 - The exiftool cross-check on the tier-B corpus, a fuzz target, a provenance row
   (TIFF 6.0 / DNG 1.7 for preview IFDs) and a CHANGELOG entry.
 
@@ -111,7 +112,7 @@ additive, and needs no new decoder, so it works on every file irradiance already
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-062 (frame) [S] Preview slice accessors on Container: zero-copy `&'a [u8]` + dimensions/compression per preview IFD, selection by NewSubfileType/Photometric (never size), typed errors, writer fixtures, exiftool corpus cross-check, fuzz target
+- [ ] SPEC-062 (build) [S] Preview slice accessors on Container: zero-copy, allocation-free `previews()` iterator; NewSubfileType 1/65537 only (DEC-057); contiguous strips only; typed errors per IFD; exiftool-pinned corpus check (21 previews); fuzz. HANDOFF-131.
 
 **Count:** 0 shipped / 1 active / 0 pending
 

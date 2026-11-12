@@ -164,6 +164,19 @@ gives SOI, SOF3 (P=14, Y=4224, X=3152, Nf=2), DHT, APP0, SOS, and then no `0xFFD
 `0xFFDD` anywhere in the entropy-coded data (stuffing rules these out as data), ending in
 EOI. Their reading holds.
 
+**The SPIKE-001 files (sent by the requester 2026-11-12) are already our tier-B corpus**,
+in the same directory, `$IRRADIANCE_CORPUS_DIR`:
+
+| Their figure | File | sha256 prefix |
+|---|---|---|
+| 703 ms Comp-7 unpack | `PENTAX-K3III-MONO/K3III.DNG` | `1afc1071451a3a37` |
+| 610 ms Comp-7 unpack | `LEICA-M-MONOCHROM-TYP246/M2462362.DNG` | `3fb74d1fc402daaa` |
+| 240 ms unpack / 858 ms open (main file) | `LEICA-Q2-MONO/L1021223.DNG` | `5957a4ca64b87b81` |
+
+They asked that the files be used in place and never copied into a repo, which is
+already the rule (DEC-003). Any benchmark for items 1 and 4 should use these three files,
+so our numbers and theirs can be compared.
+
 **What this changes for item 1:**
 - **Unit-level unpack is uncompressed-only** in practice: row bands inside a strip. That is
   the 240 ms out of their 858 ms open on the Q2M. Strip, tile and restart units stay in the
