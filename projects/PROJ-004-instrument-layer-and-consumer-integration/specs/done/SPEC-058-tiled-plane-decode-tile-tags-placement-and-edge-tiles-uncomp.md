@@ -6,19 +6,19 @@
 task:
   id: SPEC-058
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [punch-list]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 30000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-129
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 34569832
+      estimated_usd: 23.45
+      duration_minutes: 120
+      recorded_at: 2026-11-11
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript (1 jsonl, 119 unique message.ids, all claude-opus-5-5, no subagents): input 239 + cache-creation 343,587 (1-hour) + cache-read 34,107,458 + output 118,548 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 31,088,670 / 21.47 before the commit, push and PR turns."
+    - cycle: verify
+      handoff: HANDOFF-130
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 12863934
+      estimated_usd: 9.12
+      duration_minutes: 150
+      recorded_at: 2026-11-11
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript (1 jsonl, 71 unique message.ids, all claude-opus-5-5, no subagents): input 149 + cache-creation 179,569 (1-hour) + cache-read 12,644,236 + output 39,980 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 10,428,396 / 7.56 before the commit, push and PR turns."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 47433766
+    estimated_usd: 32.57
+    session_count: 2
+shipped_at: 2026-11-11
 ---
 
 # SPEC-058: Tiled plane decode: tile tags, placement and edge tiles, uncompressed and Compression-7 tiles, validate-before-allocate guards, fuzz target; bit-exact against dnglab on the three Pixel files
@@ -451,34 +472,42 @@ changes.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**, 2026-11-11.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Write the refusal ACs as "typed error AND `dst` untouched", not "typed error".
+   AC5 named the variants but not atomicity. A mutation that skips the shared
+   tile-table pass still refuses with the same variant from the per-tile checks, but
+   only after earlier tiles were written. The cold verify found that and pinned it. Also,
+   the 30M estimate was low: true cost 47.43M (build 34.57M, verify 12.86M), with the
+   build's cache-read volume driven by the size of `src/ljpeg.rs` and the 26-mutation
+   verify sweep.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — Two items, neither done this session:
+   - DEC-016's "allocates nothing" is literally true only for uncompressed planes.
+     `ljpeg::parse_headers` returns a `Vec<HuffTable>` per strip or tile. That predates
+     this spec (the build found it, the verify confirmed SPEC-058 added nothing). Either
+     a sentence in DEC-016 or a fixed-size table array, in a later spec.
+   - The verify's item 1 is the second case of
+     [[tolerant-oracle-cannot-pin-structure]]: a test that checks only the error
+     variant is indifferent to a partial write. Signal bumped to N=2 (bar N=3).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec now. Carried forward:
+   - The Pixel files have no metadata oracle. Their 4-value per-channel `BlackLevel`
+     does not fit the scalar comparison in `tests/metadata_oracle.rs`, so they are
+     skipped by name. Add them to the colour and metadata oracles, cross-checked
+     against exiftool and dnglab, with or before STAGE-016's GainMap work.
+   - The HuffTable allocation above.
+   - DEC-056's per-tile window is the seam for parallel tile decode (DEC-044 pattern);
+     out of scope until someone asks for speed on tiled files.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, a tiled DNG was refused (`plane::unpack_into` read strips only); after,
+   tiled planes decode, uncompressed or lossless-JPEG with partial edge tiles and no
+   allocation, and the Pixel 4a, 3a and 7 Pro files unpack bit-exact against
+   `dnglab --raw-checksum` (d1830234..., eb736a49..., eb72cb30...).
