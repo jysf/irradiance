@@ -55,7 +55,7 @@ handback:
   estimated_usd: 5.31           # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 40
   branch: claude/spec-057-verify-e8b552
-  pr: null                         # filled in the follow-up commit once the PR exists
+  pr: https://github.com/jysf/irradiance/pull/199
   completed_at: 2026-11-11
   notes: "PUNCH LIST with its one item fixed in this PR - Design 2 says IFD entries are sorted by tag, but removing the writer's sort left all 25 tests green (irradiance and dnglab both accept unsorted IFDs); verify added ifd_entries_are_written_in_ascending_tag_order, green honestly, red under that mutation. Everything else checked out - gates green, src unchanged, dnglab and exiftool ran, 4 hand checksums matched, 11 of 12 writer mutations red (the 12th equivalent). Tokens re-summed from this session transcript (dedupe message.id, max output per message, opus-5-5 at 5/25 USD per Mtok, cache read 0.10x, cache write 1.25x), measured just before the handback commit."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -213,7 +213,7 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-057-verify-e8b552` → (this PR). This supersets PR #198: it is the build head `9e897a1`, plus HANDOFF-128, plus one verify-added test and this handback.
+- **Branch / PR:** `claude/spec-057-verify-e8b552` → https://github.com/jysf/irradiance/pull/199. This supersets PR #198: it is the build head `9e897a1`, plus HANDOFF-128, plus one verify-added test and this handback.
 - **Completed at:** 2026-11-11
 - **All acceptance criteria met?** Yes. AC1–AC12 are each met by a test that goes red when the property breaks. One Design §2 contract property (tag-sorted entries) had no test at all; it is fixed in this PR, see the punch list.
 - **Verdict:** ⚠ **PUNCH LIST** — one item, **already fixed in this PR**, with nothing outstanding for the builder. The build itself is sound. If the orchestrator prefers to read it this way: approvable at this PR's head once CI is green.
