@@ -51,13 +51,13 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: approved                # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 5426417            # REAL combined count — what cost-audit reads
-  estimated_usd: 4.29              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 6342969            # REAL combined count — what cost-audit reads
+  estimated_usd: 5.01              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 75
   branch: claude/spec-063-verify-fb8ccb
-  pr: null
+  pr: https://github.com/jysf/irradiance/pull/215
   completed_at: 2026-11-12         # YYYY-MM-DD
-  notes: "APPROVED at ae232c2 (PR 214 build head). tokens_total is a floor re-summed from transcript fad3eb49-ca46-4bac-837e-67350d3967aa.jsonl (36 unique message.ids, max output per id, no subagents) just before the handback commit; it excludes the commit/push/PR turns. Re-sum at ship."
+  notes: "APPROVED at ae232c2 (PR 214 build head). tokens_total is a floor re-summed from transcript fad3eb49-ca46-4bac-837e-67350d3967aa.jsonl (41 unique message.ids, max output per id, no subagents) just before the handback commit; re-summed after the PR opened; it excludes only this final commit turn. Re-sum at ship."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -240,7 +240,7 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-063-verify-fb8ccb` (cut from `claude/spec-063-verify-base` at 9ef9954 = PR #214 head ae232c2 + this handoff). New PR against `main`, superset of #214; it adds only this handback.
+- **Branch / PR:** `claude/spec-063-verify-fb8ccb` (cut from `claude/spec-063-verify-base` at 9ef9954 = PR #214 head ae232c2 + this handoff). PR https://github.com/jysf/irradiance/pull/215 against `main`, superset of #214; it adds only this handback.
 - **Completed at:** 2026-11-12
 - **All acceptance criteria met?** yes. AC9's orientation half is unsatisfiable as written and its substitute is accepted (see Deviations).
 - **For `verify`:** ✅ **APPROVED at ae232c2** (the build head of PR #214; no code change in this verify).
@@ -280,8 +280,8 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Cost self-report
 
-- **Tokens (total):** 5,426,417, a floor taken before the commit/PR turns.
-- **Estimated USD:** $4.29.
+- **Tokens (total):** 6,342,969 (floor; excludes only the final commit turn).
+- **Estimated USD:** $5.01.
 - **Duration (minutes):** ~75.
 - **Source of the number:** transcript `fad3eb49-ca46-4bac-837e-67350d3967aa.jsonl` (this session's scratchpad UUID; no subagents). Deduped by `message.id`, max `output_tokens` per id, opus-5-5 rates (in 5, out 25 per MTok; cache read 0.5; 1-hour cache write 10).
 
