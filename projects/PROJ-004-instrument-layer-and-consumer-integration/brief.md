@@ -114,13 +114,16 @@ Order agreed with the maintainer 2026-11-11: writer → tiled reader → GainMap
 - [ ] STAGE-016 (proposed) — OpcodeList2 GainMap: parse and apply on the mono and colour paths (SPEC-059 analytic, SPEC-060 real-file)
 - [ ] STAGE-017 (proposed) — Public DNG writer behind a `write` feature (SPEC-061). Design waits for a named consumer.
 - [ ] STAGE-004 (proposed) — crustyimg integration: `raw-develop` feature, adapter, metadata truthfulness (moved from PROJ-001 2026-11-11; implemented crustyimg-side as its PROJ-016/STAGE-056)
-- [ ] (not yet framed) — Instrument layer A: forensics (preview slices, ADU histogram/zones)
+- [ ] (not yet framed) — Instrument layer A: forensics (preview slices, ADU histogram/zones). Named caller for preview slices: monorail-000 (request 5).
 - [ ] (not yet framed) — Instrument layer B: optical black (spike-gated)
-- [ ] (not yet framed) — Instrument layer C: geometry (`WarpRect::lerp`, framing modes)
+- [ ] (not yet framed) — Instrument layer C: geometry (`WarpRect::lerp`, framing modes). monorail-000 asks for these as one `DevelopOptions` struct with `apply_orientation`, plus caller-owned develop scratch, a CFA-as-mono option and a faster Orientation 5–8 transpose (requests 2, 3, 6, 4).
+- [ ] (not yet framed) — Parallel-friendly plane decode: `plane::units` + `unpack_unit_into` so the caller can parallelise unpack (monorail-000 request 1). Spike first (strip/tile/restart inventory); depends on SPEC-058.
 
 Spec chain: SPEC-057 → (SPEC-058, SPEC-059, SPEC-061); SPEC-060 depends on SPEC-058 + SPEC-059.
 
-**Count:** 0 shipped / 0 active / 5 pending (+3 unframed)
+**Count:** 0 shipped / 0 active / 5 pending (+4 unframed)
+
+Consumer requests feeding the unframed stages: `feedback/2026-11-11-monorail-000-requests.md` (triaged; nothing minted).
 
 ## Dependencies
 
