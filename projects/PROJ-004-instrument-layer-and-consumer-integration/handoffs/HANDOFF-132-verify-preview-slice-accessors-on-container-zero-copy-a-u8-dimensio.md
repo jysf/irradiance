@@ -55,7 +55,7 @@ handback:
   estimated_usd: 4.44              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 75
   branch: claude/spec-062-verify-d1a20e
-  pr: null
+  pr: https://github.com/jysf/irradiance/pull/209
   completed_at: 2026-11-12         # YYYY-MM-DD
   notes: "Floor: re-summed from this session transcript before the commit and PR turns (38 messages, dedupe by message.id, max output; opus-5-5 rates incl. 1h cache write at 2x). Punch list = 2 test gaps found by mutation, fixed in tests/previews.rs; src unchanged."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -229,7 +229,7 @@ Output exactly ONE of: ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJEC
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-062-verify-d1a20e` (cut from `claude/spec-062-verify-base` @ `107a659`, which is build head `78e8382` + this handoff). The verify PR supersets PR #208.
+- **Branch / PR:** `claude/spec-062-verify-d1a20e` (cut from `claude/spec-062-verify-base` @ `107a659`, which is build head `78e8382` + this handoff). The verify PR, [PR 209](https://github.com/jysf/irradiance/pull/209), supersets PR #208.
 - **Completed at:** 2026-11-12
 - **All acceptance criteria met?** Yes, after the two test-only fixes below. Before them, AC5 (wrap-safe arithmetic) and the declared count-0 `NewSubfileType` deviation were implemented correctly but not pinned by any test.
 - **Verdict:** ⚠ **PUNCH LIST**. Two items, both FIXED in this PR, test-only (`src/` unchanged from `78e8382`):
