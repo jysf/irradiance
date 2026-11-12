@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: punch-list              # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 5550953            # REAL combined count — what cost-audit reads
-  estimated_usd: 4.44              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 8376516            # REAL combined count — what cost-audit reads
+  estimated_usd: 6.23              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 75
   branch: claude/spec-062-verify-d1a20e
   pr: https://github.com/jysf/irradiance/pull/209
   completed_at: 2026-11-12         # YYYY-MM-DD
-  notes: "Floor: re-summed from this session transcript before the commit and PR turns (38 messages, dedupe by message.id, max output; opus-5-5 rates incl. 1h cache write at 2x). Punch list = 2 test gaps found by mutation, fixed in tests/previews.rs; src unchanged."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript (1 jsonl, 54 unique message.ids, all claude-opus-5-5, no subagents): input 111 + cache-creation 137,512 (1-hour) + cache-read 8,208,939 + output 29,954 (max per message). USD at opus-5-5 list rates. The handback floor was 5,550,953 / 4.44 before the commit and PR turns. Verdict punch-list: 2 test gaps found by mutation (u64 running strip end; count-0 NewSubfileType read as absent), fixed in PR 209, src unchanged."
+  synced_at: 2026-11-12
 ---
 
 # HANDOFF-132: VERIFY: preview slice accessors on Container, zero-copy `&'a [u8]` (SPEC-062)

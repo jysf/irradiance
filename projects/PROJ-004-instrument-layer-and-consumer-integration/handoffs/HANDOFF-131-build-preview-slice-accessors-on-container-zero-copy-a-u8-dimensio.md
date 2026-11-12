@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 15119257         # REAL combined count — what cost-audit reads
-  estimated_usd: 11.81           # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 16626847         # REAL combined count — what cost-audit reads
+  estimated_usd: 12.64           # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 30
   branch: claude/spec-062-build
   pr: "https://github.com/jysf/irradiance/pull/208"
   completed_at: 2026-11-12         # YYYY-MM-DD
-  notes: "FLOOR measured live from this build session's own transcript (scratchpad UUID 8eceb9a0, 1 jsonl, 67 unique message.ids, all claude-opus-5-5, no subagents): input 136 + cache-creation 253,618 (1-hour) + cache-read 14,790,561 + output 74,942 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Taken before the final commit, push and PR turns, so re-sum at ship."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript (1 jsonl, 72 unique message.ids, all claude-opus-5-5, no subagents): input 148 + cache-creation 256,617 (1-hour) + cache-read 16,292,917 + output 77,165 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 15,119,257 / 11.81 before the final commit and PR turns."
+  synced_at: 2026-11-12
 ---
 
 # HANDOFF-131: Preview slice accessors on Container (SPEC-062)

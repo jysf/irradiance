@@ -259,7 +259,7 @@ Maintainer decisions (2026-11-11): use the suggested order (Stage A → Stage C 
 
 | Item | Stage | Spec | Notes |
 |---|---|---|---|
-| 5 preview slices | STAGE-018 | SPEC-062 `[S]` (verify: PUNCH LIST fixed in #209) | minted 2026-11-12 |
+| 5 preview slices | STAGE-018 (shipped 2026-11-12) | SPEC-062 shipped | `Container::previews()`; build PR 208, verify PR 209 (punch list, 2 test gaps fixed); in `[Unreleased]`, ships with the next 0.2.x |
 | 8 `MaskedAreas` pass-through (onyx request 5) | unframed; STAGE-014 or beside Stage C | none yet | filed 2026-11-12, low priority; writer-built fixtures, no held file has the tag |
 
 *Fill in as more stages and specs are minted.*
