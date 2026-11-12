@@ -408,3 +408,106 @@ fn corpus_files_match_their_pinned_sha256() {
     // skipped is corpus-status, not this test.
     eprintln!("verified {verified}/{} corpus file(s)", m.files.len());
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-062 — the optional [[file.preview]] pins
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Every DNG entry carries its exiftool preview pins; the PEF (a vendor
+/// container, not a DNG preview source) carries none. 21 in all — the count
+/// the SPEC-062 probe found.
+#[test]
+fn manifest_preview_pins_parse() {
+    let m = Manifest::load().expect("manifest must parse with [[file.preview]] arrays");
+    let mut total = 0usize;
+    for f in &m.files {
+        if f.path.ends_with(".PEF") {
+            assert!(f.previews.is_none(), "{}: the PEF is left unpinned", f.path);
+            continue;
+        }
+        let pins = f
+            .previews
+            .as_ref()
+            .unwrap_or_else(|| panic!("{}: every DNG entry is pinned", f.path));
+        assert!(!pins.is_empty(), "{}: empty preview pin list", f.path);
+        total += pins.len();
+    }
+    assert_eq!(total, 21);
+
+    // Spot check against the spec's probe table: the Q2M reference frame.
+    let q2m = m
+        .get("LEICA-Q2-MONO/L1021223.DNG")
+        .expect("reference frame");
+    let shape: Vec<(usize, u32, u32, u32, u32)> = q2m
+        .previews
+        .as_ref()
+        .expect("pinned")
+        .iter()
+        .map(|p| (p.ifd_index, p.width, p.height, p.compression, p.photometric))
+        .collect();
+    assert_eq!(
+        shape,
+        vec![
+            (0, 720, 480, 7, 6),
+            (2, 1620, 1080, 7, 6),
+            (3, 8368, 5584, 7, 6)
+        ]
+    );
+}
+
+fn manifest_with_preview(pin: &str) -> String {
+    format!(
+        r#"
+[[file]]
+path    = "SYNTHETIC/x.dng"
+tier    = "b"
+bytes   = 1
+sha256  = "0000000000000000000000000000000000000000000000000000000000000000"
+licence = "own-work"
+source  = "somewhere"
+
+  [file.oracle]
+  raw_checksum = "00"
+
+  [[file.preview]]
+{pin}
+"#
+    )
+}
+
+#[test]
+fn manifest_rejects_a_malformed_preview_pin() {
+    let good = r#"  ifd_index = 0
+  kind = "primary"
+  width = 2
+  height = 2
+  compression = 1
+  photometric = 2
+  offset = 100
+  length = 12"#;
+    let m = Manifest::parse(&manifest_with_preview(good)).expect("a complete pin parses");
+    assert_eq!(m.files[0].previews.as_ref().map(Vec::len), Some(1));
+
+    // A missing field is rejected, naming the entry, the pin and the key.
+    let no_length = good.replace("  length = 12", "");
+    let err = Manifest::parse(&manifest_with_preview(&no_length))
+        .expect_err("a pin with no length must be rejected");
+    assert!(err.contains("SYNTHETIC/x.dng"), "got: {err}");
+    assert!(err.contains("[[file.preview]] #1"), "got: {err}");
+    assert!(err.contains("length"), "got: {err}");
+
+    // An unknown kind is rejected by name.
+    let bad_kind = good.replace("\"primary\"", "\"thumbnail\"");
+    let err = Manifest::parse(&manifest_with_preview(&bad_kind))
+        .expect_err("an unknown kind must be rejected");
+    assert!(
+        err.contains("kind") && err.contains("thumbnail"),
+        "got: {err}"
+    );
+
+    // A negative offset is rejected.
+    let negative = good.replace("offset = 100", "offset = -1");
+    let err = Manifest::parse(&manifest_with_preview(&negative))
+        .expect_err("a negative offset must be rejected");
+    assert!(err.contains("offset"), "got: {err}");
+}

@@ -21,10 +21,12 @@ use std::collections::BTreeSet;
 use irradiance::{Error, ErrorKind};
 
 /// One representative of every `Error` variant, paired with `DEC-051`'s kind.
-/// Grouped in `DEC-051`'s order: 12 `CallerError`, 19 `Unsupported`,
-/// 28 `Corrupt` (25 at 0.2.0, plus `UnreadableOpcodeList`, SPEC-056/DEC-053;
+/// Grouped in `DEC-051`'s order: 12 `CallerError`, 20 `Unsupported`,
+/// 29 `Corrupt` (25 at 0.2.0, plus `UnreadableOpcodeList`, SPEC-056/DEC-053;
 /// SPEC-058/DEC-056 added `UnsupportedTileRowBits` (Unsupported) and
-/// `InvalidTileLayout` + `StripsAndTiles` (Corrupt)).
+/// `InvalidTileLayout` + `StripsAndTiles` (Corrupt); SPEC-062/DEC-057 added
+/// `UnsupportedPreviewLayout` (Unsupported) and `InvalidPreviewLayout`
+/// (Corrupt)).
 fn dec_051_table() -> Vec<(Error, ErrorKind)> {
     use ErrorKind::{CallerError, Corrupt, Unsupported};
     vec![
@@ -113,7 +115,7 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             },
             CallerError,
         ),
-        // Unsupported (19).
+        // Unsupported (20).
         (Error::NotTiff { mark: *b"PK" }, Unsupported),
         (Error::UnsupportedTiffVersion { version: 43 }, Unsupported),
         (Error::NoSensorIfd, Unsupported),
@@ -172,7 +174,25 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             Error::LjpegUnsupportedSampling { factor: 0x21 },
             Unsupported,
         ),
-        // Corrupt (28).
+        // SPEC-062, DEC-057: a preview layout this library does not return as
+        // one zero-copy slice (tiled, old-style JPEG, non-contiguous strips).
+        (
+            Error::UnsupportedPreviewLayout {
+                ifd_index: 0,
+                layout: irradiance::UnsupportedPreview::Tiled,
+            },
+            Unsupported,
+        ),
+        // Corrupt (29).
+        // SPEC-062, DEC-057: a preview IFD with no usable strip table.
+        (
+            Error::InvalidPreviewLayout {
+                ifd_index: 0,
+                strip_offsets: 2,
+                strip_byte_counts: 1,
+            },
+            Corrupt,
+        ),
         (Error::Truncated { at: 8, len: 12 }, Corrupt),
         // SPEC-056, DEC-053: a present-but-unreadable OpcodeList.
         (Error::UnreadableOpcodeList { list: 1 }, Corrupt),
@@ -375,8 +395,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        59,
-        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056) classified 59",
+        61,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057) classified 61",
         declared.len()
     );
 
@@ -394,12 +414,12 @@ fn every_variant_classified() {
         .collect();
     assert!(wrong.is_empty(), "misclassified: {wrong:#?}");
 
-    // DEC-051's bucket sizes: 12 / 19 / 28 (DEC-053 added one Corrupt;
-    // DEC-056 one Unsupported and two Corrupt).
+    // DEC-051's bucket sizes: 12 / 20 / 29 (DEC-053 added one Corrupt;
+    // DEC-056 one Unsupported and two Corrupt; DEC-057 one of each).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
     assert_eq!(count(ErrorKind::CallerError), 12);
-    assert_eq!(count(ErrorKind::Unsupported), 19);
-    assert_eq!(count(ErrorKind::Corrupt), 28);
+    assert_eq!(count(ErrorKind::Unsupported), 20);
+    assert_eq!(count(ErrorKind::Corrupt), 29);
 }
 
 #[test]

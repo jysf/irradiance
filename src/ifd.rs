@@ -960,6 +960,97 @@ pub enum SensorMatch {
     Unreadable(u16),
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Previews — SPEC-062, DEC-057
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `JPEGInterchangeFormat` (TIFF 6.0 §22): an old-style JPEG preview's byte
+/// offset. Only its presence is read, to refuse such a preview by name.
+const TAG_JPEG_INTERCHANGE_FORMAT: u16 = 513;
+
+/// `NewSubfileType` of a reduced-resolution image (TIFF 6.0 §8, bit 0 alone).
+const NST_PREVIEW: u32 = 1;
+
+/// `NewSubfileType` of a DNG alternate preview (DNG 1.2+, `0x10001`).
+const NST_ALTERNATE_PREVIEW: u32 = 65537;
+
+/// Which kind of preview an IFD is, from its exact `NewSubfileType`
+/// (`DEC-057`). `#[non_exhaustive]` (`DEC-052`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PreviewKind {
+    /// `NewSubfileType == 1`: a reduced-resolution copy of the main image.
+    Primary,
+    /// `NewSubfileType == 65537` (`0x10001`): a DNG alternate preview.
+    Alternate,
+}
+
+/// One embedded preview, as [`Container::previews`] finds it (`SPEC-062`,
+/// `DEC-057`).
+///
+/// `bytes` is borrowed from the input given to [`Container::parse`] — never
+/// copied — and is exactly the preview's encoded data. irradiance never
+/// decodes it, and never checks that it is a valid JPEG; the caller does.
+/// `#[non_exhaustive]` (`DEC-052`): fields may be added in a 0.2.x release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Preview<'a> {
+    /// Index of this IFD in [`Container::ifds`].
+    pub ifd_index: usize,
+    /// Primary or alternate, from `NewSubfileType`.
+    pub kind: PreviewKind,
+    /// `ImageWidth`.
+    pub width: u32,
+    /// `ImageLength`.
+    pub height: u32,
+    /// `Compression`; absent means [`Compression::Uncompressed`] (TIFF 6.0's
+    /// default, 1). `7` is baseline JPEG here, not the lossless SOF-3 a
+    /// sensor plane uses.
+    pub compression: Compression,
+    /// `PhotometricInterpretation`, or `None` when the tag is absent.
+    pub photometric: Option<u32>,
+    /// `SamplesPerPixel`; absent means 1.
+    pub samples_per_pixel: u32,
+    /// The first `BitsPerSample` value, or `None` when the tag is absent.
+    pub bits_per_sample: Option<u32>,
+    /// File offset of `bytes[0]`.
+    pub offset: u32,
+    /// The preview's bytes: one slice of the caller's input.
+    pub bytes: &'a [u8],
+}
+
+/// The iterator [`Container::previews`] returns: one `Result` per preview IFD,
+/// in walk order. A bad preview is an `Err` item and iteration continues with
+/// the next IFD; it never yields more items than there are IFDs. Allocates
+/// nothing.
+#[derive(Debug, Clone)]
+pub struct Previews<'c, 'a> {
+    container: &'c Container<'a>,
+    next: usize,
+}
+
+impl<'a> Iterator for Previews<'_, 'a> {
+    type Item = Result<Preview<'a>, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(ifd) = self.container.ifds.get(self.next) {
+            let index = self.next;
+            // `index < ifds.len() <= MAX_IFDS`, so this never saturates.
+            self.next = index.saturating_add(1);
+            match self.container.preview_kind(ifd) {
+                Ok(None) => continue,
+                Ok(Some(kind)) => return Some(self.container.preview_at(index, ifd, kind)),
+                Err(e) => return Some(Err(e)),
+            }
+        }
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.container.ifds.len().saturating_sub(self.next)))
+    }
+}
+
 impl<'a> Container<'a> {
     /// Parse the header and walk every IFD reachable from IFD0.
     ///
@@ -1381,6 +1472,68 @@ impl<'a> Container<'a> {
         self.scalar(ifd, tag)?.ok_or(Error::MissingTag { tag })
     }
 
+    /// The `i`-th value of `entry`, widened to `u32`, **without allocating**
+    /// (`SPEC-062`, `DEC-057`): `Ok(None)` when `i` is past the entry's count.
+    ///
+    /// The allocation-free sibling of [`Container::uints`], with the same
+    /// error variants for the same faults: the `MAX_TAG_VALUES` bound, the
+    /// whole payload bounds-checked through [`Container::payload`], and
+    /// [`Error::UnexpectedFieldType`] for a type it does not read. It reads
+    /// `BYTE`, `UNDEFINED`, `SHORT`, `LONG` and `IFD`. `RATIONAL` is refused:
+    /// every tag the preview path reads is structural, where `uints` refuses it
+    /// too.
+    pub(crate) fn uint_at(&self, entry: &Entry, i: usize) -> Result<Option<u32>, Error> {
+        let size: usize = match entry.field_type {
+            TYPE_BYTE | TYPE_UNDEFINED => 1,
+            TYPE_SHORT => 2,
+            TYPE_LONG | TYPE_IFD => 4,
+            other => {
+                return Err(Error::UnexpectedFieldType {
+                    tag: entry.tag,
+                    field_type: other,
+                })
+            }
+        };
+        let count =
+            usize::try_from(entry.count).map_err(|_| Error::ValueOverflow { tag: entry.tag })?;
+        if count > MAX_TAG_VALUES {
+            return Err(Error::TagTooLarge {
+                tag: entry.tag,
+                count: entry.count,
+                limit: MAX_TAG_VALUES,
+            });
+        }
+        let bytes = self.payload(entry)?;
+        let Some(start) = i.checked_mul(size) else {
+            return Ok(None);
+        };
+        let Some(end) = start.checked_add(size) else {
+            return Ok(None);
+        };
+        let Some(chunk) = bytes.get(start..end) else {
+            return Ok(None);
+        };
+        Ok(match size {
+            1 => chunk.first().map(|b| u32::from(*b)),
+            2 => <[u8; 2]>::try_from(chunk)
+                .ok()
+                .map(|b| u32::from(self.byte_order.u16(b))),
+            _ => <[u8; 4]>::try_from(chunk)
+                .ok()
+                .map(|b| self.byte_order.u32(b)),
+        })
+    }
+
+    /// First value of `tag` in `ifd` through [`Container::uint_at`]: the
+    /// allocation-free [`Container::scalar`]. `None` when the tag is absent or
+    /// has no values.
+    fn first_uint(&self, ifd: &Ifd, tag: u16) -> Result<Option<u32>, Error> {
+        match ifd.entry(tag) {
+            None => Ok(None),
+            Some(entry) => self.uint_at(entry, 0),
+        }
+    }
+
     /// All values of `tag` in `ifd`, or an empty Vec when absent.
     pub fn values(&self, ifd: &Ifd, tag: u16) -> Result<Vec<u32>, Error> {
         match ifd.entry(tag) {
@@ -1446,6 +1599,178 @@ impl<'a> Container<'a> {
             .map(|v| u8::try_from(v).unwrap_or_default())
             .collect();
         Ok(Some(bytes))
+    }
+
+    // ── previews (SPEC-062, DEC-057) ─────────────────────────────────────────
+
+    /// Every embedded preview, as one zero-copy slice each (`SPEC-062`,
+    /// `DEC-057`).
+    ///
+    /// An IFD is a preview **only** when its `NewSubfileType` is exactly `1`
+    /// ([`PreviewKind::Primary`]) or `65537` ([`PreviewKind::Alternate`]). An
+    /// absent `NewSubfileType` is `0`, the main image. Masks, depth maps and
+    /// every other value are not previews, whatever their bits, and size is
+    /// never used — so the sensor plane is never reported.
+    ///
+    /// Each item is a `Result`: a preview whose layout cannot be returned as
+    /// one slice (tiled, `JPEGInterchangeFormat`, non-contiguous strips), whose
+    /// strip table is missing or inconsistent, whose range is outside the
+    /// input, or whose `NewSubfileType` cannot be read (`DEC-012`) is an `Err`
+    /// item, and iteration continues with the next IFD: one broken thumbnail
+    /// never hides a good full-size preview. Several strips are returned as one
+    /// slice when each starts exactly where the previous one ends.
+    ///
+    /// Allocates nothing. irradiance does no I/O; the caller reads the file:
+    ///
+    /// ```no_run
+    /// let data = std::fs::read("photo.dng")?;
+    /// let container = irradiance::ifd::Container::parse(&data)?;
+    /// for preview in container.previews() {
+    ///     match preview {
+    ///         Ok(p) => println!(
+    ///             "IFD {}: {}x{} {:?}, {} bytes at offset {}",
+    ///             p.ifd_index,
+    ///             p.width,
+    ///             p.height,
+    ///             p.compression,
+    ///             p.bytes.len(),
+    ///             p.offset
+    ///         ),
+    ///         Err(e) => eprintln!("skipped a preview: {e}"),
+    ///     }
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn previews(&self) -> Previews<'_, 'a> {
+        Previews {
+            container: self,
+            next: 0,
+        }
+    }
+
+    /// `Some(kind)` when `ifd`'s `NewSubfileType` is exactly 1 or 65537,
+    /// `None` for any other value or when it is absent, and `Err` when it is
+    /// present but unreadable — unknown is not no (`DEC-012`).
+    fn preview_kind(&self, ifd: &Ifd) -> Result<Option<PreviewKind>, Error> {
+        let nst = self.first_uint(ifd, TAG_NEW_SUBFILE_TYPE)?.unwrap_or(0);
+        let kind = match nst {
+            NST_PREVIEW => PreviewKind::Primary,
+            NST_ALTERNATE_PREVIEW => PreviewKind::Alternate,
+            _ => return Ok(None),
+        };
+        Ok(Some(kind))
+    }
+
+    /// The preview in `ifd` (already selected as `kind`), or the first reason
+    /// it cannot be returned — checked in `SPEC-062` §4's order.
+    fn preview_at(&self, index: usize, ifd: &Ifd, kind: PreviewKind) -> Result<Preview<'a>, Error> {
+        // 1–2. Layouts that are not one strip table.
+        if ifd.has(TAG_TILE_OFFSETS) {
+            return Err(Error::UnsupportedPreviewLayout {
+                ifd_index: index,
+                layout: crate::UnsupportedPreview::Tiled,
+            });
+        }
+        let offsets = ifd.entry(TAG_STRIP_OFFSETS);
+        let counts = ifd.entry(TAG_STRIP_BYTE_COUNTS);
+        if offsets.is_none() && ifd.has(TAG_JPEG_INTERCHANGE_FORMAT) {
+            return Err(Error::UnsupportedPreviewLayout {
+                ifd_index: index,
+                layout: crate::UnsupportedPreview::JpegInterchangeFormat,
+            });
+        }
+
+        // 3. A usable strip table: both tags, equal and non-zero counts.
+        let count_of = |entry: Option<&Entry>| -> Result<usize, Error> {
+            entry.map_or(Ok(0), |e| {
+                usize::try_from(e.count).map_err(|_| Error::ValueOverflow { tag: e.tag })
+            })
+        };
+        let n_offsets = count_of(offsets)?;
+        let n_counts = count_of(counts)?;
+        let invalid = Error::InvalidPreviewLayout {
+            ifd_index: index,
+            strip_offsets: n_offsets,
+            strip_byte_counts: n_counts,
+        };
+        let (Some(offsets), Some(counts)) = (offsets, counts) else {
+            return Err(invalid);
+        };
+        if n_offsets != n_counts || n_offsets == 0 {
+            return Err(invalid);
+        }
+
+        // 4. Walk the strips: each must start exactly where the previous one
+        // ends. In u64, so lengths summing past u32 cannot wrap into a short,
+        // in-bounds range. The loop's bound is the entry count, which
+        // `uint_at` caps at MAX_TAG_VALUES and checks against the input.
+        let value = |entry: &Entry, i: usize| -> Result<u32, Error> {
+            self.uint_at(entry, i)?
+                .ok_or(Error::ValueOverflow { tag: entry.tag })
+        };
+        let start = value(offsets, 0)?;
+        let first_end = u64::from(start)
+            .checked_add(u64::from(value(counts, 0)?))
+            .ok_or(Error::ValueOverflow {
+                tag: TAG_STRIP_BYTE_COUNTS,
+            })?;
+        let mut end = first_end;
+        for i in 1..n_offsets {
+            if u64::from(value(offsets, i)?) != end {
+                return Err(Error::UnsupportedPreviewLayout {
+                    ifd_index: index,
+                    layout: crate::UnsupportedPreview::NonContiguousStrips,
+                });
+            }
+            end = end
+                .checked_add(u64::from(value(counts, i)?))
+                .ok_or(Error::ValueOverflow {
+                    tag: TAG_STRIP_BYTE_COUNTS,
+                })?;
+        }
+        let strips_end = end;
+        let total = strips_end
+            .checked_sub(u64::from(start))
+            .ok_or(Error::ValueOverflow {
+                tag: TAG_STRIP_BYTE_COUNTS,
+            })?;
+
+        // 5. The range, inside the input. The slice is taken from `self.data`
+        // directly (not through `payload`), so it borrows the input for 'a.
+        let slice_start = start;
+        let at = offset_to_usize(slice_start)?;
+        let len = usize::try_from(total).map_err(|_| Error::OffsetOutOfRange { offset: start })?;
+        let stop = at.checked_add(len).ok_or(Error::Truncated { at, len })?;
+        let data: &'a [u8] = self.data;
+        let bytes = data.get(at..stop).ok_or(Error::Truncated { at, len })?;
+
+        // 6. The tags a caller needs to hand the bytes to a decoder.
+        let width = self
+            .first_uint(ifd, TAG_IMAGE_WIDTH)?
+            .ok_or(Error::MissingTag {
+                tag: TAG_IMAGE_WIDTH,
+            })?;
+        let height = self
+            .first_uint(ifd, TAG_IMAGE_LENGTH)?
+            .ok_or(Error::MissingTag {
+                tag: TAG_IMAGE_LENGTH,
+            })?;
+        let compression = self
+            .first_uint(ifd, TAG_COMPRESSION)?
+            .map_or(Compression::Uncompressed, Compression::from_code);
+
+        Ok(Preview {
+            ifd_index: index,
+            kind,
+            width,
+            height,
+            compression,
+            photometric: self.first_uint(ifd, TAG_PHOTOMETRIC)?,
+            samples_per_pixel: self.first_uint(ifd, TAG_SAMPLES_PER_PIXEL)?.unwrap_or(1),
+            bits_per_sample: self.first_uint(ifd, TAG_BITS_PER_SAMPLE)?,
+            offset: start,
+            bytes,
+        })
     }
 
     // ── sensor selection ────────────────────────────────────────────────────

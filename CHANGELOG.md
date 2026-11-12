@@ -10,6 +10,24 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **Embedded preview access, zero-copy** (`irradiance::ifd`, SPEC-062, STAGE-018,
+  PROJ-004, DEC-057). `Container::previews()` iterates a DNG's embedded previews: every
+  IFD whose `NewSubfileType` is exactly 1 (`PreviewKind::Primary`) or 65537
+  (`PreviewKind::Alternate`), in walk order. Each `Preview` carries its IFD index,
+  dimensions, `Compression`, `PhotometricInterpretation`, `SamplesPerPixel`,
+  `BitsPerSample`, file offset, and `bytes`: one slice borrowed from the caller's
+  input, never copied and never decoded. Several strips are joined when each starts
+  where the previous one ends. Each item is a `Result`, so one bad preview is an `Err`
+  and iteration continues. The accessor allocates nothing. All 21 previews in the 11
+  held DNGs match exiftool 13.55. New public items: `ifd::Preview`, `ifd::PreviewKind`,
+  `ifd::Previews` (the first two `#[non_exhaustive]`).
+- **Two new `Error` variants and `UnsupportedPreview`** (additive; `Error` is
+  `#[non_exhaustive]`): `UnsupportedPreviewLayout { ifd_index, layout }` for a tiled,
+  `JPEGInterchangeFormat` or non-contiguous-strip preview (`ErrorKind::Unsupported`),
+  and `InvalidPreviewLayout { ifd_index, strip_offsets, strip_byte_counts }` for a
+  missing, mismatched or empty strip table (`ErrorKind::Corrupt`). `UnsupportedPreview`
+  (`Tiled`, `JpegInterchangeFormat`, `NonContiguousStrips`) is `#[non_exhaustive]`.
+
 - **Tiled sensor planes, uncompressed and lossless-JPEG** (`irradiance::plane`,
   SPEC-058, STAGE-015, PROJ-004, DEC-056). `plane::validate` and `plane::unpack_into`
   now read planes stored as TIFF 6.0 §15 tiles instead of strips: uncompressed tiles

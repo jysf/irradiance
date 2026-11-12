@@ -985,3 +985,198 @@ pub fn all() -> Vec<(&'static str, Vec<u8>)> {
         ("aliased-ifd-tables", aliased_ifd_tables()),
     ]
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-062 — preview IFD fixtures (DEC-057)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Kept OUT of `all()` on purpose: `tests/ifd_reader.rs` sweeps `all()` and
+// lists every shape it expects to parse, so adding a fixture there would change
+// an existing test (SPEC-062 AC10). `examples/fuzz-seeds.rs` writes
+// `preview_seeds()` into the same `fuzz/seeds/ifd` directory instead.
+
+/// `TileOffsets` (TIFF 6.0 §15).
+pub const TILE_OFFSETS: u16 = 324;
+/// `JPEGInterchangeFormat` (TIFF 6.0 §22, old-style JPEG).
+pub const JPEG_INTERCHANGE_FORMAT: u16 = 513;
+
+/// Where preview IFD `k` of a [`preview_chain`] is placed: one 256-byte slot
+/// each after the header, room for 20 entries.
+pub fn preview_ifd_offset(k: usize) -> u32 {
+    8 + 256 * k as u32
+}
+
+/// Start of the strip-byte region of every preview fixture. Well clear of the
+/// IFD slots (16 of them end below 0x1008) and of the out-of-line arrays,
+/// which the fixtures put at 0x3000.
+pub const PREVIEW_DATA: u32 = 0x4000;
+
+/// The entries of an uncompressed RGB preview IFD, `width × height`, 8-bit,
+/// one strip at `offset` of `len` bytes. `nst = None` writes no
+/// `NewSubfileType` at all.
+pub fn preview_entries(
+    order: Order,
+    nst: Option<u32>,
+    width: u32,
+    height: u32,
+    offset: u32,
+    len: u32,
+) -> Vec<Entry> {
+    let mut entries = Vec::new();
+    if let Some(nst) = nst {
+        entries.push(long(NEW_SUBFILE_TYPE, nst));
+    }
+    entries.extend([
+        long(IMAGE_WIDTH, width),
+        long(IMAGE_LENGTH, height),
+        short(BITS_PER_SAMPLE, 8, order),
+        short(COMPRESSION, 1, order),
+        short(PHOTOMETRIC, 2, order),
+        short(SAMPLES_PER_PIXEL, 3, order),
+        long(STRIP_OFFSETS, offset),
+        long(STRIP_BYTE_COUNTS, len),
+    ]);
+    entries
+}
+
+/// Replace (or append) the entry for `tag`.
+pub fn with_entry(mut entries: Vec<Entry>, entry: Entry) -> Vec<Entry> {
+    match entries.iter_mut().find(|e| e.tag == entry.tag) {
+        Some(slot) => *slot = entry,
+        None => entries.push(entry),
+    }
+    entries
+}
+
+/// Drop the entry for `tag`, if present.
+pub fn without_tag(mut entries: Vec<Entry>, tag: u16) -> Vec<Entry> {
+    entries.retain(|e| e.tag != tag);
+    entries
+}
+
+/// A chain of IFDs, IFD `k` at [`preview_ifd_offset`]`(k)` and linked through
+/// `next`, so `Container::ifds()` index `k` is `ifds[k]`. Each `(at, values)`
+/// in `arrays` is written as LONGs at `at`. The strip region from
+/// [`PREVIEW_DATA`] is filled with a position-dependent pattern up to
+/// `data_end`, so a slice shifted by one byte reads different bytes.
+pub fn preview_chain(
+    order: Order,
+    ifds: &[Vec<Entry>],
+    arrays: &[(u32, Vec<u32>)],
+    data_end: u32,
+) -> Vec<u8> {
+    let placed: Vec<Ifd> = ifds
+        .iter()
+        .enumerate()
+        .map(|(k, entries)| {
+            let next = if k + 1 < ifds.len() {
+                preview_ifd_offset(k + 1)
+            } else {
+                0
+            };
+            Ifd::new(preview_ifd_offset(k), entries.clone(), next)
+        })
+        .collect();
+    let mut out = tiff(order, preview_ifd_offset(0), &placed);
+    for (at, values) in arrays {
+        let mut at = *at as usize;
+        for v in values {
+            if out.len() < at + 4 {
+                out.resize(at + 4, 0);
+            }
+            out[at..at + 4].copy_from_slice(&order.u32(*v));
+            at += 4;
+        }
+    }
+    let end = data_end as usize;
+    if out.len() < end {
+        out.resize(end, 0);
+    }
+    for (i, b) in out
+        .iter_mut()
+        .enumerate()
+        .take(end)
+        .skip(PREVIEW_DATA as usize)
+    {
+        *b = (i % 251) as u8;
+    }
+    out
+}
+
+/// AC1: ten IFDs whose `NewSubfileType` is absent, 0, 1, 4, 5, 8, 9, 16,
+/// 65537 and 65540, each otherwise a valid 2×2 RGB preview with its own
+/// 12-byte strip. Only index 2 (`1`) and index 8 (`65537`) are previews.
+pub fn preview_selection(order: Order) -> Vec<u8> {
+    let nsts = [
+        None,
+        Some(0),
+        Some(1),
+        Some(4),
+        Some(5),
+        Some(8),
+        Some(9),
+        Some(16),
+        Some(65537),
+        Some(65540),
+    ];
+    let ifds: Vec<Vec<Entry>> = nsts
+        .iter()
+        .enumerate()
+        .map(|(k, nst)| preview_entries(order, *nst, 2, 2, PREVIEW_DATA + 16 * k as u32, 12))
+        .collect();
+    preview_chain(order, &ifds, &[], PREVIEW_DATA + 16 * nsts.len() as u32)
+}
+
+/// One preview IFD whose strips are `offsets`/`lens`, written out of line at
+/// 0x3000 / 0x3800 (always out of line, even for one strip, so the
+/// multi-value read path is what is exercised).
+pub fn preview_strips(order: Order, offsets: &[u32], lens: &[u32], data_end: u32) -> Vec<u8> {
+    let entries = with_entry(
+        with_entry(
+            preview_entries(order, Some(1), 4, 4, 0, 0),
+            at_offset(STRIP_OFFSETS, 4, offsets.len() as u32, 0x3000),
+        ),
+        at_offset(STRIP_BYTE_COUNTS, 4, lens.len() as u32, 0x3800),
+    );
+    preview_chain(
+        order,
+        &[entries],
+        &[(0x3000, offsets.to_vec()), (0x3800, lens.to_vec())],
+        data_end,
+    )
+}
+
+/// AC4: three contiguous strips of 10, 15 and 20 bytes from [`PREVIEW_DATA`].
+pub fn preview_contiguous_strips(order: Order) -> Vec<u8> {
+    let d = PREVIEW_DATA;
+    preview_strips(order, &[d, d + 10, d + 25], &[10, 15, 20], d + 64)
+}
+
+/// AC4: three strips with a one-byte gap after the first.
+pub fn preview_gapped_strips(order: Order) -> Vec<u8> {
+    let d = PREVIEW_DATA;
+    preview_strips(order, &[d, d + 11, d + 26], &[10, 15, 20], d + 64)
+}
+
+/// A two-preview container: a 2×2 thumbnail in IFD0 and a 4×4 preview in
+/// IFD1, both `NewSubfileType = 1`.
+pub fn preview_two(order: Order) -> Vec<u8> {
+    let d = PREVIEW_DATA;
+    preview_chain(
+        order,
+        &[
+            preview_entries(order, Some(1), 2, 2, d, 12),
+            preview_entries(order, Some(1), 4, 4, d + 12, 48),
+        ],
+        &[],
+        d + 64,
+    )
+}
+
+/// The preview fuzz seeds (SPEC-062 §7), written into `fuzz/seeds/ifd`.
+pub fn preview_seeds() -> Vec<(&'static str, Vec<u8>)> {
+    vec![
+        ("preview-two", preview_two(Order::Little)),
+        ("preview-non-contiguous", preview_gapped_strips(Order::Big)),
+    ]
+}
