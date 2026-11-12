@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: punch-list              # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 7793217            # REAL combined count — what cost-audit reads
-  estimated_usd: 5.31           # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 9330476            # REAL combined count — what cost-audit reads
+  estimated_usd: 6.77           # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 40
   branch: claude/spec-057-verify-e8b552
   pr: https://github.com/jysf/irradiance/pull/199
   completed_at: 2026-11-11
-  notes: "PUNCH LIST with its one item fixed in this PR - Design 2 says IFD entries are sorted by tag, but removing the writer's sort left all 25 tests green (irradiance and dnglab both accept unsorted IFDs); verify added ifd_entries_are_written_in_ascending_tag_order, green honestly, red under that mutation. Everything else checked out - gates green, src unchanged, dnglab and exiftool ran, 4 hand checksums matched, 11 of 12 writer mutations red (the 12th equivalent). Tokens re-summed from this session transcript (dedupe message.id, max output per message, opus-5-5 at 5/25 USD per Mtok, cache read 0.10x, cache write 1.25x), measured just before the handback commit."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE COST re-summed at ship by the orchestrator from the ended session's transcript (spec-057-verify-e8b552 project dir, 1 jsonl, 58 unique message.ids, all claude-opus-5-5, no subagents): input 137 + cache-creation 138,518 + cache-read 9,159,476 + output 32,345 (max per message). USD at opus-5-5 list rates. Verdict punch-list, its one item (no test pinned the per-IFD tag sort) fixed in place in PR 199. Supersedes the live floor of 7,793,217 / 5.31."
+  synced_at: 2026-11-11
 ---
 
 # HANDOFF-128: VERIFY: test-only DNG writer, strip and tile layouts, arbitrary opcode bytes (SPEC-057)

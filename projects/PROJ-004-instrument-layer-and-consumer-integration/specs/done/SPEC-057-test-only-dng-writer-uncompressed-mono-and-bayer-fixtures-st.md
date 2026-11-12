@@ -6,19 +6,19 @@
 task:
   id: SPEC-057
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [punch-list]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 20000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-127
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 9999310
+      estimated_usd: 8.69
+      duration_minutes: 20
+      recorded_at: 2026-11-11
+      notes: "TRUE COST re-summed at ship by the orchestrator from the ended session's transcript (spec-057-build-8bc4e4 project dir, 1 jsonl, 49 unique message.ids, all claude-opus-5-5, no subagents): input 100 + cache-creation 217,054 + cache-read 9,715,908 + output 66,248 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Supersedes the live floor of 8,428,823 / 7.72 taken before the handback commit."
+    - cycle: verify
+      handoff: HANDOFF-128
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 9330476
+      estimated_usd: 6.77
+      duration_minutes: 40
+      recorded_at: 2026-11-11
+      notes: "TRUE COST re-summed at ship by the orchestrator from the ended session's transcript (spec-057-verify-e8b552 project dir, 1 jsonl, 58 unique message.ids, all claude-opus-5-5, no subagents): input 137 + cache-creation 138,518 + cache-read 9,159,476 + output 32,345 (max per message). USD at opus-5-5 list rates. Verdict punch-list, its one item (no test pinned the per-IFD tag sort) fixed in place in PR 199. Supersedes the live floor of 7,793,217 / 5.31."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 19329786
+    estimated_usd: 15.46
+    session_count: 2
+shipped_at: 2026-11-11
 ---
 
 # SPEC-057: test-only DNG writer: uncompressed mono and Bayer fixtures, strip AND tile layouts, arbitrary OpcodeList1/2/3 bytes (GainMap fixtures)
@@ -420,34 +441,37 @@ All in **`tests/dng_writer.rs`**:
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship** (2026-11-11).*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Pin every structural "the writer does X" claim in the design with its own
+   assertion. Design §2 said IFD entries are sorted by tag, but nothing checked it:
+   irradiance and dnglab both read unsorted IFDs, so removing the sort left all 25
+   tests green until the verify added `ifd_entries_are_written_in_ascending_tag_order`.
+   A property no consumer enforces needs a direct test, not an indirect oracle.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No. The design-time probe (§12) paid for itself: dnglab's raw checksum was
+   confirmed as an independent oracle for strips and padded edge tiles before the
+   build started, and the rows-not-a-whole-byte disagreement was found and fenced off
+   (the writer refuses them) instead of being discovered mid-build.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. Carried into existing outlines:
+   - SPEC-061 (public writer): drop the `fault` field, move `Order` out of
+     `tests/support/tiff.rs`, assert or error on `serialize`'s ascending-offset
+     assumption, and keep `max_sample` private.
+   - SPEC-058 (tiled reader): assert the bottom-edge and 12-bit edge-fill values,
+     which today are covered only by dnglab ignoring padding.
+   - The rows-not-a-whole-byte question stays open (oracle-contract.md); it needs a
+     spec only if a real file carries such rows.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — none (test-only infrastructure). For the project: before, valid DNG fixtures were
+   one-off 16-bit, 2×2, strip-only builders; after, one declarative writer produces mono
+   or CFA DNGs at 8/12/14/16 bits, in strips or tiles, either byte order, IFD0 or SubIFD,
+   with metadata and opcode payloads, matched against dnglab's checksum in all 32 strip
+   cases and all tile cases.
