@@ -145,6 +145,20 @@ conv=swab` route, reimplemented as `parse_raw_pixel_pgm` +
 `locate_first_difference`) rather than left as "digests differ" — the surface
 `SPEC-014` will use to debug a 47-megapixel plane against this oracle.
 
+### ⚠ Rows that are not a whole number of bytes are unsettled — `SPEC-057`, 2026-11-11
+
+A sub-byte plane whose row is not a whole number of bytes (e.g. 14-bit × 6
+columns = 84 bits) has **no agreed layout**. TIFF 6.0 says Compression 1 pads
+each row to a byte boundary; irradiance's reader (`DEC-008`, `src/plane.rs`)
+reads each strip as one continuous bitstream; and in the SPEC-057 design probe
+dnglab 0.7.2 matched **neither** — the continuous stream came back with rows 1
+and 3 zero, the row-padded one garbled. No held corpus file has such rows, so
+nothing is broken today and nothing here settles it. The test-only DNG writer
+(`tests/support/dng_writer.rs`) therefore **refuses** them with
+`WriteError::RowNotWholeBytes` rather than encode one guess as a fixture. If a
+real file ever needs this, it gets its own spec and DEC, with a fixture whose
+checksum dnglab can be made to agree with.
+
 ## ⚠ This oracle is single-sourced
 
 `--raw-checksum` and `--srgb` both come from **rawler**. Bit-exact agreement proves we match
