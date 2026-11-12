@@ -496,6 +496,32 @@ pub enum Error {
         bits: u32,
     },
 
+    /// `SPEC-062` (`DEC-057`). A preview IFD (`NewSubfileType` 1 or 65537)
+    /// whose bytes cannot be returned as one contiguous slice of the input:
+    /// it is tiled, it is an old-style `JPEGInterchangeFormat` preview with no
+    /// strips, or its strips do not each start where the previous one ends.
+    /// Yielded as one item by [`ifd::Container::previews`], which then moves on
+    /// to the next IFD.
+    UnsupportedPreviewLayout {
+        /// Index of the preview IFD in [`ifd::Container::ifds`].
+        ifd_index: usize,
+        /// Which unsupported layout it is.
+        layout: UnsupportedPreview,
+    },
+
+    /// `SPEC-062` (`DEC-057`). A preview IFD has no usable strip table:
+    /// `StripOffsets` or `StripByteCounts` is absent, the two counts differ, or
+    /// there are zero strips. Yielded as one item by
+    /// [`ifd::Container::previews`], which then moves on to the next IFD.
+    InvalidPreviewLayout {
+        /// Index of the preview IFD in [`ifd::Container::ifds`].
+        ifd_index: usize,
+        /// The `StripOffsets` count, `0` when absent.
+        strip_offsets: usize,
+        /// The `StripByteCounts` count, `0` when absent.
+        strip_byte_counts: usize,
+    },
+
     /// A multi-strip plane (`N > 1` strips) carries no usable `RowsPerStrip`,
     /// so the per-strip row partition is undefined and the strips cannot be
     /// mapped to rows. `SPEC-028`: `RowsPerStrip` is **required** once a plane
@@ -943,6 +969,37 @@ pub enum Error {
     },
 }
 
+/// Why a preview IFD's bytes are not returned as one slice (`SPEC-062`,
+/// `DEC-057`), carried by [`Error::UnsupportedPreviewLayout`].
+/// `#[non_exhaustive]` (`DEC-052`): a later release may support one of these
+/// layouts, or refuse another.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum UnsupportedPreview {
+    /// `TileOffsets` is present: a tiled preview.
+    Tiled,
+    /// No `StripOffsets`, but `JPEGInterchangeFormat` (513) is present: an
+    /// old-style JPEG preview.
+    JpegInterchangeFormat,
+    /// Several strips, but one does not start exactly where the previous one
+    /// ends (a gap, an overlap or out-of-order strips).
+    NonContiguousStrips,
+}
+
+impl fmt::Display for UnsupportedPreview {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UnsupportedPreview::Tiled => f.write_str("it is tiled (TileOffsets present)"),
+            UnsupportedPreview::JpegInterchangeFormat => {
+                f.write_str("it is an old-style JPEGInterchangeFormat preview with no StripOffsets")
+            }
+            UnsupportedPreview::NonContiguousStrips => f.write_str(
+                "its strips are not contiguous (each must start where the previous one ends)",
+            ),
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1072,6 +1129,24 @@ impl fmt::Display for Error {
                     f,
                     "an uncompressed {tile_width}-wide tile row of {bits}-bit samples is not a \
                      whole number of bytes, which this library does not read"
+                )
+            }
+            Error::UnsupportedPreviewLayout { ifd_index, layout } => {
+                write!(
+                    f,
+                    "the preview in IFD {ifd_index} cannot be returned as one slice: {layout}"
+                )
+            }
+            Error::InvalidPreviewLayout {
+                ifd_index,
+                strip_offsets,
+                strip_byte_counts,
+            } => {
+                write!(
+                    f,
+                    "the preview in IFD {ifd_index} has no usable strip table: \
+                     {strip_offsets} StripOffsets and {strip_byte_counts} StripByteCounts (the \
+                     counts must match and be non-zero)"
                 )
             }
             Error::MissingRowsPerStrip { strips } => {
@@ -1396,6 +1471,7 @@ impl Error {
             | Error::UnsupportedBitDepth { .. }
             | Error::UnsupportedStripLayout { .. }
             | Error::UnsupportedTileRowBits { .. }
+            | Error::UnsupportedPreviewLayout { .. }
             | Error::UnsupportedOrientation { .. }
             | Error::UnsupportedMandatoryOpcode { .. }
             | Error::UnsupportedRequiredOpcode { .. }
@@ -1430,6 +1506,7 @@ impl Error {
             | Error::StripBytesExceedFile { .. }
             | Error::InvalidTileLayout { .. }
             | Error::StripsAndTiles { .. }
+            | Error::InvalidPreviewLayout { .. }
             | Error::InvalidActiveArea { .. }
             | Error::InvalidDefaultCrop { .. }
             | Error::InvalidLevels { .. }

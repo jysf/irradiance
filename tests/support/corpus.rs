@@ -141,6 +141,32 @@ pub struct CorpusFile {
     pub source: String,
     /// Pinned oracle answers.
     pub oracle: Oracle,
+    /// `[[file.preview]]` pins (`SPEC-062`), taken from exiftool. `None` when
+    /// the entry carries none — "not pinned", which the preview test names.
+    pub previews: Option<Vec<PreviewPin>>,
+}
+
+/// One `[[file.preview]]` pin: a preview IFD as exiftool 13.55 reports it
+/// (`SPEC-062` §6, the procedure in the manifest header). Never taken from
+/// irradiance's own output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewPin {
+    /// Index into `Container::ifds()` (walk order: IFD0, then its SubIFDs).
+    pub ifd_index: usize,
+    /// `"primary"` (`NewSubfileType` 1) or `"alternate"` (65537).
+    pub kind: String,
+    /// `ImageWidth`.
+    pub width: u32,
+    /// `ImageLength`.
+    pub height: u32,
+    /// `Compression`.
+    pub compression: u32,
+    /// `PhotometricInterpretation`.
+    pub photometric: u32,
+    /// File offset of the preview's first byte.
+    pub offset: u64,
+    /// Byte length of the preview.
+    pub length: u64,
 }
 
 /// The parsed `tests/corpus/manifest.toml`.
@@ -217,7 +243,10 @@ fn parse_file(entry: &toml::Value, index: usize) -> Result<CorpusFile, String> {
         .get("oracle")
         .ok_or_else(|| format!("{at}: missing [file.oracle] table"))?;
 
+    let previews = parse_previews(entry, &at)?;
+
     Ok(CorpusFile {
+        previews,
         path,
         tier: req_str(entry, "tier", &at)?,
         bytes: req_int(entry, "bytes", &at)?,
@@ -230,6 +259,41 @@ fn parse_file(entry: &toml::Value, index: usize) -> Result<CorpusFile, String> {
             strip_bytes: opt_int(oracle, "strip_bytes", &at)?,
         },
     })
+}
+
+/// The optional `[[file.preview]]` array. Absent is `None`; present, every
+/// pin must carry all eight fields, and the error names the entry and the pin.
+fn parse_previews(entry: &toml::Value, at: &str) -> Result<Option<Vec<PreviewPin>>, String> {
+    let pins = match entry.get("preview") {
+        None => return Ok(None),
+        Some(toml::Value::Array(a)) => a,
+        Some(_) => return Err(format!("{at}: `preview` is not an array of tables")),
+    };
+    let mut out = Vec::with_capacity(pins.len());
+    for (i, pin) in pins.iter().enumerate() {
+        let at = format!("{at} [[file.preview]] #{}", i + 1);
+        let kind = req_str(pin, "kind", &at)?;
+        if kind != "primary" && kind != "alternate" {
+            return Err(format!(
+                "{at}: `kind` must be \"primary\" or \"alternate\", got {kind:?}"
+            ));
+        }
+        let u32_field = |key: &str| -> Result<u32, String> {
+            let v = req_int(pin, key, &at)?;
+            u32::try_from(v).map_err(|_| format!("{at}: `{key}` does not fit u32 ({v})"))
+        };
+        out.push(PreviewPin {
+            ifd_index: req_int(pin, "ifd_index", &at)? as usize,
+            kind,
+            width: u32_field("width")?,
+            height: u32_field("height")?,
+            compression: u32_field("compression")?,
+            photometric: u32_field("photometric")?,
+            offset: req_int(pin, "offset", &at)?,
+            length: req_int(pin, "length", &at)?,
+        });
+    }
+    Ok(Some(out))
 }
 
 fn req_str(table: &toml::Value, key: &str, at: &str) -> Result<String, String> {

@@ -44,6 +44,25 @@
 #            ShareAlike or NonCommercial terms is tier B forever.
 # oracle.raw_checksum = `dnglab analyze --raw-checksum <file>` — pins BOTH the
 #          file and the oracle. If dnglab changes its answer, we find out.
+#
+# [[file.preview]] (SPEC-062, DEC-057) — OPTIONAL. One table per embedded preview
+#          IFD, in walk order; absent means "not pinned", which
+#          tests/previews.rs names. Fields: ifd_index, kind ("primary" for
+#          NewSubfileType 1, "alternate" for 65537), width, height, compression,
+#          photometric, offset, length. All eight are required in a pin.
+#          PIN PROCEDURE — exiftool 13.55 as a black box, NEVER irradiance:
+#
+#            exiftool -a -G1 -s -n -SubfileType -ImageWidth -ImageHeight \
+#                -Compression -PhotometricInterpretation -StripOffsets \
+#                -StripByteCounts '-*Start' '-*Length' <file>
+#
+#          Keep the IFD groups whose SubfileType is 1 or 65537. Take the byte
+#          range from that group's PreviewImageStart/Length, JpgFromRawStart/
+#          Length or StripOffsets/StripByteCounts pair. Group -> ifd_index:
+#          [IFD0] = 0, [SubIFD] = 1, [SubIFD1] = 2, [SubIFD2] = 3 (IFD0's
+#          SubIFDs in order). Ignore MakerNote groups such as [Pentax]
+#          PreviewImageStart — outside the IFD tree (DEC-057). Pinned 2026-11-12:
+#          21 previews across the 11 DNG entries; the PEF is left unpinned.
 
 [[file]]
 path            = "LEICA-Q2-MONO/L1021223.DNG"
@@ -73,6 +92,38 @@ In place under IRRADIANCE_CORPUS_DIR and verified byte-identical 2026-08-18.
   pgm_bytes     = 94887955                             # 19-byte header + 8424*5632*2
   strip_bytes   = 83026944                             # == StripByteCounts, layer-0 oracle
 
+  # SPEC-062 preview pins, from exiftool 13.55 (procedure in the header).
+
+  [[file.preview]]   # exiftool [IFD0]
+  ifd_index   = 0
+  kind        = "primary"
+  width       = 720
+  height      = 480
+  compression = 7
+  photometric = 6
+  offset      = 28672
+  length      = 60416
+
+  [[file.preview]]   # exiftool [SubIFD1]
+  ifd_index   = 2
+  kind        = "primary"
+  width       = 1620
+  height      = 1080
+  compression = 7
+  photometric = 6
+  offset      = 2665472
+  length      = 104448
+
+  [[file.preview]]   # exiftool [SubIFD2]
+  ifd_index   = 3
+  kind        = "primary"
+  width       = 8368
+  height      = 5584
+  compression = 7
+  photometric = 6
+  offset      = 89088
+  length      = 2576384
+
 [[file]]
 path            = "LEICA-Q2-MONO/L1026016.DNG"
 tier            = "b"
@@ -99,6 +150,38 @@ reference in every structural tag.
   pgm_bytes     = 94887955
   strip_bytes   = 83026944
 
+  # SPEC-062 preview pins, from exiftool 13.55 (procedure in the header).
+
+  [[file.preview]]   # exiftool [IFD0]
+  ifd_index   = 0
+  kind        = "primary"
+  width       = 720
+  height      = 480
+  compression = 7
+  photometric = 6
+  offset      = 28672
+  length      = 38912
+
+  [[file.preview]]   # exiftool [SubIFD1]
+  ifd_index   = 2
+  kind        = "primary"
+  width       = 1620
+  height      = 1080
+  compression = 7
+  photometric = 6
+  offset      = 1980416
+  length      = 70656
+
+  [[file.preview]]   # exiftool [SubIFD2]
+  ifd_index   = 3
+  kind        = "primary"
+  width       = 8368
+  height      = 5584
+  compression = 7
+  photometric = 6
+  offset      = 67584
+  length      = 1912832
+
 [[file]]
 path            = "LEICA-Q2-MONO/L1026192.DNG"
 tier            = "b"
@@ -121,6 +204,38 @@ Structure verified 2026-08-18: identical to the reference in every structural ta
   raw_checksum  = "c7348179f042d9597be7829d03fa5d8a"   # dnglab 0.7.2
   pgm_bytes     = 94887955
   strip_bytes   = 83026944
+
+  # SPEC-062 preview pins, from exiftool 13.55 (procedure in the header).
+
+  [[file.preview]]   # exiftool [IFD0]
+  ifd_index   = 0
+  kind        = "primary"
+  width       = 720
+  height      = 480
+  compression = 7
+  photometric = 6
+  offset      = 28672
+  length      = 36864
+
+  [[file.preview]]   # exiftool [SubIFD1]
+  ifd_index   = 2
+  kind        = "primary"
+  width       = 1620
+  height      = 1080
+  compression = 7
+  photometric = 6
+  offset      = 1543680
+  length      = 67072
+
+  [[file.preview]]   # exiftool [SubIFD2]
+  ifd_index   = 3
+  kind        = "primary"
+  width       = 8368
+  height      = 5584
+  compression = 7
+  photometric = 6
+  offset      = 65536
+  length      = 1478144
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STRUCTURE CONFIRMED ACROSS 4 FRAMES (2026-08-18)
@@ -204,6 +319,18 @@ Why it is the most valuable third-party file we have:
   raw_checksum  = "b0f602b90db91f981bbd6802fd0e6edf"   # dnglab 0.7.2
   strip_bytes   = 36219904
 
+  # SPEC-062 preview pins, from exiftool 13.55 (procedure in the header).
+
+  [[file.preview]]   # exiftool [IFD0]
+  ifd_index   = 0
+  kind        = "primary"
+  width       = 320
+  height      = 216
+  compression = 1
+  photometric = 2
+  offset      = 6132
+  length      = 207360
+
 [[file]]
 path            = "LEICA-M-MONOCHROM-TYP246/M2462362.DNG"
 tier            = "b"
@@ -225,6 +352,18 @@ levels are unlike anything else held.
 
   [file.oracle]
   raw_checksum  = "c72e7d9579e2adaef9c6247841b8ac1d"
+
+  # SPEC-062 preview pins, from exiftool 13.55 (procedure in the header).
+
+  [[file.preview]]   # exiftool [IFD0]
+  ifd_index   = 0
+  kind        = "primary"
+  width       = 160
+  height      = 120
+  compression = 7
+  photometric = 6
+  offset      = 4096
+  length      = 5929
 
 [[file]]
 path            = "PENTAX-K3III-MONO/K3III.DNG"
@@ -249,6 +388,28 @@ reader must not panic on it. Worth a tier-A regression fixture.
   [file.oracle]
   raw_checksum  = "98bae1339c25eb6e04fbac6b5f643189"
 
+  # SPEC-062 preview pins, from exiftool 13.55 (procedure in the header).
+
+  [[file.preview]]   # exiftool [IFD0]
+  ifd_index   = 0
+  kind        = "primary"
+  width       = 160
+  height      = 120
+  compression = 1
+  photometric = 2
+  offset      = 123392
+  length      = 57600
+
+  [[file.preview]]   # exiftool [SubIFD1]
+  ifd_index   = 2
+  kind        = "primary"
+  width       = 6192
+  height      = 4128
+  compression = 7
+  photometric = 6
+  offset      = 31228928
+  length      = 6440502
+
 [[file]]
 path            = "PENTAX-K3III-MONO/K3III.PEF"
 tier            = "b"
@@ -267,6 +428,9 @@ so out of scope for PROJ-001; dnglab decodes it.
 
   [file.oracle]
   raw_checksum  = "c92898a1cd5acc52644c857097e1827c"
+
+  # No [[file.preview]] pins: a vendor container, not a DNG preview
+  # source, so out of SPEC-062's scope (DEC-057).
 
 # ─────────────────────────────────────────────────────────────────────────────
 # THE BAYER (COLOUR) FILES — PROJ-002 / STAGE-006. Registered by SPEC-027. Both
@@ -306,6 +470,38 @@ omitted.
   [file.oracle]
   raw_checksum  = "a18235d6abced4df9948b6fbe91aba7c"   # dnglab 0.7.2
 
+  # SPEC-062 preview pins, from exiftool 13.55 (procedure in the header).
+
+  [[file.preview]]   # exiftool [IFD0]
+  ifd_index   = 0
+  kind        = "primary"
+  width       = 256
+  height      = 171
+  compression = 1
+  photometric = 2
+  offset      = 198332
+  length      = 131328
+
+  [[file.preview]]   # exiftool [SubIFD1]
+  ifd_index   = 2
+  kind        = "primary"
+  width       = 1024
+  height      = 683
+  compression = 7
+  photometric = 6
+  offset      = 329660
+  length      = 49578
+
+  [[file.preview]]   # exiftool [SubIFD2]
+  ifd_index   = 3
+  kind        = "primary"
+  width       = 5760
+  height      = 3840
+  compression = 7
+  photometric = 6
+  offset      = 379238
+  length      = 1235402
+
 [[file]]
 path            = "NIKON-D300S/_DSC4615.DNG"
 tier            = "b"
@@ -334,6 +530,28 @@ pgm_bytes/strip_bytes are omitted and the oracle keys on `raw_checksum` only.
 
   [file.oracle]
   raw_checksum  = "b8e8025d370cc2e97f675e63a0e6bbdb"   # dnglab 0.7.2
+
+  # SPEC-062 preview pins, from exiftool 13.55 (procedure in the header).
+
+  [[file.preview]]   # exiftool [IFD0]
+  ifd_index   = 0
+  kind        = "primary"
+  width       = 181
+  height      = 120
+  compression = 1
+  photometric = 2
+  offset      = 25558624
+  length      = 65160
+
+  [[file.preview]]   # exiftool [SubIFD1]
+  ifd_index   = 2
+  kind        = "primary"
+  width       = 1024
+  height      = 680
+  compression = 7
+  photometric = 6
+  offset      = 24963550
+  length      = 594905
 
 # ─────────────────────────────────────────────────────────────────────────────
 # THE TILED PIXEL PHONE FILES — PROJ-004 / STAGE-015. Registered by SPEC-058.
@@ -368,6 +586,18 @@ in OpcodeList2: develop refuses it (DEC-049).
   [file.oracle]
   raw_checksum  = "d1830234ac3f32b07ff73792f0faeabb"   # dnglab 0.7.2
 
+  # SPEC-062 preview pins, from exiftool 13.55 (procedure in the header).
+
+  [[file.preview]]   # exiftool [IFD0]
+  ifd_index   = 0
+  kind        = "primary"
+  width       = 672
+  height      = 504
+  compression = 7
+  photometric = 6
+  offset      = 147702
+  length      = 186424
+
 [[file]]
 path            = "GOOGLE-PIXEL-3A/IMG_20190918_164153.dng"
 tier            = "b"
@@ -385,6 +615,18 @@ geometry). Mandatory GainMaps in OpcodeList2: develop refuses it (DEC-049).
 
   [file.oracle]
   raw_checksum  = "eb736a494bdfd2fc5ec799fb798ed2c3"   # dnglab 0.7.2
+
+  # SPEC-062 preview pins, from exiftool 13.55 (procedure in the header).
+
+  [[file.preview]]   # exiftool [IFD0]
+  ifd_index   = 0
+  kind        = "primary"
+  width       = 672
+  height      = 504
+  compression = 7
+  photometric = 6
+  offset      = 26108
+  length      = 117995
 
 [[file]]
 path            = "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng"
@@ -406,6 +648,18 @@ decode does not read. Mandatory GainMaps in OpcodeList2: develop refuses it
 
   [file.oracle]
   raw_checksum  = "eb72cb300a27c4bcab745702542269de"   # dnglab 0.7.2
+
+  # SPEC-062 preview pins, from exiftool 13.55 (procedure in the header).
+
+  [[file.preview]]   # exiftool [IFD0]
+  ifd_index   = 0
+  kind        = "primary"
+  width       = 1280
+  height      = 964
+  compression = 7
+  photometric = 6
+  offset      = 32620
+  length      = 215069
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ACQUIRED 2026-08-18 (entries above). Licences verified two

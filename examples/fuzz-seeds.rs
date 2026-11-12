@@ -1107,6 +1107,12 @@ fn main() {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);
     }
+    // SPEC-062: the preview seeds share the `ifd` target's seed directory but
+    // not `tiff::all()`, which tests/ifd_reader.rs sweeps shape by shape.
+    if let Err(e) = write_seeds("ifd", "tiff", tiff::preview_seeds()) {
+        eprintln!("fuzz-seeds: {e}");
+        std::process::exit(1);
+    }
     if let Err(e) = write_seeds("plane", "tiff", plane_seeds()) {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);

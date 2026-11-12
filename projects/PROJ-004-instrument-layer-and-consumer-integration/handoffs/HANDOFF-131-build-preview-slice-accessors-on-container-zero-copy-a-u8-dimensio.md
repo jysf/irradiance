@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-12
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-062
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 15119257         # REAL combined count — what cost-audit reads
+  estimated_usd: 11.81           # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 30
+  branch: claude/spec-062-build
+  pr: "https://github.com/jysf/irradiance/pull/208"
+  completed_at: 2026-11-12         # YYYY-MM-DD
+  notes: "FLOOR measured live from this build session's own transcript (scratchpad UUID 8eceb9a0, 1 jsonl, 67 unique message.ids, all claude-opus-5-5, no subagents): input 136 + cache-creation 253,618 (1-hour) + cache-read 14,790,561 + output 74,942 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Taken before the final commit, push and PR turns, so re-sum at ship."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -193,10 +193,42 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-062-build` → [PR 208](https://github.com/jysf/irradiance/pull/208)
+- **Completed at:** 2026-11-12
+- **All acceptance criteria met?** yes. AC1 to AC12 are each covered by a named test
+  or gate:
+  - **AC1 to AC5:** `tests/previews.rs`, both byte orders.
+  - **AC6:** `tests/previews_alloc.rs`. It counts 0 allocations while draining 3 Ok and
+    3 Err items. A negative control proves the counter counts.
+  - **AC7:** the tier-B test **ran, not skipped**, with
+    `IRRADIANCE_CORPUS_DIR=~/PSeven/experiments/crustimg_redo_plus/images`.
+    **21/21 previews matched the exiftool 13.55 pins** on all eight fields, plus the
+    pointer check. The PEF was reported as not pinned, by name.
+  - **AC8:** `red_proof_preview_mutations`. The control ran first in a staged copy and
+    matched the in-process tree. Then all three mutants went red: selection widened,
+    one strip only, and range off by one.
+  - **AC9:** `tests/error_kind.rs`, now 61 variants, split 12 / 20 / 29.
+  - **AC10:** no existing assertion changed. The only edits to existing tests are
+    `error_kind`'s required rows and counts.
+  - **AC11:** the extended `ifd` fuzz target ran for 601 s: **28,847,288 runs, no
+    crash** (exit 0, no artifact).
+  - **AC12:** every listed gate is green (below).
+- **Gates:** all green on this branch:
+  - `just test` (with the corpus present): 598 passed, 0 failed, 1 ignored (the existing SPEC-017 Q2M measurement); no corpus file skipped
+  - `just lint-ci`
+  - `just lint-no-allow`
+  - `just fmt-check`
+  - `just validate`
+  - `just doc-check`
+  - `just deny`
+  - `just deny-fuzz`
+  - `just msrv`
+  - `just cost-audit`
+  - `just gate-audit`
+- **Pins come from exiftool, never from irradiance.** They were taken before any
+  implementation existed. A throwaway script parsed `exiftool -j -a -G1 -s -n` using
+  the spec §6 tag list, and the result was transcribed into the manifest. exiftool and
+  irradiance never disagreed.
 
 ### Cost self-report
 
@@ -204,27 +236,70 @@ Mirror what you put in the `handback:` front-matter, and say where the number
 came from. **This is the number that lands in the spec** — the orchestrator
 transcribes it via `just handback-sync`, it does not estimate it.
 
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 15119257 (a floor: measured before the final commit and PR turns)
+- **Estimated USD:** 11.81
+- **Duration (minutes):** 30
+- **Source of the number:** this session's own transcript (`basis: transcript`).
+  - Deduplicated by `message.id`, taking the max `output_tokens` per message. There
+    were no subagents.
+  - Priced per component at opus-5-5 rates: $5/Mtok in, $25/Mtok out, cache read at
+    0.10×, 1-hour cache write at 2.0×.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - **The "length sum that overflows" case (AC5) cannot reach
+    `ValueOverflow { tag: 279 }`.**
+    - Summed in `u64`, at most 2^20 `u32` lengths cannot overflow. A contiguous run
+      whose true end passes `u32::MAX` also cannot be followed by a `u32` offset.
+    - So the fixture is the dangerous shape: two strips that look contiguous only in
+      wrapping `u32` arithmetic (`0x4000 + 0xFFFF_FFF0` wraps to `0x3FF0`). Their
+      wrapped total would be an in-bounds 16-byte lie.
+    - It is refused as `NonContiguousStrips`. A single `u32::MAX` length is refused
+      as `Truncated` with the true length.
+    - The `checked_add`/`ValueOverflow` arms stay as defensive code, as the spec says.
+  - **The new fixtures are not in `tiff::all()`.** `tests/ifd_reader.rs` sweeps
+    `all()` and lists every shape it expects to parse, so adding them there would
+    edit an existing test (AC10). `tiff::preview_seeds()` is written into the same
+    `fuzz/seeds/ifd` directory instead.
+  - **The red-proofs follow the repo's staged-copy pattern** (`ljpeg_shape_binding`).
+    A temp copy of `src/` gets a probe bin that prints each `previews()` item.
+    - The control must equal the in-process answer.
+    - Each mutant must change the exact line its named test asserts on.
+    - The test is not `#[ignore]`d. It runs in `just test` and takes a few seconds,
+      since the staged build is incremental.
+  - **`uint_at` refuses `RATIONAL` outright.** `uints` admits it for non-structural
+    tags, but every tag on the preview path is structural, so the behaviour is
+    identical where it is used.
+  - **An unreadable optional tag is an `Err` item** (`Compression`, `Photometric`,
+    `SamplesPerPixel` or `BitsPerSample` of the wrong type or out of the file). It
+    does not fall back to the default (DEC-012). Absent still takes the default.
+  - **A `NewSubfileType` entry with count 0 reads as absent (0, not a preview)**,
+    matching `scalar`/`is_sensor_ifd`.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - None blocking. If a consumer ever needs tiled or non-contiguous previews, DEC-057
+    names the one arm to relax (a strip/tile iterator on the non-exhaustive
+    `Preview`).
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Only the AC5 "length sum that overflows" bullet. With `u64` sums and a contiguity
+   check it has no reachable `ValueOverflow` path. The real hazard is a wrapped `u32`
+   sum, and the fixture now targets that. Everything else, including the probe table,
+   group mapping and §4 order, was transcription.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Two, both minor:
+   - `tests/ifd_reader.rs` asserts on the full `tiff::all()` list. Anyone adding fuzz
+     seeds to `all()` would edit an existing test, so the handoff could have said to
+     keep new seeds out of `all()`.
+   - The staged-copy red-proof precedent (`tests/ljpeg_shape_binding.rs`) is the
+     natural AC8 pattern, and could be named outright.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would take the exiftool pins even earlier, as the first act, before reading any
+   `src/`. Here they came before any implementation, which is what mattered. I would
+   also start the 10-minute fuzz run as soon as the target compiles, since it is the
+   longest pole beside the tier-B oracles in `just test`.

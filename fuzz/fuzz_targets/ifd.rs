@@ -65,6 +65,32 @@ fuzz_target!(|data: &[u8]| {
         }
     }
 
+    // SPEC-062 / DEC-057: drain the preview accessor. Every Ok preview's bytes
+    // must be the input itself at `offset` — one in-bounds subslice, never a
+    // copy and never out of range. Err items are fine; a panic is not.
+    let mut items = 0usize;
+    for item in container.previews() {
+        items = items.saturating_add(1);
+        if let Ok(p) = item {
+            let offset = p.offset as usize;
+            assert!(
+                offset.saturating_add(p.bytes.len()) <= data.len(),
+                "preview at {offset}+{} runs past the {}-byte input",
+                p.bytes.len(),
+                data.len()
+            );
+            assert!(
+                std::ptr::eq(p.bytes.as_ptr(), data.as_ptr().wrapping_add(offset)),
+                "preview bytes are not the input at offset {offset}"
+            );
+        }
+    }
+    assert!(
+        items <= container.ifds().len(),
+        "previews() yielded {items} items from {} IFDs",
+        container.ifds().len()
+    );
+
     let _ = container.sensor_candidates();
 
     if let Ok(sensor) = container.sensor() {
