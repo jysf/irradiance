@@ -8,6 +8,15 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-11
+
+Post-0.2.0 maintenance (STAGE-014, SPEC-056, DEC-053). It closes two of 0.2.0's
+Known limitations: the two required-processing gaps. No pixel output changes for any
+file that still develops (`DEVELOP_VERSION` unchanged), and the public surface only
+grows. The `⚠` entry under **Changed** is the one that can turn a former `Ok` into a
+typed `Err`. Tier-B corpus evidence was re-run by the cold verify: every held file
+is byte-identical.
+
 ### Fixed
 
 - **An `OpcodeList` tag that is present but unreadable now refuses the develop**

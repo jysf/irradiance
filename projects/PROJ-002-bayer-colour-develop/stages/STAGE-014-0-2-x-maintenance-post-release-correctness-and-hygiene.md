@@ -100,14 +100,14 @@ ColorChecker capture.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-056 (design) — [M] 0.2.1 housekeeping: refuse unreadable OpcodeLists (DEC-053), guard the Sensor-taking stage primitives + public check, rustdoc private links + doc gate, nested-cargo tests honour CARGO_TARGET_DIR
+- [x] SPEC-056 (shipped on 2026-11-11) — [M] 0.2.1 housekeeping: refuse unreadable OpcodeLists (DEC-053), guard the Sensor-taking stage primitives + public check, rustdoc private links + doc gate, nested-cargo tests honour CARGO_TARGET_DIR
 
 - [ ] (not yet written) [XS] `corpus-status` states only what it checked — from PROJ-001 STAGE-005 (SPEC-016 pre-rescope AC1; measurements at git 3238dcb)
 - [ ] (not yet written) [XS] `req()`'s single-value assumption is enforced, not documented — from STAGE-005 (SPEC-016 pre-rescope AC2; carries SPEC-005/FU-2, SPEC-010/FU-2)
 - [ ] (not yet written) [XS] `SUPPORTED_BITS` cannot outrun its tests — from STAGE-005 (SPEC-016 pre-rescope AC3; carries SPEC-012/FU-1)
 - [ ] (not yet written) [XS] plane fuzz seeds reach `SampleExceedsWhiteLevel` — from STAGE-005 (SPEC-016 pre-rescope AC4; carries SPEC-012/FU-2)
 
-**Count:** 0 shipped / 1 active / 4 pending
+**Count:** 1 shipped / 4 active / 0 pending
 
 > The four [XS] harness outlines moved here from PROJ-001 STAGE-005 at PROJ-001's
 > close (2026-11-11). Their measurements are from git 3238dcb; re-measure before

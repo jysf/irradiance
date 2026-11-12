@@ -58,7 +58,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/194
   completed_at: 2026-11-11               # YYYY-MM-DD
   notes: "FLOOR taken live before the handback commit (docs/cost-tracking.md rule 6): transcript 8b5e64da-637a-4eba-9162-422f40773bbf.jsonl in the spec-056-verify-4123a1 worktree project dir, 51 unique message.ids, all claude-opus-5-5, no subagents; input 127 + cache-creation 130,095 + cache-read 7,905,121 + output 18,638 (max per message). USD at opus-5-5 list rates in 5/out 25 per MTok, cache read x0.10, cache writes x2.0. Re-sum the same file after the session ends. Verdict is on code commit 1973abf; PR 193 was already squash-merged to main as dd70dea (identical src/tests) before this verify ran." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-11
 ---
 
 # HANDOFF-126: VERIFY: refuse unreadable opcode lists and guard the stage primitives (SPEC-056, 0.2.1 housekeeping)

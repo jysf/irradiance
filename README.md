@@ -182,8 +182,8 @@ waves:
   apply the DNG geometry/opcode pipeline, and sRGB-encode a monochrome DNG end
   to end.
 - **`PROJ-002` — Bayer colour develop** *(in progress)*: demosaic and the
-  camera→sRGB colour transform are shipped; ColorChecker ΔE validation and the
-  0.2.0 release are pending.
+  camera→sRGB colour transform are shipped and released (0.2.x); ColorChecker
+  ΔE validation (SPEC-035) is pending the chart capture.
 - **`PROJ-003` — compressed planes** *(shipped)*: a clean-room, patent-clean
   lossless-JPEG (SOF-3) decoder, fuzzed, and bound to DNG `Compression 7`
   through `plane::unpack_into` (`SPEC-043` routing, `SPEC-046` two-component
