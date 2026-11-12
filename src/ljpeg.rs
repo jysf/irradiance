@@ -968,6 +968,171 @@ fn neighbour(out: &[u16], idx: usize, back: usize) -> i32 {
     }
 }
 
+/// Where a reconstruction writes: a clipped, strided rectangle of a larger
+/// caller-owned plane (`SPEC-058`, `DEC-056`).
+///
+/// A frame's sample at frame-local `(row, col)` lands at plane index
+/// `(y0 + row) · stride + x0 + col` — **if it is visible**: `col <
+/// visible_width` and `row < visible_height`. The visible part is always a
+/// left-aligned column prefix and a top-aligned row prefix of the frame, which
+/// is what makes the window sound: lossless predictors 1–7 (ITU-T T.81 Table
+/// H.1) read only the left, above and above-left neighbours, so every visible
+/// sample's neighbours are visible too, and the entropy-coded difference
+/// (T.81 Annex H.1.2) does not depend on the prediction, so a sample right of
+/// the window can have its difference read and dropped without
+/// reconstructing it. Rows below the window are never decoded.
+///
+/// The strip path is the degenerate window [`Window::dense`]: stride = frame
+/// width, origin `(0, 0)`, everything visible — byte-identical to the dense
+/// decode it replaced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Window {
+    /// Samples per plane row (the plane width).
+    pub(crate) stride: usize,
+    /// Plane column of the frame's first column.
+    pub(crate) x0: usize,
+    /// Plane row of the frame's first row.
+    pub(crate) y0: usize,
+    /// Frame columns written (a prefix); the rest are read and discarded.
+    pub(crate) visible_width: usize,
+    /// Frame rows decoded and written (a prefix); decoding stops after them.
+    pub(crate) visible_height: usize,
+}
+
+impl Window {
+    /// The whole frame, written densely: the strip path's window.
+    pub(crate) fn dense(width: usize, height: usize) -> Window {
+        Window {
+            stride: width,
+            x0: 0,
+            y0: 0,
+            visible_width: width,
+            visible_height: height,
+        }
+    }
+
+    /// Plane index of frame-local `(row, 0)`. `None` only on an overflow
+    /// [`check_window`] has already ruled out for every visible row.
+    fn row_base(&self, row: usize) -> Option<usize> {
+        self.y0
+            .checked_add(row)?
+            .checked_mul(self.stride)?
+            .checked_add(self.x0)
+    }
+
+    /// Whether frame column `col` is inside the window. The single clip
+    /// decision both reconstruction loops make; everything right of it has
+    /// its difference decoded and dropped.
+    fn is_visible(&self, col: usize) -> bool {
+        col < self.visible_width
+    }
+}
+
+/// Check `win` against a frame `frame_width × frame_height` (in plane columns:
+/// `samples_per_line × components`) and an `out` of `out_len` samples, before
+/// anything is written: the visible part is a prefix of the frame, lies within
+/// one plane row band (`x0 + visible_width <= stride`), and its last sample is
+/// inside `out`. Together these keep every visible sample — and so every
+/// neighbour a visible sample reads — in bounds.
+///
+/// # Errors
+///
+/// [`Error::LjpegPlaneWrongLength`] when the window does not fit, carrying the
+/// plane length the window needs (`usize::MAX` when it is not representable or
+/// the window disagrees with the frame itself).
+fn check_window(
+    win: &Window,
+    frame_width: usize,
+    frame_height: usize,
+    out_len: usize,
+) -> Result<(), Error> {
+    let misfit = |expected: usize| Error::LjpegPlaneWrongLength {
+        expected,
+        got: out_len,
+    };
+    if win.visible_width > frame_width || win.visible_height > frame_height {
+        return Err(misfit(usize::MAX));
+    }
+    let right = win
+        .x0
+        .checked_add(win.visible_width)
+        .ok_or(misfit(usize::MAX))?;
+    if right > win.stride {
+        return Err(misfit(usize::MAX));
+    }
+    if win.visible_width == 0 || win.visible_height == 0 {
+        return Ok(());
+    }
+    // One past the last visible sample: `(y0 + vh − 1) · stride + x0 + vw`.
+    let needed = win
+        .row_base(win.visible_height.saturating_sub(1))
+        .and_then(|base| base.checked_add(win.visible_width))
+        .ok_or(misfit(usize::MAX))?;
+    if needed > out_len {
+        return Err(misfit(needed));
+    }
+    Ok(())
+}
+
+/// The initial prediction `2^(P − Pt − 1)`. `P` is `2..=16` and `Pt` is
+/// `0..=15` (both from the parsed header); a `Pt >= P` (malformed, since valid
+/// streams have `Pt < P`) makes the exponent negative — treated as `0` rather
+/// than panicking.
+fn initial_prediction(frame: &Frame) -> i32 {
+    let exp = i32::from(frame.precision)
+        .wrapping_sub(i32::from(frame.point_transform))
+        .wrapping_sub(1);
+    if exp < 0 {
+        0
+    } else {
+        i32::try_from(pow2(u32::try_from(exp).unwrap_or(0))).unwrap_or(0)
+    }
+}
+
+/// Point transform over the window: the stored output is `reconstructed <<
+/// Pt`, applied once every visible sample is reconstructed (the predictor
+/// neighbours are the pre-shift values). Done as a modular `2^16` multiply so a
+/// malformed over-range value wraps rather than panics; for honest input
+/// `reconstructed < 2^(P−Pt)` so `<< Pt` never overflows 16 bits. Visible
+/// samples only; `Pt == 0` (every held file) is a no-op.
+fn apply_point_transform(out: &mut [u16], win: &Window, pt: u8) {
+    if pt == 0 {
+        return;
+    }
+    let factor = u16::try_from(pow2(u32::from(pt))).unwrap_or(1);
+    for row in 0..win.visible_height {
+        let Some(base) = win.row_base(row) else {
+            return;
+        };
+        let end = base.saturating_add(win.visible_width);
+        if let Some(samples) = out.get_mut(base..end) {
+            for slot in samples {
+                *slot = slot.wrapping_mul(factor);
+            }
+        }
+    }
+}
+
+/// The `out.len() == width · height` precondition of a dense decode.
+fn check_dense_length(width: usize, height: usize, out_len: usize) -> Result<(), Error> {
+    // `checked_mul` keeps the lint happy and covers the (unreachable on
+    // 32/64-bit targets) overflow: a plane larger than `usize::MAX` cannot
+    // match any real buffer.
+    let expected = width
+        .checked_mul(height)
+        .ok_or(Error::LjpegPlaneWrongLength {
+            expected: usize::MAX,
+            got: out_len,
+        })?;
+    if out_len != expected {
+        return Err(Error::LjpegPlaneWrongLength {
+            expected,
+            got: out_len,
+        });
+    }
+    Ok(())
+}
+
 /// Reconstruct a single-component SOF-3 plane from `reader`'s decoded
 /// difference stream into the caller-owned `out` (ITU-T T.81 Annex H.1).
 ///
@@ -990,7 +1155,8 @@ fn neighbour(out: &[u16], idx: usize, back: usize) -> i32 {
 /// 0`, [`ScanReader::restart`] is called at each interval boundary and the
 /// prediction resets to the scan-start rule for the next sample.
 ///
-/// No allocation occurs (`DEC-016`): the only buffer is the caller's `out`.
+/// This is [`reconstruct_window`] over [`Window::dense`]. No allocation occurs
+/// (`DEC-016`): the only buffer is the caller's `out`.
 ///
 /// # Errors
 ///
@@ -1005,57 +1171,55 @@ pub(crate) fn reconstruct(
 ) -> Result<(), Error> {
     let width = usize::from(frame.samples_per_line);
     let height = usize::from(frame.lines);
+    check_dense_length(width, height, out.len())?;
+    reconstruct_window(frame, table, reader, out, Window::dense(width, height))
+}
 
-    // Length precondition (the one check a caller-owned, no-alloc path can make
-    // before writing). `checked_mul` keeps the lint happy and covers the
-    // (unreachable on 32/64-bit targets) overflow: a plane larger than
-    // `usize::MAX` cannot match any real buffer.
-    let expected = match width.checked_mul(height) {
-        Some(e) => e,
-        None => {
-            return Err(Error::LjpegPlaneWrongLength {
-                expected: usize::MAX,
-                got: out.len(),
-            });
-        }
-    };
-    if out.len() != expected {
-        return Err(Error::LjpegPlaneWrongLength {
-            expected,
-            got: out.len(),
-        });
-    }
-    if expected == 0 {
-        // A zero-sample plane (either dimension 0) has nothing to decode.
+/// [`reconstruct`] through a destination [`Window`] (`SPEC-058`, `DEC-056`):
+/// the same prediction, boundary, restart and point-transform rules, with each
+/// visible sample written at its window position in `out` and its neighbours
+/// read at stride offsets. A sample right of the window has its difference
+/// decoded and dropped; decoding returns after the window's last row.
+///
+/// # Errors
+///
+/// [`Error::LjpegPlaneWrongLength`] if the window does not fit the frame or
+/// `out` ([`check_window`]), or any typed [`Error`] surfaced by `reader`.
+pub(crate) fn reconstruct_window(
+    frame: &Frame,
+    table: &HuffTable,
+    reader: &mut ScanReader<'_>,
+    out: &mut [u16],
+    win: Window,
+) -> Result<(), Error> {
+    let width = usize::from(frame.samples_per_line);
+    check_window(&win, width, usize::from(frame.lines), out.len())?;
+    if width == 0 || win.visible_width == 0 || win.visible_height == 0 {
+        // Nothing visible: nothing to decode.
         return Ok(());
     }
 
-    // Initial prediction `2^(P − Pt − 1)`. `P` is `2..=16` and `Pt` is `0..=15`
-    // (both from the parsed header); a `Pt >= P` (malformed, since valid
-    // streams have `Pt < P`) makes the exponent negative — treated as `0`
-    // rather than panicking.
-    let p = i32::from(frame.precision);
-    let pt = frame.point_transform;
-    let initial: i32 = {
-        let exp = p.wrapping_sub(i32::from(pt)).wrapping_sub(1);
-        if exp < 0 {
-            0
-        } else {
-            i32::try_from(pow2(u32::try_from(exp).unwrap_or(0))).unwrap_or(0)
-        }
-    };
-
+    let initial = initial_prediction(frame);
     let restart_interval = usize::from(frame.restart_interval);
     let selector = frame.predictor;
+    // Same-component neighbours, as distances back from a sample's plane index:
+    // left, above, above-left. For the dense window `stride == width`, exactly
+    // the offsets the dense decode used.
+    let up = win.stride;
+    let up_left = win.stride.wrapping_add(1);
 
-    let mut idx: usize = 0;
     // Samples decoded in the current restart interval (resets to 0 at the scan
     // start and after each restart). `== 0` is exactly the set of samples that
     // take the initial prediction: the first sample of the scan, and the first
-    // sample after each restart.
+    // sample after each restart. Discarded samples count too: the interval is
+    // a property of the scan, not of the window.
     let mut count_in_interval: usize = 0;
 
-    for r in 0..height {
+    for r in 0..win.visible_height {
+        let base = win.row_base(r).ok_or(Error::LjpegPlaneWrongLength {
+            expected: usize::MAX,
+            got: out.len(),
+        })?;
         for c in 0..width {
             if restart_interval > 0 && count_in_interval == restart_interval {
                 reader.restart()?;
@@ -1064,56 +1228,51 @@ pub(crate) fn reconstruct(
 
             let diff = reader.decode_difference(table)?;
 
-            let px: i32 = if count_in_interval == 0 {
-                initial
-            } else if r == 0 {
-                // Rest of the first line: Ra (left).
-                neighbour(out, idx, 1)
-            } else if c == 0 {
-                // First column of a later line: Rb (above).
-                neighbour(out, idx, width)
-            } else {
-                let ra = neighbour(out, idx, 1);
-                let rb = neighbour(out, idx, width);
-                let rc = neighbour(out, idx, width.wrapping_add(1));
-                predict(selector, ra, rb, rc)
-            };
+            if win.is_visible(c) {
+                // Neighbours are computed only from visible coordinates: `c`
+                // and `r` are inside the prefix, so `c − 1` and `r − 1` are too.
+                let idx = base.wrapping_add(c);
+                let px: i32 = if count_in_interval == 0 {
+                    initial
+                } else if r == 0 {
+                    // Rest of the first line: Ra (left).
+                    neighbour(out, idx, 1)
+                } else if c == 0 {
+                    // First column of a later line: Rb (above).
+                    neighbour(out, idx, up)
+                } else {
+                    let ra = neighbour(out, idx, 1);
+                    let rb = neighbour(out, idx, up);
+                    let rc = neighbour(out, idx, up_left);
+                    predict(selector, ra, rb, rc)
+                };
 
-            // Sample = (Px + difference) mod 2^16, in the point-transformed
-            // domain. `& 0xFFFF` on the two's-complement sum is the modular
-            // reduction (a negative sum maps to its 0..=65535 residue).
-            let sample = px.wrapping_add(diff) & 0xFFFF;
-            if let Some(slot) = out.get_mut(idx) {
-                *slot = u16::try_from(sample).unwrap_or(0);
+                // Sample = (Px + difference) mod 2^16, in the point-transformed
+                // domain. `& 0xFFFF` on the two's-complement sum is the modular
+                // reduction (a negative sum maps to its 0..=65535 residue).
+                let sample = px.wrapping_add(diff) & 0xFFFF;
+                if let Some(slot) = out.get_mut(idx) {
+                    *slot = u16::try_from(sample).unwrap_or(0);
+                }
             }
 
-            idx = idx.wrapping_add(1);
             count_in_interval = count_in_interval.wrapping_add(1);
         }
     }
 
-    // Point transform: the stored output is `reconstructed << Pt`. Done as a
-    // modular `2^16` multiply so a malformed over-range value wraps rather than
-    // panics; for honest input `reconstructed < 2^(P−Pt)` so `<< Pt` never
-    // overflows 16 bits. `Pt == 0` (every held corpus file) is a no-op.
-    if pt > 0 {
-        let factor = u16::try_from(pow2(u32::from(pt))).unwrap_or(1);
-        for slot in out.iter_mut() {
-            *slot = slot.wrapping_mul(factor);
-        }
-    }
-
+    apply_point_transform(out, &win, frame.point_transform);
     Ok(())
 }
 
 /// The loop-invariant prediction parameters of a two-component reconstruction:
-/// the de-interleaved plane width `2·X`, the shared predictor selector, and the
-/// initial prediction `2^(P−Pt−1)`. Grouped so [`predict_component`] stays
-/// within the crate's argument-count lint.
+/// the plane row stride, the shared predictor selector, and the initial
+/// prediction `2^(P−Pt−1)`. Grouped so [`predict_component`] stays within the
+/// crate's argument-count lint.
 #[derive(Clone, Copy)]
 struct CompPredict {
-    /// `2 · samples_per_line` — the width of the de-interleaved plane.
-    plane_width: usize,
+    /// The destination plane's row stride — `2 · samples_per_line` for the
+    /// dense de-interleaved plane, the plane width for a tile window.
+    stride: usize,
     /// The scan's predictor selector `Ss` (shared by both components).
     selector: u8,
     /// The initial prediction `2^(P−Pt−1)`.
@@ -1123,10 +1282,11 @@ struct CompPredict {
 /// The lossless prediction `Px` for one component of a two-component
 /// column-interleave scan (`SPEC-046`), applying the §H.2.1 boundary rules
 /// **independently per component**. `slot` is the component's own linear index
-/// in the `2·X`-wide plane; its same-component neighbours are two output
+/// in the destination plane; its same-component neighbours are two output
 /// columns back (`Ra`), one plane row back (`Rb`), and one of each (`Rc`). This
 /// is the per-component counterpart of the single-sample selection inside
-/// [`reconstruct`].
+/// [`reconstruct_window`]. Called only for a visible sample, whose neighbours
+/// are visible too (`DEC-056`).
 ///
 /// - the first sample of the scan (and of each restart interval, when
 ///   `is_interval_start`) uses the initial prediction `2^(P−Pt−1)`;
@@ -1149,11 +1309,11 @@ fn predict_component(
         neighbour(out, slot, 2)
     } else if col == 0 {
         // Rb: same-component sample directly above, one plane row back.
-        neighbour(out, slot, cfg.plane_width)
+        neighbour(out, slot, cfg.stride)
     } else {
         let ra = neighbour(out, slot, 2);
-        let rb = neighbour(out, slot, cfg.plane_width);
-        let rc = neighbour(out, slot, cfg.plane_width.wrapping_add(2));
+        let rb = neighbour(out, slot, cfg.stride);
+        let rc = neighbour(out, slot, cfg.stride.wrapping_add(2));
         predict(cfg.selector, ra, rb, rc)
     }
 }
@@ -1179,7 +1339,8 @@ fn predict_component(
 /// is that value `<< Pt` (both held files use `Pt=0`, a no-op). When
 /// `frame.restart_interval > 0`, [`ScanReader::restart`] is called at each
 /// interval boundary (counted in MCUs) and both components' prediction resets.
-/// No allocation occurs (`DEC-016`).
+/// This is [`reconstruct_two_component_window`] over [`Window::dense`]. No
+/// allocation occurs (`DEC-016`).
 ///
 /// # Errors
 ///
@@ -1192,38 +1353,53 @@ fn reconstruct_two_component(
     reader: &mut ScanReader<'_>,
     out: &mut [u16],
 ) -> Result<(), Error> {
-    let width = usize::from(frame.samples_per_line); // X, per component
+    // The de-interleaved plane is `2·X` wide. The length precondition keys on
+    // `Nf=2`: `out.len() == 2 · X · Y`.
+    let plane_width =
+        usize::from(frame.samples_per_line)
+            .checked_mul(2)
+            .ok_or(Error::LjpegPlaneWrongLength {
+                expected: usize::MAX,
+                got: out.len(),
+            })?;
     let height = usize::from(frame.lines);
+    check_dense_length(plane_width, height, out.len())?;
+    reconstruct_two_component_window(
+        frame,
+        tables,
+        reader,
+        out,
+        Window::dense(plane_width, height),
+    )
+}
 
-    // The de-interleaved plane is `2·X` wide. The length precondition (the one
-    // check a caller-owned, no-alloc path makes before writing) keys on `Nf=2`:
-    // `out.len() == 2 · X · Y`. `checked_mul` keeps the lint happy and treats
-    // the (unreachable on real buffers) overflow as a length that cannot match.
-    let plane_width = match width.checked_mul(2) {
-        Some(w) => w,
-        None => {
-            return Err(Error::LjpegPlaneWrongLength {
-                expected: usize::MAX,
-                got: out.len(),
-            });
-        }
-    };
-    let expected = match plane_width.checked_mul(height) {
-        Some(e) => e,
-        None => {
-            return Err(Error::LjpegPlaneWrongLength {
-                expected: usize::MAX,
-                got: out.len(),
-            });
-        }
-    };
-    if out.len() != expected {
-        return Err(Error::LjpegPlaneWrongLength {
-            expected,
-            got: out.len(),
-        });
-    }
-    if expected == 0 {
+/// [`reconstruct_two_component`] through a destination [`Window`]
+/// (`SPEC-058`, `DEC-056`). The window is in **plane** columns (`2·X` per
+/// frame row): MCU `x` carries plane columns `2x` (component 0) and `2x + 1`
+/// (component 1), and each is written only if visible. A component right of
+/// the window still has its difference decoded with its own table, in MCU
+/// order, and dropped — so an odd visible width keeps component 0 of the last
+/// visible MCU and discards component 1. Decoding returns after the window's
+/// last row.
+///
+/// # Errors
+///
+/// [`Error::LjpegPlaneWrongLength`] if the window does not fit the frame or
+/// `out` ([`check_window`]), or any typed [`Error`] surfaced by `reader`.
+pub(crate) fn reconstruct_two_component_window(
+    frame: &Frame,
+    tables: &[HuffTable],
+    reader: &mut ScanReader<'_>,
+    out: &mut [u16],
+    win: Window,
+) -> Result<(), Error> {
+    let width = usize::from(frame.samples_per_line); // X, per component
+    let plane_width = width.checked_mul(2).ok_or(Error::LjpegPlaneWrongLength {
+        expected: usize::MAX,
+        got: out.len(),
+    })?;
+    check_window(&win, plane_width, usize::from(frame.lines), out.len())?;
+    if width == 0 || win.visible_width == 0 || win.visible_height == 0 {
         return Ok(());
     }
 
@@ -1233,72 +1409,61 @@ fn reconstruct_two_component(
     let table0 = tables.first().ok_or(Error::LjpegInvalidHuffmanTable)?;
     let table1 = tables.get(1).ok_or(Error::LjpegInvalidHuffmanTable)?;
 
-    // Initial prediction `2^(P − Pt − 1)`, as in the single-component path.
-    let p = i32::from(frame.precision);
-    let pt = frame.point_transform;
-    let initial: i32 = {
-        let exp = p.wrapping_sub(i32::from(pt)).wrapping_sub(1);
-        if exp < 0 {
-            0
-        } else {
-            i32::try_from(pow2(u32::try_from(exp).unwrap_or(0))).unwrap_or(0)
-        }
-    };
-
     let restart_interval = usize::from(frame.restart_interval);
     let cfg = CompPredict {
-        plane_width,
+        stride: win.stride,
         selector: frame.predictor,
-        initial,
+        initial: initial_prediction(frame),
     };
 
-    // `idx` is component 0's slot for the current MCU; component 1 is `idx + 1`.
     // `count_in_interval` counts MCUs in the current restart interval; `== 0`
     // marks the MCU whose two components both take the initial prediction (the
     // scan start and each sample after a restart).
-    let mut idx: usize = 0;
     let mut count_in_interval: usize = 0;
 
-    for y in 0..height {
+    for y in 0..win.visible_height {
+        let base = win.row_base(y).ok_or(Error::LjpegPlaneWrongLength {
+            expected: usize::MAX,
+            got: out.len(),
+        })?;
         for x in 0..width {
             if restart_interval > 0 && count_in_interval == restart_interval {
                 reader.restart()?;
                 count_in_interval = 0;
             }
             let is_interval_start = count_in_interval == 0;
+            // Plane columns of this MCU's two components.
+            let col0 = x.wrapping_mul(2);
+            let col1 = col0.wrapping_add(1);
 
             // Component 0, then component 1 — the natural MCU order. Each
-            // difference is decoded with the component's own table; each
-            // prediction reads only the component's own neighbours.
+            // difference is decoded with the component's own table, visible or
+            // not; each prediction reads only the component's own neighbours.
             let diff0 = reader.decode_difference(table0)?;
-            let px0 = predict_component(out, cfg, idx, is_interval_start, y, x);
-            let sample0 = px0.wrapping_add(diff0) & 0xFFFF;
-            if let Some(slot) = out.get_mut(idx) {
-                *slot = u16::try_from(sample0).unwrap_or(0);
+            if win.is_visible(col0) {
+                let idx0 = base.wrapping_add(col0);
+                let px0 = predict_component(out, cfg, idx0, is_interval_start, y, x);
+                let sample0 = px0.wrapping_add(diff0) & 0xFFFF;
+                if let Some(slot) = out.get_mut(idx0) {
+                    *slot = u16::try_from(sample0).unwrap_or(0);
+                }
             }
 
-            let idx1 = idx.wrapping_add(1);
             let diff1 = reader.decode_difference(table1)?;
-            let px1 = predict_component(out, cfg, idx1, is_interval_start, y, x);
-            let sample1 = px1.wrapping_add(diff1) & 0xFFFF;
-            if let Some(slot) = out.get_mut(idx1) {
-                *slot = u16::try_from(sample1).unwrap_or(0);
+            if win.is_visible(col1) {
+                let idx1 = base.wrapping_add(col1);
+                let px1 = predict_component(out, cfg, idx1, is_interval_start, y, x);
+                let sample1 = px1.wrapping_add(diff1) & 0xFFFF;
+                if let Some(slot) = out.get_mut(idx1) {
+                    *slot = u16::try_from(sample1).unwrap_or(0);
+                }
             }
 
-            idx = idx.wrapping_add(2);
             count_in_interval = count_in_interval.wrapping_add(1);
         }
     }
 
-    // Point transform: stored output is `reconstructed << Pt`, a modular `2^16`
-    // multiply (both held files use `Pt == 0`, a no-op). Mirrors `reconstruct`.
-    if pt > 0 {
-        let factor = u16::try_from(pow2(u32::from(pt))).unwrap_or(1);
-        for slot in out.iter_mut() {
-            *slot = slot.wrapping_mul(factor);
-        }
-    }
-
+    apply_point_transform(out, &win, frame.point_transform);
     Ok(())
 }
 
@@ -1322,14 +1487,7 @@ fn reconstruct_two_component(
 /// ([`Error::LjpegPlaneWrongLength`]), or reconstruction — never a panic on
 /// malformed input.
 pub(crate) fn decode_into(data: &[u8], out: &mut [u16]) -> Result<Frame, Error> {
-    let (frame, tables, offset) = parse_headers(data)?;
-    // `offset` is `<= data.len()` (parse_headers only advances through
-    // bounds-checked reads), so this slice is always present; the `ok_or`
-    // keeps the path total without an index.
-    let entropy = data
-        .get(offset..)
-        .ok_or(Error::Truncated { at: offset, len: 0 })?;
-    let mut reader = ScanReader::new(entropy);
+    let (frame, tables, mut reader) = open_scan(data)?;
     if frame.components == 2 {
         reconstruct_two_component(&frame, &tables, &mut reader, out)?;
     } else {
@@ -1341,6 +1499,51 @@ pub(crate) fn decode_into(data: &[u8], out: &mut [u16]) -> Result<Frame, Error> 
         reconstruct(&frame, table, &mut reader, out)?;
     }
     Ok(frame)
+}
+
+/// [`decode_into`] through a destination [`Window`] (`SPEC-058`, `DEC-056`):
+/// one tile's SOF-3 datastream reconstructed straight into its clipped
+/// rectangle of the caller's plane `out`. The window is in plane columns
+/// (`samples_per_line × components` per frame row). Nothing is allocated, and
+/// the stream's bytes after the window's last row are never read.
+///
+/// The caller binds the frame's shape to the tile first
+/// (`plane::check_strip_shape`, `DEC-047`); this checks only that the window
+/// fits the frame and `out`.
+///
+/// # Errors
+///
+/// As [`decode_into`], with [`Error::LjpegPlaneWrongLength`] for a window that
+/// does not fit.
+pub(crate) fn decode_window_into(
+    data: &[u8],
+    out: &mut [u16],
+    win: Window,
+) -> Result<Frame, Error> {
+    let (frame, tables, mut reader) = open_scan(data)?;
+    if frame.components == 2 {
+        reconstruct_two_component_window(&frame, &tables, &mut reader, out, win)?;
+    } else {
+        let table = tables
+            .first()
+            .ok_or(Error::LjpegMissingMarker { marker: MARKER_DHT })?;
+        reconstruct_window(&frame, table, &mut reader, out, win)?;
+    }
+    Ok(frame)
+}
+
+/// Parse the headers and position a [`ScanReader`] at the entropy-coded
+/// segment — the shared front half of [`decode_into`] and
+/// [`decode_window_into`].
+fn open_scan(data: &[u8]) -> Result<(Frame, Vec<HuffTable>, ScanReader<'_>), Error> {
+    let (frame, tables, offset) = parse_headers(data)?;
+    // `offset` is `<= data.len()` (parse_headers only advances through
+    // bounds-checked reads), so this slice is always present; the `ok_or`
+    // keeps the path total without an index.
+    let entropy = data
+        .get(offset..)
+        .ok_or(Error::Truncated { at: offset, len: 0 })?;
+    Ok((frame, tables, ScanReader::new(entropy)))
 }
 
 #[cfg(test)]
@@ -3297,6 +3500,204 @@ mod tests {
             let frame = decode_into(&stream, &mut out).unwrap();
             assert_eq!(frame.restart_interval as usize, ri);
             assert_eq!(out, samples, "two-component restart at ri={ri} MCU(s)");
+        }
+    }
+
+    // ── SPEC-058: the destination window (DEC-056) ────────────────────────
+    //
+    // The tile path reconstructs through a clipped, strided window; the strip
+    // path through the dense window. These pin both against the dense decode
+    // over every predictor, a point transform, restart intervals, and both
+    // component counts — the parameters the writer-built tile fixtures (which
+    // use predictor 1, Pt 0, no restarts) cannot reach.
+
+    /// A [`WindowCase`] for every predictor,
+    /// `Pt` in {0, 2}, restart interval in {0, 3}, `Nf` in {1, 2}. A 6 x 5 plane
+    /// (Nf=2: three samples per component per line), 12-bit, with the low `Pt`
+    /// bits clear so the round trip is exact.
+    /// One window test case: `(stream, plane_width, height, samples, label)`.
+    type WindowCase = (Vec<u8>, usize, usize, Vec<u16>, String);
+
+    fn window_cases() -> Vec<WindowCase> {
+        let (w, h, precision) = (6usize, 5usize, 12u8);
+        let mut cases = Vec::new();
+        for nf in [1u8, 2] {
+            for predictor in 1u8..=7 {
+                for pt in [0u8, 2] {
+                    for restart in [0usize, 3] {
+                        let mask = !((1u16 << pt) - 1);
+                        let samples: Vec<u16> = (0..w * h)
+                            .map(|i| {
+                                (((i as u32).wrapping_mul(2_654_435_761) >> 9) & 0x0FFF) as u16
+                                    & mask
+                            })
+                            .collect();
+                        let stream = if nf == 1 {
+                            encode_lj92(&samples, w, h, precision, predictor, pt, restart)
+                        } else {
+                            encode_lj92_two_component(
+                                &samples,
+                                w / 2,
+                                h,
+                                precision,
+                                predictor,
+                                pt,
+                                restart,
+                            )
+                        };
+                        cases.push((
+                            stream,
+                            w,
+                            h,
+                            samples,
+                            format!("Nf={nf} predictor {predictor} Pt={pt} restart {restart}"),
+                        ));
+                    }
+                }
+            }
+        }
+        cases
+    }
+
+    #[test]
+    fn full_window_is_byte_identical_to_dense_decode() {
+        for (stream, w, h, samples, label) in window_cases() {
+            let mut dense = vec![0u16; w * h];
+            decode_into(&stream, &mut dense).unwrap();
+            assert_eq!(dense, samples, "{label}: dense round trip");
+
+            let mut windowed = vec![0u16; w * h];
+            decode_window_into(&stream, &mut windowed, Window::dense(w, h)).unwrap();
+            assert_eq!(
+                windowed, dense,
+                "{label}: the dense window must equal the dense decode"
+            );
+        }
+    }
+
+    #[test]
+    fn clipped_window_matches_dense_decode_prefix() {
+        // Every visible width and height, at the origin and offset into a wider
+        // plane: the window holds exactly the dense decode's top-left
+        // `vw x vh` prefix, and not one other sample of `out` is touched.
+        const SENTINEL: u16 = 0xFFFF; // above every 12-bit sample
+        for (stream, w, h, samples, label) in window_cases() {
+            for (x0, y0, extra) in [(0usize, 0usize, 0usize), (3, 2, 4)] {
+                let stride = x0 + w + extra;
+                let rows = y0 + h + 1;
+                for vw in 1..=w {
+                    for vh in 1..=h {
+                        let mut out = vec![SENTINEL; stride * rows];
+                        let win = Window {
+                            stride,
+                            x0,
+                            y0,
+                            visible_width: vw,
+                            visible_height: vh,
+                        };
+                        decode_window_into(&stream, &mut out, win)
+                            .unwrap_or_else(|e| panic!("{label} {vw}x{vh}@({x0},{y0}): {e}"));
+                        for y in 0..rows {
+                            for x in 0..stride {
+                                let got = out[y * stride + x];
+                                let inside = x >= x0 && x < x0 + vw && y >= y0 && y < y0 + vh;
+                                let want = if inside {
+                                    samples[(y - y0) * w + (x - x0)]
+                                } else {
+                                    SENTINEL
+                                };
+                                assert_eq!(
+                                    got, want,
+                                    "{label} window {vw}x{vh}@({x0},{y0}) stride {stride}: \
+                                     plane ({x},{y})"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn clipped_window_stops_after_the_last_visible_row() {
+        // The window decodes only its visible rows: a stream cut short right
+        // after them still decodes, while the dense decode of the same bytes
+        // is a typed truncation. Predictor 1, Nf=1, 8 x 6, 16-bit; the cut is
+        // found by shortening the stream until the full decode fails but a
+        // two-row window still succeeds.
+        let (w, h) = (8usize, 6usize);
+        let samples: Vec<u16> = (0..w * h).map(|i| (i as u16).wrapping_mul(9_973)).collect();
+        let stream = encode_lj92(&samples, w, h, 16, 1, 0, 0);
+        let win = Window {
+            stride: w,
+            x0: 0,
+            y0: 0,
+            visible_width: w,
+            visible_height: 2,
+        };
+        let mut found = false;
+        for cut in (0..stream.len()).rev() {
+            let short = &stream[..cut];
+            let mut dense = vec![0u16; w * h];
+            let mut windowed = vec![0u16; w * h];
+            if decode_into(short, &mut dense).is_err()
+                && decode_window_into(short, &mut windowed, win).is_ok()
+            {
+                assert_eq!(&windowed[..2 * w], &samples[..2 * w]);
+                found = true;
+                break;
+            }
+        }
+        assert!(
+            found,
+            "no cut decoded the visible rows but not the whole frame"
+        );
+    }
+
+    #[test]
+    fn a_window_that_does_not_fit_is_a_typed_error() {
+        let (stream, w, h, _, _) = window_cases().remove(0);
+        let ok = Window::dense(w, h);
+        for (win, len, what) in [
+            (
+                Window {
+                    visible_width: w + 1,
+                    stride: w + 1,
+                    ..ok
+                },
+                (w + 1) * h,
+                "wider than the frame",
+            ),
+            (
+                Window {
+                    visible_height: h + 1,
+                    ..ok
+                },
+                w * (h + 1),
+                "taller than the frame",
+            ),
+            (
+                Window { x0: 1, ..ok },
+                w * h + 1,
+                "right edge past the stride",
+            ),
+            (ok, w * h - 1, "last sample past out"),
+            (
+                Window {
+                    y0: usize::MAX,
+                    ..ok
+                },
+                w * h,
+                "row index overflow",
+            ),
+        ] {
+            let mut out = vec![0u16; len];
+            let err = decode_window_into(&stream, &mut out, win).unwrap_err();
+            assert!(
+                matches!(err, Error::LjpegPlaneWrongLength { .. }),
+                "{what}: got {err:?}"
+            );
         }
     }
 }

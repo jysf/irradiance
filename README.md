@@ -135,14 +135,16 @@ CI; tier B = the real-file corpus (never committed, `DEC-003`), bit-exact agains
 | Bayer (CFA, RGGB family), 12/14/16-bit | `1` (uncompressed) | one or many strips | ✔ supported | tier A + tier B (Canon 5D Mark III, Nikon D300S 12-strip, …), bit-exact |
 | Monochrome, SOF-3 single-component (`Nf = 1`) | `7` (lossless JPEG) | one or many strips | ✔ supported | tier A (round-trip encoder fixtures, fuzzed) |
 | Monochrome, SOF-3 two-component column interleave (`Nf = 2`) | `7` (lossless JPEG) | one or many strips | ✔ supported | tier A + tier B (Leica M Monochrom Typ 246, Pentax K-3 III Monochrome DNG), bit-exact |
-| Any | any | **tiled** (`TileOffsets`) | ✘ `UnsupportedStripLayout` | tier A |
-| Bayer (CFA) inside lossless JPEG | `7` | — | ✘ not supported yet | — |
+| Monochrome or Bayer, 8/12/14/16-bit | `1` (uncompressed) | **tiles**, including partial edge tiles (`SPEC-058`) | ✔ supported | tier A (writer-built fixtures, II and MM, fuzzed) |
+| Monochrome or Bayer, SOF-3 `Nf = 1` or `Nf = 2` | `7` (lossless JPEG) | **tiles**, edge tiles coded full-size and clipped (`SPEC-058`, `DEC-056`) | ✔ supported | tier A + tier B (Google Pixel 4a, 3a, 7 Pro: 192 tiles of 256×256, Bayer, `Nf = 2`), bit-exact |
+| Uncompressed tiles whose row is not a whole number of bytes | `1` | tiles | ✘ `UnsupportedTileRowBits` | tier A |
+| Bayer (CFA) inside lossless JPEG, other component layouts | `7` | — | ✘ not supported yet | — |
 | Any | other codes (vendor-private, lossy, …) | — | ✘ `UnsupportedCompression` | tier A + tier B (Pentax PEF, `65535`) |
 
 For every supported mode `validate` refuses a plane over the caller's
 `max_pixels` (`PlaneTooLarge`) before any other check. For an uncompressed plane
 its `Ok(n)` also guarantees the unpack succeeds and that `n` is bounded by the
-file's own bytes (`StripBytesExceedFile` refuses strips that alias); for a
+file's own bytes (`StripBytesExceedFile` refuses strips or tiles that alias); for a
 Compression-7 plane `n` is bounded only by `max_pixels`, and the SOF-3 frame
 shape is still checked at decode (`DEC-050`).
 

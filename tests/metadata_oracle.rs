@@ -83,6 +83,27 @@ fn is_cfa_covered_by_colour_oracle(manifest_path: &str) -> bool {
     CFA_COVERED_BY_COLOUR_ORACLE.contains(&manifest_path)
 }
 
+/// `SPEC-058`: the tiled Pixel phone Bayer DNGs. Like the two Bayer files above
+/// they carry a four-value per-channel `BlackLevel`, which this scalar oracle's
+/// single-valued `ToolReading` cannot compare (dnglab's reading is refused as
+/// "4 elements, expected 1"). Unlike them, NO metadata oracle covers them yet:
+/// SPEC-058 is a plane-decode spec, and their plane is checked bit-exact
+/// against dnglab by `tests/plane_oracle.rs` and `tests/plane_tiles.rs`. Their
+/// colour metadata belongs to the colour oracle once a spec adds them there
+/// (STAGE-016 needs it). Named here, with that reason, so the skip is never
+/// silent.
+const CFA_METADATA_NOT_YET_ORACLED: &[&str] = &[
+    "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng",
+    "GOOGLE-PIXEL-3A/IMG_20190918_164153.dng",
+    "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng",
+];
+
+/// Whether the scalar mono oracle skips this Bayer file, by name.
+fn scalar_oracle_skips(manifest_path: &str) -> bool {
+    is_cfa_covered_by_colour_oracle(manifest_path)
+        || CFA_METADATA_NOT_YET_ORACLED.contains(&manifest_path)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AC7, tier A — the two Bayer files are no longer "deferred until SPEC-026",
 // they are "covered by the colour oracle". This oracle names them as such
@@ -143,8 +164,8 @@ fn metadata_matches_exiftool_on_every_corpus_file() {
     let mut checked = 0;
 
     for file in &manifest.files {
-        if is_cfa_covered_by_colour_oracle(&file.path) {
-            continue; // Bayer metadata is the colour oracle's claim, not this one.
+        if scalar_oracle_skips(&file.path) {
+            continue; // Bayer metadata is the colour oracle's claim (or not yet oracled), not this one.
         }
         let Some((path, sensor)) = sensor_at(&root, file) else {
             continue;
@@ -192,8 +213,8 @@ fn dnglab_scalars_agree_on_the_six_dng_files() {
         if file.path.ends_with(".PEF") {
             continue; // AC4.2 — excluded, its own dedicated test
         }
-        if is_cfa_covered_by_colour_oracle(&file.path) {
-            continue; // Bayer metadata is the colour oracle's claim, not this one.
+        if scalar_oracle_skips(&file.path) {
+            continue; // Bayer metadata is the colour oracle's claim (or not yet oracled), not this one.
         }
         let Some((path, sensor)) = sensor_at(&root, file) else {
             continue;
@@ -252,8 +273,8 @@ fn dnglab_crop_origin_is_active_area_plus_default_crop_origin() {
         if file.path.ends_with(".PEF") {
             continue; // AC4.2
         }
-        if is_cfa_covered_by_colour_oracle(&file.path) {
-            continue; // Bayer metadata is the colour oracle's claim, not this one.
+        if scalar_oracle_skips(&file.path) {
+            continue; // Bayer metadata is the colour oracle's claim (or not yet oracled), not this one.
         }
         let Some((path, sensor)) = sensor_at(&root, file) else {
             continue;

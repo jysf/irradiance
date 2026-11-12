@@ -67,6 +67,8 @@
 
 #[path = "support/corpus.rs"]
 mod corpus;
+#[path = "support/dng_writer.rs"]
+mod dng_writer;
 #[path = "support/md5.rs"]
 mod md5;
 #[path = "support/tiff.rs"]
@@ -117,7 +119,22 @@ const REFERENCE_FILE: &str = "LEICA-Q2-MONO/L1021223.DNG";
 /// Their expected digests come from the manifest like every other entry.
 const TYP246_LJPEG: &str = "LEICA-M-MONOCHROM-TYP246/M2462362.DNG";
 const K3III_LJPEG: &str = "PENTAX-K3III-MONO/K3III.DNG";
-const DECODABLE_COMPRESSED: [&str; 2] = [TYP246_LJPEG, K3III_LJPEG];
+/// `SPEC-058`: the three TILED Compression-7 Pixel phone DNGs (192 tiles of
+/// 256x256, Nf=2, clipped edge tiles), decoded through the tile window
+/// (`DEC-056`). Compressed, so they ride `DECODABLE_COMPRESSED`, its oracle
+/// loop, its partition check and its red-proofs.
+const PIXEL_TILED: [&str; 3] = [
+    "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng",
+    "GOOGLE-PIXEL-3A/IMG_20190918_164153.dng",
+    "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng",
+];
+const DECODABLE_COMPRESSED: [&str; 5] = [
+    TYP246_LJPEG,
+    K3III_LJPEG,
+    PIXEL_TILED[0],
+    PIXEL_TILED[1],
+    PIXEL_TILED[2],
+];
 
 /// The corpus files this oracle does NOT decode, and why — named here rather
 /// than left as "whatever `DECODABLE` doesn't mention", so an entry that falls
@@ -1240,6 +1257,159 @@ fn the_ljpeg_red_proof_control_is_green() {
         assert_eq!(
             apparatus_digest, pinned,
             "{path}: the UNMUTATED copy-and-rebuild apparatus must reproduce the pinned digest"
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-058 -- the tile-window red-proof (AC7)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A tiled Compression-7 plane decodes each full-size edge tile through a
+// clipped window (`DEC-056`): columns right of the plane have their difference
+// read and dropped. This mutates that ONE clip decision, `Window::is_visible`,
+// so the window keeps one column too many. On an interior tile nothing changes
+// (no column reaches the bound); on a right-edge tile the extra column lands on
+// the first sample of the NEXT plane row, which an earlier tile already wrote --
+// a wrong plane, not a decode error. The tier-A fixture runs everywhere; the
+// Pixel files join when the corpus is present.
+
+/// Make `Window::is_visible` admit one extra column.
+fn inject_window_clip_fault(ljpeg_rs: &Path) {
+    let src = std::fs::read_to_string(ljpeg_rs)
+        .unwrap_or_else(|e| panic!("read {}: {e}", ljpeg_rs.display()));
+    let needle = "col < self.visible_width";
+    let occurrences = src.matches(needle).count();
+    assert_eq!(
+        occurrences, 1,
+        "expected exactly one `{needle}` in src/ljpeg.rs (Window::is_visible); found \
+         {occurrences} -- the injection point moved, update this test"
+    );
+    let mutated = src.replace(
+        needle,
+        "col <= self.visible_width /* RED-PROOF INJECTION -- tests/plane_oracle.rs, never in the real tree */",
+    );
+    std::fs::write(ljpeg_rs, mutated)
+        .unwrap_or_else(|e| panic!("write mutated {}: {e}", ljpeg_rs.display()));
+}
+
+/// A tier-A tiled Compression-7 DNG written by the SPEC-057 writer: a 21x13
+/// Bayer plane in 8x4 tiles (3 x 4 = 12 tiles), each a full-size two-component
+/// (Nf=2) SOF-3 frame, so the right column of tiles shows 5 of 8 columns (odd,
+/// under Nf=2) and the bottom row 1 of 4 rows. Returns the file path and the
+/// MD5 of the input plane as little-endian u16 -- the digest an honest decode
+/// must reproduce.
+fn tiled_window_fixture(dir: &Path) -> (PathBuf, String) {
+    use dng_writer::{
+        write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload, PlaneKind,
+    };
+    let (width, height, tile_width, tile_length) = (21u32, 13u32, 8u32, 4u32);
+    let plane: Vec<u16> = (0..width * height)
+        .map(|i| ((i.wrapping_mul(2_654_435_761) >> 7) & 0xFFFF) as u16)
+        .collect();
+    let mut chunks = Vec::new();
+    for ty in 0..height.div_ceil(tile_length) {
+        for tx in 0..width.div_ceil(tile_width) {
+            let mut tile = Vec::new();
+            for r in 0..tile_length {
+                for c in 0..tile_width {
+                    let (x, y) = (tx * tile_width + c, ty * tile_length + r);
+                    tile.push(if x < width && y < height {
+                        plane[(y * width + x) as usize]
+                    } else {
+                        0xBEEF
+                    });
+                }
+            }
+            chunks.push(tiff::lj92_strip_components(
+                &tile,
+                tile_width as usize,
+                tile_length as usize,
+                16,
+                2,
+                0x11,
+            ));
+        }
+    }
+    let d = DngDescription {
+        order: tiff::Order::Little,
+        layout: IfdLayout::PreviewIfd0WithSensorSubIfd,
+        width,
+        height,
+        bits_per_sample: 16,
+        kind: PlaneKind::Cfa {
+            repeat_dim: [2, 2],
+            pattern: vec![0, 1, 1, 2],
+            plane_color: vec![0, 1, 2],
+        },
+        organisation: Organisation::Tiles {
+            tile_width,
+            tile_length,
+            edge_fill: 0xBEEF,
+        },
+        payload: Payload::Encoded {
+            compression: 7,
+            chunks,
+        },
+        meta: DngMeta::default(),
+        opcode_lists: [None, None, None],
+        extra_tags: Vec::new(),
+        fault: None,
+    };
+    let bytes = write_dng(&d).expect("writer accepts the tiled fixture");
+    let path = dir.join("tiled-window-fixture.dng");
+    std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
+    (path, md5::to_hex(&plane_md5(&plane)))
+}
+
+#[test]
+fn window_clip_red_proof() {
+    let fixture_dir = TempDir::new("window-fixture");
+    let (fixture, fixture_digest) = tiled_window_fixture(&fixture_dir.0);
+    let mut targets: Vec<(String, PathBuf, String)> =
+        vec![("tier-A tiled fixture".to_string(), fixture, fixture_digest)];
+    targets.extend(
+        present_compression7_files()
+            .into_iter()
+            .filter(|(path, _, _)| PIXEL_TILED.contains(path))
+            .map(|(path, p, pinned)| (path.to_string(), p, pinned)),
+    );
+
+    // Negative control 1 (DEC-009): the real, UNMUTATED decoder linked into
+    // this binary reproduces every expected digest.
+    for (label, path, expected) in &targets {
+        let (_, _, _, honest) = decode_and_hash(path).unwrap_or_else(|e| panic!("{label}: {e}"));
+        assert_eq!(
+            &honest, expected,
+            "{label}: the honest tree must match before this red-proof means anything"
+        );
+    }
+
+    // Negative control 2: the UNMUTATED copy-and-rebuild apparatus reproduces
+    // them too, so a red below is the injection, not the apparatus.
+    let control = TempDir::new("window-control");
+    stage_probe_crate_into(&control.0, "src/ljpeg.rs", None);
+    for (label, path, expected) in &targets {
+        assert_eq!(
+            &build_and_run_probe(&control.0, path),
+            expected,
+            "{label}: the UNMUTATED apparatus must reproduce the expected digest"
+        );
+    }
+
+    // The red-proof: one extra visible column at the right edge.
+    let mutant = TempDir::new("window-mutant");
+    stage_probe_crate_into(&mutant.0, "src/ljpeg.rs", Some(inject_window_clip_fault));
+    for (label, path, expected) in &targets {
+        let mutant_digest = build_and_run_probe(&mutant.0, path);
+        assert_ne!(
+            &mutant_digest, expected,
+            "{label}: the injected window-clip fault did NOT change the plane MD5 -- this \
+             red-proof has caught NOTHING"
+        );
+        eprintln!(
+            "WINDOW RED-PROOF ({label}): honest={expected} mutant={mutant_digest} -- one extra \
+             visible column turned the tiled oracle red"
         );
     }
 }

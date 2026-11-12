@@ -345,7 +345,7 @@ changes.
 
 ## Acceptance Criteria
 
-- [ ] **AC1 Uncompressed tiles.** Writer-built tiled planes unpack exactly to the
+- [x] **AC1 Uncompressed tiles.** Writer-built tiled planes unpack exactly to the
       input samples:
       - 8/12/16-bit, plus 14-bit where `TW×14` is a whole number of bytes;
       - LinearRaw and CFA;
@@ -354,39 +354,39 @@ changes.
         tile, and a plane that is an exact multiple of the tile size.
 
       Padding values (the writer's `edge_fill`) never reach `dst`.
-- [ ] **AC2 Compression-7 tiles.** Writer-built tiled planes, each tile encoded
+- [x] **AC2 Compression-7 tiles.** Writer-built tiled planes, each tile encoded
       with `lj92_strip_components`, unpack exactly to the input:
       - `Nf=1` and `Nf=2`;
       - precisions including 16;
       - partial right and bottom tiles, including an odd visible width under
         `Nf=2`;
       - II and MM.
-- [ ] **AC3 Pixel files bit-exact.** All three Pixel files unpack to a plane whose
+- [x] **AC3 Pixel files bit-exact.** All three Pixel files unpack to a plane whose
       MD5 equals the pinned `raw_checksum`. Tier B: each file skips loudly by name
       when absent.
-- [ ] **AC4 Strips unchanged.** Every held strip file's `raw_checksum` oracle still
+- [x] **AC4 Strips unchanged.** Every held strip file's `raw_checksum` oracle still
       passes, and the LJ92 round-trip and existing plane tests are unchanged and
       green.
-- [ ] **AC5 Hostile tile tables.** Each case in Design §3 returns its typed error
+- [x] **AC5 Hostile tile tables.** Each case in Design §3 returns its typed error
       from **both** `validate` and `unpack_into`, with the same variant and no
       panic. This includes a tile-count overflow (`ceil × ceil` past `u32`) and a
       transposed tile frame (`LjpegPlaneShapeMismatch`).
-- [ ] **AC6 No allocation.** No `Vec`, `Box` or other allocation is introduced in
+- [x] **AC6 No allocation.** No `Vec`, `Box` or other allocation is introduced in
       `src/plane.rs` or `src/ljpeg.rs` by this spec. A grep-level test or review
       check is acceptable. `validate` reads no tile bytes.
-- [ ] **AC7 Window red-proof.** The honest Pixel (or writer) checksum passes
+- [x] **AC7 Window red-proof.** The honest Pixel (or writer) checksum passes
       first. A mutated clip, such as one extra visible column or no discard of
       right-of-plane differences, then goes red.
-- [ ] **AC8 Develop refuses the Pixel files.** Each Pixel file's
+- [x] **AC8 Develop refuses the Pixel files.** Each Pixel file's
       `develop_color_into` (and the mono `develop_into`, if its path is reached)
       returns the DEC-049 required-processing error for the mandatory GainMap,
       typed, with no panic.
-- [ ] **AC9 Fuzz.** The seed set includes tiled fixtures. The plane-reaching fuzz
+- [x] **AC9 Fuzz.** The seed set includes tiled fixtures. The plane-reaching fuzz
       targets each run for at least 10 minutes with no crash, and the run counts
       are reported.
-- [ ] **AC10 Error kinds.** Every new `Error` variant has an `ErrorKind`, `Display`
+- [x] **AC10 Error kinds.** Every new `Error` variant has an `ErrorKind`, `Display`
       text and a test (DEC-051).
-- [ ] **AC11 Gates green.** These all pass:
+- [x] **AC11 Gates green.** These all pass:
       - `just test`
       - `lint-ci`
       - `lint-no-allow`

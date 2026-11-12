@@ -111,6 +111,14 @@ pub const TAG_SAMPLES_PER_PIXEL: u16 = 277;
 pub const TAG_ROWS_PER_STRIP: u16 = 278;
 /// TIFF 6.0: `StripByteCounts`.
 pub const TAG_STRIP_BYTE_COUNTS: u16 = 279;
+/// TIFF 6.0 §15: `TileWidth` — columns per tile (`SPEC-058`).
+pub const TAG_TILE_WIDTH: u16 = 322;
+/// TIFF 6.0 §15: `TileLength` — rows per tile.
+pub const TAG_TILE_LENGTH: u16 = 323;
+/// TIFF 6.0 §15: `TileOffsets` — one byte offset per tile, row-major.
+pub const TAG_TILE_OFFSETS: u16 = 324;
+/// TIFF 6.0 §15: `TileByteCounts` — one byte count per tile.
+pub const TAG_TILE_BYTE_COUNTS: u16 = 325;
 /// TIFF/EP + DNG: `SubIFDs` — the offsets this walk recurses into.
 pub const TAG_SUB_IFDS: u16 = 330;
 /// DNG 1.7 §Chapter 4: `BlackLevelRepeatDim`. Two SHORTs, and one real camera
@@ -249,6 +257,10 @@ fn is_structural_tag(tag: u16) -> bool {
             | TAG_SAMPLES_PER_PIXEL
             | TAG_ROWS_PER_STRIP
             | TAG_STRIP_BYTE_COUNTS
+            | TAG_TILE_WIDTH
+            | TAG_TILE_LENGTH
+            | TAG_TILE_OFFSETS
+            | TAG_TILE_BYTE_COUNTS
             | TAG_SUB_IFDS
     )
 }
@@ -698,6 +710,15 @@ pub struct Sensor {
     /// `StripByteCounts` — likewise a tag, and the layer-0 oracle's right-hand
     /// side (see [`Sensor::packed_bits`]).
     pub strip_byte_counts: Vec<u32>,
+    /// `TileWidth` (TIFF 6.0 §15), when present (`SPEC-058`). Structural
+    /// (`DEC-012`): a malformed value fails the read.
+    pub tile_width: Option<u32>,
+    /// `TileLength`, when present.
+    pub tile_length: Option<u32>,
+    /// `TileOffsets`, row-major tile order. Empty for a strip plane.
+    pub tile_offsets: Vec<u32>,
+    /// `TileByteCounts`. Empty for a strip plane.
+    pub tile_byte_counts: Vec<u32>,
     /// DNG `BlackLevel`, when present.
     pub black_level: Option<u32>,
     /// DNG `WhiteLevel`, when present.
@@ -840,6 +861,10 @@ impl Sensor {
             rows_per_strip: None,
             strip_offsets: Vec::new(),
             strip_byte_counts: Vec::new(),
+            tile_width: None,
+            tile_length: None,
+            tile_offsets: Vec::new(),
+            tile_byte_counts: Vec::new(),
             black_level: None,
             white_level: None,
             black_level_repeat_dim: None,
@@ -1843,6 +1868,14 @@ impl<'a> Container<'a> {
             // Structural: StripOffsets, StripByteCounts.
             strip_offsets: self.values(ifd, TAG_STRIP_OFFSETS)?,
             strip_byte_counts: self.values(ifd, TAG_STRIP_BYTE_COUNTS)?,
+            // Structural: the four TIFF 6.0 §15 tile tags (`SPEC-058`). They
+            // locate a tiled plane's bytes exactly as the strip tags locate a
+            // strip plane's, so a malformed one fails the read (`DEC-012`).
+            // SHORT or LONG, like the strip tags.
+            tile_width: self.scalar(ifd, TAG_TILE_WIDTH)?,
+            tile_length: self.scalar(ifd, TAG_TILE_LENGTH)?,
+            tile_offsets: self.values(ifd, TAG_TILE_OFFSETS)?,
+            tile_byte_counts: self.values(ifd, TAG_TILE_BYTE_COUNTS)?,
             black_level,
             white_level,
             black_level_repeat_dim,
@@ -3233,12 +3266,12 @@ mod tests {
         // deleting a tag delete its own coverage, which is the exact defect
         // this test exists to close.
         //
-        // Ten tags are `sensor()`-plane entries (`sensor()`'s uints() call is
+        // Fourteen tags are `sensor()`-plane entries (`sensor()`'s uints() call is
         // interpret-phase); `TAG_SUB_IFDS` is walk-phase — its `uints()` call
         // happens INSIDE `Container::parse` itself, before there is ever a
         // `Container` to read an `Entry` back out of — so it is checked
         // separately below, against `Container::parse`'s own error.
-        const STRUCTURAL_TAGS: [u16; 11] = [
+        const STRUCTURAL_TAGS: [u16; 15] = [
             TAG_NEW_SUBFILE_TYPE,
             TAG_IMAGE_WIDTH,
             TAG_IMAGE_LENGTH,
@@ -3249,6 +3282,10 @@ mod tests {
             TAG_SAMPLES_PER_PIXEL,
             TAG_ROWS_PER_STRIP,
             TAG_STRIP_BYTE_COUNTS,
+            TAG_TILE_WIDTH,
+            TAG_TILE_LENGTH,
+            TAG_TILE_OFFSETS,
+            TAG_TILE_BYTE_COUNTS,
             TAG_SUB_IFDS,
         ];
 

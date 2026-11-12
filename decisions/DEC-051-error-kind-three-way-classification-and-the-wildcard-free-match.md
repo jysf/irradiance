@@ -96,7 +96,9 @@ later without breaking callers, and `Error` stays `#[non_exhaustive]` and unchan
 
 *Later additions (each classified by its own decision, recorded here so the table
 stays the one reference):* `UnreadableOpcodeList` → **`Corrupt`** (`DEC-053`,
-`SPEC-056`, 0.2.1), making `Corrupt` 26 and the enum 56.
+`SPEC-056`, 0.2.1), making `Corrupt` 26 and the enum 56. `UnsupportedTileRowBits` →
+**`Unsupported`**, `InvalidTileLayout` and `StripsAndTiles` → **`Corrupt`** (`DEC-056`,
+`SPEC-058`), making `Unsupported` 19, `Corrupt` 28 and the enum 59.
 
 The build must re-derive this table against the live enum and pin **every** variant in
 a test (one representative constructed per variant, asserted to the kind above); the

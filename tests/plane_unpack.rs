@@ -1162,11 +1162,14 @@ fn truncated_compression7_strip_through_unpack_into_is_a_typed_error() {
 }
 
 #[test]
-fn tiled_compression7_plane_is_unsupported_strip_layout() {
+fn a_hand_built_single_tile_compression7_plane_decodes() {
     // A tiled Compression-7 plane: TileWidth/TileLength/TileOffsets/
-    // TileByteCounts (TIFF 6.0 §15) and no StripOffsets. Tiles are a stated
-    // non-goal; the route refuses the plane with a clean typed error rather
-    // than guessing at a layout.
+    // TileByteCounts (TIFF 6.0 §15) and no StripOffsets. Tiles were a stated
+    // non-goal (this test used to pin `UnsupportedStripLayout`); SPEC-058 /
+    // DEC-056 read them. Built with the hand-placed `tiff.rs` builder, not the
+    // SPEC-057 writer `tests/plane_tiles.rs` uses, so the two fixture paths
+    // stay independent: one 16 x 16 tile covering the whole plane decodes to
+    // exactly its samples.
     const TILE_WIDTH: u16 = 322;
     const TILE_LENGTH: u16 = 323;
     const TILE_OFFSETS: u16 = 324;
@@ -1186,17 +1189,8 @@ fn tiled_compression7_plane_is_unsupported_strip_layout() {
     data.resize(256, 0);
     data.extend_from_slice(&strip);
 
-    let err = unpack_synthetic(&data, width, height).expect_err("tiles are unsupported");
-    assert!(
-        matches!(
-            err,
-            Error::UnsupportedStripLayout {
-                strip_offsets: 0,
-                strip_byte_counts: 0
-            }
-        ),
-        "got {err:?}"
-    );
+    let plane = unpack_synthetic(&data, width, height).expect("a single tile decodes");
+    assert_eq!(plane, samples);
 }
 
 #[test]

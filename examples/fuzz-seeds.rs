@@ -42,6 +42,8 @@
 //!     fuzz/corpus/develop fuzz/seeds/develop -- -max_total_time=60
 //! ```
 
+#[path = "../tests/support/dng_writer.rs"]
+mod dng_writer;
 #[path = "../tests/support/opcode.rs"]
 mod opcode;
 #[path = "../tests/support/tiff.rs"]
@@ -98,6 +100,126 @@ fn compression7_seed() -> Vec<u8> {
     tiff::compression7_dng(tiff::Order::Little, width, height, precision, &samples)
 }
 
+/// `SPEC-058` (`DEC-056`): TILED sensor planes from the SPEC-057 writer, so
+/// every plane-reaching target starts inside the tile path. A 13 x 9 Bayer
+/// plane in 8 x 4 tiles (2 x 3 = 6 tiles: partial right AND bottom tiles, an
+/// odd visible width of 5), each tile coded at full size with a `0xBEEF`-style
+/// padding sentinel: uncompressed at 12 and 16 bits and Compression-7 at
+/// `Nf=1` and `Nf=2`, in both byte orders, plus one hostile table (a tile
+/// count one short of the grid). Own work, no corpus file (`DEC-003`).
+fn tiled_seeds() -> Vec<(&'static str, Vec<u8>)> {
+    use dng_writer::{
+        write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload, PlaneKind, RawTag,
+        TagIfd, TAG_TILE_BYTE_COUNTS,
+    };
+    let (width, height, tile_width, tile_length) = (13u32, 9u32, 8u32, 4u32);
+    let plane = |bits: u32| -> Vec<u16> {
+        (0..width * height)
+            .map(|i| ((i.wrapping_mul(2_654_435_761) >> 7) % (1 << bits)) as u16)
+            .collect()
+    };
+    let lj92 = |samples: &[u16], precision: u8, nf: u8| -> Vec<Vec<u8>> {
+        let mut chunks = Vec::new();
+        for ty in 0..height.div_ceil(tile_length) {
+            for tx in 0..width.div_ceil(tile_width) {
+                let mut tile = Vec::new();
+                for r in 0..tile_length {
+                    for c in 0..tile_width {
+                        let (x, y) = (tx * tile_width + c, ty * tile_length + r);
+                        tile.push(if x < width && y < height {
+                            samples[(y * width + x) as usize]
+                        } else {
+                            0x0EEF
+                        });
+                    }
+                }
+                chunks.push(tiff::lj92_strip_components(
+                    &tile,
+                    tile_width as usize,
+                    tile_length as usize,
+                    precision,
+                    nf,
+                    0x11,
+                ));
+            }
+        }
+        chunks
+    };
+    let describe = |order: tiff::Order, bits: u32, payload: Payload| DngDescription {
+        order,
+        layout: IfdLayout::PreviewIfd0WithSensorSubIfd,
+        width,
+        height,
+        bits_per_sample: bits,
+        kind: PlaneKind::Cfa {
+            repeat_dim: [2, 2],
+            pattern: vec![0, 1, 1, 2],
+            plane_color: vec![0, 1, 2],
+        },
+        organisation: Organisation::Tiles {
+            tile_width,
+            tile_length,
+            edge_fill: 0x0EEF,
+        },
+        payload,
+        meta: DngMeta::default(),
+        opcode_lists: [None, None, None],
+        extra_tags: Vec::new(),
+        fault: None,
+    };
+    let write = |d: &DngDescription| write_dng(d).expect("tiled seed description is valid");
+
+    let mut hostile = describe(tiff::Order::Little, 16, Payload::Samples(plane(16)));
+    hostile.extra_tags = vec![RawTag {
+        ifd: TagIfd::Sensor,
+        tag: TAG_TILE_BYTE_COUNTS,
+        field_type: 4,
+        count: 5,
+        bytes: [64u32 * 4 * 2; 5]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect(),
+    }];
+
+    vec![
+        (
+            "tiled-uncompressed-16-ii",
+            write(&describe(
+                tiff::Order::Little,
+                16,
+                Payload::Samples(plane(16)),
+            )),
+        ),
+        (
+            "tiled-uncompressed-12-mm",
+            write(&describe(tiff::Order::Big, 12, Payload::Samples(plane(12)))),
+        ),
+        (
+            "tiled-lj92-nf1-ii",
+            write(&describe(
+                tiff::Order::Little,
+                14,
+                Payload::Encoded {
+                    compression: 7,
+                    chunks: lj92(&plane(14), 14, 1),
+                },
+            )),
+        ),
+        (
+            "tiled-lj92-nf2-mm",
+            write(&describe(
+                tiff::Order::Big,
+                16,
+                Payload::Encoded {
+                    compression: 7,
+                    chunks: lj92(&plane(16), 16, 2),
+                },
+            )),
+        ),
+        ("tiled-count-mismatch", write(&hostile)),
+    ]
+}
+
 /// Seeds for `fuzz/fuzz_targets/plane.rs` — reaching BOTH of `DEC-008`'s
 /// paths is the point (a target that only ever drives one recreates
 /// `SPIKE-001`'s exact blind spot), plus the hostile shapes `SPEC-012`
@@ -128,7 +250,7 @@ fn plane_seeds() -> Vec<(&'static str, Vec<u8>)> {
         tiff::tiff(tiff::Order::Little, 8, &[tiff::Ifd::new(8, entries, 0)])
     };
 
-    vec![
+    let mut seeds = vec![
         (
             // The sub-byte path (bits % 8 != 0).
             "valid-fourteen-bit",
@@ -208,7 +330,10 @@ fn plane_seeds() -> Vec<(&'static str, Vec<u8>)> {
             "aliased-strips",
             aliased_strips_seed(),
         ),
-    ]
+    ];
+    // SPEC-058: the tile path.
+    seeds.extend(tiled_seeds());
+    seeds
 }
 
 /// Sixteen one-row 16-bit strips of a 32-wide plane, every `StripOffsets`
@@ -500,6 +625,8 @@ fn develop_seeds() -> Vec<(&'static str, Vec<u8>)> {
     // SPEC-045: a valid Compression-7 plane, so develop is fuzzed past the
     // public SOF-3 unpack too.
     seeds.push(("compression7-sof3", compression7_seed()));
+    // SPEC-058: tiled planes, so develop is fuzzed past the tile unpack.
+    seeds.extend(tiled_seeds());
     seeds
 }
 
@@ -556,6 +683,10 @@ fn demosaic_seeds() -> Vec<(&'static str, Vec<u8>)> {
         // unpack runs in full, then the demosaic is a typed rejection.
         ("compression7-sof3", compression7_seed()),
     ]
+    .into_iter()
+    // SPEC-058: tiled Bayer planes, which unpack AND demosaic.
+    .chain(tiled_seeds())
+    .collect()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

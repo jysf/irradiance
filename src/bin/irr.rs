@@ -192,6 +192,10 @@ fn cmd_ifd(args: &[&str]) -> ExitCode {
     println!("rows_per_strip  {:?}", sensor.rows_per_strip);
     println!("strip_offsets   {:?}", sensor.strip_offsets);
     println!("strip_bytes     {:?}", sensor.strip_byte_counts);
+    println!("tile_width      {:?}", sensor.tile_width);
+    println!("tile_length     {:?}", sensor.tile_length);
+    println!("tile_offsets    {} tile(s)", sensor.tile_offsets.len());
+    println!("tile_bytes      {} tile(s)", sensor.tile_byte_counts.len());
     println!("black_level     {:?}", sensor.black_level);
     println!("white_level     {:?}", sensor.white_level);
     println!("black_repeat    {:?}", sensor.black_level_repeat_dim);

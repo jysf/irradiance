@@ -1,4 +1,5 @@
-//! Strip location and sample unpack — `SPEC-012`, `DEC-008`.
+//! Strip and tile location and sample unpack — `SPEC-012`, `DEC-008`,
+//! `SPEC-058`.
 //!
 //! The sensor IFD's `StripOffsets`/`StripByteCounts` locate `N` contiguous
 //! runs (strips) of packed samples — `N == 1` for every PROJ-001 corpus file,
@@ -18,7 +19,35 @@
 //! strip bytes, which for a sub-byte depth would read a strip's first sample
 //! across the previous strip's tail padding.
 //!
+//! # Tiles — `SPEC-058`, `DEC-056`
+//!
+//! A plane carrying TIFF 6.0 §15 tile tags (`TileWidth`, `TileLength`,
+//! `TileOffsets`, `TileByteCounts`) instead of strip tags is read tile by tile,
+//! row-major, each tile written straight into the rectangle it covers in `dst`.
+//! Edge tiles are coded at full tile size; the part past the plane's right or
+//! bottom edge is never written:
+//!
+//! - **Uncompressed tiles** unpack row by row, each tile row from its own byte
+//!   slice (a tile row must be a whole number of bytes, else
+//!   [`Error::UnsupportedTileRowBits`]), keeping only the visible samples.
+//!   `DEC-008`'s two paths apply per tile row.
+//! - **Compression-7 tiles** reconstruct through a clipped, strided window
+//!   (`ljpeg::Window`): visible samples are written in place, samples right of
+//!   the plane have their entropy-coded difference read and dropped, and the
+//!   decode stops after the tile's last visible row. Each tile's SOF-3 frame
+//!   shape is bound to the tile, not the plane (`DEC-047`).
+//!
+//! Nothing is allocated for either (`DEC-016` holds). The tile table is checked
+//! by the same shared pass [`validate`] runs (`DEC-050`): a plane carrying both
+//! layouts is [`Error::StripsAndTiles`], a table that does not match the tile
+//! grid is [`Error::InvalidTileLayout`].
+//!
 //! # Provenance
+//!
+//! Tiles: TIFF 6.0 §15, the Adobe DNG specification 1.7, and ITU-T T.81 Annex
+//! H (the lossless difference coding is independent of the prediction, which is
+//! what lets a clipped column be skipped) — `DEC-056`; cross-checked bit-exact
+//! against `dnglab --raw-checksum` on three tiled Pixel phone DNGs.
 //!
 //! TIFF 6.0 (1992) §2 "Compression" (`= 1`, uncompressed) plus `DEC-008`,
 //! which is itself derived from TIFF 6.0's packing rule, not from any
@@ -249,10 +278,12 @@ fn unpack_byte_aligned(
 ///   truncation, precision or compression support. The sum of
 ///   `StripByteCounts` is also bounded by `file.len()`
 ///   ([`Error::StripBytesExceedFile`]), so `n · bits_per_sample ≤ 8 ·
-///   file.len()`: the plane is bounded by the bytes actually supplied.
+///   file.len()`: the plane is bounded by the bytes actually supplied. A tiled
+///   plane gets the same bound from its `TileByteCounts` (padding included).
 /// - **Compression-7 (SOF-3 lossless JPEG):** the pre-decode structural checks
 ///   pass — strip layout, `RowsPerStrip`, full row coverage and each strip's
-///   in-file offset/count bounds. `n` is bounded **only by `max_pixels`**, not
+///   in-file offset/count bounds (for a tiled plane: the tile grid and each
+///   tile's in-file bounds). `n` is bounded **only by `max_pixels`**, not
 ///   by the file length (a few hundred compressed bytes legitimately expand to
 ///   a multi-megapixel plane). `validate` does not decode, so the strip's SOF-3
 ///   frame-shape binding ([`Error::LjpegPlaneShapeMismatch`], `DEC-047`) and
@@ -277,8 +308,9 @@ fn unpack_byte_aligned(
 /// - Every pre-decode error [`unpack_into`] documents, as the **same variant**:
 ///   [`Error::UnsupportedCompression`], [`Error::UnsupportedBitDepth`],
 ///   [`Error::UnsupportedStripLayout`], [`Error::MissingRowsPerStrip`],
-///   [`Error::PackedSizeMismatch`], [`Error::Truncated`] (a strip past the end
-///   of `file`).
+///   [`Error::PackedSizeMismatch`], [`Error::Truncated`] (a strip or tile past
+///   the end of `file`), and for a tiled plane [`Error::StripsAndTiles`],
+///   [`Error::InvalidTileLayout`], [`Error::UnsupportedTileRowBits`].
 pub fn validate(
     sensor: &Sensor,
     byte_order: ByteOrder,
@@ -309,8 +341,9 @@ pub fn validate(
         limit: max_pixels,
     })?;
 
-    // 4. The full strip pass shared with `unpack_into`.
-    check_strips(sensor, kind, plane_samples, file)?;
+    // 4. The full layout pass shared with `unpack_into`: strips, or (SPEC-058)
+    //    the tile table. Reads no strip or tile byte.
+    check_layout(sensor, kind, plane_samples, file)?;
     Ok(plane_samples)
 }
 
@@ -318,8 +351,9 @@ pub fn validate(
 // The entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Unpack the sensor plane's `N` strips into `dst`, one sample per pixel,
-/// row-major, uncropped and un-normalised (`SPEC-012` + `SPEC-028`).
+/// Unpack the sensor plane's `N` strips — or its tiles (`SPEC-058`) — into
+/// `dst`, one sample per pixel, row-major, uncropped and un-normalised
+/// (`SPEC-012` + `SPEC-028`).
 ///
 /// Dispatches on `sensor.compression` (`SPEC-043`, `DEC-012`):
 /// `Compression::Uncompressed` takes `DEC-008`'s sub-byte / byte-aligned path
@@ -354,9 +388,19 @@ pub fn validate(
 ///   is checked before the strip layout, so a wrong-length `dst` wins over a
 ///   bad layout.
 /// - [`Error::UnsupportedStripLayout`] if `StripOffsets` and `StripByteCounts`
-///   disagree in count, or there are zero strips (tiled planes remain a
-///   non-goal); for a Compression-7 plane, also if the strips do not cover the
-///   whole plane.
+///   disagree in count, or there are zero strips and no tile tags; for a
+///   Compression-7 plane, also if the strips do not cover the whole plane.
+/// - Tiled planes (`SPEC-058`, `DEC-056`): [`Error::StripsAndTiles`] if the
+///   plane carries both layouts; [`Error::InvalidTileLayout`] if a tile
+///   dimension is absent or zero, or `TileOffsets`/`TileByteCounts` do not
+///   both hold `ceil(width/TileWidth) × ceil(height/TileLength)` entries;
+///   [`Error::UnsupportedTileRowBits`] (uncompressed) if a tile row is not a
+///   whole number of bytes; [`Error::PackedSizeMismatch`] (uncompressed) if a
+///   tile's byte count is not its full packed size; [`Error::Truncated`] if a
+///   tile runs past `file`; [`Error::StripBytesExceedFile`] (uncompressed) if
+///   the tile byte counts sum past `file.len()`; and for a Compression-7 tile,
+///   [`Error::LjpegPlaneShapeMismatch`] if its frame is not `TileWidth ×
+///   TileLength`.
 /// - [`Error::MissingRowsPerStrip`] if a multi-strip plane (`N > 1`) carries no
 ///   usable `RowsPerStrip`.
 /// - [`Error::PackedSizeMismatch`] if any strip's `StripByteCounts` is not its
@@ -386,7 +430,7 @@ pub fn unpack_into(
     dst: &mut [u16],
 ) -> Result<(), Error> {
     // The precedence `SPEC-039` must preserve (Design §5): compression → bit
-    // depth → pixel count → `dst.len()` → strip layout. `validate` shares every
+    // depth → pixel count → `dst.len()` → layout (strips, or SPEC-058's tiles). `validate` shares every
     // helper below except the `dst` check (it has no `dst`) and adds the
     // caller budget ahead of them all.
     let kind = plane_kind(sensor)?;
@@ -403,17 +447,22 @@ pub fn unpack_into(
         });
     }
 
-    // The same full strip pass `validate` runs. After it, nothing structural
+    // The same full layout pass `validate` runs. After it, nothing structural
     // can fail below: the uncompressed write cannot fail at all, and the
     // Compression-7 loop can fail only in the decode itself.
-    check_strips(sensor, kind, expected_len, file)?;
+    let layout = check_layout(sensor, kind, expected_len, file)?;
 
-    // SPEC-043 / STAGE-011: dispatch on the sensor's `Compression` (DEC-012).
-    match kind {
-        PlaneKind::Uncompressed { bits } => {
+    // SPEC-043 / STAGE-011: dispatch on the sensor's `Compression` (DEC-012);
+    // SPEC-058: and on the layout.
+    match (layout, kind) {
+        (Layout::Strips, PlaneKind::Uncompressed { bits }) => {
             unpack_uncompressed(sensor, bits, byte_order, file, dst)
         }
-        PlaneKind::Jpeg => unpack_jpeg(sensor, file, dst),
+        (Layout::Strips, PlaneKind::Jpeg) => unpack_jpeg(sensor, file, dst),
+        (Layout::Tiles(grid), PlaneKind::Uncompressed { bits }) => {
+            unpack_tiles_uncompressed(sensor, grid, bits, byte_order, file, dst)
+        }
+        (Layout::Tiles(grid), PlaneKind::Jpeg) => unpack_tiles_jpeg(sensor, grid, file, dst),
     }
 }
 
@@ -678,6 +727,276 @@ fn check_strips(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The layout dispatch and the tile table — `SPEC-058`, `DEC-056`
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Which of TIFF 6.0's two plane layouts the sensor IFD declares.
+#[derive(Clone, Copy)]
+enum Layout {
+    /// `StripOffsets`/`StripByteCounts` (or neither layout — the strip checks
+    /// then report today's [`Error::UnsupportedStripLayout`]).
+    Strips,
+    /// `TileWidth`/`TileLength`/`TileOffsets`/`TileByteCounts` (TIFF 6.0 §15).
+    Tiles(TileGrid),
+}
+
+/// A tiled plane's checked tile grid: tile dimensions and how many tiles span
+/// the plane. Built only by [`tile_grid`], so every value is non-zero and the
+/// tile count equals both table lengths.
+#[derive(Clone, Copy)]
+struct TileGrid {
+    /// `TileWidth`, `> 0`.
+    tile_width: u32,
+    /// `TileLength`, `> 0`.
+    tile_length: u32,
+    /// `ceil(width / TileWidth)` — tiles per tile row.
+    across: u32,
+}
+
+/// Choose the layout. A plane with tile tags and no strip tags is tiled; one
+/// with both is refused ([`Error::StripsAndTiles`]); anything else takes the
+/// strip path, byte-for-byte unchanged.
+fn select_layout(sensor: &Sensor) -> Result<Layout, Error> {
+    let has_strips = !sensor.strip_offsets.is_empty() || !sensor.strip_byte_counts.is_empty();
+    let has_tiles = sensor.tile_width.is_some()
+        || sensor.tile_length.is_some()
+        || !sensor.tile_offsets.is_empty()
+        || !sensor.tile_byte_counts.is_empty();
+    match (has_strips, has_tiles) {
+        (true, true) => Err(Error::StripsAndTiles {
+            strip_offsets: sensor.strip_offsets.len(),
+            tile_offsets: sensor.tile_offsets.len(),
+        }),
+        (false, true) => Ok(Layout::Tiles(tile_grid(sensor)?)),
+        _ => Ok(Layout::Strips),
+    }
+}
+
+/// `ceil(n / d)` for `d > 0`, without the `/` operator the crate root denies.
+fn ceil_div(n: u32, d: u32) -> Option<u32> {
+    let q = n.checked_div(d)?;
+    if n.checked_rem(d)? == 0 {
+        Some(q)
+    } else {
+        q.checked_add(1)
+    }
+}
+
+/// The tile grid: both dimensions present and non-zero, and both tables
+/// exactly `ceil(W/TW) × ceil(H/TL)` long, the product computed in `u64` so a
+/// count past `u32` cannot wrap into a false match.
+fn tile_grid(sensor: &Sensor) -> Result<TileGrid, Error> {
+    let tile_width = sensor.tile_width.unwrap_or(0);
+    let tile_length = sensor.tile_length.unwrap_or(0);
+    let refuse = |expected_tiles: u64| Error::InvalidTileLayout {
+        tile_width,
+        tile_length,
+        tile_offsets: sensor.tile_offsets.len(),
+        tile_byte_counts: sensor.tile_byte_counts.len(),
+        expected_tiles,
+    };
+    let (Some(across), Some(down)) = (
+        ceil_div(sensor.width, tile_width),
+        ceil_div(sensor.height, tile_length),
+    ) else {
+        // A zero (or absent) tile dimension: no grid exists.
+        return Err(refuse(0));
+    };
+    // Two u32s: the u64 product is exact.
+    let expected = u64::from(across).saturating_mul(u64::from(down));
+    let offsets = u64::try_from(sensor.tile_offsets.len()).unwrap_or(u64::MAX);
+    let counts = u64::try_from(sensor.tile_byte_counts.len()).unwrap_or(u64::MAX);
+    if offsets != expected || counts != expected {
+        return Err(refuse(expected));
+    }
+    Ok(TileGrid {
+        tile_width,
+        tile_length,
+        across,
+    })
+}
+
+/// One tile's checked location and its clipped rectangle in the plane.
+struct TileSpan {
+    /// Byte offset of the tile in `file`.
+    at: usize,
+    /// One past the tile's last byte; `at <= end <= file.len()`.
+    end: usize,
+    /// Plane column of the tile's first column.
+    x0: usize,
+    /// Plane row of the tile's first row.
+    y0: usize,
+    /// Tile columns inside the plane: `min(TileWidth, width − x0)`, `>= 1`.
+    visible_width: usize,
+    /// Tile rows inside the plane: `min(TileLength, height − y0)`, `>= 1`.
+    visible_height: usize,
+}
+
+/// Walks a tiled plane's tiles in table (row-major) order, yielding each
+/// tile's checked [`TileSpan`] — so [`check_tiles`] (the full pass) and the
+/// write loops run the identical code, as [`StripWalk`] does for strips.
+/// Allocation-free; reads only the `Sensor`'s tag values and `file.len()`.
+struct TileWalk<'s> {
+    sensor: &'s Sensor,
+    kind: PlaneKind,
+    grid: TileGrid,
+    /// Next tile to visit.
+    index: usize,
+}
+
+impl<'s> TileWalk<'s> {
+    fn new(sensor: &'s Sensor, kind: PlaneKind, grid: TileGrid) -> TileWalk<'s> {
+        TileWalk {
+            sensor,
+            kind,
+            grid,
+            index: 0,
+        }
+    }
+
+    /// The next tile's checked span, or `None` once every tile is visited.
+    fn next_span(&mut self, file_len: usize) -> Option<Result<TileSpan, Error>> {
+        let offset = *self.sensor.tile_offsets.get(self.index)?;
+        let count = *self.sensor.tile_byte_counts.get(self.index)?;
+        let index = self.index;
+        self.index = self.index.saturating_add(1);
+        Some(self.span(index, offset, count, file_len))
+    }
+
+    /// The per-tile checks: (uncompressed) the packed tile size, then the
+    /// tile's bytes lie in `file`; and its clipped rectangle in the plane.
+    fn span(
+        &self,
+        index: usize,
+        offset: u32,
+        count: u32,
+        file_len: usize,
+    ) -> Result<TileSpan, Error> {
+        let sensor = self.sensor;
+        let grid = self.grid;
+
+        if let PlaneKind::Uncompressed { bits } = self.kind {
+            // Every tile is coded at full size, padding included (TIFF 6.0
+            // §15), so its byte count is exactly `TW · TL · bits / 8` — the
+            // per-tile layer-0 check. `check_tile_rows` already proved a tile
+            // row is whole bytes.
+            let tile_bits = u64::from(grid.tile_width)
+                .saturating_mul(u64::from(grid.tile_length))
+                .saturating_mul(u64::from(bits));
+            let declared_bits = u64::from(count).saturating_mul(8);
+            if declared_bits != tile_bits {
+                return Err(Error::PackedSizeMismatch {
+                    expected_bits: tile_bits,
+                    strip_bits: declared_bits,
+                });
+            }
+        }
+
+        // Locate this tile's bytes, bounds-checked into Truncated. Only the
+        // bounds are checked here; no tile byte is read.
+        let at = offset_to_usize(offset)?;
+        let len = usize::try_from(count).map_err(|_| Error::Truncated { at, len: 0 })?;
+        let end = at.checked_add(len).ok_or(Error::Truncated { at, len })?;
+        if end > file_len {
+            return Err(Error::Truncated { at, len });
+        }
+
+        // The tile's origin and visible extent. `index < across · down`
+        // (`tile_grid`), so `tx < across` and `ty < down`, which puts the
+        // origin strictly inside the plane: `x0 < width`, `y0 < height`.
+        let across = usize::try_from(grid.across).unwrap_or(usize::MAX);
+        let tx = index.checked_rem(across).unwrap_or(0);
+        let ty = index.checked_div(across).unwrap_or(0);
+        let x0 = u64::try_from(tx)
+            .unwrap_or(u64::MAX)
+            .saturating_mul(u64::from(grid.tile_width));
+        let y0 = u64::try_from(ty)
+            .unwrap_or(u64::MAX)
+            .saturating_mul(u64::from(grid.tile_length));
+        let visible_width = u64::from(sensor.width)
+            .saturating_sub(x0)
+            .min(u64::from(grid.tile_width));
+        let visible_height = u64::from(sensor.height)
+            .saturating_sub(y0)
+            .min(u64::from(grid.tile_length));
+        // All four are below the plane dimensions, and the plane fits `usize`
+        // (its sample count already did); the error arm is unreachable.
+        let to_usize = |v: u64| usize::try_from(v).map_err(|_| Error::Truncated { at, len });
+        Ok(TileSpan {
+            at,
+            end,
+            x0: to_usize(x0)?,
+            y0: to_usize(y0)?,
+            visible_width: to_usize(visible_width)?,
+            visible_height: to_usize(visible_height)?,
+        })
+    }
+}
+
+/// Uncompressed tiles only: a tile row, `TileWidth × bits`, must be a whole
+/// number of bytes (`DEC-056` §1; the `SPEC-057` probe found TIFF 6.0, this
+/// reader and dnglab disagree on rows that are not).
+fn check_tile_rows(grid: TileGrid, kind: PlaneKind) -> Result<(), Error> {
+    if let PlaneKind::Uncompressed { bits } = kind {
+        let row_bits = u64::from(grid.tile_width).saturating_mul(u64::from(bits));
+        if row_bits.checked_rem(8) != Some(0) {
+            return Err(Error::UnsupportedTileRowBits {
+                tile_width: grid.tile_width,
+                bits,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The full tile pass, shared by [`validate`] and [`unpack_into`] through
+/// [`check_layout`]: whole-byte tile rows (uncompressed), every tile's span,
+/// and (uncompressed) the sum-of-`TileByteCounts` bound. Allocation-free;
+/// reads no tile bytes. The grid itself was checked by [`tile_grid`].
+fn check_tiles(sensor: &Sensor, kind: PlaneKind, grid: TileGrid, file: &[u8]) -> Result<(), Error> {
+    check_tile_rows(grid, kind)?;
+    let mut walk = TileWalk::new(sensor, kind, grid);
+    while let Some(span) = walk.next_span(file.len()) {
+        span?;
+    }
+
+    // Uncompressed only (DEC-050 §2, DEC-056 §4): the declared tile bytes may
+    // not exceed the file — the strip alias bound, applied to tiles, so `Ok`
+    // still implies the plane is bounded by the bytes supplied.
+    if let PlaneKind::Uncompressed { .. } = kind {
+        let declared_tile_bytes = sensor
+            .tile_byte_counts
+            .iter()
+            .fold(0u64, |sum, count| sum.saturating_add(u64::from(*count)));
+        let tile_file_len = u64::try_from(file.len()).unwrap_or(u64::MAX);
+        if declared_tile_bytes > tile_file_len {
+            return Err(Error::StripBytesExceedFile {
+                declared: declared_tile_bytes,
+                file_len: file.len(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The layout pass [`validate`] and [`unpack_into`] share: choose strips or
+/// tiles, then run that layout's full structural check. Returns the layout so
+/// [`unpack_into`] dispatches on exactly what was checked.
+fn check_layout(
+    sensor: &Sensor,
+    kind: PlaneKind,
+    plane_samples: usize,
+    file: &[u8],
+) -> Result<Layout, Error> {
+    let layout = select_layout(sensor)?;
+    match layout {
+        Layout::Strips => check_strips(sensor, kind, plane_samples, file)?,
+        Layout::Tiles(grid) => check_tiles(sensor, kind, grid, file)?,
+    }
+    Ok(layout)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // The write loops — run only after `check_strips` has passed
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -848,6 +1167,131 @@ fn unpack_jpeg(sensor: &Sensor, file: &[u8], dst: &mut [u16]) -> Result<(), Erro
     Ok(())
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// The tile write loops — run only after `check_tiles` has passed (`SPEC-058`)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// This tile's bytes. After [`check_tiles`] they are always in `file`.
+fn tile_bytes<'f>(file: &'f [u8], span: &TileSpan) -> Result<&'f [u8], Error> {
+    file.get(span.at..span.end).ok_or(Error::Truncated {
+        at: span.at,
+        len: span.end.saturating_sub(span.at),
+    })
+}
+
+/// Uncompressed tiles (`DEC-056` §1): each tile row is unpacked from its own
+/// byte slice — a tile row starts on a byte boundary ([`check_tile_rows`]) —
+/// and only its first `visible_width` samples are written, into the plane row
+/// they belong to. Rows below the plane are skipped. `DEC-008`'s two paths
+/// apply per tile row, unchanged.
+fn unpack_tiles_uncompressed(
+    sensor: &Sensor,
+    grid: TileGrid,
+    bits: u32,
+    byte_order: ByteOrder,
+    file: &[u8],
+    dst: &mut [u16],
+) -> Result<(), Error> {
+    let byte_aligned = bits.checked_rem(8) == Some(0);
+    let width = usize::try_from(sensor.width).map_err(|_| Error::PlaneBufferWrongLength {
+        expected: u64::from(sensor.width),
+        actual: dst.len(),
+    })?;
+    // `TileWidth · bits` is a multiple of 8 (`check_tile_rows`), so this is
+    // the exact byte length of one tile row.
+    let row_bytes = usize::try_from(
+        u64::from(grid.tile_width)
+            .saturating_mul(u64::from(bits))
+            .checked_div(8)
+            .unwrap_or(0),
+    )
+    .unwrap_or(usize::MAX);
+
+    let mut walk = TileWalk::new(sensor, PlaneKind::Uncompressed { bits }, grid);
+    while let Some(span) = walk.next_span(file.len()) {
+        let span = span?;
+        let tile = tile_bytes(file, &span)?;
+        for r in 0..span.visible_height {
+            // After `check_tiles` every index below is in bounds; the error
+            // arms keep the slicing checked and panic-free regardless.
+            let truncated = || Error::Truncated {
+                at: span.at,
+                len: span.end.saturating_sub(span.at),
+            };
+            let row_at = r.checked_mul(row_bytes).ok_or_else(truncated)?;
+            let row_end = row_at.checked_add(row_bytes).ok_or_else(truncated)?;
+            let row = tile.get(row_at..row_end).ok_or_else(truncated)?;
+
+            let dst_len = dst.len();
+            let wrong_len = || Error::PlaneBufferWrongLength {
+                expected: u64::try_from(dst_len).unwrap_or(u64::MAX),
+                actual: dst_len,
+            };
+            let out_at = span
+                .y0
+                .checked_add(r)
+                .and_then(|y| y.checked_mul(width))
+                .and_then(|i| i.checked_add(span.x0))
+                .ok_or_else(wrong_len)?;
+            let out_end = out_at
+                .checked_add(span.visible_width)
+                .ok_or_else(wrong_len)?;
+            let out = dst.get_mut(out_at..out_end).ok_or_else(wrong_len)?;
+
+            if byte_aligned {
+                unpack_byte_aligned(row, bits, byte_order, out)?;
+            } else {
+                unpack_bitstream(row, bits, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Compression-7 tiles (`DEC-056` §2–3): each tile is an independent SOF-3
+/// datastream, its frame shape bound to the TILE (`samples_per_line ×
+/// components == TileWidth`, `lines == TileLength`; `DEC-047`) before any
+/// sample is decoded, then reconstructed in place through a window onto its
+/// clipped rectangle of `dst` — no scratch buffer (`DEC-016`).
+///
+/// # Errors
+///
+/// [`Error::LjpegPlaneShapeMismatch`] if a tile's frame is not
+/// `TileWidth × TileLength`, and any typed error from the SOF-3 decoder.
+fn unpack_tiles_jpeg(
+    sensor: &Sensor,
+    grid: TileGrid,
+    file: &[u8],
+    dst: &mut [u16],
+) -> Result<(), Error> {
+    let stride = usize::try_from(sensor.width).map_err(|_| Error::PlaneBufferWrongLength {
+        expected: u64::from(sensor.width),
+        actual: dst.len(),
+    })?;
+    let mut walk = TileWalk::new(sensor, PlaneKind::Jpeg, grid);
+    while let Some(span) = walk.next_span(file.len()) {
+        let span = span?;
+        let tile = tile_bytes(file, &span)?;
+
+        // Bind the frame's SHAPE to the tile before decoding (DEC-047 for
+        // tiles): an equal-area transpose would otherwise decode to a silently
+        // mis-strided tile. Real edge tiles are coded at full tile size
+        // (SPEC-058 probe), so a clipped-size edge frame is refused here too.
+        let (frame, _tables, _entropy_at) = crate::ljpeg::parse_headers(tile)?;
+        check_strip_shape(&frame, grid.tile_width, grid.tile_length)?;
+
+        let window = crate::ljpeg::Window {
+            stride,
+            x0: span.x0,
+            y0: span.y0,
+            visible_width: span.visible_width,
+            visible_height: span.visible_height,
+        };
+        crate::ljpeg::decode_window_into(tile, dst, window)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -922,6 +1366,10 @@ mod tests {
             rows_per_strip,
             strip_offsets: strips.iter().map(|&(o, _)| o).collect(),
             strip_byte_counts: strips.iter().map(|&(_, c)| c).collect(),
+            tile_width: None,
+            tile_length: None,
+            tile_offsets: vec![],
+            tile_byte_counts: vec![],
             black_level: None,
             white_level: None,
             black_level_repeat_dim: None,

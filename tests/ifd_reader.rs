@@ -134,6 +134,11 @@ const EXPECTED_FILES: usize = 7;
 const CFA_CHECKED_ELSEWHERE: &[&str] = &[
     "CANON-EOS-5D-MARK-III/5G4A9394.DNG",
     "NIKON-D300S/_DSC4615.DNG",
+    // SPEC-058: the tiled Pixel phone Bayer planes, checked bit-exact by
+    // tests/plane_oracle.rs and tests/plane_tiles.rs.
+    "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng",
+    "GOOGLE-PIXEL-3A/IMG_20190918_164153.dng",
+    "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng",
 ];
 
 /// Read one corpus file's bytes, or `None` when it is absent (skip).
