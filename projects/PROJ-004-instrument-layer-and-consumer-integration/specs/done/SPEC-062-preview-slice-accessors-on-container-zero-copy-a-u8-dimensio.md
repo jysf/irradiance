@@ -6,19 +6,19 @@
 task:
   id: SPEC-062
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [punch-list]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -78,10 +78,31 @@ cost:
       recorded_at: 2026-11-12
       notes: "Un-metered main-loop design, done in the long monorail-000 orchestrator session, which also triaged the requests and framed STAGE-018. Its cost lands in STAGE-018's orchestration_cost at stage close, not here."
 
+    - cycle: build
+      handoff: HANDOFF-131
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 16626847
+      estimated_usd: 12.64
+      duration_minutes: 30
+      recorded_at: 2026-11-12
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript (1 jsonl, 72 unique message.ids, all claude-opus-5-5, no subagents): input 148 + cache-creation 256,617 (1-hour) + cache-read 16,292,917 + output 77,165 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 15,119,257 / 11.81 before the final commit and PR turns."
+    - cycle: verify
+      handoff: HANDOFF-132
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 8376516
+      estimated_usd: 6.23
+      duration_minutes: 75
+      recorded_at: 2026-11-12
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript (1 jsonl, 54 unique message.ids, all claude-opus-5-5, no subagents): input 111 + cache-creation 137,512 (1-hour) + cache-read 8,208,939 + output 29,954 (max per message). USD at opus-5-5 list rates. The handback floor was 5,550,953 / 4.44 before the commit and PR turns. Verdict punch-list: 2 test gaps found by mutation (u64 running strip end; count-0 NewSubfileType read as absent), fixed in PR 209, src unchanged."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 25003363
+    estimated_usd: 18.87
+    session_count: 3
+shipped_at: 2026-11-12
 ---
 
 # SPEC-062: Preview slice accessors on Container
@@ -408,34 +429,36 @@ container and a non-contiguous-strip preview.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**, 2026-11-12.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Two things. First, give every declared deviation and every defensive guard its
+   own fixture at design time. Both verify findings were correct code with no test:
+   the count-0 `NewSubfileType` rule (a deviation the build declared) and the `u64`
+   running strip end (the only wrap fixture overflowed on the first strip, so an earlier
+   guard caught it and the later one was never reached). Second, the 15M estimate was
+   low: true cost 25.00M (build 16.63M, verify 8.38M). The handback floors ran 9% and
+   34% low again, so re-summing at ship stays necessary.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No DEC change: DEC-057 held through build and verify unchanged. One lesson is
+   recorded as a new watch signal, [[hostile-fixture-shadowed-by-an-earlier-guard]]
+   (N=1). It sits beside [[tolerant-oracle-cannot-pin-structure]] (N=2), which is the
+   same family: a guard or property that no test reaches. The build's two template
+   notes (keep new fuzz fixtures out of `tiff::all()`; name the staged-copy red-proof
+   precedent) are handoff wording, not a template change yet.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. Carried forward in the monorail-000 feedback entry: Stage C (develop options,
+   caller scratch, CFA-as-mono, orientation), the unit-unpack stage, and item 8
+   (`MaskedAreas` pass-through, low priority). Tiled or non-contiguous previews stay
+   refused until a consumer asks (DEC-057 names the arm to relax).
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, a consumer had to walk the IFDs and slice preview bytes itself; after,
+   `Container::previews()` hands back every embedded preview as a zero-copy slice of the
+   caller's buffer, with no allocation, and all 21 previews in the 11 held DNGs match
+   exiftool's offsets and lengths and its extracted bytes (MD5-checked on 8).

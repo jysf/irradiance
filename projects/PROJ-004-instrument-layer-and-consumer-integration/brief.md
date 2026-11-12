@@ -114,7 +114,7 @@ Order agreed with the maintainer 2026-11-11: writer → tiled reader → GainMap
 - [ ] STAGE-016 (proposed) — OpcodeList2 GainMap: parse and apply on the mono and colour paths (SPEC-059 analytic, SPEC-060 real-file)
 - [ ] STAGE-017 (proposed) — Public DNG writer behind a `write` feature (SPEC-061). Design waits for a named consumer.
 - [ ] STAGE-004 (proposed) — crustyimg integration: `raw-develop` feature, adapter, metadata truthfulness (moved from PROJ-001 2026-11-11; implemented crustyimg-side as its PROJ-016/STAGE-056)
-- [ ] STAGE-018 (active) — Instrument layer A: preview slice accessors (SPEC-062 at build, DEC-057, HANDOFF-131). It is first in the order agreed with monorail-000 / onyx-000 on 2026-11-12. The ADU histogram/zones and bad-pixel listing from future-plans Stage A are not planned here. onyx computes the histogram itself (onyx DEC-010), so crustyimg STAGE-062 is the only possible caller left.
+- [x] STAGE-018 (shipped 2026-11-12) — Instrument layer A: preview slice accessors (SPEC-062 shipped, DEC-057; 25.00M / $18.87, verify punch list fixed in PR 209). It is first in the order agreed with monorail-000 / onyx-000 on 2026-11-12. The ADU histogram/zones and bad-pixel listing from future-plans Stage A are not planned here. onyx computes the histogram itself (onyx DEC-010), so crustyimg STAGE-062 is the only possible caller left.
 - [ ] (parked) — Instrument layer B: optical black. Its only named caller, the onyx / Monochrom app, now computes the optical-black reductions itself (onyx DEC-010, 2026-11-12). Revisit only if irradiance's own develop needs optical-black-based black subtraction.
 - [ ] (unframed, low priority) — `MaskedAreas` pass-through: read DNG tag 50830 into a new `Sensor` field, rectangles verbatim, no strip naming, no develop change. onyx request 5, item 8 in `feedback/2026-11-11-monorail-000-requests.md`. No held DNG has the tag, so fixtures come from the SPEC-057 writer. Fits STAGE-014 (0.2.x maintenance) or beside Stage C. `[XS]`/`[S]`.
 - [ ] (not yet framed) — Instrument layer C: geometry (`WarpRect::lerp`, framing modes). monorail-000 asks for these as one `DevelopOptions` struct with `apply_orientation`, plus caller-owned develop scratch, a CFA-as-mono option and a faster Orientation 5–8 transpose (requests 2, 3, 6, 4).
@@ -122,7 +122,7 @@ Order agreed with the maintainer 2026-11-11: writer → tiled reader → GainMap
 
 Spec chain: SPEC-057 → (SPEC-058, SPEC-059, SPEC-061); SPEC-060 depends on SPEC-058 + SPEC-059.
 
-**Count:** 0 shipped / 1 active / 5 pending (+4 unframed)
+**Count:** 1 shipped / 0 active / 5 pending (+4 unframed)
 
 Consumer requests feeding the unframed stages: `feedback/2026-11-11-monorail-000-requests.md` (triaged; nothing minted).
 

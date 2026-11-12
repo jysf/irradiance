@@ -1535,3 +1535,20 @@ signals:
       indifferent to whether the refusal happened before or after a partial write.
       Falsifier for decoders: for each "refused before anything is written" sentence,
       ask whether any test would go red if the refusal came late.
+
+  - id: hostile-fixture-shadowed-by-an-earlier-guard
+    type: lesson
+    summary: "A hostile fixture that trips an EARLIER guard never reaches the later one it was written for, and a declared deviation with no fixture of its own is unpinned; give each guard and each declared deviation a fixture that only it can refuse."
+    evidence: "N=1, STAGE-018 2026-11-12. SPEC-062's cold verify (HANDOFF-132) ran 24 hand mutants of src/ifd.rs; 22 went red, 2 survived. (a) The only u32-wrap fixture overflowed on the FIRST strip, which the u64 first_end check caught, so a mutant that accumulated the running end in wrapping u32 stayed green; two new fixtures (running end past u32, wrapped end faking contiguity) pin it. (b) The build's declared deviation 'a count-0 NewSubfileType reads as absent' had no test; a count-0-as-1 mutant stayed green. Both fixed test-only in PR 209; src unchanged."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-12
+    last_touched: 2026-11-12
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote: N=1. Same family as [[tolerant-oracle-cannot-pin-structure]]
+      (a property no test reaches) but a different mechanism: here the oracle is
+      fine and the fixture is aimed at the wrong guard. Falsifier, cheap at build: for
+      each defensive check, delete it and ask which fixture would now pass; for each
+      declared deviation, name the test that pins it in the handback.

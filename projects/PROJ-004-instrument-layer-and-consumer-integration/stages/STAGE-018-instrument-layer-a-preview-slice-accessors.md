@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-018                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-12
-shipped_at: null
+shipped_at: 2026-11-12
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -47,7 +47,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 22725386
+      estimated_usd: 16.20
+      recorded_at: 2026-11-12
+      notes: "Stage orchestration, measured from the orchestrator transcript (session 2b783e6b, claude-opus-5-5) from the user's 'Yes, mint Stage A' message at 2026-11-12T08:16Z through this ship: 123 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus list rates (docs/cost-tracking.md); no subagents. Covers framing STAGE-018, the SPEC-062 design and corpus probe, DEC-057, build and verify dispatch and reconciliation, the onyx DEC-010 and MaskedAreas feedback entries, the PR 209 CI diagnosis, and this ship and stage-ship. A FLOOR: the final messages after the measurement are not in it."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -112,9 +117,9 @@ additive, and needs no new decoder, so it works on every file irradiance already
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-062 (build) [S] Preview slice accessors on Container: zero-copy, allocation-free `previews()` iterator; NewSubfileType 1/65537 only (DEC-057); contiguous strips only; typed errors per IFD; exiftool-pinned corpus check (21 previews); fuzz. HANDOFF-131.
+- [x] SPEC-062 (shipped) [S→M] Preview slice accessors on Container: zero-copy, allocation-free `previews()` iterator; NewSubfileType 1/65537 only (DEC-057); contiguous strips only; typed errors per IFD; exiftool-pinned corpus check (21 previews); fuzz. HANDOFF-131 build (PR 208), HANDOFF-132 verify ⚠ punch list, 2 test gaps fixed in PR 209. 25.00M tokens / $18.87.
 
-**Count:** 0 shipped / 1 active / 0 pending
+**Count:** 1 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -150,21 +155,29 @@ Facts to pin at design time:
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled at stage ship, 2026-11-12.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. `Container::previews()`
+  yields every preview IFD with dimensions, `Compression`, `PhotometricInterpretation`,
+  kind and a `&'a [u8]` borrowed from the input; irradiance decodes nothing. All five
+  success criteria are met: 21/21 exiftool pins (and 8 MD5-checked byte extractions in
+  the verify), selection by `NewSubfileType` with a staged-copy red-proof of a size
+  selector, pointer-checked zero-copy and a zero-allocation counter test, typed errors
+  in `ErrorKind` plus the `ifd` fuzz target, and no change to existing outputs.
+- **How many specs did it actually take?** 1, as planned.
+- **How many outlines survived unchanged?** 1 of 1. The design narrowed it (DEC-057:
+  `NewSubfileType` exactly 1 or 65537; contiguous strips only; JIF and tiled refused),
+  inside the framed scope.
+- **What changed between starting and shipping?** The framing's "select on
+  `NewSubfileType` and `PhotometricInterpretation`" became `NewSubfileType` alone: the
+  probe showed photometric adds nothing once 0, masks and depth maps are excluded by
+  value.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - None codified. The verify lesson is a new watch signal (below).
+- **Signals dispositioned at this close?**
+  - [[hostile-fixture-shadowed-by-an-earlier-guard]]: new, N=1, `watch`.
+  - [[tolerant-oracle-cannot-pin-structure]]: stays `watch` at N=2. Not bumped: this
+    stage's findings were unreached guards, not an oracle indifferent to a property.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - Handback floors ran low again (9% build, 34% verify); re-summing at ship from the
+    ended transcripts stays the rule.
