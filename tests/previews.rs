@@ -367,6 +367,36 @@ fn hostile_cases(order: Order) -> Vec<Hostile> {
             },
         ),
         (
+            // HANDOFF-132 verify: the RUNNING end must be summed in u64 too, not
+            // just the first strip's. Two contiguous strips whose second length
+            // carries the end past u32::MAX: in u64 the range is 2^32 bytes and
+            // out of the file; a wrapping u32 end would be 0x4000 again, a
+            // zero-length in-bounds lie.
+            "running-end-passes-u32",
+            preview_strips(order, &[d, d + 0x10], &[0x10, 0xFFFF_FFF0], d + 64),
+            |e| {
+                matches!(e, Error::Truncated { at: 0x4000, len } if u64::try_from(*len).ok() == Some(1 << 32))
+                    // A 32-bit usize cannot hold the length at all.
+                    || matches!(e, Error::OffsetOutOfRange { offset: 0x4000 })
+            },
+        ),
+        (
+            // HANDOFF-132 verify: as above, but a third strip starts at the
+            // wrapped u32 end. Summed in u64 it is not contiguous; with a
+            // wrapping end it would join into a 16-byte in-bounds slice.
+            "wrapped-running-end-fakes-contiguity",
+            preview_strips(order, &[d, d + 0x10, d], &[0x10, 0xFFFF_FFF0, 0x10], d + 64),
+            |e| {
+                matches!(
+                    e,
+                    Error::UnsupportedPreviewLayout {
+                        ifd_index: 0,
+                        layout: UnsupportedPreview::NonContiguousStrips
+                    }
+                )
+            },
+        ),
+        (
             "missing-width",
             one(without_tag(good(), IMAGE_WIDTH), &[], d + 16),
             |e| matches!(e, Error::MissingTag { tag: 256 }),
@@ -423,6 +453,31 @@ fn hostile_preview_layouts_are_typed() {
                 Ok(p) => panic!("{order:?} {name}: hostile layout yielded Ok({p:?})"),
             }
         }
+    }
+}
+
+/// HANDOFF-132 verify: a `NewSubfileType` entry with **count 0** has no value,
+/// so it reads as absent (0, the main image) and is not a preview — the
+/// build's declared deviation, matching `scalar` and `is_sensor_ifd`. It is
+/// not an `Err` either: iteration moves on to the real preview after it.
+#[test]
+fn new_subfile_type_with_count_zero_is_not_a_preview() {
+    let d = PREVIEW_DATA;
+    for order in ORDERS {
+        let ifds = [
+            with_entry(
+                preview_entries(order, Some(1), 2, 2, d, 12),
+                at_offset(NEW_SUBFILE_TYPE, 4, 0, 0),
+            ),
+            preview_entries(order, Some(1), 4, 4, d + 16, 48),
+        ];
+        let data = preview_chain(order, &ifds, &[], d + 64);
+        let c = Container::parse(&data).expect("fixture parses");
+        let items = drain(&c);
+        assert_eq!(items.len(), 1, "{order:?}: only IFD 1 is a preview");
+        let p = items[0].as_ref().expect("IFD 1 is a good preview");
+        assert_eq!((p.ifd_index, p.width, p.height), (1, 4, 4), "{order:?}");
+        assert_subslice(&data, p, "count-zero");
     }
 }
 

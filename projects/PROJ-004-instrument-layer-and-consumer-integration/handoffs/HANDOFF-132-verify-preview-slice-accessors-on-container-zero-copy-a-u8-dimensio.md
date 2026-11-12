@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-12
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-062
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5          # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
+  verdict: punch-list              # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 5550953            # REAL combined count — what cost-audit reads
+  estimated_usd: 4.44              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 75
+  branch: claude/spec-062-verify-d1a20e
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  completed_at: 2026-11-12         # YYYY-MM-DD
+  notes: "Floor: re-summed from this session transcript before the commit and PR turns (38 messages, dedupe by message.id, max output; opus-5-5 rates incl. 1h cache write at 2x). Punch list = 2 test gaps found by mutation, fixed in tests/previews.rs; src unchanged."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -225,72 +225,92 @@ Output exactly ONE of: ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJEC
   (DEC-003).
 - Fill this handoff's `handback:` front-matter, including `verdict` and a real
   `tokens_total` re-summed from your own transcript (`basis: transcript`, dedupe by
-  `message.id`, max output per message, opus-5-5 rates). Fill the `## Handback`
-  section too.
-- Open a NEW PR against `main` from `claude/spec-062-verify-<suffix>` carrying the
-  handback, and any punch-list fixes. It must superset #208 and reference
-  HANDOFF-132, SPEC-062, DEC-057 and PR #208.
-
-## Return Criteria — how to hand back
-
-**Completing this handoff means filling in the `handback:` front-matter block
-above AND the `## Handback` section below.** An unfilled handback is an
-incomplete cycle, and `just handback-sync` will tell the orchestrator so.
-
-On success:
-1. Fill the `handback:` front-matter — **including a real `tokens_total`**.
-2. Fill the `## Handback` section (the reflection is part of it, not optional).
-3. Set `handoff.status` → `completed` and `handback.status` → `completed`.
-4. Open a PR (build) or return your verdict (verify).
-
-If you cannot complete the task:
-1. Fill the `## Handback` section with what was done and what blocked you.
-2. Set `handoff.status` → `rejected`, `handback.status` → `blocked`.
-3. **Still report your token usage** — blocked work costs money too.
-4. Set the spec's `task.blocked: true` and add a question to
-   `/guidance/questions.yaml`.
-
----
-
-## Handback
-
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
+  `message.id`, max output per message, opus-5-5 rates). Fill the `## Handback
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-062-verify-d1a20e` (cut from `claude/spec-062-verify-base` @ `107a659`, which is build head `78e8382` + this handoff). The verify PR supersets PR #208.
+- **Completed at:** 2026-11-12
+- **All acceptance criteria met?** Yes, after the two test-only fixes below. Before them, AC5 (wrap-safe arithmetic) and the declared count-0 `NewSubfileType` deviation were implemented correctly but not pinned by any test.
+- **Verdict:** ⚠ **PUNCH LIST**. Two items, both FIXED in this PR, test-only (`src/` unchanged from `78e8382`):
+  1. **No test pinned the u64 running end.** The existing `length-sum-overflows-u32` fixture wraps on the *first* strip, so it is caught by the u64 `first_end`. A mutant that accumulates the running `end` in wrapping `u32` arithmetic (`end = (end as u32).wrapping_add(len)`) stayed green. Added two hostile cases:
+     - `running-end-passes-u32`: two contiguous strips (`0x10`, `0xFFFF_FFF0`). Honest = `Truncated { at: 0x4000, len: 2^32 }`; the mutant gives an empty in-bounds `Ok`.
+     - `wrapped-running-end-fakes-contiguity`: a third strip at the wrapped end. Honest = `NonContiguousStrips`; the mutant gives a 16-byte in-bounds lie.
+  2. **No test pinned the declared deviation "count-0 `NewSubfileType` reads as absent".** A mutant treating count 0 as value 1 stayed green. Added `new_subfile_type_with_count_zero_is_not_a_preview` (both byte orders; also shows that iteration continues to the good preview after it).
+
+  Both mutants are red after the fix.
+
+#### What was checked, independently
+
+- **HEAD** `107a659` confirmed against `origin/claude/spec-062-verify-base`.
+- **exiftool cross-check (outside the test code).** 4 files, 8 previews:
+  - K-3 III: IFD0 C1 + SubIFD1 C7;
+  - Canon 5D3: IFD0 C1 + SubIFD1 + SubIFD2 `JpgFromRaw`;
+  - Leica M Monochrom: IFD0 C1;
+  - Nikon D300S: IFD0 C1 + SubIFD1.
+
+  For each, `exiftool -a -G1 -s -n` offset/length/dims/compression/photometric equals the manifest pin. The bytes match as well: the exiftool `-b` extraction (JPEG) or a `dd` of the strip range (C1) has the same MD5 as the slice `previews()` returned, dumped by a standalone scratch crate. In that crate `bytes.as_ptr() == data.as_ptr() + offset` held for all 8. Example MD5s: K-3 III SubIFD1 `53ab672f…`; Canon SubIFD2 `b6fe896c…`; M Monochrom IFD0 `3686a695…`.
+- **Group mapping.** `walk_chain` pushes IFD0, then recurses into each SubIFD in order, depth-first. So `[IFD0]` is 0, `[SubIFD]` 1, `[SubIFD1]` 2 and `[SubIFD2]` 3 for these files, whose SubIFDs have no children. This matches exiftool's groups and the pins.
+- **Tier B ran.** `corpus: 12/12 present`. `corpus_previews_match_exiftool_pins` printed 11 `PREVIEWS … match` lines, `NOT PINNED PENTAX-K3III-MONO/K3III.PEF` and `21/21 previews matched`.
+- **Mutations.** 24 hand mutants of `src/ifd.rs`, applied outside any test knob and each restored afterwards. Before the fix, 22 were red and 2 survived (above). After the fix, all 24 are red:
+  - **selection:** bit 0 set, any non-zero, drop 65537, absent as preview, count 0 as 1, select by size;
+  - **range:** offset ±1, length ±1, accept gap, accept overlap, accept any order, first strip only, wrapping-u32 end, wrapping-u32 compare, no bounds check (clamped);
+  - **iteration:** stop after an NST error, stop after a layout error, silently skip an unreadable NST;
+  - **layout:** drop the tiled check, the JIF check, the zero-strip check, the mismatch check.
+- **Hostile inputs.** Every Design §5 case has a typed error with the right `ErrorKind`:
+  - Unsupported: tiled, JIF, non-contiguous;
+  - Corrupt: mismatch and zero strips (`InvalidPreviewLayout`);
+  - `Truncated` for out of range;
+  - `Err` for an unreadable NST.
+
+  On the arithmetic: lengths are summed in u64 from u32 inputs, `uint_at` uses `checked_mul`/`checked_add` plus `get`, conversions go through `try_from`/`offset_to_usize`, and the slice is taken with `get`. No indexing or `as` narrowing on the path.
+- **Borrow.** `bytes` is taken from `self.data: &'a [u8]` and returned as `Preview<'a>`, independent of `&self` (`Previews<'_, 'a>`). The fuzz target asserts pointer equality on every `Ok`.
+- **No allocation.** `previews_alloc.rs` counts on the test thread only, drains `Container::previews()` itself (3 Ok + 3 Err), and its negative control (`Vec::with_capacity`) shows the counter counts. `git diff origin/main -- src/` adds no `Vec`/`Box`/`vec!`/`collect`/`to_vec`/`String`/`format!` on the preview path. The only `format!`-like text is the rustdoc example.
+- **No regression.** The `manifest.toml` diff is additions only (+254/−0). The only deletions in test code are the 11 lines in `tests/error_kind.rs`: bucket counts 19→20 and 28→29, total 59→61, and their comments. The rest of the 38 deleted lines are docs: the HANDOFF-131 handback fill (26) and the spec/timeline cycle stamps (2).
+- **Error surface.**
+  - Both variants are in the wildcard-free `kind()` and have `Display` naming the IFD index and the counts or layout, tested in `preview_error_kinds_and_display` and `error_kind.rs`.
+  - `Preview`, `PreviewKind` and `UnsupportedPreview` are `#[non_exhaustive]` and every field is documented. `Previews` has private fields, so it cannot be constructed outside the crate.
+  - The CHANGELOG `[Unreleased]` names all the additions.
+- **Deviations judged.** All six are sound:
+  - **AC5 overflow → NonContiguous:** correct. A u64 sum of ≤2^20 u32 values cannot overflow, so the `ValueOverflow` arms are defensive. The real hazard is wrapping, which is now pinned for the running end as well (item 1).
+  - **Seeds kept out of `tiff::all()`:** right, per AC10.
+  - **Staged-copy red-proof, not `#[ignore]`d:** it runs in `just test` and passed.
+  - **`uint_at` refuses RATIONAL:** fine, since every tag on the path is structural.
+  - **Unreadable optional tag → `Err`:** consistent with DEC-012.
+  - **Count-0 NST → absent:** consistent with `scalar`, and now pinned (item 2).
+- **Gates** (with `IRRADIANCE_CORPUS_DIR` set):
+  - `just test` at `107a659`: 598 passed, 0 failed, 1 ignored (the existing SPEC-017 Q2M measurement); no tier-B skip.
+  - After the fix, `previews` (12), `previews_alloc` (1), `error_kind` and `corpus_manifest` are all green, including the staged-copy red-proof.
+  - `lint-ci`, `lint-no-allow`, `fmt-check`, `validate`, `cost-audit`, `gate-audit`, `doc-check`, `deny`, `deny-fuzz` and `msrv` all exit 0.
+  - `decisions-audit --changed`: advisory only. It flags DEC-004 for `tests/previews.rs`, which does not apply because there is no image comparison.
+- **Fuzz:** `just fuzz 120` (the `ifd` target, with the new seeds) ran **8,634,131 runs in 121 s**, no crash, no artifact.
+- **CI on #208 head `78e8382`:** `gh pr checks 208` shows 44/44 pass.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 5,550,953. This is a floor, re-summed before the commit and PR turns.
+- **Estimated USD:** 4.44
+- **Duration (minutes):** ~75
+- **Source of the number:** this session's own transcript (`da4f8eef-…jsonl`, basis `transcript`).
+  - Deduplicated by `message.id`, taking the max `output_tokens` per message: 38 messages, all `claude-opus-5-5`. No subagents.
+  - Components: input 77, output 20,184, cache read 5,407,519, cache write 123,173.
+  - Priced at opus-5-5 rates: $5 in, $25 out, 0.10× cache read, 2.0× 1-hour cache write.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none by the verifier. The build's six declared deviations are judged sound (above).
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - none blocking;
+  - nit (not fixed): `let slice_start = start;` in `preview_at` exists only as a red-proof injection point. It is harmless, but a comment saying so would help the next reader.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing material. The handoff's mutation list was concrete enough to script all 24 in one driver.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The build's own red-proof covers 3 mutants, so a wrap test that pins only the first strip looks complete. The handoff could say "wrapping must be pinned at every accumulation point, not just the first." This is the third time a tolerant or partial oracle let a structural mutant survive (see signal `tolerant-oracle-cannot-pin-structure`).
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — The same thing: start `just test` in the background first, do the exiftool/MD5 cross-check while it runs, then mutate in one scripted pass.
