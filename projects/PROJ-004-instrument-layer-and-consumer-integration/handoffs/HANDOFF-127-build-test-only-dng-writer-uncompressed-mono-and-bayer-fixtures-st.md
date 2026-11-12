@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-11
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-057
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 8428823               # REAL combined count — what cost-audit reads
+  estimated_usd: 7.72              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 20
+  branch: build/spec-057-test-only-dng-writer
+  pr: https://github.com/jysf/irradiance/pull/198
+  completed_at: 2026-11-11               # YYYY-MM-DD
+  notes: "FLOOR taken live just before the handback commit (docs/cost-tracking.md rule 6): session transcript 1aff81f7-7a09-40fc-8f7e-24833de1a68f.jsonl in the spec-057-build-8bc4e4 worktree project dir, 43 unique message.ids, all claude-opus-5-5, no subagents; input 86 + cache-creation 211,491 (all 1-hour) + cache-read 8,155,997 + output 61,249 (max per message). USD at opus-5-5 list rates in 5/out 25 per MTok, cache read x0.10, cache writes x2.0 (1-hour TTL). The last few wrap-up messages are not in it; re-sum the same file after the session ends."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -197,38 +197,45 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `build/spec-057-test-only-dng-writer` → https://github.com/jysf/irradiance/pull/198 (cut from `origin/main` at `02a95d4`, the SPEC-057 design merge)
+- **Completed at:** 2026-11-11
+- **All acceptance criteria met?** yes — AC1–AC12. The 12 named failing tests are in `tests/dng_writer.rs` and pass. `git diff origin/main -- src/` is empty.
+- **Tool-gated tests RAN, not skipped** (dnglab 0.7.2 and exiftool on PATH; no `SKIP` line in the output):
+  - strip, `16bit-cfa-Big-3strips` (8×6, MM, 3 strips): dnglab `--raw-checksum` = `bc94225400dd27da52aa05b941b68dfc` = MD5(input as LE u16). All 32 AC1 cases match.
+  - tile, 40×20 in 16×16 tiles (3×2, partial right and bottom tiles padded with the edge fill): 16-bit `81a5b72707a6b43aa8ef12803f3cccc1` (II and MM identical, as the oracle requires); 12-bit `a713d22147eefb0067248d01026f4d1d` (II and MM).
+  - exiftool reads `DNGVersion`, `UniqueCameraModel`, `BitsPerSample`, `CFAPattern2` back as written, both layouts, both byte orders.
+- **Red-proof (AC9):** honest negative control first (DEC-009) on 8 descriptions, then each `WriterFault` produced a dnglab checksum different from the honest one (dnglab never refused a faulted file; it always returned a wrong checksum). The four strip cases also changed the irradiance round-trip.
+- **Gates:** `just test` (exit 0), `just lint-ci`, `just fmt-check`, `just validate`, `just doc-check`, `just cost-audit`, all green.
+- **`dng_validate`:** not run (not installed, licence unchecked). Per spec it is not a gate.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 8,428,823 (floor, see `notes`)
+- **Estimated USD:** 7.72
+- **Duration (minutes):** ~20
+- **Source of the number:** session transcript, deduplicated by `message.id` with the max `output_tokens` per message (`basis: transcript`).
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - `WriteError` has three variants beyond Design §4's list. `InvalidGeometry` covers a zero width, height, `rows_per_strip` or tile size, which would otherwise divide by zero. `EdgeFillOutOfRange` covers a tile `edge_fill` above `2^bits − 1`; the spec's `0xBEEF` sentinel is not a legal 12-bit value, so 12-bit tile tests use `0xBEEF & 0xFFF`. `Overflow` is the "offset or size overflows u32" case, named. All three are tested in `write_errors_are_typed`.
+  - `DngDescription` carries `fault: Option<WriterFault>` as a field (Design §5's knob). It defaults to `None` in every fixture, and SPEC-061 should drop it on promotion.
+  - The writer reuses `tiff.rs`'s `Order` via `crate::tiff::Order`, so an including test crate must mount `tiff.rs` as `mod tiff`. `Order`'s byte helpers are private to `tiff.rs`, so the writer has its own three-line `u16/u32/i32` encoders rather than editing `tiff.rs`.
+  - `TileWidth`/`TileLength` are written as LONG (TIFF allows SHORT or LONG). dnglab and the container accept them.
+  - `extra_tags` places a raw value inline when `bytes.len() <= 4`, independent of `count`. That is what makes "huge count, inline 4-byte offset word" hostility expressible (AC8 uses it).
+- **Findings:** none against the reader. Every strip round-trip matched on the first run. The one failing test during build was the test's own mistake (a 6-wide 12-bit row is 72 bits, a whole number of bytes); it was corrected to 5 wide.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - SPEC-058 can build its tiled Compression-7 fixtures directly: `Organisation::Tiles` + `Payload::Encoded` with `lj92_strip` per tile. The writer does not check that a tile chunk decodes to `tile_width × tile_length`; that is the reader's job.
+  - SPEC-061 promotion: drop `fault`, and move `Order` into the writer module (or `src/`).
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little. The probe table and tag-placement guidance meant the build was close to a transcription. One small point: §4's error list didn't say what to do with a zero dimension or an out-of-range `edge_fill`, and the `0xBEEF` sentinel doesn't fit 12 bits. I added named variants for both.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. One mechanical fact would have saved a lookup: `tiff.rs`'s `Order::u16/u32` are private, so "reuse `Order`" means the type only, not its encoders.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Compute each AC7 boundary case by hand before writing the assertion. My one red during build was a test that assumed 6 × 12 bits wasn't byte-aligned.
