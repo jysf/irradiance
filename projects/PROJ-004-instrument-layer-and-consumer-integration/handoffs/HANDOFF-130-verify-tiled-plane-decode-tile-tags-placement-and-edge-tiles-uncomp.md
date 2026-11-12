@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-11
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-058
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                     # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
+  verdict: punch-list                    # verify handoffs: approved | punch-list | rejected
+  basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 10428396               # REAL combined count — what cost-audit reads
+  estimated_usd: 7.56              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 150
+  branch: claude/spec-058-verify-dewdney
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  completed_at: 2026-11-11               # YYYY-MM-DD
+  notes: "FLOOR from this session transcript just before the handback commit (1 jsonl, 60 unique message.ids, all claude-opus-5-5, no subagents): input 125 + cache-creation 168,523 (1-hour) + cache-read 10,229,466 + output 30,282 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Excludes the commit, push and PR turns."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -256,38 +256,132 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-058-verify-dewdney`. The PR link is in the PR itself; it supersets PR #202 (build head `3692e9b`).
+- **Completed at:** 2026-11-11
+- **All acceptance criteria met?** yes. AC1 through AC11 are met by the build. Three test gaps against this handoff's verify contract are fixed here, in tests only. `src/` is unchanged from #202.
+- **Verdict: ⚠ PUNCH LIST.** There are 3 items, all test gaps, all fixed in this PR. The decoder is sound: no source change was needed.
+
+**Punch list (all fixed in `tests/plane_tiles.rs`):**
+
+1. **Nothing pinned that `dst` stays untouched when a tile table is refused.** The hostile-table test checked only the error variants.
+   - **Fix:** `assert_both_refuse` now pre-fills `dst` with a sentinel and asserts that every sample is unchanged after the refusal.
+   - **Red-proof:** I mutated `unpack_into` to skip the shared tile pass (M26 below). The per-tile checks in the write loop then refused with the same variant, but only after earlier tiles were written. The old test stayed green on that; the new assertion goes red.
+2. **Nothing pinned the refusal of a clipped-size edge frame** (DEC-056 §3).
+   - **Fix:** a new test, `clipped_size_edge_frame_is_refused`, with two cases:
+     - a single tile larger than its plane, coded at only the visible 5×3. It must refuse before any write, so `dst` stays untouched.
+     - a 21×13 plane in 8×4 tiles whose edge tiles are coded at their visible size. It must refuse at the first right-edge tile.
+   - **Red-proof:** dropping the per-tile shape binding (M25) turns it red. Without the binding, the window would accept the frame and decode it.
+3. **AC10's "a test" for each new variant covered only `ErrorKind`, not the `Display` text.**
+   - **Fix:** a new test, `tile_error_display_names_the_numbers`, checks that each variant's message names its values.
+
+**Independent Pixel checksum.** A standalone cargo program in my scratchpad, outside the repo's tests, called `Container::parse` → `sensor` → `unpack_into` and dumped the plane as little-endian `u16`. I took its MD5 with `md5` and compared it with a live `dnglab 0.7.2 analyze --raw-checksum` run on the same file. Both sides matched:
+- Pixel 4a: `d1830234ac3f32b07ff73792f0faeabb`
+- Pixel 3a: `eb736a494bdfd2fc5ec799fb798ed2c3`
+- Pixel 7 Pro: `eb72cb300a27c4bcab745702542269de`
+
+These match the spec's probe table, which pins dnglab values, not irradiance output.
+
+The Pixel edges are partial, not whole-tile:
+- 4032 = 15×256 + 192 and 3024 = 11×256 + 208.
+- 3882 and 2924 leave 42 and 172.
+
+**The strip path is byte-identical.**
+- `git diff origin/main -- tests/corpus/manifest.toml` has no removed lines: additions only.
+- With the corpus set, `just test` was green: 581 passed, 0 failed, and no Pixel SKIP line. That covers:
+  - every held strip file's `raw_checksum`, including the two Nf=2 Compression-7 files, one of them the Pentax with APPn/COM segments;
+  - the LJ92 round-trip suite.
+- **Reading the code:** `Window::dense(w, h)` gives stride = width, origin (0, 0) and everything visible. So:
+  - `row_base(r) + c` equals the old running `idx`;
+  - the neighbour offsets `up` and `up_left` equal the old `width` and `width + 1`;
+  - `is_visible` is always true;
+  - the point transform covers the whole buffer;
+  - the old `expected == 0` early return is the new zero-width or zero-height return;
+  - the length check and its error are unchanged in `check_dense_length`.
+- The ljpeg unit test `full_window_is_byte_identical_to_dense_decode` pins all of this over predictors 1–7, Pt 0 and 2, restart intervals 0 and 3, and Nf=1 and Nf=2.
+
+**Window-clip mutations.** Each was applied to production `src/` in an isolated copy of the tree, then the ljpeg unit tests plus `plane_tiles`, `plane_oracle`, `plane_unpack` and `plane_validate` were run with the corpus set. The baseline was green. **All 26 mutations went red:**
+
+- **One extra / one fewer visible column** in the window (M01, M02).
+- **One extra / one fewer row,** for Nf=1 and Nf=2 separately (M03–M06).
+- **No discard of right-of-plane differences:** Nf=1 (M07), Nf=2 component 1 (M08) and Nf=2 component 0 (M09).
+- **Point transform:**
+  - applied to discarded columns (M10) or to the row below (M11). The ljpeg unit test catches both.
+  - The writer fixtures and the Pixel files all use Pt 0, so the unit test is the only guard here, and it is enough: it uses a sentinel-filled, offset window with Pt 2.
+- **Tile origin x or y off by one** (M12, M13).
+- **Compression-7 stride off by one** (M14).
+- **`row_base` drops `x0`** (M15).
+- **The Nf=1 "up" offset uses the frame width instead of the stride** (M16), and **the Nf=2 stride does the same** (M17).
+  - The Pixel files use predictor 1 and cannot see an up-neighbour mutation.
+  - The all-predictor ljpeg window test in a wider plane can, and catches both.
+- **Nf=2 odd visible width keeps component 1** (M18).
+- **Uncompressed tiles: one extra column, one fewer column, one fewer row** (M19–M21).
+- **The visible extent computed one short:** width (M22), height (M23).
+- **Wrong up-left offset** (M24).
+- **No per-tile shape binding** (M25). It is caught by the transposed-tile test and by the new clipped-size test.
+- **`unpack_into` skips the shared tile-table pass** (M26). It is caught by the new dst-untouched assertion and by the existing alias tests.
+
+**Hostile tile tables.** Every Design §3 case is typed from both `validate` and `unpack_into`, and now `dst` is untouched. The build's three declared deviations are sound:
+- **The u64 overflow case runs on `validate` only.** `unpack_into`'s documented `dst`-length precedence makes the 8 GiB buffer the only way to reach it.
+- **A transposed or clipped-size frame is `Ok` from `validate`.** `validate` never decodes; that is its contract for strips too.
+- **AC8 refuses with `UnsupportedMandatoryOpcode { id: 9 }`.** GainMap is unknown and mandatory, so that is DEC-049's refusal.
+
+**Arithmetic:**
+- The tile origin and extent are computed in `u64` with saturation, then `try_from`.
+- `row_base` and `check_window` use checked arithmetic.
+- The tile index is bounded by the table length, which equals `across × down` in `u64`.
+
+I found no path that can panic or wrap.
+
+**Allocation.**
+- `git diff origin/main -- src/` adds no `Vec`, `vec!`, `collect`, `to_vec`, `Box`, `String` or `format!` on the decode path. The only additions are the `Sensor` fields at IFD parse time, plus test code.
+- The pre-existing `parse_headers` `Vec<HuffTable>` is unchanged. It is called twice per tile (the shape bind, then the decode), exactly the pattern the strip path already uses per strip.
+- AC6's grep test covers all of `plane.rs`'s production code and the window section of `ljpeg.rs`. It would catch any of those spellings.
+
+**Error surface.**
+- The three new variants are in `Error::kind()`, which has no wildcard.
+- `Display` is now tested (item 3).
+- `Sensor` is still `#[non_exhaustive]`, and its new fields are documented.
+- CHANGELOG `[Unreleased]` names everything that was added.
+
+**Fuzz, run locally for 60 s each.** All exited 0 with no crash artifacts:
+- `just fuzz-plane`: 4,472,447 runs.
+- `cargo +nightly fuzz run ljpeg` with the ljpeg seeds: 6,027,044 runs.
+- `ifd` (`just fuzz`): 7,094,631 runs.
+
+The seeds in `fuzz/seeds/{plane,develop,demosaic}` include 5 tiled fixtures each.
+
+**Gates.** All green on this branch:
+- `just test` with the corpus;
+- `lint-ci`, `lint-no-allow`, `fmt-check`, `validate`, `cost-audit`, `gate-audit`, `doc-check` and `deny`;
+- `plane_tiles` re-run after my edits: 13 passed.
+
+`decisions-audit --changed` is advisory only. CI on #202's head: all checks pass (`gh pr checks 202`).
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 10,428,396. This is a floor; see notes.
+- **Estimated USD:** $7.56
+- **Duration (minutes):** ~150
+- **Source of the number:** this session's transcript (`basis: transcript`).
+  - Deduplicated by `message.id`, keeping the max output per message.
+  - All messages are claude-opus-5-5, with no subagents.
+  - It excludes the commit, push and PR turns.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none in the build beyond those it declared, and all of those are judged sound above. This PR changes tests only.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - **The Pixel metadata oracle is still missing.** It is the build's follow-up: a per-channel `BlackLevel` colour-oracle entry, which belongs with STAGE-016.
+  - **DEC-016's wording versus the `parse_headers` `Vec`s.** This is the build's finding: the Compression-7 path allocates header-sized Huffman tables per strip or tile. Either a sentence in DEC-016 or a fixed-size table array would settle it.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little. One thing cost time: the plane_oracle copy-and-rebuild red-proofs make a mutation run slow in debug builds. Skipping them and using opt-level 1 made 26 mutations practical.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — "dst untouched on refusal" sits in the verify contract but not in the spec's AC5. If it were in the AC, the build would have pinned it.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would start the mutation runner in an isolated copy at the very start, in parallel with `just test`.

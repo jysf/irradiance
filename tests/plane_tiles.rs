@@ -375,10 +375,27 @@ fn hostile_base() -> DngDescription {
 
 /// Assert `validate` and `unpack_into` both refuse `file` with the same variant
 /// (by `matches`), and that the variant is the one `want` names.
+///
+/// Every table refusal comes from the shared layout pass, which runs before
+/// the first tile is written, so `dst` must come back exactly as it went in:
+/// it is pre-filled with a sentinel and checked after the refusal (SPEC-058
+/// verify). A layout check that ran per tile inside the write loop would
+/// return the same variant after earlier tiles were written, and fail here.
 fn assert_both_refuse(label: &str, file: &[u8], want: fn(&Error) -> bool) {
-    let (v, u) = both(file);
+    const UNTOUCHED: u16 = 0xA5A5;
+    let container = Container::parse(file).expect("fixture parses");
+    let sensor = container.sensor().expect("fixture has a sensor");
+    let order = container.byte_order();
+    let v = validate(&sensor, order, file, usize::MAX);
+    let n = (u64::from(sensor.width) * u64::from(sensor.height)) as usize;
+    let mut plane = vec![UNTOUCHED; n];
+    let u = unpack_into(&sensor, order, file, &mut plane);
     let v = v.expect_err(&format!("{label}: validate must refuse"));
     let u = u.expect_err(&format!("{label}: unpack_into must refuse"));
+    assert!(
+        plane.iter().all(|&s| s == UNTOUCHED),
+        "{label}: unpack_into wrote to dst before refusing"
+    );
     assert!(want(&v), "{label}: validate gave {v:?}");
     assert!(want(&u), "{label}: unpack_into gave {u:?}");
     assert_eq!(
@@ -641,6 +658,157 @@ fn tile_frame_shape_is_bound_to_the_tile() {
         ),
         "got {err:?}"
     );
+}
+
+#[test]
+fn clipped_size_edge_frame_is_refused() {
+    // Real edge tiles are coded at FULL tile size (SPEC-058 probe), and
+    // DEC-056 §3 refuses an edge frame coded at only its visible size rather
+    // than guessing. Without the per-tile shape binding the window would
+    // accept such a frame (its visible extent fits it) and decode it.
+    //
+    // Two shapes. (a) A 5x3 plane in one 16x8 tile, the tile coded as a 5x3
+    // frame: refused before any sample is written, so dst is untouched.
+    // (b) A 21x13 plane in 8x4 tiles whose right-edge and bottom-edge tiles
+    // are coded at their visible size (5 wide, 1 tall): refused at the first
+    // such tile.
+    const UNTOUCHED: u16 = 0xA5A5;
+    let input = samples(5, 3, 12);
+    let chunk = tiff::lj92_strip_components(&input, 5, 3, 12, 1, 0x11);
+    let d = tiled(
+        Order::Big,
+        PlaneKind::LinearRaw,
+        5,
+        3,
+        12,
+        16,
+        8,
+        Payload::Encoded {
+            compression: 7,
+            chunks: vec![chunk],
+        },
+    );
+    let file = write_dng(&d).unwrap();
+    let container = Container::parse(&file).unwrap();
+    let sensor = container.sensor().unwrap();
+    let order = container.byte_order();
+    assert_eq!(validate(&sensor, order, &file, usize::MAX).unwrap(), 15);
+    let mut plane = vec![UNTOUCHED; 15];
+    let err = unpack_into(&sensor, order, &file, &mut plane).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            Error::LjpegPlaneShapeMismatch {
+                expected_width: 16,
+                expected_height: 8,
+                decoded_width: 5,
+                decoded_height: 3,
+            }
+        ),
+        "single clipped-size tile: got {err:?}"
+    );
+    assert!(
+        plane.iter().all(|&s| s == UNTOUCHED),
+        "the shape binding must refuse before the tile is decoded"
+    );
+
+    let (w, h, tw, tl) = (21u32, 13u32, 8u32, 4u32);
+    let input = samples(w, h, 12);
+    let mut chunks = Vec::new();
+    for ty in 0..h.div_ceil(tl) {
+        for tx in 0..w.div_ceil(tw) {
+            let (x0, y0) = (tx * tw, ty * tl);
+            let (vw, vh) = (tw.min(w - x0), tl.min(h - y0));
+            let mut tile = Vec::new();
+            for r in 0..vh {
+                for c in 0..vw {
+                    tile.push(input[((y0 + r) * w + x0 + c) as usize]);
+                }
+            }
+            chunks.push(tiff::lj92_strip_components(
+                &tile,
+                vw as usize,
+                vh as usize,
+                12,
+                1,
+                0x11,
+            ));
+        }
+    }
+    let d = tiled(
+        Order::Little,
+        PlaneKind::LinearRaw,
+        w,
+        h,
+        12,
+        tw,
+        tl,
+        Payload::Encoded {
+            compression: 7,
+            chunks,
+        },
+    );
+    let (v, u) = both(&write_dng(&d).unwrap());
+    assert_eq!(v.unwrap(), (w * h) as usize);
+    let err = u.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            Error::LjpegPlaneShapeMismatch {
+                expected_width: 8,
+                expected_height: 4,
+                decoded_width: 5,
+                decoded_height: 4,
+            }
+        ),
+        "first right-edge tile coded at its visible size: got {err:?}"
+    );
+}
+
+#[test]
+fn tile_error_display_names_the_numbers() {
+    // AC10: each new variant's Display text names the values a caller needs.
+    let msg = Error::InvalidTileLayout {
+        tile_width: 256,
+        tile_length: 128,
+        tile_offsets: 191,
+        tile_byte_counts: 192,
+        expected_tiles: 192,
+    }
+    .to_string();
+    for needle in [
+        "256x128",
+        "191 TileOffsets",
+        "192 TileByteCounts",
+        "need 192",
+    ] {
+        assert!(
+            msg.contains(needle),
+            "InvalidTileLayout: {msg:?} lacks {needle:?}"
+        );
+    }
+    let msg = Error::StripsAndTiles {
+        strip_offsets: 3,
+        tile_offsets: 12,
+    }
+    .to_string();
+    for needle in ["3 StripOffsets", "12 TileOffsets"] {
+        assert!(
+            msg.contains(needle),
+            "StripsAndTiles: {msg:?} lacks {needle:?}"
+        );
+    }
+    let msg = Error::UnsupportedTileRowBits {
+        tile_width: 3,
+        bits: 12,
+    }
+    .to_string();
+    for needle in ["3-wide", "12-bit", "whole number of bytes"] {
+        assert!(
+            msg.contains(needle),
+            "UnsupportedTileRowBits: {msg:?} lacks {needle:?}"
+        );
+    }
 }
 
 #[test]
