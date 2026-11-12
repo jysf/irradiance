@@ -971,6 +971,61 @@ fn red_proof_writer_faults_turn_oracles_red() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Design §2 — entries sorted by tag (added at verify, HANDOFF-128)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// TIFF 6.0 §2 requires each IFD's entries in ascending tag order, and Design
+/// §2 makes it the writer's job. Neither irradiance's reader nor dnglab
+/// rejects an unsorted IFD, so without this test removing the writer's sort
+/// left every other test green (verify mutation M10). The parser keeps entries
+/// in file order, so reading them back observes what was written. Covers both
+/// layouts, both byte orders, strips and tiles, and an `extra_tags` append
+/// (a tag the generator never writes, which must still land in order).
+#[test]
+fn ifd_entries_are_written_in_ascending_tag_order() {
+    for layout in [
+        IfdLayout::SensorInIfd0,
+        IfdLayout::PreviewIfd0WithSensorSubIfd,
+    ] {
+        for order in [Order::Little, Order::Big] {
+            let strips = DngDescription {
+                layout,
+                meta: full_meta(),
+                opcode_lists: [Some(vec![1, 2]), None, Some(vec![3; 9])],
+                extra_tags: vec![RawTag {
+                    ifd: TagIfd::Sensor,
+                    tag: 300,
+                    field_type: 3,
+                    count: 1,
+                    bytes: vec![0, 0],
+                }],
+                ..strip_desc(order, 14, rggb(), 32, 16, 6)
+            };
+            let tiles = DngDescription {
+                layout,
+                ..tile_desc(order, 12, 40, 20, 16)
+            };
+            for (what, d) in [("strips", strips), ("tiles", tiles)] {
+                let file = write_dng(&d).expect("write");
+                let c = Container::parse(&file).expect("parse");
+                let expected_ifds = match layout {
+                    IfdLayout::SensorInIfd0 => 1,
+                    IfdLayout::PreviewIfd0WithSensorSubIfd => 2,
+                };
+                assert_eq!(c.ifds().len(), expected_ifds, "{layout:?} {order:?} {what}");
+                for (i, ifd) in c.ifds().iter().enumerate() {
+                    let tags: Vec<u16> = ifd.entries().iter().map(|e| e.tag()).collect();
+                    assert!(
+                        tags.windows(2).all(|w| w[0] < w[1]),
+                        "{layout:?} {order:?} {what} IFD {i}: entries not strictly ascending: {tags:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AC10 — determinism
 // ─────────────────────────────────────────────────────────────────────────────
 
