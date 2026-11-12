@@ -150,6 +150,8 @@ is the only one that needs a spike before design.
 
 ## Resolution
 
+Maintainer decisions (2026-11-11): use the suggested order (Stage A → Stage C → unit unpack). Release cadence is open: 0.2.x additive releases or a grouped 0.3.0, whichever is convenient. The requester has no timeline, so this runs on irradiance's own schedule. Questions sent back: which camera the 26.6 MP Compression 7 benchmark used, and whether they can share that file.
+
 *Fill in as stages and specs are minted.*
 
 Status stays `open` until items 1, 2, 3 and 5 ship.
