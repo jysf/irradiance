@@ -142,13 +142,47 @@ the Monochrom-app consumer that brief already names.
 | 3 caller scratch | Stage C, beside item 2 | `[S]` | after item 2; must cover the FixBadPixels plane copy |
 | 6 CFA override | Stage C, as an options field | `[S]` | after item 2; small DEC on BlackLevelRepeatDim mapping |
 | 4 orientation perf | Stage C, or a perf stage | `[S]` | a benchmark baseline first |
-| 1 unit unpack | new stage: parallel-friendly decode | `[M]` | spike (strip/tile/restart inventory) + DEC; after SPEC-058 |
+| 1 unit unpack | new stage: parallel-friendly decode | `[M]` | DEC; uncompressed row bands are the real win (Compression 7 files can't be split, see the reply below); after SPEC-058 |
+| 1b Compression 7 decode speed | same stage, or a perf stage | `[M]` | profile `src/ljpeg.rs` first; stays bit-exact vs dnglab |
 
 Suggested order, if the maintainer agrees: Stage A (item 5) → Stage C (items 2, 3, 6, 4) →
 unit unpack (item 1, once SPEC-058 ships). Item 1 is their biggest win for open time, but it
 is the only one that needs a spike before design.
 
+## Requester reply (2026-11-12)
+
+They accept the order (preview slices → develop options → unit-level unpack).
+
+**The Compression 7 file is the Pentax K-3 Mark III Monochrome**, the same model as our
+tier-B `PENTAX-K3III-MONO/K3III.DNG`, so we don't need their copy. They checked it, plus a
+second 5984×4000 12-bit Compression 7 file of theirs, and found one strip, a single
+sequential scan, Nf=2, no DRI and no RST markers.
+
+**Checked on our corpus file (claude, 2026-11-12).** `irr ifd` gives one strip
+(`rows_per_strip 4224`, 31,047,287 bytes) and no tile tags. Walking the strip's JPEG markers
+gives SOI, SOF3 (P=14, Y=4224, X=3152, Nf=2), DHT, APP0, SOS, and then no `0xFFD0-D7` and no
+`0xFFDD` anywhere in the entropy-coded data (stuffing rules these out as data), ending in
+EOI. Their reading holds.
+
+**What this changes for item 1:**
+- **Unit-level unpack is uncompressed-only** in practice: row bands inside a strip. That is
+  the 240 ms out of their 858 ms open on the Q2M. Strip, tile and restart units stay in the
+  design for generality (tiled Pixel files after SPEC-058), but no held Compression 7 file
+  has any to split on.
+- **Compression 7 speed is a separate item:** faster single-stream Huffman decode and
+  prediction in `src/ljpeg.rs`. It must stay bit-exact against dnglab, as SPEC-044's oracle
+  requires. It is new, unrequested as such, and unplanned; it needs a profile first. The
+  corpus inventory spike for item 1 shrinks to one question: is the uncompressed row-byte
+  alignment (`width · bits % 8 == 0`) true for every held uncompressed file?
+
+**Item 3, confirmed for their files:** their target files carry FixBadPixelsConstant
+(OpcodeList1) and WarpRectilinear (OpcodeList3). So today's develop peak memory is the raw
+plane + a full plane copy + two active-area warp buffers. They'll budget for that until
+caller scratch lands.
+
 ## Resolution
+
+Maintainer decisions (2026-11-11): use the suggested order (Stage A → Stage C → unit unpack). Release cadence is open: 0.2.x additive releases or a grouped 0.3.0, whichever is convenient. The requester has no timeline, so this runs on irradiance's own schedule. Questions sent back: which camera the 26.6 MP Compression 7 benchmark used, and whether they can share that file.
 
 *Fill in as stages and specs are minted.*
 
