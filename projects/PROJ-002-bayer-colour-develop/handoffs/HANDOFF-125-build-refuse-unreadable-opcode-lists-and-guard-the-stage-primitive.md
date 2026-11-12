@@ -58,7 +58,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/193
   completed_at: 2026-11-11
   notes: "FLOOR taken live just before the handback commit (docs/cost-tracking.md rule 6): session transcript a2bbac90-a1bd-4857-94f7-94b92579e8c9.jsonl, 96 unique message.ids, all claude-opus-5-5, no subagents; input 195 + cache-creation 212,456 + cache-read 18,900,990 + output 60,510 (max per message). USD at opus-5-5 list rates in 5/out 25 per MTok, cache read x0.10, cache writes x2.0 (1-hour TTL). The last few wrap-up messages are not in it; re-sum the same file after the session ends."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-11
 ---
 
 # HANDOFF-125: Refuse unreadable opcode lists and guard the stage primitives (SPEC-056, 0.2.1 housekeeping)

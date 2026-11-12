@@ -6,19 +6,19 @@
 task:
   id: SPEC-056
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 20000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-125
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 20494603
+      estimated_usd: 14.01
+      duration_minutes: 30
+      recorded_at: 2026-11-11
+      notes: "RE-SUMMED at ship 2026-11-11 by the orchestrator from the same transcript after the session ended: 101 unique message.ids, all claude-opus-5-5, no subagents; input 205 + cache-creation 220,017 + cache-read 20,206,354 + output 68,027 = 20,494,603; USD at the same rates. The handback's live floor was 19,174,151 / $13.09. Original note: FLOOR taken live just before the handback commit (docs/cost-tracking.md rule 6): session transcript a2bbac90-a1bd-4857-94f7-94b92579e8c9.jsonl, 96 unique message.ids, all claude-opus-5-5, no subagents; input 195 + cache-creation 212,456 + cache-read 18,900,990 + output 60,510 (max per message). USD at opus-5-5 list rates in 5/out 25 per MTok, cache read x0.10, cache writes x2.0 (1-hour TTL). The last few wrap-up messages are not in it; re-sum the same file after the session ends."
+    - cycle: verify
+      handoff: HANDOFF-126
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 10841767
+      estimated_usd: 7.64
+      duration_minutes: 25
+      recorded_at: 2026-11-11
+      notes: "RE-SUMMED at ship 2026-11-11 by the orchestrator from the same transcript after the session ended: 65 unique message.ids, all claude-opus-5-5, no subagents; input 159 + cache-creation 149,001 + cache-read 10,659,638 + output 32,969 = 10,841,767. The handback's live floor was 8,053,981 / $5.72. Original note: FLOOR taken live before the handback commit (docs/cost-tracking.md rule 6): transcript 8b5e64da-637a-4eba-9162-422f40773bbf.jsonl in the spec-056-verify-4123a1 worktree project dir, 51 unique message.ids, all claude-opus-5-5, no subagents; input 127 + cache-creation 130,095 + cache-read 7,905,121 + output 18,638 (max per message). USD at opus-5-5 list rates in 5/out 25 per MTok, cache read x0.10, cache writes x2.0. Re-sum the same file after the session ends. Verdict is on code commit 1973abf; PR 193 was already squash-merged to main as dd70dea (identical src/tests) before this verify ran."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 31336370
+    estimated_usd: 21.65
+    session_count: 2
+shipped_at: 2026-11-11
 ---
 
 # SPEC-056: Refuse unreadable opcode lists and guard the stage primitives (0.2.1 housekeeping)
@@ -362,10 +383,27 @@ right reason, before the fix goes in.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**, 2026-11-11.*
 
-1. **What would I do differently next time?** — <answer>
-2. **Does any template, constraint, or decision need updating?** — <answer>
-3. **Is there a follow-up spec I should write now before I forget?** — <answer>
-4. **Where was the worst defect caught?** — `design` | `build` | `verify` | `ship` | `escaped` | `none`. — <one word>
-5. **What can a user do now that they couldn't before?** — <answer | none>
+1. **What would I do differently next time?** Hold the build PR until the cold
+   verify reports. #193 merged before HANDOFF-126 finished. The verify still
+   approved the identical code at `1973abf`, but in a punch-list case the fix would
+   have landed as a second PR against an already-changed main.
+2. **Does any template, constraint, or decision need updating?** No. Both handbacks
+   again reported live floors that ran low: build 19.17M against a re-summed
+   20.49M, verify 8.05M against 10.84M. The existing ship practice of re-summing
+   the transcript after the session ends caught both. It is recorded in the cost
+   notes, and no new rule is needed.
+3. **Is there a follow-up spec I should write now before I forget?** No new one.
+   Two follow-ups already have homes:
+   - STAGE-014's four [XS] harness outlines (from PROJ-001 STAGE-005);
+   - the develop-anyway escape hatch that DEC-053 deferred until a consumer asks.
+4. **Where was the worst defect caught?** — design. The design probe found the
+   `CARGO_TARGET_DIR` defect in all 7 nested-cargo tests, not just the one the
+   0.2.0 verify named.
+5. **What can a user do now that they couldn't before?** Before, a DNG with an
+   unreadable opcode list, or a file with mandatory opcodes passed straight to
+   `demosaic_into` or `to_srgb_linear_into`, could produce a silently uncorrected
+   image. Now it returns a typed error, and composers can call
+   `opcode::check_required_processing` themselves. In addition, `cargo doc` builds
+   warning-free under a CI gate.
