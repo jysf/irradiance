@@ -10,6 +10,25 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **Develop options: full active area and unrotated output** (`irradiance::develop`,
+  SPEC-063, STAGE-019, PROJ-004, DEC-058). `develop_with_into(sensor, src, dst, &options)`
+  and `output_dimensions_with(sensor, &options)` take a `DevelopOptions`:
+  `framing: Framing::StandardCrop | Framing::FullActiveArea` keeps the `DefaultCrop` or
+  the whole `ActiveArea` (every recorded photosite), and `apply_orientation: bool`
+  applies `Orientation` or leaves pixels in stored order at the unswapped size. Options
+  rewrite the geometry after it is validated, so a malformed `DefaultCrop` or
+  `Orientation` is still refused under every option. `DevelopOptions` and `Framing` are
+  `#[non_exhaustive]`; build options from `DevelopOptions::default()` and assign fields.
+  Mono only; the colour path takes no options. `develop_into` and `output_dimensions`
+  now delegate with `DevelopOptions::default()` and their output is **unchanged**
+  (MD5-pinned on eight held files), so `DEVELOP_VERSION` stays `"4"`.
+- **`Error::UnsupportedWarpedFullActiveArea { active_width, active_height }`**
+  (additive; `ErrorKind::Unsupported`). `FullActiveArea` on a sensor whose
+  `OpcodeList3` carries a non-identity `WarpRectilinear` is refused, typed, before any
+  write to `dst`: the warp's clamped edge samples would be visible outside the crop.
+  Every held Leica Q2 Monochrom frame carries such a warp, so `FullActiveArea` is
+  refused on them for now.
+
 - **Embedded preview access, zero-copy** (`irradiance::ifd`, SPEC-062, STAGE-018,
   PROJ-004, DEC-057). `Container::previews()` iterates a DNG's embedded previews: every
   IFD whose `NewSubfileType` is exactly 1 (`PreviewKind::Primary`) or 65537

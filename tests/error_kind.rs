@@ -21,12 +21,13 @@ use std::collections::BTreeSet;
 use irradiance::{Error, ErrorKind};
 
 /// One representative of every `Error` variant, paired with `DEC-051`'s kind.
-/// Grouped in `DEC-051`'s order: 12 `CallerError`, 20 `Unsupported`,
+/// Grouped in `DEC-051`'s order: 12 `CallerError`, 21 `Unsupported`,
 /// 29 `Corrupt` (25 at 0.2.0, plus `UnreadableOpcodeList`, SPEC-056/DEC-053;
 /// SPEC-058/DEC-056 added `UnsupportedTileRowBits` (Unsupported) and
 /// `InvalidTileLayout` + `StripsAndTiles` (Corrupt); SPEC-062/DEC-057 added
 /// `UnsupportedPreviewLayout` (Unsupported) and `InvalidPreviewLayout`
-/// (Corrupt)).
+/// (Corrupt); SPEC-063/DEC-058 added `UnsupportedWarpedFullActiveArea`
+/// (Unsupported)).
 fn dec_051_table() -> Vec<(Error, ErrorKind)> {
     use ErrorKind::{CallerError, Corrupt, Unsupported};
     vec![
@@ -115,7 +116,7 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             },
             CallerError,
         ),
-        // Unsupported (20).
+        // Unsupported (21).
         (Error::NotTiff { mark: *b"PK" }, Unsupported),
         (Error::UnsupportedTiffVersion { version: 43 }, Unsupported),
         (Error::NoSensorIfd, Unsupported),
@@ -180,6 +181,15 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             Error::UnsupportedPreviewLayout {
                 ifd_index: 0,
                 layout: irradiance::UnsupportedPreview::Tiled,
+            },
+            Unsupported,
+        ),
+        // SPEC-063, DEC-058: FullActiveArea framing with a non-identity
+        // WarpRectilinear, whose clamped edge samples would be visible.
+        (
+            Error::UnsupportedWarpedFullActiveArea {
+                active_width: 8392,
+                active_height: 5632,
             },
             Unsupported,
         ),
@@ -395,8 +405,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        61,
-        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057) classified 61",
+        62,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058) classified 62",
         declared.len()
     );
 
@@ -414,11 +424,12 @@ fn every_variant_classified() {
         .collect();
     assert!(wrong.is_empty(), "misclassified: {wrong:#?}");
 
-    // DEC-051's bucket sizes: 12 / 20 / 29 (DEC-053 added one Corrupt;
-    // DEC-056 one Unsupported and two Corrupt; DEC-057 one of each).
+    // DEC-051's bucket sizes: 12 / 21 / 29 (DEC-053 added one Corrupt;
+    // DEC-056 one Unsupported and two Corrupt; DEC-057 one of each; DEC-058
+    // one Unsupported).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
     assert_eq!(count(ErrorKind::CallerError), 12);
-    assert_eq!(count(ErrorKind::Unsupported), 20);
+    assert_eq!(count(ErrorKind::Unsupported), 21);
     assert_eq!(count(ErrorKind::Corrupt), 29);
 }
 
