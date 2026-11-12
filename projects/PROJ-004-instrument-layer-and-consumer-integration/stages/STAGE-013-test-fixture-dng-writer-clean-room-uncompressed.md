@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-013                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -21,9 +21,15 @@ shipped_at: null
 # If you can't articulate value_contribution, the stage may be
 # infrastructure-only — acceptable but flag it.
 value_contribution:
-  advances: null                    # one sentence; which part of project.value.thesis
-  delivers: []                      # user-visible capabilities this stage delivers
-  explicitly_does_not: []           # what this stage is NOT trying to do
+  advances: "Gives PROJ-004 a clean-room, test-only DNG writer, so the tiled reader, GainMap and public-writer stages can be checked against fixtures with analytically known pixels and metadata."
+  delivers:
+    - "A declarative test-support writer: mono and CFA planes, 8/12/14/16-bit, strips or tiles, II or MM, sensor in IFD0 or a SubIFD, reader metadata, arbitrary opcode-list and raw-tag payloads"
+    - "Writer output proven against dnglab --raw-checksum (independent of irradiance's reader) and round-tripped through irradiance"
+    - "Encoded-payload pass-through, so compressed fixtures come from test encoders and the writer itself carries no codec"
+  explicitly_does_not:
+    - "Any public API or crates.io surface (STAGE-017)"
+    - "Any encoder or compression inside the writer"
+    - "Settle the rows-not-a-whole-byte packing question (writer refuses those rows; probe recorded in SPEC-057)"
 
 # Orchestration cost — the spend that has no spec to attach to (roadmap:
 # orchestration + framing cost attribution). Framing a stage, deciding the spec
@@ -99,7 +105,7 @@ a real spec at `cycle: frame` with a stable ID (so `depends_on:` can point at
 it) and rewrites the line in place. An optional `[S]`/`[M]`/`[L]` tag on the
 line is carried onto the spec as `task.complexity`.
 
-- [ ] SPEC-057 (frame) [M] test-only DNG writer: uncompressed mono and Bayer fixtures, strip AND tile layouts, arbitrary OpcodeList1/2/3 bytes (GainMap fixtures)
+- [ ] SPEC-057 (build) [M] test-only DNG writer: uncompressed mono and Bayer fixtures, strip AND tile layouts, arbitrary OpcodeList1/2/3 bytes (GainMap fixtures)
 
 **Count:** 0 shipped / 1 active / 0 pending
 
