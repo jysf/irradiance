@@ -55,7 +55,7 @@ handback:
   estimated_usd: 7.56              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 150
   branch: claude/spec-058-verify-dewdney
-  pr: null
+  pr: https://github.com/jysf/irradiance/pull/204
   completed_at: 2026-11-11               # YYYY-MM-DD
   notes: "FLOOR from this session transcript just before the handback commit (1 jsonl, 60 unique message.ids, all claude-opus-5-5, no subagents): input 125 + cache-creation 168,523 (1-hour) + cache-read 10,229,466 + output 30,282 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Excludes the commit, push and PR turns."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -256,7 +256,7 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-058-verify-dewdney`. The PR link is in the PR itself; it supersets PR #202 (build head `3692e9b`).
+- **Branch / PR:** `claude/spec-058-verify-dewdney`. PR https://github.com/jysf/irradiance/pull/204, which supersets PR #202 (build head `3692e9b`).
 - **Completed at:** 2026-11-11
 - **All acceptance criteria met?** yes. AC1 through AC11 are met by the build. Three test gaps against this handoff's verify contract are fixed here, in tests only. `src/` is unchanged from #202.
 - **Verdict: ⚠ PUNCH LIST.** There are 3 items, all test gaps, all fixed in this PR. The decoder is sound: no source change was needed.
