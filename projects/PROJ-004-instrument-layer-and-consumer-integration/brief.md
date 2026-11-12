@@ -110,7 +110,7 @@ Format: `- [status] STAGE-ID — one-line summary`
 Order agreed with the maintainer 2026-11-11: writer → tiled reader → GainMap → public writer → instrument stages.
 
 - [x] STAGE-013 (shipped 2026-11-11) — Test-only DNG writer, clean-room, uncompressed (SPEC-057; DEC-055). It is the fixture source for every stage below.
-- [ ] STAGE-015 (proposed) — Tiled DNG plane reader: uncompressed and lossless-JPEG tiles (SPEC-058). It unlocks the real GainMap files.
+- [x] STAGE-015 (shipped 2026-11-11) — Tiled DNG plane reader: uncompressed and lossless-JPEG tiles (SPEC-058). It unlocks the real GainMap files.
 - [ ] STAGE-016 (proposed) — OpcodeList2 GainMap: parse and apply on the mono and colour paths (SPEC-059 analytic, SPEC-060 real-file)
 - [ ] STAGE-017 (proposed) — Public DNG writer behind a `write` feature (SPEC-061). Design waits for a named consumer.
 - [ ] STAGE-004 (proposed) — crustyimg integration: `raw-develop` feature, adapter, metadata truthfulness (moved from PROJ-001 2026-11-11; implemented crustyimg-side as its PROJ-016/STAGE-056)

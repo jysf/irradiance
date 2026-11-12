@@ -1515,7 +1515,7 @@ signals:
   - id: tolerant-oracle-cannot-pin-structure
     type: lesson
     summary: "When the design states a structural property that every consumer tolerates the absence of (sorted IFD entries, alignment, canonical ordering), the output oracle cannot catch its loss; pin it with its own direct assertion at design time."
-    evidence: "N=1, STAGE-013 2026-11-11. SPEC-057 Design 2 said the writer sorts each IFD's entries by tag. Both oracles, irradiance's reader and dnglab, accept unsorted IFDs, so the SPEC-057 cold verify (HANDOFF-128) removed the sort and all 25 tests stayed green. Its eleven other hand mutations went red. Fixed in place in PR 199 with ifd_entries_are_written_in_ascending_tag_order."
+    evidence: "N=2. (2) STAGE-015 2026-11-11: SPEC-058 AC5 refusal tests asserted only the typed error variant. The SPEC-058 cold verify (HANDOFF-130) made unpack_into skip the shared tile-table pass; the per-tile checks still refused with the same variants but only after earlier tiles were written, and every test stayed green. Fixed in PR 204 by pre-filling dst with a sentinel and asserting it untouched. (1) STAGE-013 2026-11-11. SPEC-057 Design 2 said the writer sorts each IFD's entries by tag. Both oracles, irradiance's reader and dnglab, accept unsorted IFDs, so the SPEC-057 cold verify (HANDOFF-128) removed the sort and all 25 tests stayed green. Its eleven other hand mutations went red. Fixed in place in PR 199 with ifd_entries_are_written_in_ascending_tag_order."
     bar: "N=3 same-outcome"
     status: watch
     disposition_at: stage-close
@@ -1530,3 +1530,8 @@ signals:
       a writer or encoder design, ask whether any oracle would go red without Y.
       Watch at SPEC-061's design (the public writer promotes this core, and adds
       DNG-conformance properties dng_validate would enforce but our oracles do not).
+      ══ STAGE-015 CLOSE, 2026-11-11: N=1 -> N=2, stays watch (bar N=3). ══ The
+      second case is a refusal path, not a writer: an error-variant assertion is
+      indifferent to whether the refusal happened before or after a partial write.
+      Falsifier for decoders: for each "refused before anything is written" sentence,
+      ask whether any test would go red if the refusal came late.

@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: punch-list                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 10428396               # REAL combined count — what cost-audit reads
-  estimated_usd: 7.56              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 12863934               # REAL combined count — what cost-audit reads
+  estimated_usd: 9.12              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 150
   branch: claude/spec-058-verify-dewdney
   pr: https://github.com/jysf/irradiance/pull/204
   completed_at: 2026-11-11               # YYYY-MM-DD
-  notes: "FLOOR from this session transcript just before the handback commit (1 jsonl, 60 unique message.ids, all claude-opus-5-5, no subagents): input 125 + cache-creation 168,523 (1-hour) + cache-read 10,229,466 + output 30,282 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Excludes the commit, push and PR turns."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript (1 jsonl, 71 unique message.ids, all claude-opus-5-5, no subagents): input 149 + cache-creation 179,569 (1-hour) + cache-read 12,644,236 + output 39,980 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 10,428,396 / 7.56 before the commit, push and PR turns."
+  synced_at: 2026-11-11
 ---
 
 

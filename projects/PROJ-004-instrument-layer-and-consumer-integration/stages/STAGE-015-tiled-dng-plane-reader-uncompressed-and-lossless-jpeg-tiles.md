@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-015                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-11
-shipped_at: null
+shipped_at: 2026-11-11
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -47,7 +47,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 16682664
+      estimated_usd: 11.58
+      recorded_at: 2026-11-11
+      notes: "Stage orchestration, measured from the orchestrator transcript (session 1833c79a, claude-opus-5-5) from the user's 'Design SPEC-058' message at 2026-11-12T05:19Z through this ship commit: 81 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus list rates (docs/cost-tracking.md); no subagents. Covers the SPEC-058 design and Pixel probes, DEC-056, build and verify dispatch and reconciliation, and this ship and stage-ship. A FLOOR: the final wrap-up messages after this commit are not in it."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -94,9 +99,9 @@ own merits.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-058 (build) [M] Tiled plane decode: tile tags, placement and edge tiles, uncompressed and Compression-7 tiles, validate-before-allocate guards, fuzz target; bit-exact against dnglab on the three Pixel files
+- [x] SPEC-058 (shipped on 2026-11-11) [M] Tiled plane decode: tile tags, placement and edge tiles, uncompressed and Compression-7 tiles, validate-before-allocate guards, fuzz target; bit-exact against dnglab on the three Pixel files
 
-**Count:** 0 shipped / 1 active / 0 pending
+**Count:** 1 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -122,21 +127,37 @@ levels. Plane decode doesn't need either, but develop will.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled at stage ship, 2026-11-11.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes.
+  - `plane::unpack_into` and `plane::validate` decode tiled planes:
+    - uncompressed tiles;
+    - Compression-7 tiles, with Nf=1 and Nf=2;
+    - partial right and bottom edge tiles;
+    - both II and MM byte orders.
+  - Decoding is allocation-free through DEC-056's clipped, strided window.
+  - The Pixel 4a, 3a and 7 Pro unpack bit-exact against `dnglab --raw-checksum`.
+  - Hostile tile tables are typed errors, refused before anything is written.
+  - The held strip files' checksums are unchanged.
+- **How many specs did it actually take?** 1 of 1 planned (SPEC-058, complexity M,
+  47.43M tokens / $32.57 against a 30M estimate).
+- **How many outlines survived unchanged?** 1 of 1. SPEC-058's frame scope held.
+- **What changed between starting and shipping?** The design probe removed the codec
+  risk: single Pixel tiles already decoded bit-exact, and every edge tile is a full
+  256x256 frame. The open question narrowed to where a clipped tile's out-of-plane
+  samples go, and DEC-056 answered it without a scratch buffer.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - None codified.
+  - DEC-016's wording should say that the ljpeg header parse allocates small
+    Huffman tables. That allocation predates this stage; it is recorded as a
+    follow-up, not done here.
+- **Signals dispositioned at this close?** Stage-close lesson signals were walked:
+  - [[tolerant-oracle-cannot-pin-structure]]: N=1 -> N=2, stays `watch` (bar N=3).
+    The verify's item 1 is a refusal test indifferent to a partial write.
+  - [[probe-the-hard-assumption-at-frame-time]]: applied, not violated. The STAGE-015
+    frame probe flagged P=16 and the 7 Pro's frame, and the design probe settled both
+    before the build. Still N=1.
+  - No other stage-close lesson was touched by this stage.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - No. SPEC-058's follow-ups go to STAGE-016 (a Pixel metadata and colour oracle,
+    which needs per-channel BlackLevel) and to a later DEC-016 wording fix.
