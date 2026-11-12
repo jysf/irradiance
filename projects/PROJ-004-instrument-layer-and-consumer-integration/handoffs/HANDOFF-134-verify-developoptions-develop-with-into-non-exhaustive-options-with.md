@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-12
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-063
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 5426417            # REAL combined count — what cost-audit reads
+  estimated_usd: 4.29              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 75
+  branch: claude/spec-063-verify-fb8ccb
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  completed_at: 2026-11-12         # YYYY-MM-DD
+  notes: "APPROVED at ae232c2 (PR 214 build head). tokens_total is a floor re-summed from transcript fad3eb49-ca46-4bac-837e-67350d3967aa.jsonl (36 unique message.ids, max output per id, no subagents) just before the handback commit; it excludes the commit/push/PR turns. Re-sum at ship."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -240,38 +240,69 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-063-verify-fb8ccb` (cut from `claude/spec-063-verify-base` at 9ef9954 = PR #214 head ae232c2 + this handoff). New PR against `main`, superset of #214; it adds only this handback.
+- **Completed at:** 2026-11-12
+- **All acceptance criteria met?** yes. AC9's orientation half is unsatisfiable as written and its substitute is accepted (see Deviations).
+- **For `verify`:** ✅ **APPROVED at ae232c2** (the build head of PR #214; no code change in this verify).
+
+**What I checked myself (not transcribed from HANDOFF-133):**
+
+- **Gates, with `IRRADIANCE_CORPUS_DIR=~/PSeven/experiments/crustimg_redo_plus/images`:** `just test` exit 0: 29 binaries, **615 passed / 0 failed / 1 ignored** (pre-existing). Corpus status 12/12 present, zero SKIP lines, and `develop_into_output_is_unchanged_on_held_files` ran (>60 s in debug) and passed. `lint-ci`, `lint-no-allow`, `fmt-check`, `validate`, `cost-audit`, `gate-audit`, `doc-check`, `deny` and `msrv` all exit 0. `decisions-audit --changed` is advisory only and lists `src/develop.rs` / `src/lib.rs`; I judged them consistent with DEC-024, DEC-028, DEC-051, DEC-052 and DEC-058.
+- **Byte identity, independent of the build.** A standalone scratchpad crate (path dependency on the PR head, release mode, `develop_into`, MD5 of the output as LE `u16` via the system `md5`, nothing written to the repo) re-derived **five** §1 pins, all equal:
+  - L1026016 5584×8368 `2bc53a63…434b` (warped, Orientation 6);
+  - K3III 6192×4128 `82d2d519…6b14`;
+  - L1000622 5212×3468 `fddf0ea0…cc79`;
+  - M2462362 5976×3992 `4aa013f6…cb28`;
+  - 5G4A9394 5760×3840 `f533e405…94bc`.
+
+  `git diff origin/main` edits no pin, and `DEVELOP_VERSION` stays `"4"`.
+- **Validate, then override.** `resolve_geometry` runs unchanged, then `apply_options`, on both `output_dimensions_with` and `develop_with_into`. Under `StandardCrop` the opcode parse order is main's: the `OpcodeList3` parse moved into `non_identity_warp` but runs at the same point, after the `OpcodeList1` copy. A test already pins this (`develop_into` on a malformed `FixBadPixelsConstant` plus a warp still reports `MalformedOpcodeParams`), so no new test was needed. Under `FullActiveArea` the warp list is parsed exactly once, early, and the later parse is skipped.
+- **My own 16 mutations** (scripted against `src/develop.rs`, release build with the corpus; each reverted, tree clean afterwards). Every one turned a named `tests/develop_options.rs` test red:
+  - refusal removed → `full_active_area_with_a_warp_is_refused_before_any_write`;
+  - refusal fires on an identity warp → `identity_warp_does_not_trigger_the_refusal`;
+  - refusal fires under `StandardCrop` → AC2 `develop_into_output_is_unchanged_on_held_files` (tier B), AC5, AC6 Q2M;
+  - refusal moved after the `FixBadPixelsConstant` copy → AC5 (the order probe);
+  - refusal placed after a `dst` write → AC5 (sentinel);
+  - validation bypassed (crop tags cleared under `FullActiveArea`, or orientation cleared under `apply_orientation: false`), separately in `output_dimensions_with` and `develop_with_into` (4 mutations) → `options_do_not_skip_tag_validation` each time;
+  - `FullActiveArea` origin off by one → AC4(a), AC4(b), AC7;
+  - crop size swapped → AC3, AC4, AC5, AC7;
+  - crop origin kept instead of 0 → AC4(a), AC4(b), AC7;
+  - `apply_orientation: false` maps to 2 → AC6 all-eight, AC6 Q2M, AC7, AC9;
+  - default `FullActiveArea` → AC1, AC2 + 6 more;
+  - `apply_options` skipped → AC3, AC4, AC5, AC6, AC7, AC9;
+  - `dst` checked against the default dimensions → AC9 + 5 more.
+- **The relations are real oracles.** Tier-A fixtures use distinct non-zero samples, identity levels, a non-square crop and a crop ≠ active ≠ plane. AC4(b) asserts the outputs differ in length (a real border), and AC6 asserts the option is not a no-op for Orientation 2–8. The off-by-one and keep-origin mutants prove that a wrong crop changes pixels.
+- **Tier-B coverage.** `FullActiveArea` runs on K-3 III, L1000622 and Typ 246 (AC3, AC4(a), AC4(b)). The Q2M L1021223 refusal (8392×5632, `dst` sentinel intact) is exercised. L1026016 `apply_orientation: false` runs through the warp path at 8368×5584.
+- **API and error surface.** `DevelopOptions` derives `Debug, Clone, Copy, PartialEq` (no `Eq`/`Hash`). Both types are `#[non_exhaustive]`, with every field and variant documented and marked mono-only. The external tests build options only via `Default` plus field assignment. The new variant is in `Error::kind()` (no wildcard) as `Unsupported`, and its `Display` is pinned to name both dimensions and no spec ID. CHANGELOG `[Unreleased]` names all five additions and says the default output is unchanged.
+- **No regression.** Every line deleted under `tests/` is in `tests/error_kind.rs` and is a count or comment (20→21 Unsupported, 61→62 total). The `src/` diff adds no `Vec`, `vec!`, `to_vec`, `Box`, `String` or `format!`.
+- **Fuzz.** `just fuzz-develop 70`: **5,411,410 runs in 71 s, zero crashes**, 24 seeds loaded (16 existing + the 8 `options-*`). `just fuzz-seeds` regenerated every seed byte-identically (clean `git status`).
+- **CI.** `gh pr checks 214`: **44/44 pass** on ae232c2; the PR is MERGEABLE.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 5,426,417, a floor taken before the commit/PR turns.
+- **Estimated USD:** $4.29.
+- **Duration (minutes):** ~75.
+- **Source of the number:** transcript `fad3eb49-ca46-4bac-837e-67350d3967aa.jsonl` (this session's scratchpad UUID; no subagents). Deduped by `message.id`, max `output_tokens` per id, opus-5-5 rates (in 5, out 25 per MTok; cache read 0.5; 1-hour cache write 10).
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec (judged):**
+  - **AC9's second half: I agree it is unsatisfiable.** The `dst` check compares `w×h`, and orientation only swaps the factors, so a default-sized buffer is the right length under `apply_orientation: false`. The substitute is sufficient: it pins that the buffer is accepted and holds the Orientation-1 layout. The `unoriented-maps-to-2` mutant turns it red. The `FullActiveArea` half is tested in both directions, with the `dst` sentinel. The spec's AC9 text should be corrected at ship.
+  - **The small `Vec<Opcode>` before the refusal is acceptable.** It is the existing `parse_opcode_list` allocation (proportional to the opcode list, not the plane). It runs once under `FullActiveArea`, because the later parse is gated off by `warp_checked_early`. The `FixBadPixelsConstant` plane copy comes after the refusal (the `refusal-after-fbp-copy` mutant is red). No plane-sized allocation happens before the refusal.
+  - **AC2 runtime in debug** (~3 min) is accepted; it ran.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - Correct SPEC-063 AC9's orientation half at ship (doc only).
+  - Optional: SPEC-063's red-proof list could name the error-precedence probe as the way to catch "refusal after the copy", which a `dst` sentinel cannot see.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing material. The handoff's mutation list mapped one-to-one onto tests. "Validation skipped under each option" needed choosing a concrete bypass; I cleared the tags on a clone before `resolve_geometry`, per option and per entry point.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — That two `tests/develop*.rs` red-proofs copy `src/` into a temp crate. A verifier mutating `src/` while `just test` runs would corrupt them; I serialised the two.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Script the mutation set from the start (I did, which kept 16 mutants cheap in release), and start `just test` before reading the spec, since it dominates the wall clock.
