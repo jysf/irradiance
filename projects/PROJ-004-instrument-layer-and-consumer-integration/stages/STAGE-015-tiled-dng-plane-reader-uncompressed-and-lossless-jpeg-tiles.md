@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-015                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -94,11 +94,13 @@ own merits.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-058 (frame) [M] Tiled plane decode: tile tags, placement and edge tiles, uncompressed and Compression-7 tiles, validate-before-allocate guards, fuzz target; bit-exact against dnglab on the three Pixel files
+- [ ] SPEC-058 (build) [M] Tiled plane decode: tile tags, placement and edge tiles, uncompressed and Compression-7 tiles, validate-before-allocate guards, fuzz target; bit-exact against dnglab on the three Pixel files
 
 **Count:** 0 shipped / 1 active / 0 pending
 
 ## Design Notes
+
+**Design (2026-11-11, SPEC-058 + DEC-056).** The probe confirmed the codec needs no change: single Pixel tiles wrapped as one-strip DNGs decode bit-exact against dnglab today, and all 192 tiles per file are full 256x256 frames (edge tiles included). Tiles decode in place through a clipped, strided window with no scratch buffer (DEC-056), keeping DEC-016. P=16 is in range and the "false FFC3" was the naive marker scan.
 
 **Design-time probe (2026-11-11).** Pixel 4a tiles are 256x256. Each tile is a
 lossless-JPEG frame with P=16, Y=256, X=128, Nf=2. That is the same two-component
