@@ -161,6 +161,20 @@ and `[ II. OPTICS & PLANE ]` benches need (companion docs:
 `~/PSeven/experiments/monochrom-app/docs/irradiance-apple-app-design.md` and
 `…-deep-dive.md`). All of it stays zero-I/O and caller-allocated.
 
+> **Update 2026-11-12: onyx DEC-010 moves the histogram and optical black out of
+> irradiance.** The Monochrom app (onyx-000, codename monorail-000) decided that its
+> `mono-instruments` crate computes the raw-ADU histogram, the zones and every
+> optical-black reduction on the CPU, over a `PlaneView`. irradiance supplies only sensor
+> description: the plane, black and white levels, active area, the optical-black
+> rectangle, crop and orientation.
+>
+> As a result:
+> - Stage A here is cut down to the preview accessors (STAGE-018 / SPEC-062).
+> - The histogram/zone rules below stay only as a reference, in case crustyimg STAGE-062
+>   asks.
+> - Stage B is parked unless irradiance's own develop needs optical-black-based black
+>   subtraction, which is onyx DEC-010's revisit condition.
+
 **Stage A — Forensics (read-only; no new decoder; works on the uncompressed Q2M):**
 - Preview-slice accessors on `Container<'a>` → `&'a [u8]` + dimensions for the
   embedded preview SubIFDs (select on `NewSubfileType`, per DEC-012 /

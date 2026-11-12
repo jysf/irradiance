@@ -32,7 +32,7 @@ value:
   success_signals:
     - "crustyimg's `raw-develop` feature builds against a published irradiance and `crustyimg web q2m.dng` produces a publishable image (carried from PROJ-001)"
     - "`crustyimg info` on a DNG reports the sensor's real dimensions, bit depth, orientation and EXIF from IFD0, not the preview's (carried from PROJ-001)"
-    - "Preview-slice accessors, the raw-ADU histogram/zone kernel and `WarpRect::lerp` + two framing modes ship with analytic oracles and red-proofs"
+    - "Preview-slice accessors and `WarpRect::lerp` + two framing modes ship with analytic oracles and red-proofs (the raw-ADU histogram/zone kernel moved to onyx's mono-instruments, onyx DEC-010)"
     - "Every new API is zero-I/O and caller-allocated; no new runtime dependency"
     - "Tiled DNGs decode bit-exact against dnglab (the three held Pixel files), and their mandatory OpcodeList2 GainMaps are applied instead of refused"
     - "A clean-room DNG writer builds every fixture the oracles need, and its public `write` form is accepted by dnglab, exiftool and dng_validate"
@@ -114,14 +114,14 @@ Order agreed with the maintainer 2026-11-11: writer → tiled reader → GainMap
 - [ ] STAGE-016 (proposed) — OpcodeList2 GainMap: parse and apply on the mono and colour paths (SPEC-059 analytic, SPEC-060 real-file)
 - [ ] STAGE-017 (proposed) — Public DNG writer behind a `write` feature (SPEC-061). Design waits for a named consumer.
 - [ ] STAGE-004 (proposed) — crustyimg integration: `raw-develop` feature, adapter, metadata truthfulness (moved from PROJ-001 2026-11-11; implemented crustyimg-side as its PROJ-016/STAGE-056)
-- [ ] (not yet framed) — Instrument layer A: forensics (preview slices, ADU histogram/zones). Named caller for preview slices: monorail-000 (request 5).
-- [ ] (not yet framed) — Instrument layer B: optical black (spike-gated)
+- [ ] STAGE-018 (active) — Instrument layer A: preview slice accessors (SPEC-062 at build, DEC-057, HANDOFF-131). It is first in the order agreed with monorail-000 / onyx-000 on 2026-11-12. The ADU histogram/zones and bad-pixel listing from future-plans Stage A are not planned here. onyx computes the histogram itself (onyx DEC-010), so crustyimg STAGE-062 is the only possible caller left.
+- [ ] (parked) — Instrument layer B: optical black. Its only named caller, the onyx / Monochrom app, now computes the optical-black reductions itself (onyx DEC-010, 2026-11-12). Revisit only if irradiance's own develop needs optical-black-based black subtraction.
 - [ ] (not yet framed) — Instrument layer C: geometry (`WarpRect::lerp`, framing modes). monorail-000 asks for these as one `DevelopOptions` struct with `apply_orientation`, plus caller-owned develop scratch, a CFA-as-mono option and a faster Orientation 5–8 transpose (requests 2, 3, 6, 4).
 - [ ] (not yet framed) — Parallel-friendly plane decode: `plane::units` + `unpack_unit_into` so the caller can parallelise unpack (monorail-000 request 1). The real win is row bands in uncompressed strips. The held Compression 7 files are one strip each, with no restart markers, so they can't be split; speeding those up means faster single-stream lossless-JPEG decode. Depends on SPEC-058.
 
 Spec chain: SPEC-057 → (SPEC-058, SPEC-059, SPEC-061); SPEC-060 depends on SPEC-058 + SPEC-059.
 
-**Count:** 0 shipped / 0 active / 5 pending (+4 unframed)
+**Count:** 0 shipped / 1 active / 5 pending (+3 unframed)
 
 Consumer requests feeding the unframed stages: `feedback/2026-11-11-monorail-000-requests.md` (triaged; nothing minted).
 
