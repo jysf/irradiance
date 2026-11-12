@@ -55,7 +55,7 @@ handback:
   estimated_usd: 21.47              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 120
   branch: claude/spec-058-build
-  pr: __PRURL__
+  pr: https://github.com/jysf/irradiance/pull/202
   completed_at: 2026-11-11               # YYYY-MM-DD
   notes: "FLOOR measured from this session transcript just before the handback commit (1 jsonl, 110 unique message.ids, all claude-opus-5-5, no subagents): input 221 + cache-creation 334,681 (1-hour) + cache-read 30,641,631 + output 112,137 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Excludes the commit, push and PR turns."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -213,7 +213,7 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-058-build`, PR __PR__
+- **Branch / PR:** `claude/spec-058-build`, PR https://github.com/jysf/irradiance/pull/202
 - **Completed at:** 2026-11-11
 - **All acceptance criteria met?** yes. AC1 through AC11 are all met. Two placements differ from the spec's Failing Tests list; see Deviations.
 - **Window argument held in the code.** Both facts DEC-056 rests on are true in `src/ljpeg.rs`:
