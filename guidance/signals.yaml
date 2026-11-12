@@ -1510,3 +1510,23 @@ signals:
       by merging main in and taking the stage-backlog Count line. The NEW half is the
       PR-head-advance check before treating a pushed follow-up as merged. Not codified;
       watch whether the gh/PR-view lag recurs.
+
+  # --- lesson: a tolerant consumer cannot pin a structural property -----------
+  - id: tolerant-oracle-cannot-pin-structure
+    type: lesson
+    summary: "When the design states a structural property that every consumer tolerates the absence of (sorted IFD entries, alignment, canonical ordering), the output oracle cannot catch its loss; pin it with its own direct assertion at design time."
+    evidence: "N=1, STAGE-013 2026-11-11. SPEC-057 Design 2 said the writer sorts each IFD's entries by tag. Both oracles, irradiance's reader and dnglab, accept unsorted IFDs, so the SPEC-057 cold verify (HANDOFF-128) removed the sort and all 25 tests stayed green. Its eleven other hand mutations went red. Fixed in place in PR 199 with ifd_entries_are_written_in_ascending_tag_order."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-11
+    last_touched: 2026-11-11
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote: N=1. Adjacent to [[shared-path-oracle-tautology]]
+      (there, the oracle shares code with the thing under test) but a different
+      failure. Here the oracle is independent and correct, it is just indifferent
+      to the property. The falsifier is cheap: for each "the X does Y" sentence in
+      a writer or encoder design, ask whether any oracle would go red without Y.
+      Watch at SPEC-061's design (the public writer promotes this core, and adds
+      DNG-conformance properties dng_validate would enforce but our oracles do not).

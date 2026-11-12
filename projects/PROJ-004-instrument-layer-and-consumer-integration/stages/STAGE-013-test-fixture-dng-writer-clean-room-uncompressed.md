@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-013                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-06   # drafted in PROJ-002 (uncommitted); re-homed to PROJ-004 2026-11-11
-shipped_at: null
+shipped_at: 2026-11-11
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -46,7 +46,11 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 15521561
+      estimated_usd: 11.89
+      recorded_at: 2026-11-11
+      notes: "Stage orchestration, measured from the orchestrator transcript (session 1833c79a, claude-opus-5-5) from the user's 'Design SPEC-057 writer' message at 2026-11-12T02:35Z through this ship commit: 84 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus list rates (docs/cost-tracking.md). Covers the SPEC-057 design and probe, build and verify dispatch and reconciliation, and this ship and stage-ship. A FLOOR: the final wrap-up messages after this commit are not in it. Excludes the PROJ-004 framing (PR 195), which ran earlier in the same session and is already inside the STAGE-005 ceiling."
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -105,9 +109,9 @@ a real spec at `cycle: frame` with a stable ID (so `depends_on:` can point at
 it) and rewrites the line in place. An optional `[S]`/`[M]`/`[L]` tag on the
 line is carried onto the spec as `task.complexity`.
 
-- [ ] SPEC-057 (build) [M] test-only DNG writer: uncompressed mono and Bayer fixtures, strip AND tile layouts, arbitrary OpcodeList1/2/3 bytes (GainMap fixtures)
+- [x] SPEC-057 (shipped on 2026-11-11) [M] test-only DNG writer: uncompressed mono and Bayer fixtures, strip AND tile layouts, arbitrary OpcodeList1/2/3 bytes (GainMap fixtures)
 
-**Count:** 0 shipped / 1 active / 0 pending
+**Count:** 1 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -156,21 +160,35 @@ Keep that property when touching ifd.rs.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled at stage ship, 2026-11-11.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes.
+  `tests/support/dng_writer.rs` builds mono and Bayer fixtures with chosen dims,
+  bit depth (8/12/14/16), CFA, levels, ActiveArea, DefaultCrop, Orientation, colour
+  matrices and opcode lists, in strips or tiles, II or MM, with the sensor in IFD0 or
+  a SubIFD. It round-trips through irradiance's reader bit-exactly (strips) and
+  matches `dnglab --raw-checksum` (strips and tiles), and exiftool reads its identity
+  tags. The provenance row cites TIFF 6.0, DNG 1.7 and DEC-008 only.
+- **How many specs did it actually take?** 1 of 1 planned (SPEC-057, complexity M,
+  19.33M tokens / $15.46 against a 20M estimate).
+- **How many outlines survived unchanged?** 1 of 1. SPEC-057's frame scope held. The
+  design added payload pass-through (`Payload::Encoded`), which kept the writer free
+  of any encoder while still serving SPEC-058's Compression-7 tiles.
+- **What changed between starting and shipping?** The design-time probe found that
+  rows which are not a whole number of bytes are read three different ways (TIFF 6.0,
+  irradiance, dnglab); the writer refuses them and the question is recorded in
+  `docs/oracle-contract.md` rather than settled.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - None codified. The verify's one punch-list item (an unpinned tag sort that both
+    tolerant oracles ignored) is captured as the watch signal
+    [[tolerant-oracle-cannot-pin-structure]] (N=1).
+- **Signals dispositioned at this close?** Stage-close lesson signals were walked:
+  - [[tolerant-oracle-cannot-pin-structure]]: new, `watch`, N=1.
+  - [[probe-the-hard-assumption-at-frame-time]]: applied, not violated. The SPEC-057
+    design probe checked dnglab on strips, tiles and odd rows before the build. Still
+    N=1.
+  - No other stage-close lesson was touched by this stage.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - No. SPEC-057's follow-ups are carried into SPEC-058 (assert bottom and 12-bit
+    edge fill) and SPEC-061 (drop `fault`, move `Order`, assert the serialiser's
+    ascending-offset assumption).

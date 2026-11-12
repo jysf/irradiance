@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 8428823               # REAL combined count — what cost-audit reads
-  estimated_usd: 7.72              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 9999310               # REAL combined count — what cost-audit reads
+  estimated_usd: 8.69              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 20
   branch: build/spec-057-test-only-dng-writer
   pr: https://github.com/jysf/irradiance/pull/198
   completed_at: 2026-11-11               # YYYY-MM-DD
-  notes: "FLOOR taken live just before the handback commit (docs/cost-tracking.md rule 6): session transcript 1aff81f7-7a09-40fc-8f7e-24833de1a68f.jsonl in the spec-057-build-8bc4e4 worktree project dir, 43 unique message.ids, all claude-opus-5-5, no subagents; input 86 + cache-creation 211,491 (all 1-hour) + cache-read 8,155,997 + output 61,249 (max per message). USD at opus-5-5 list rates in 5/out 25 per MTok, cache read x0.10, cache writes x2.0 (1-hour TTL). The last few wrap-up messages are not in it; re-sum the same file after the session ends."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE COST re-summed at ship by the orchestrator from the ended session's transcript (spec-057-build-8bc4e4 project dir, 1 jsonl, 49 unique message.ids, all claude-opus-5-5, no subagents): input 100 + cache-creation 217,054 + cache-read 9,715,908 + output 66,248 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Supersedes the live floor of 8,428,823 / 7.72 taken before the handback commit."
+  synced_at: 2026-11-11
 ---
 
 # HANDOFF-127: Test-only DNG writer: uncompressed mono and Bayer fixtures, strip and tile layouts, arbitrary opcode bytes (SPEC-057)
