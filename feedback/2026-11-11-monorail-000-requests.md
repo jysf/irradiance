@@ -10,7 +10,8 @@ status: open
 ## The issue
 
 Upstream requests from **monorail-000**, the macOS monochrome app (the "Monochrom app" named
-as a PROJ-004 beneficiary). The maintainer pasted them. Evidence is their SPIKE-001: M4 Pro,
+as a PROJ-004 beneficiary). Naming: monorail-000 is a codename for onyx-000, which is itself
+the codename for the app suite until it gets a final name. All three refer to the same consumer. The maintainer pasted them. Evidence is their SPIKE-001: M4 Pro,
 pinned to `irradiance = 0.2.1`.
 
 1. **Tile- or strip-level unpack so callers can parallelise.** `plane::unpack_into` is
