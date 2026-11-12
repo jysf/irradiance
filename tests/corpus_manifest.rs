@@ -18,10 +18,10 @@ use std::path::{Path, PathBuf};
 ///
 /// `7 → 9` (SPEC-027): the two uncompressed Bayer DNGs — Canon 5D-III
 /// (single-strip) and Nikon D300S (12-strip) — are now registered here.
-const MANIFEST_ENTRIES: usize = 9;
+const MANIFEST_ENTRIES: usize = 12;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. the reader exists and reads all 9 manifest entries
+// 1. the reader exists and reads all 12 manifest entries
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]

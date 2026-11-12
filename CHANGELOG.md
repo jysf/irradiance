@@ -8,6 +8,34 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Added
+
+- **Tiled sensor planes, uncompressed and lossless-JPEG** (`irradiance::plane`,
+  SPEC-058, STAGE-015, PROJ-004, DEC-056). `plane::validate` and `plane::unpack_into`
+  now read planes stored as TIFF 6.0 §15 tiles instead of strips: uncompressed tiles
+  (8/12/14/16-bit, both byte orders) and Compression-7 (SOF-3 lossless JPEG, `Nf = 1`
+  or `2`) tiles, including partial right and bottom edge tiles. Edge tiles are coded at
+  full size and clipped: a Compression-7 tile is reconstructed in place through a
+  clipped, strided window, so `unpack_into` still allocates nothing (DEC-016). The
+  three held Google Pixel DNGs (4a, 3a, 7 Pro; 192 tiles of 256×256) unpack bit-exact
+  against `dnglab --raw-checksum`; they still refuse to develop
+  (`UnsupportedMandatoryOpcode`, their mandatory GainMaps; DEC-049). Every strip file
+  decodes byte-identically.
+- **`Sensor` gains `tile_width`, `tile_length`, `tile_offsets`, `tile_byte_counts`**, and
+  `irradiance::ifd` gains `TAG_TILE_WIDTH`, `TAG_TILE_LENGTH`, `TAG_TILE_OFFSETS`,
+  `TAG_TILE_BYTE_COUNTS` (additive; `Sensor` is `#[non_exhaustive]`). The tile tags are
+  structural (DEC-012): a malformed one, e.g. a RATIONAL `TileOffsets`, fails the read.
+- **Three new `Error` variants** (additive; `Error` is `#[non_exhaustive]`):
+  `InvalidTileLayout` (a zero or absent tile dimension, or tile tables that do not match
+  the tile grid; `ErrorKind::Corrupt`), `StripsAndTiles` (both layouts on one plane;
+  `Corrupt`), and `UnsupportedTileRowBits` (an uncompressed tile row that is not a whole
+  number of bytes; `Unsupported`).
+
+### Changed
+
+- `UnsupportedStripLayout`'s message no longer says tiled planes are unsupported; it
+  now fires only for a plane with neither valid strip tags nor tile tags.
+
 ## [0.2.1] - 2026-11-11
 
 Post-0.2.0 maintenance (STAGE-014, SPEC-056, DEC-053). It closes two of 0.2.0's

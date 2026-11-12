@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-11
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-058
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 31088670               # REAL combined count — what cost-audit reads
+  estimated_usd: 21.47              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 120
+  branch: claude/spec-058-build
+  pr: https://github.com/jysf/irradiance/pull/202
+  completed_at: 2026-11-11               # YYYY-MM-DD
+  notes: "FLOOR measured from this session transcript just before the handback commit (1 jsonl, 110 unique message.ids, all claude-opus-5-5, no subagents): input 221 + cache-creation 334,681 (1-hour) + cache-read 30,641,631 + output 112,137 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Excludes the commit, push and PR turns."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -213,38 +213,96 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-058-build`, PR https://github.com/jysf/irradiance/pull/202
+- **Completed at:** 2026-11-11
+- **All acceptance criteria met?** yes. AC1 through AC11 are all met. Two placements differ from the spec's Failing Tests list; see Deviations.
+- **Window argument held in the code.** Both facts DEC-056 rests on are true in `src/ljpeg.rs`:
+  - `decode_difference` takes only the Huffman table, never a prediction.
+  - Predictors 1–7 read only left, above and above-left.
+
+  The window needed no scratch buffer and no new public entry point.
+
+**What changed**
+
+- **`src/ifd.rs`:** the four `TAG_TILE_*` constants and four `Sensor` fields. The tags are structural: they are in `is_structural_tag`, and the structural-tag table test now covers 15 tags.
+- **`src/ljpeg.rs`:**
+  - Added `Window` and `check_window`, plus `reconstruct_window`, `reconstruct_two_component_window` and `decode_window_into`.
+  - The old `reconstruct`, `reconstruct_two_component` and `decode_into` keep their signatures and length checks. They now call the window versions with `Window::dense`.
+  - The clip decision is one method, `Window::is_visible`. Discarded samples still count toward restart intervals.
+  - The point transform is applied to visible samples only. Decoding stops after the last visible row.
+- **`src/plane.rs`:**
+  - `select_layout` → `tile_grid` → `TileWalk` / `check_tiles`, wrapped by `check_layout`, which both `validate` and `unpack_into` call.
+  - Then `unpack_tiles_uncompressed` and `unpack_tiles_jpeg`. The latter does a per-tile `check_strip_shape(frame, TileWidth, TileLength)` before decoding.
+  - The strip path is unchanged.
+- **`src/lib.rs`:** `InvalidTileLayout` (Corrupt), `StripsAndTiles` (Corrupt) and `UnsupportedTileRowBits` (Unsupported). `UnsupportedStripLayout`'s text no longer says tiles are unsupported. DEC-051's table note and `tests/error_kind.rs` are updated: 59 variants, 12/19/28.
+- **`irr ifd`** prints the tile fields.
+
+**Evidence**
+
+- **Failing tests first.** The new `tests/plane_tiles.rs` ran red on the pre-implementation tree, 10 of 10 failing. Only the type additions were in place: the Sensor fields and the error variants.
+- **Tier B ran with the corpus present.** `IRRADIANCE_CORPUS_DIR=~/PSeven/experiments/crustimg_redo_plus/images`, nothing skipped. Pixel plane MD5s, all equal to the pinned dnglab checksums:
+  - 4a: `d1830234ac3f32b07ff73792f0faeabb`
+  - 3a: `eb736a494bdfd2fc5ec799fb798ed2c3`
+  - 7 Pro: `eb72cb300a27c4bcab745702542269de`
+
+  Every pre-existing corpus checksum is unchanged. `plane_md5_matches_the_pinned_raw_checksum` passed for all 6 uncompressed files and the 2 held Compression-7 strip files, plus the 3 Pixel files.
+- **Corpus copies.** The three Pixel files were copied, not symlinked, from `data.lfs/Google/<model>/` into `GOOGLE-PIXEL-4A/`, `GOOGLE-PIXEL-3A/` and `GOOGLE-PIXEL-7-PRO/`. Their sha256 values match the spec. Nothing from the corpus is committed.
+- **AC7 red-proof** (`tests/plane_oracle.rs::window_clip_red_proof`):
+  - **Negative controls first.** The in-process honest digest, then the unmutated staged-copy apparatus.
+  - **Then the mutation:** `Window::is_visible` made `<=`, which keeps one extra column. It turned red on the tier-A tiled fixture and on all three Pixel files, with mutant digests `019c7c51…`, `242dc49d…` and `8df8b249…`.
+  - The existing ljpeg two-component red-proof also now covers the Pixel files, and goes red on them.
+- **AC8.** Develop refuses all three Pixel files, through both `develop_color_into` and `develop_into`, with `UnsupportedMandatoryOpcode { id: 9 }` (GainMap, `ErrorKind::Unsupported`).
+- **AC9 fuzz** (`cargo +nightly fuzz`, 630 s each, run concurrently, seeds include 5 writer-built tiled fixtures per target):
+  - `plane`: 36,288,821 runs, 0 crashes
+  - `develop`: 31,584,752 runs, 0 crashes
+  - `demosaic`: 29,868,019 runs, 0 crashes
+  - `ljpeg` (its reconstruct loops changed shape): 34,629,975 runs, 0 crashes
+
+  All four exited 0, with no artifacts.
+- **AC11 gates.** All green: `just test` (with the corpus), lint-ci, lint-no-allow, fmt-check, validate, doc-check, deny, deny-fuzz, msrv, cost-audit and gate-audit.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 31,088,670 (a floor; see notes)
+- **Estimated USD:** $21.47
+- **Duration (minutes):** ~120
+- **Source of the number:** this session's transcript (`basis: transcript`).
+  - Deduplicated by `message.id`, keeping the max `output_tokens` per message. All messages are `claude-opus-5-5`, with no subagents.
+  - Priced per component at opus-5-5 rates: $5 per Mtok in, $25 per Mtok out, cache read ×0.10, and 1-hour cache write ×2.0.
+  - Measured just before the handback commit, so the final commit and PR messages are not included. It is a floor.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none. DEC-051's "later additions" note records the three new variants' kinds.
 - **Deviations from spec:**
-  - [list]
+  - **`window_clip_red_proof` lives in `tests/plane_oracle.rs`, not `tests/plane_tiles.rs`.** That file already holds the copy-and-rebuild apparatus. It also runs on a tier-A writer fixture, so CI exercises it too.
+  - **The AC5 tile-count overflow case is asserted on `validate` only.** It uses 641 × 6,700,417 one-pixel tiles, which is 2^32 + 1 and wraps to 1 in `u32`. A correctly sized `dst` would be about 8 GiB, and `unpack_into`'s `dst`-length check comes first by the documented precedence.
+  - **The transposed-frame case is `Ok` from `validate`.** `validate` does not decode, which is its documented contract for strips too. It is `LjpegPlaneShapeMismatch` from `unpack_into`.
+  - **AC8's refusal is `UnsupportedMandatoryOpcode { id: 9 }`, not `UnsupportedRequiredOpcode`.** GainMap is not a recognized opcode, so it is refused as unknown-and-mandatory, which is still the DEC-049 check.
+  - **The Pixel files were added to `DECODABLE_COMPRESSED` in `tests/plane_oracle.rs`.** They therefore also ride the determinism pin and the ljpeg red-proof. They are `CFA_CHECKED_ELSEWHERE` in `tests/ifd_reader.rs`, and `MANIFEST_ENTRIES` went from 9 to 12.
+  - **README's tested-DNG-modes table was updated.** It said tiles were refused.
+  - **Two legacy tests changed with the behaviour.**
+    - `tests/plane_unpack.rs::tiled_compression7_plane_is_unsupported_strip_layout` pinned the old refusal. It is now `a_hand_built_single_tile_compression7_plane_decodes`, which asserts the samples, using the hand-placed `tiff.rs` builder so it stays independent of the writer.
+    - `tests/metadata_oracle.rs` skips the Pixel files by name in `CFA_METADATA_NOT_YET_ORACLED`, with a stated reason; see Follow-up.
+    - The tile alias-bound variables are named differently from the strip ones, so `tests/plane_validate.rs`'s red-proof needle `if declared > file_len {` still matches exactly the strip guard.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - **Finding (pre-existing, not introduced here).** The Compression-7 path is not strictly allocation-free: `ljpeg::parse_headers` returns a `Vec<HuffTable>`, and each table owns a `Vec<u8>`. That is small, header-sized, and per strip or tile, but DEC-016's "allocates nothing" is literally true only for uncompressed planes. Worth a sentence in DEC-016, or a fixed-size table array, in a later spec. The AC6 grep test pins the window section and all of `src/plane.rs`, and documents this.
+  - **The Pixel 7 Pro's malformed `BlackLevel` did not bite** the plane decode, as expected.
+  - **No metadata oracle covers the Pixel files yet.** They carry a 4-value per-channel `BlackLevel`, which the scalar oracle in `tests/metadata_oracle.rs` cannot compare, and the colour oracle does not list them. They are skipped by name, with a stated reason, in `CFA_METADATA_NOT_YET_ORACLED`. Adding them to `tests/colour_metadata_oracle.rs`, cross-checked against exiftool and dnglab, belongs before or with STAGE-016's GainMap work.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little. The probe table and the DEC-056 argument were exactly what was needed. Two places made me guess:
+   - AC5's "both validate and unpack_into" for the overflow and transpose cases, which `validate`'s own contract makes impossible as written.
+   - AC8's expected variant name.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Two things in other tests:
+   - The manifest-partition tests in `tests/ifd_reader.rs` and `tests/plane_oracle.rs`, which every new manifest entry trips.
+   - The `plane_oracle` red-proof's literal needle, `neighbour(out, slot, 2)`, which a reconstruct refactor must preserve.
+
+   Naming them in the handoff would save a loop.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Add the manifest entries and the partition-list updates in the same step as the types, so the first full-suite run is already clean.

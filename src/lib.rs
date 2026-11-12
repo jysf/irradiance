@@ -442,13 +442,58 @@ pub enum Error {
     /// unpacked independently (`DEC-008`) — so this no longer fires on a
     /// well-formed multi-strip plane. It fires on the two genuinely
     /// unassemblable shapes: a count mismatch between the two tags, and an
-    /// empty strip list. Tiled planes (`TileOffsets`/`TileByteCounts`) are
-    /// still unsupported and are the remaining case this guards.
+    /// empty strip list (a plane with neither strip nor tile tags). Tiled
+    /// planes (`SPEC-058`) take their own path and their own errors
+    /// ([`Error::InvalidTileLayout`], [`Error::StripsAndTiles`],
+    /// [`Error::UnsupportedTileRowBits`]).
     UnsupportedStripLayout {
         /// `StripOffsets.len()`.
         strip_offsets: usize,
         /// `StripByteCounts.len()`.
         strip_byte_counts: usize,
+    },
+
+    /// `SPEC-058` (`DEC-056`). A tiled plane's tile table cannot describe the
+    /// plane: `TileWidth` or `TileLength` is absent or zero, or `TileOffsets`
+    /// and `TileByteCounts` do not both hold exactly `ceil(width / TileWidth) ×
+    /// ceil(height / TileLength)` entries (computed in `u64`, so a product past
+    /// `u32` cannot wrap into a false match). Checked by [`plane::validate`]
+    /// and [`plane::unpack_into`] alike, before any tile byte is read.
+    InvalidTileLayout {
+        /// `TileWidth`, or `0` when absent.
+        tile_width: u32,
+        /// `TileLength`, or `0` when absent.
+        tile_length: u32,
+        /// `TileOffsets.len()`.
+        tile_offsets: usize,
+        /// `TileByteCounts.len()`.
+        tile_byte_counts: usize,
+        /// The tile count the plane geometry requires, or `0` when it cannot be
+        /// computed (a zero or absent tile dimension).
+        expected_tiles: u64,
+    },
+
+    /// `SPEC-058`. The sensor IFD carries **both** strip tags
+    /// (`StripOffsets`/`StripByteCounts`) and tile tags. TIFF 6.0 §15 makes the
+    /// two layouts mutually exclusive, so the plane's location is ambiguous and
+    /// neither reading is guessed at.
+    StripsAndTiles {
+        /// `StripOffsets.len()`.
+        strip_offsets: usize,
+        /// `TileOffsets.len()`.
+        tile_offsets: usize,
+    },
+
+    /// `SPEC-058` (`DEC-056`). An **uncompressed** tiled plane whose tile row,
+    /// `TileWidth × BitsPerSample` bits, is not a whole number of bytes. TIFF
+    /// 6.0, this reader's per-strip stream rule (`DEC-008`) and dnglab disagree
+    /// on how such rows are packed (the `SPEC-057` probe), so the plane is
+    /// refused rather than read under an unsettled rule.
+    UnsupportedTileRowBits {
+        /// `TileWidth`.
+        tile_width: u32,
+        /// `BitsPerSample`.
+        bits: u32,
     },
 
     /// A multi-strip plane (`N > 1` strips) carries no usable `RowsPerStrip`,
@@ -994,7 +1039,39 @@ impl fmt::Display for Error {
                     f,
                     "unsupported strip layout: {strip_offsets} StripOffsets and \
                      {strip_byte_counts} StripByteCounts (the counts must match and be \
-                     non-zero; tiled planes are unsupported)"
+                     non-zero, or the plane must carry tile tags instead)"
+                )
+            }
+            Error::InvalidTileLayout {
+                tile_width,
+                tile_length,
+                tile_offsets,
+                tile_byte_counts,
+                expected_tiles,
+            } => {
+                write!(
+                    f,
+                    "invalid tile layout: {tile_width}x{tile_length} tiles need {expected_tiles} \
+                     tiles, but the plane carries {tile_offsets} TileOffsets and \
+                     {tile_byte_counts} TileByteCounts (tile dimensions must be non-zero and \
+                     both counts must equal the tile grid)"
+                )
+            }
+            Error::StripsAndTiles {
+                strip_offsets,
+                tile_offsets,
+            } => {
+                write!(
+                    f,
+                    "the sensor plane carries both strip tags ({strip_offsets} StripOffsets) and \
+                     tile tags ({tile_offsets} TileOffsets); the layouts are mutually exclusive"
+                )
+            }
+            Error::UnsupportedTileRowBits { tile_width, bits } => {
+                write!(
+                    f,
+                    "an uncompressed {tile_width}-wide tile row of {bits}-bit samples is not a \
+                     whole number of bytes, which this library does not read"
                 )
             }
             Error::MissingRowsPerStrip { strips } => {
@@ -1318,6 +1395,7 @@ impl Error {
             | Error::UnsupportedCompression { .. }
             | Error::UnsupportedBitDepth { .. }
             | Error::UnsupportedStripLayout { .. }
+            | Error::UnsupportedTileRowBits { .. }
             | Error::UnsupportedOrientation { .. }
             | Error::UnsupportedMandatoryOpcode { .. }
             | Error::UnsupportedRequiredOpcode { .. }
@@ -1350,6 +1428,8 @@ impl Error {
             | Error::MissingRowsPerStrip { .. }
             | Error::PackedSizeMismatch { .. }
             | Error::StripBytesExceedFile { .. }
+            | Error::InvalidTileLayout { .. }
+            | Error::StripsAndTiles { .. }
             | Error::InvalidActiveArea { .. }
             | Error::InvalidDefaultCrop { .. }
             | Error::InvalidLevels { .. }

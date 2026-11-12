@@ -21,8 +21,10 @@ use std::collections::BTreeSet;
 use irradiance::{Error, ErrorKind};
 
 /// One representative of every `Error` variant, paired with `DEC-051`'s kind.
-/// Grouped in `DEC-051`'s order: 12 `CallerError`, 18 `Unsupported`,
-/// 26 `Corrupt` (25 at 0.2.0, plus `UnreadableOpcodeList`, SPEC-056/DEC-053).
+/// Grouped in `DEC-051`'s order: 12 `CallerError`, 19 `Unsupported`,
+/// 28 `Corrupt` (25 at 0.2.0, plus `UnreadableOpcodeList`, SPEC-056/DEC-053;
+/// SPEC-058/DEC-056 added `UnsupportedTileRowBits` (Unsupported) and
+/// `InvalidTileLayout` + `StripsAndTiles` (Corrupt)).
 fn dec_051_table() -> Vec<(Error, ErrorKind)> {
     use ErrorKind::{CallerError, Corrupt, Unsupported};
     vec![
@@ -111,7 +113,7 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             },
             CallerError,
         ),
-        // Unsupported (18).
+        // Unsupported (19).
         (Error::NotTiff { mark: *b"PK" }, Unsupported),
         (Error::UnsupportedTiffVersion { version: 43 }, Unsupported),
         (Error::NoSensorIfd, Unsupported),
@@ -124,6 +126,13 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             Error::UnsupportedStripLayout {
                 strip_offsets: 2,
                 strip_byte_counts: 3,
+            },
+            Unsupported,
+        ),
+        (
+            Error::UnsupportedTileRowBits {
+                tile_width: 3,
+                bits: 12,
             },
             Unsupported,
         ),
@@ -163,7 +172,7 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             Error::LjpegUnsupportedSampling { factor: 0x21 },
             Unsupported,
         ),
-        // Corrupt (26).
+        // Corrupt (28).
         (Error::Truncated { at: 8, len: 12 }, Corrupt),
         // SPEC-056, DEC-053: a present-but-unreadable OpcodeList.
         (Error::UnreadableOpcodeList { list: 1 }, Corrupt),
@@ -228,6 +237,23 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             Error::StripBytesExceedFile {
                 declared: 1 << 20,
                 file_len: 4096,
+            },
+            Corrupt,
+        ),
+        (
+            Error::InvalidTileLayout {
+                tile_width: 256,
+                tile_length: 256,
+                tile_offsets: 191,
+                tile_byte_counts: 192,
+                expected_tiles: 192,
+            },
+            Corrupt,
+        ),
+        (
+            Error::StripsAndTiles {
+                strip_offsets: 1,
+                tile_offsets: 192,
             },
             Corrupt,
         ),
@@ -349,8 +375,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        56,
-        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053) classified 56",
+        59,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056) classified 59",
         declared.len()
     );
 
@@ -368,11 +394,12 @@ fn every_variant_classified() {
         .collect();
     assert!(wrong.is_empty(), "misclassified: {wrong:#?}");
 
-    // DEC-051's bucket sizes: 12 / 18 / 26 (DEC-053 added one Corrupt).
+    // DEC-051's bucket sizes: 12 / 19 / 28 (DEC-053 added one Corrupt;
+    // DEC-056 one Unsupported and two Corrupt).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
     assert_eq!(count(ErrorKind::CallerError), 12);
-    assert_eq!(count(ErrorKind::Unsupported), 18);
-    assert_eq!(count(ErrorKind::Corrupt), 26);
+    assert_eq!(count(ErrorKind::Unsupported), 19);
+    assert_eq!(count(ErrorKind::Corrupt), 28);
 }
 
 #[test]

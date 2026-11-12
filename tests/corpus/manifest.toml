@@ -336,6 +336,78 @@ pgm_bytes/strip_bytes are omitted and the oracle keys on `raw_checksum` only.
   raw_checksum  = "b8e8025d370cc2e97f675e63a0e6bbdb"   # dnglab 0.7.2
 
 # ─────────────────────────────────────────────────────────────────────────────
+# THE TILED PIXEL PHONE FILES — PROJ-004 / STAGE-015. Registered by SPEC-058.
+# All three are Bayer CFA (32803), 16-bit, Compression 7 (SOF-3 lossless JPEG,
+# P=16, Nf=2, predictor 1), stored as 16x12 = 192 TILES of 256x256 (LONG tile
+# tags), sensor in SubIFD #1 under a preview IFD0. Every tile, edge tiles
+# included, is a full 256x256 frame (SPEC-058 design probe). They carry
+# MANDATORY OpcodeList2 GainMaps, so develop refuses them (DEC-049) until
+# STAGE-016. Copied machine-locally from the raw.pixls.us mirror at
+# crustimg_redo_plus/data.lfs/Google/<model>/ (never committed, DEC-003).
+# `bytes`/`sha256` measured on disk 2026-11-11; `raw_checksum` pinned against
+# `dnglab 0.7.2 analyze --raw-checksum`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[file]]
+path            = "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng"
+tier            = "b"
+make            = "Google"
+model           = "Pixel 4a"
+bits            = 16
+bytes           = 13586704
+sha256          = "11b38186ee3455376291bcdb3049728a3f9dcd94b9e82ff76855d9f3430e44be"
+licence         = "CC0-1.0"
+source          = "https://raw.pixls.us/ — Google Pixel 4a sample (public-domain sample library)"
+notes           = """
+TILED Compression-7 Bayer plane, 4032x3024 in 192 tiles of 256x256. The right
+edge tiles show 192 of 256 columns, the bottom edge 208 of 256 rows; both are
+coded at full size and clipped by the tile window (DEC-056). Mandatory GainMaps
+in OpcodeList2: develop refuses it (DEC-049).
+"""
+
+  [file.oracle]
+  raw_checksum  = "d1830234ac3f32b07ff73792f0faeabb"   # dnglab 0.7.2
+
+[[file]]
+path            = "GOOGLE-PIXEL-3A/IMG_20190918_164153.dng"
+tier            = "b"
+make            = "Google"
+model           = "Pixel 3a"
+bits            = 16
+bytes           = 12413696
+sha256          = "78c7bec867f3f739d43df6f027fad36ead73502d062570ce6ca14f59cdc4a0dd"
+licence         = "CC0-1.0"
+source          = "https://raw.pixls.us/ — Google Pixel 3a sample (public-domain sample library)"
+notes           = """
+TILED Compression-7 Bayer plane, 4032x3024 in 192 tiles of 256x256 (the Pixel 4a
+geometry). Mandatory GainMaps in OpcodeList2: develop refuses it (DEC-049).
+"""
+
+  [file.oracle]
+  raw_checksum  = "eb736a494bdfd2fc5ec799fb798ed2c3"   # dnglab 0.7.2
+
+[[file]]
+path            = "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng"
+tier            = "b"
+make            = "Google"
+model           = "Pixel 7 Pro"
+bits            = 16
+bytes           = 12243982
+sha256          = "6b921558944db5fdb4f1c63dc64919b6666ef700857a187e18500099c6e7c6c6"
+licence         = "CC0-1.0"
+source          = "https://raw.pixls.us/ — Google Pixel 7 Pro sample (public-domain sample library)"
+notes           = """
+TILED Compression-7 Bayer plane, 3882x2924 in 192 tiles of 256x256. The right
+edge tiles show only 42 of 256 columns and the bottom edge 172 of 256 rows — the
+narrowest clip of the three. Carries a malformed BlackLevel (50714) the plane
+decode does not read. Mandatory GainMaps in OpcodeList2: develop refuses it
+(DEC-049).
+"""
+
+  [file.oracle]
+  raw_checksum  = "eb72cb300a27c4bcab745702542269de"   # dnglab 0.7.2
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ACQUIRED 2026-08-18 (entries above). Licences verified two
 # independent ways: absent from the `?noncc0` list (111 entries, all read), AND
 # License column reads CC0 in the full 2016-row table. sha256 below is from the
