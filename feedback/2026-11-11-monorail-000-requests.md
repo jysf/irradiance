@@ -217,7 +217,41 @@ Effect here:
 
   The **optical-black rectangle** is not exposed as such. Today it has to be worked out
   from `ActiveArea` and the plane width (on the Q2M, columns 8392..8424). If onyx wants it
-  named, that's a small, separate request. It is **not filed**.
+  named, that's a small, separate request. It is **not filed**. (Filed 2026-11-12 as
+  item 8, below.)
+
+## Item 8: pass `MaskedAreas` through (onyx request 5, relayed 2026-11-12, low priority)
+
+onyx filed the request the section above anticipated, as **its request 5**, marked low
+priority. It is **item 8** here, because 5 is already the preview slices. onyx asks
+irradiance to **pass `MaskedAreas` through when a file has it**. Its note says irradiance
+does **not** need to name the strip itself: no "left / right / top" labels and no
+inference from `ActiveArea`. Rectangles in, rectangles out; onyx does the optical-black
+reductions (onyx DEC-010).
+
+Checked against `origin/main` (2026-11-12):
+- **Not read today.** `MaskedAreas` (DNG tag 50830, SHORT or LONG, count 4·N, each
+  rectangle top, left, bottom, right in raw-plane coordinates) appears nowhere in `src/`.
+  `Sensor` has `active_area` but nothing for masked areas.
+- **No held DNG carries it.** `exiftool -MaskedAreas` over the tier-B corpus finds none;
+  9 of the 11 DNGs carry `ActiveArea` and none `MaskedAreas` (the Q2M's masked columns 8392..8424 are
+  implied by `ActiveArea`, not tagged). So the oracle must be writer-built fixtures from
+  the SPEC-057 test-only DNG writer, plus a hand-checked exiftool read of one fixture.
+
+Proposed shape (for the spec to settle):
+- A new `Sensor` field, for example `masked_areas`, holding the rectangles verbatim and in file
+  order. `Sensor` is `#[non_exhaustive]` (DEC-052), so this is additive (0.2.x).
+- Validation in the spirit of `ActiveArea`: count a multiple of 4, each rectangle well-formed
+  (top < bottom, left < right) and inside the plane. A malformed tag is a typed error, not a
+  silent `None` (DEC-012). Whether it may overlap `ActiveArea` is a spec question. The DNG
+  spec says masked areas are outside it, but irradiance should report, not police, unless
+  develop ever uses them.
+- Allocation: at most a handful of rectangles. A fixed-capacity array keeps `Sensor`
+  allocation-free; the spec picks the cap and the refusal past it.
+- No develop change. irradiance does not subtract optical black (Stage B stays parked).
+
+Size `[XS]`/`[S]`. It is not framed. It fits the 0.2.x maintenance stage (STAGE-014) or
+beside Stage C, whichever is open when it is picked up.
 
 ## Resolution
 
@@ -225,7 +259,8 @@ Maintainer decisions (2026-11-11): use the suggested order (Stage A → Stage C 
 
 | Item | Stage | Spec | Notes |
 |---|---|---|---|
-| 5 preview slices | STAGE-018 | SPEC-062 `[S]` (frame) | minted 2026-11-12 |
+| 5 preview slices | STAGE-018 | SPEC-062 `[S]` (verify: PUNCH LIST fixed in #209) | minted 2026-11-12 |
+| 8 `MaskedAreas` pass-through (onyx request 5) | unframed; STAGE-014 or beside Stage C | none yet | filed 2026-11-12, low priority; writer-built fixtures, no held file has the tag |
 
 *Fill in as more stages and specs are minted.*
 
