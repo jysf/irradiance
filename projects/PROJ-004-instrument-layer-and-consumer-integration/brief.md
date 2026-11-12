@@ -34,6 +34,8 @@ value:
     - "`crustyimg info` on a DNG reports the sensor's real dimensions, bit depth, orientation and EXIF from IFD0, not the preview's (carried from PROJ-001)"
     - "Preview-slice accessors, the raw-ADU histogram/zone kernel and `WarpRect::lerp` + two framing modes ship with analytic oracles and red-proofs"
     - "Every new API is zero-I/O and caller-allocated; no new runtime dependency"
+    - "Tiled DNGs decode bit-exact against dnglab (the three held Pixel files), and their mandatory OpcodeList2 GainMaps are applied instead of refused"
+    - "A clean-room DNG writer builds every fixture the oracles need, and its public `write` form is accepted by dnglab, exiftool and dng_validate"
   risks_to_thesis:
     - "Consumer timing: crustyimg's STAGE-056 is unscheduled (proposed) on its side; the integration success signals depend on another repo's calendar"
     - "Speculative API: building the instrument surface ahead of a consumer that actually calls it; each stage should wait for a named caller"
@@ -63,6 +65,15 @@ The consumer-facing surface beyond `develop_*`, in two parts:
 - **Consumer integration.** STAGE-004 is carried over from PROJ-001. The work is
   crustyimg-side: its PROJ-016/STAGE-056 implements it. irradiance's job is to be a
   consumable, truthful dependency and to answer API needs as they arise.
+- **Opcode coverage and DNG writing.** STAGE-013, 015, 016 and 017 are framed 2026-11-11:
+  - a test-only writer that builds fixtures (mono, Bayer, strips, tiles, arbitrary
+    opcode lists);
+  - a tiled-DNG reader;
+  - OpcodeList2 GainMap, the lens-shading map Android phones write as mandatory;
+  - a public writer behind a `write` feature.
+
+  Real GainMap files exist: the Pixel 4a, 3a and 7 Pro in the raw.pixls.us mirror
+  (`data.lfs`). All of them are tiled, which is why the reader comes first.
 - **The instrument layer** (stages to be framed), per `docs/future-plans.md`:
   - **A. Forensics:** preview-slice accessors, the raw-ADU histogram and zones,
     and bad pixels only if the spike justifies them.
@@ -96,12 +107,20 @@ See `value.success_signals`. These are refined at frame time.
 
 Format: `- [status] STAGE-ID — one-line summary`
 
+Order agreed with the maintainer 2026-11-11: writer → tiled reader → GainMap → public writer → instrument stages.
+
+- [ ] STAGE-013 (proposed) — Test-only DNG writer, clean-room, uncompressed (SPEC-057; DEC-055). It is the fixture source for every stage below.
+- [ ] STAGE-015 (proposed) — Tiled DNG plane reader: uncompressed and lossless-JPEG tiles (SPEC-058). It unlocks the real GainMap files.
+- [ ] STAGE-016 (proposed) — OpcodeList2 GainMap: parse and apply on the mono and colour paths (SPEC-059 analytic, SPEC-060 real-file)
+- [ ] STAGE-017 (proposed) — Public DNG writer behind a `write` feature (SPEC-061). Design waits for a named consumer.
 - [ ] STAGE-004 (proposed) — crustyimg integration: `raw-develop` feature, adapter, metadata truthfulness (moved from PROJ-001 2026-11-11; implemented crustyimg-side as its PROJ-016/STAGE-056)
 - [ ] (not yet framed) — Instrument layer A: forensics (preview slices, ADU histogram/zones)
 - [ ] (not yet framed) — Instrument layer B: optical black (spike-gated)
 - [ ] (not yet framed) — Instrument layer C: geometry (`WarpRect::lerp`, framing modes)
 
-**Count:** 0 shipped / 0 active / 1 pending (+3 unframed)
+Spec chain: SPEC-057 → (SPEC-058, SPEC-059, SPEC-061); SPEC-060 depends on SPEC-058 + SPEC-059.
+
+**Count:** 0 shipped / 0 active / 5 pending (+3 unframed)
 
 ## Dependencies
 

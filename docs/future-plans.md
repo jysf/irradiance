@@ -141,7 +141,20 @@ people actually have."
   currently `UnsupportedCompression`); M10 / M11 / Q3 Monochrom and the Nikon
   D750 DNG **only once files are held**.
 
-## PROJ-004 — Instrument layer: sensor forensics, optical black, geometry · *after 0.2.0*
+## PROJ-004 — Instrument layer, opcode coverage and DNG writing · *proposed — project created 2026-11-11*
+
+> **Updated 2026-11-11.** PROJ-004 now exists as `projects/PROJ-004-instrument-layer-and-consumer-integration/`.
+> Its framed stages come before the instrument layer below:
+> 1. **STAGE-013** — test-only DNG writer (SPEC-057, DEC-055).
+> 2. **STAGE-015** — tiled DNG reader (SPEC-058).
+> 3. **STAGE-016** — OpcodeList2 GainMap (SPEC-059/060).
+> 4. **STAGE-017** — public writer behind a `write` feature (SPEC-061).
+> 5. **STAGE-004** — crustyimg integration, moved from PROJ-001.
+>
+> GainMap is no longer blocked on a file. The Pixel 4a, 3a and 7 Pro DNGs in the
+> raw.pixls.us mirror carry mandatory 30×40 GainMaps, but they are tiled. The public
+> DNG writer, previously "later", is now STAGE-017.
+
 
 The telemetry and calibration surface the Monochrom app's `[ I. SENSITOMETER ]`
 and `[ II. OPTICS & PLANE ]` benches need (companion docs:
