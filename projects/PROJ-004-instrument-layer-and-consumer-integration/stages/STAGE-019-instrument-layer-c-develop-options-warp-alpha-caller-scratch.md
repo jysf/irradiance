@@ -139,13 +139,13 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 Order: the options struct lands first; the other four hang off it. The blocked transpose
 does not need it and can run in parallel with any of them.
 
-- [ ] SPEC-063 (frame) [M] — DevelopOptions + develop_with_into: #[non_exhaustive] options with a byte-identical Default, Framing StandardCrop / FullActiveArea, apply_orientation; develop_into delegates; a DEC for the options shape and the version rule.
+- [~] SPEC-063 (build) [M] — DevelopOptions + develop_with_into: #[non_exhaustive] options with a byte-identical Default, Framing StandardCrop / FullActiveArea, apply_orientation; develop_into delegates; a DEC for the options shape and the version rule.
 - [ ] SPEC-064 (frame) [M] — warp_alpha over WarpRect::lerp: measure the backward radial scale across held frames, refuse typed where FullActiveArea plus the lerped warp would sample outside the active area, bounds oracle at five alphas, over-unity red-proof. Depends on the options spec.
 - [ ] SPEC-065 (frame) [S] — Caller-owned develop scratch: scratch_len plus a scratch variant covering the warp buffers, the FixBadPixelsConstant plane copy and the neighbours Vec; zero-allocation test; typed wrong-length error. Depends on the options spec.
 - [ ] SPEC-066 (frame) [S] — CFA-as-mono option: develop a CFA-declared plane on the mono path with per-position black and white levels (BlackLevelRepeatDim mapping, small DEC); synthetic oracle and swapped-position red-proof. Depends on the options spec.
 - [ ] SPEC-067 (frame) [S] — Blocked Orientation 5-8 transpose in crop_orient_normalize_into: byte-identical for all eight orientations, before/after Q2M timing with a method fixed at design.
 
-**Count:** 0 shipped / 5 active / 0 pending
+**Count:** 0 shipped / 5 active / 0 pending (SPEC-063 designed 2026-11-12, DEC-058)
 
 ## Design Notes
 
@@ -166,6 +166,13 @@ Facts and open questions to pin at design time:
 - **CFA routing.** `develop_into` has no CFA branch; the mono path reads the scalar
   `black_level`. Confirm with one test whether `check_required_processing(…, Mono)` or
   `resolve_geometry` refuses a CFA sensor today before designing the override.
+  **Answered by the SPEC-063 probe (2026-11-12): neither refuses.** The held Canon 5D3 and
+  Nikon D300S CFA DNGs develop on the mono path today, with the scalar `black_level` (the
+  Canon's is 2047 while `black_levels` carries 4 per-position values). SPEC-066 must
+  decide whether the default keeps accepting them (byte-identical, pinned by SPEC-063 AC2)
+  or starts refusing (a behaviour change and a `DEVELOP_VERSION` question).
+- **Every held Q2M frame carries a non-identity warp.** SPEC-063 refuses `FullActiveArea`
+  with a real warp (DEC-058 §4), so on the Q2M that framing waits for SPEC-064.
 - **Options and the colour path** (`src/color.rs` mirrors the geometry, DEC-043). Keep the
   options mono-only and say so in the doc comment; do not half-wire colour.
 - **Benchmarking.** The repo has no bench harness. The transpose spec picks either an
