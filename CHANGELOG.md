@@ -22,12 +22,29 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   Mono only; the colour path takes no options. `develop_into` and `output_dimensions`
   now delegate with `DevelopOptions::default()` and their output is **unchanged**
   (MD5-pinned on eight held files), so `DEVELOP_VERSION` stays `"4"`.
-- **`Error::UnsupportedWarpedFullActiveArea { active_width, active_height }`**
-  (additive; `ErrorKind::Unsupported`). `FullActiveArea` on a sensor whose
-  `OpcodeList3` carries a non-identity `WarpRectilinear` is refused, typed, before any
-  write to `dst`: the warp's clamped edge samples would be visible outside the crop.
-  Every held Leica Q2 Monochrom frame carries such a warp, so `FullActiveArea` is
-  refused on them for now.
+- **`Error::UnsupportedWarpedFullActiveArea { active_width, active_height, warp_alpha,
+  scale_min, scale_max }`** (additive; `ErrorKind::Unsupported`). `FullActiveArea` on a
+  sensor whose `OpcodeList3` carries a `WarpRectilinear` is refused, typed, before any
+  write to `dst`, only when the warp (lerped to `warp_alpha`) could sample outside the
+  image, where its clamped edge samples would be visible: its radial scale leaves
+  `[0, 1]` on `r² ∈ [0, 1]`, its optical centre is outside the image, or a coefficient
+  is not finite (SPEC-064, DEC-059). `scale_min` and `scale_max` are the scale's exact
+  extrema. Every held Leica Q2 Monochrom frame passes, so `FullActiveArea` develops
+  them at every `warp_alpha`; the Pixel 3a's over-unity polynomial is refused.
+- **Partial lens correction: `DevelopOptions::warp_alpha`** (`irradiance::develop`,
+  SPEC-064, STAGE-019, PROJ-004, DEC-059). A value in `[0, 1]`, default `1.0` (the full
+  `WarpRectilinear` correction, today's output). The develop applies
+  `warp.lerp(warp_alpha)`: every pixel moves `warp_alpha` times as far as under the
+  full warp, and `0.0` applies no warp at all (its tangential terms included). The
+  default leaves every existing output unchanged, so `DEVELOP_VERSION` stays `"4"`.
+- **`WarpRect::lerp(alpha)`** (`irradiance::opcode`, SPEC-064, DEC-059): the warp whose
+  backward radial scale is `(1 − α) + α·f(r)` (`kr0' = (1 − α) + α·kr0`, the other
+  coefficients times `α`, centre and plane count unchanged). Bit-identical at `α = 1`,
+  the identity at `α = 0`. It does not validate `alpha`.
+- **`Error::InvalidWarpAlpha { warp_alpha }`** (additive; `ErrorKind::CallerError`). A
+  `warp_alpha` that is NaN, infinite or outside `[0, 1]` (`-0.0` is accepted), reported
+  first by `develop_with_into` and `output_dimensions_with`, under every framing and
+  whether or not the file carries a warp.
 
 - **Embedded preview access, zero-copy** (`irradiance::ifd`, SPEC-062, STAGE-018,
   PROJ-004, DEC-057). `Container::previews()` iterates a DNG's embedded previews: every

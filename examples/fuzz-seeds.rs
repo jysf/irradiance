@@ -636,9 +636,17 @@ fn develop_seeds() -> Vec<(&'static str, Vec<u8>)> {
 /// `SPEC-063` seeds for the `develop` target's options byte: an 8×6 plane
 /// with an `ActiveArea` (rows 1..6, cols 1..7) and a 4×3 `DefaultCrop` inside
 /// it at Orientation 6, without and with a non-identity `WarpRectilinear`
-/// `OpcodeList3` (so `FullActiveArea` reaches its refusal), each ending in
-/// each of the four option bytes. Built with `tests/support/dng_writer.rs`;
-/// no corpus file is used (`DEC-003`).
+/// `OpcodeList3` (whose scale stays in `[0.9, 1]`, so since `SPEC-064` the
+/// `FullActiveArea` bounds rule admits it), each ending in each of the four
+/// option bytes.
+///
+/// `SPEC-064` (`DEC-059`) adds two more warps, each ending in the option
+/// bytes for `FullActiveArea` at `warp_alpha` 1, 0 and 0.5 (`1`, `5`, `9`;
+/// the target's header has the bit layout): the Pixel 3a's real over-unity
+/// polynomial (refused by the bounds rule at α > 0) and Q2M `L1021223`'s
+/// (admitted). Their coefficients are numbers in source, read by the
+/// `SPEC-064` design probe; no corpus byte is used. Built with
+/// `tests/support/dng_writer.rs`; no corpus file is used (`DEC-003`).
 fn develop_option_seeds() -> Vec<(&'static str, Vec<u8>)> {
     let (width, height) = (8u32, 6u32);
     let describe = |warp: Option<Vec<u8>>| dng_writer::DngDescription {
@@ -701,6 +709,47 @@ fn develop_option_seeds() -> Vec<(&'static str, Vec<u8>)> {
         let mut w = warped.clone();
         w.push(byte);
         seeds.push((warped_name, w));
+    }
+
+    // SPEC-064: the lerped warp and the FullActiveArea bounds rule.
+    let pixel_3a = write(&describe(Some(opcode::single_warp_rectilinear_list(
+        [
+            0.980_158_686_637_878_4,
+            0.091_988_243_162_631_99,
+            -0.177_878_528_833_389_28,
+            0.107_260_853_052_139_28,
+        ],
+        [0.0, 0.0],
+        0.501_746_677_217_029_4,
+        0.502_773_708_767_361_2,
+        1,
+        0,
+    ))));
+    let l1021223 = write(&describe(Some(opcode::single_warp_rectilinear_list(
+        [
+            0.999_251_106,
+            -0.061_376_512_877_263_58,
+            -0.093_915_541_393_360_16,
+            0.055_882_009_215_291_75,
+        ],
+        [0.0, 0.0],
+        0.5,
+        0.5,
+        1,
+        0,
+    ))));
+    let alpha_seeds: [(&'static str, &Vec<u8>, u8); 6] = [
+        ("options-pixel3a-full-alpha-1", &pixel_3a, 0b0_0001),
+        ("options-pixel3a-full-alpha-0", &pixel_3a, 0b0_0101),
+        ("options-pixel3a-full-alpha-half", &pixel_3a, 0b0_1001),
+        ("options-l1021223-full-alpha-1", &l1021223, 0b0_0001),
+        ("options-l1021223-full-alpha-0", &l1021223, 0b0_0101),
+        ("options-l1021223-full-alpha-half", &l1021223, 0b0_1001),
+    ];
+    for (name, base, byte) in alpha_seeds {
+        let mut seed = base.clone();
+        seed.push(byte);
+        seeds.push((name, seed));
     }
     seeds
 }

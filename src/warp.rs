@@ -61,6 +61,17 @@
 //! established that the oracle cannot validate this stage at all, for the
 //! reason the Kernel section below states.
 //!
+//! **Under `Framing::FullActiveArea` no visible sample is clamped**
+//! (`SPEC-064`, `DEC-059` §3). There the whole active area is the output, so
+//! [`crate::develop::develop_with_into`] first checks the (lerped) warp with
+//! this module's private `scale_bounds` and `full_active_area_admits`: with
+//! every coefficient finite, the optical centre inside the image and
+//! `0 <= f <= 1` on `r^2 in [0, 1]`, each source `c + f*(x - c)` is a convex
+//! combination of two points inside the image, so the clamp above never
+//! decides a pixel. A
+//! warp that fails the check is refused before any write. Under the standard
+//! crop the clamp behaves as described above, unchanged (`DEC-059` §4).
+//!
 //! # Kernel — bilinear (pre-registered rule, `## The design decision this
 //! spec rests on`)
 //!
@@ -110,6 +121,93 @@ use crate::Error;
 /// tolerance check; real Q2M coefficients never land here.
 pub(crate) fn is_identity(warp: &WarpRect) -> bool {
     warp.kr == [1.0, 0.0, 0.0, 0.0] && warp.kt == [0.0, 0.0]
+}
+
+/// The exact minimum and maximum of `warp`'s backward radial scale
+/// `f(s) = kr0 + kr1·s + kr2·s² + kr3·s³` over `s = r²` in `[0, 1]`
+/// (`SPEC-064`, `DEC-059` §3) — the quantity [`source_coord`] multiplies
+/// `(x − c)` by.
+///
+/// Closed form, no sampling and no tolerance: the extrema of a cubic on a
+/// closed interval lie at `s = 0`, `s = 1`, or a real root of
+/// `f'(s) = kr1 + 2·kr2·s + 3·kr3·s²` strictly inside `(0, 1)`. A linear
+/// derivative (`kr3 = 0`) and a constant one (`kr2 = kr3 = 0`) are handled
+/// without dividing by zero.
+///
+/// A NaN coefficient yields a NaN bound (the comparisons below propagate it
+/// instead of letting `f64::min` drop it), which
+/// [`full_active_area_admits`] refuses.
+pub(crate) fn scale_bounds(warp: &WarpRect) -> (f64, f64) {
+    let [kr0, kr1, kr2, kr3] = warp.kr;
+    let f = |s: f64| kr0 + s * (kr1 + s * (kr2 + s * kr3));
+
+    // f'(s) = a + b·s + c·s², divided through by the largest of |kr1|,
+    // |kr2|, |kr3| (which leaves its roots unchanged). Without that, finite
+    // but huge coefficients overflow `b·b − 4·a·c` to infinity or NaN, the
+    // roots are lost, and an interior peak far above 1 passes (SPEC-064
+    // verify). Scaled, |a|, |b|, |c| <= 3, so the discriminant is at most 45.
+    // A non-finite scale (an infinite or all-NaN tail) finds no roots; the
+    // finiteness clause of `full_active_area_admits` refuses that warp.
+    let scale = kr1.abs().max(kr2.abs()).max(kr3.abs());
+    let (a, b, c) = if scale > 0.0 && scale.is_finite() {
+        (kr1 / scale, 2.0 * (kr2 / scale), 3.0 * (kr3 / scale))
+    } else {
+        (0.0, 0.0, 0.0)
+    };
+    let mut roots = [f64::NAN; 2];
+    if c != 0.0 {
+        let disc = b * b - 4.0 * a * c;
+        if disc >= 0.0 {
+            // The cancellation-free form: q = -(b + sign(b)·√disc) / 2, then
+            // the roots are q / c and a / q.
+            let sq = disc.sqrt();
+            let q = -0.5 * (b + sq.copysign(b));
+            roots[0] = q / c;
+            roots[1] = if q != 0.0 { a / q } else { q / c };
+        }
+    } else if b != 0.0 {
+        roots[0] = -a / b;
+    }
+
+    let mut min = f(0.0);
+    let mut max = min;
+    let mut include = |v: f64| {
+        if v.is_nan() || min.is_nan() {
+            min = f64::NAN;
+            max = f64::NAN;
+        } else {
+            min = min.min(v);
+            max = max.max(v);
+        }
+    };
+    include(f(1.0));
+    for s in roots {
+        // A NaN root (none found) fails both comparisons and is skipped; a
+        // NaN coefficient has already made f(1) NaN above.
+        if s > 0.0 && s < 1.0 {
+            include(f(s));
+        }
+    }
+    (min, max)
+}
+
+/// `DEC-059` §3: whether `warp` (already lerped) can be applied over the
+/// whole active area with no sample clamped. True exactly when every
+/// coefficient and the optical centre are finite, `0 ≤ cx, cy ≤ 1`, and
+/// `bounds` (from [`scale_bounds`]) lie within `[0, 1]`.
+///
+/// Sufficient, not necessary: `r` is normalised to 1 at the pixel farthest
+/// from the centre, and with `0 ≤ f ≤ 1` the source `c + f·(x − c)` is a
+/// convex combination of `x` and `c`, both inside the image.
+///
+/// Every comparison is written so a NaN refuses.
+pub(crate) fn full_active_area_admits(warp: &WarpRect, bounds: (f64, f64)) -> bool {
+    let finite = warp.kr.iter().chain(warp.kt.iter()).all(|v| v.is_finite())
+        && warp.cx.is_finite()
+        && warp.cy.is_finite();
+    let centre_inside = (0.0..=1.0).contains(&warp.cx) && (0.0..=1.0).contains(&warp.cy);
+    let (min, max) = bounds;
+    finite && centre_inside && min >= 0.0 && max <= 1.0
 }
 
 /// Bilinear-sample `src` (a `width x height` plane) at floating-point
@@ -401,5 +499,270 @@ mod tests {
         apply_warp_into(&warp, width, height, &src, &mut dst1).expect("fits");
         apply_warp_into(&warp, width, height, &src, &mut dst2).expect("fits");
         assert_eq!(dst1, dst2, "same input must produce bit-identical output");
+    }
+
+    // ── SPEC-064 / DEC-059 §3: the FullActiveArea bounds rule (AC9) ─────────
+
+    fn warp_with(kr: [f64; 4], cx: f64, cy: f64) -> WarpRect {
+        WarpRect {
+            kr,
+            kt: [0.0, 0.0],
+            cx,
+            cy,
+            planes: 1,
+        }
+    }
+
+    /// `f(s)` at an endpoint, written out here (not via `scale_bounds`).
+    fn f_at(kr: [f64; 4], s: f64) -> f64 {
+        kr[0] + kr[1] * s + kr[2] * s * s + kr[3] * s * s * s
+    }
+
+    #[test]
+    fn scale_bounds_match_the_probe() {
+        // (label, kr, cx, cy, probe min, probe max) — SPEC-064 §1, α = 1.
+        // Every held set has its extrema at the endpoints, so `f(0)` and
+        // `f(1)` give the exact expectation; the probe's 9-digit values are
+        // checked to their printed precision.
+        type ProbeCase = (&'static str, [f64; 4], f64, f64, f64, f64);
+        let cases: [ProbeCase; 5] = [
+            (
+                "L1021223",
+                [
+                    0.999_251_106,
+                    -0.061_376_512_877_263_58,
+                    -0.093_915_541_393_360_16,
+                    0.055_882_009_215_291_75,
+                ],
+                0.5,
+                0.5,
+                0.899_841_061,
+                0.999_251_106,
+            ),
+            (
+                "L1026016",
+                [
+                    0.999_251_106,
+                    -0.041_845_169_276_595_75,
+                    -0.102_311_478_808_510_63,
+                    0.057_876_719_170_212_77,
+                ],
+                0.5,
+                0.5,
+                0.912_971_177,
+                0.999_251_106,
+            ),
+            (
+                "L1026192",
+                [
+                    0.999_251_106,
+                    -0.032_331_453_292_576_424,
+                    -0.104_204_110_174_672_49,
+                    0.056_364_293_537_117_91,
+                ],
+                0.5,
+                0.5,
+                0.919_079_836,
+                0.999_251_106,
+            ),
+            (
+                "Pixel 3a",
+                [
+                    0.980_158_686_637_878_4,
+                    0.091_988_243_162_631_99,
+                    -0.177_878_528_833_389_28,
+                    0.107_260_853_052_139_28,
+                ],
+                0.501_746_677_217_029_4,
+                0.502_773_708_767_361_2,
+                0.980_158_687,
+                1.001_529_254,
+            ),
+            (
+                "Pixel 7 Pro",
+                [
+                    0.989_696_025_848_388_7,
+                    0.009_945_581_667_125_225,
+                    -0.003_183_106_426_149_606_7,
+                    0.003_037_228_714_674_711_2,
+                ],
+                0.499_835_510_096_680_2,
+                0.491_674_211_869_976_9,
+                0.989_696_026,
+                0.999_495_730,
+            ),
+        ];
+        for (label, kr, cx, cy, probe_min, probe_max) in cases {
+            let warp = warp_with(kr, cx, cy);
+            let (min, max) = scale_bounds(&warp);
+            let ends = (f_at(kr, 0.0), f_at(kr, 1.0));
+            let (want_min, want_max) = (ends.0.min(ends.1), ends.0.max(ends.1));
+            assert!(
+                (min - want_min).abs() < 1e-12,
+                "{label}: min {min} vs {want_min}"
+            );
+            assert!(
+                (max - want_max).abs() < 1e-12,
+                "{label}: max {max} vs {want_max}"
+            );
+            assert!(
+                (min - probe_min).abs() < 1e-9,
+                "{label}: min {min} vs probe {probe_min}"
+            );
+            assert!(
+                (max - probe_max).abs() < 1e-9,
+                "{label}: max {max} vs probe {probe_max}"
+            );
+            let admitted = full_active_area_admits(&warp, (min, max));
+            assert_eq!(
+                admitted,
+                label != "Pixel 3a",
+                "{label}: admitted {admitted}"
+            );
+        }
+
+        // An interior peak: f(0) = f(1) = 0.9, f(0.5) = 1.05 (spec Notes).
+        let peak = warp_with([0.9, 0.6, -0.6, 0.0], 0.5, 0.5);
+        let (min, max) = scale_bounds(&peak);
+        assert!((max - 1.05).abs() < 1e-12, "interior max {max}");
+        assert!((min - 0.9).abs() < 1e-12, "interior min {min}");
+        assert!(!full_active_area_admits(&peak, (min, max)));
+
+        // A true cubic with both an interior maximum and an interior minimum:
+        // f(s) = 0.5 + s(s - 0.3)(s - 1) = 0.5 + 0.3 s - 1.3 s^2 + s^3, so
+        // f(0) = f(1) = 0.5 with a bump above between 0 and 0.3 and a dip
+        // below between 0.3 and 1. f'(s) = 0.3 - 2.6 s + 3 s^2, roots
+        // s = (2.6 -/+ sqrt(3.16)) / 6.
+        let kr = [0.5, 0.3, -1.3, 1.0];
+        let disc: f64 = 2.6 * 2.6 - 4.0 * 3.0 * 0.3;
+        let roots = [(2.6 - disc.sqrt()) / 6.0, (2.6 + disc.sqrt()) / 6.0];
+        let values = [
+            f_at(kr, 0.0),
+            f_at(kr, 1.0),
+            f_at(kr, roots[0]),
+            f_at(kr, roots[1]),
+        ];
+        let want_min = values.iter().copied().fold(f64::INFINITY, f64::min);
+        let want_max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let (min, max) = scale_bounds(&warp_with(kr, 0.5, 0.5));
+        assert!(
+            (min - want_min).abs() < 1e-12,
+            "two-root min {min} vs {want_min}"
+        );
+        assert!(
+            (max - want_max).abs() < 1e-12,
+            "two-root max {max} vs {want_max}"
+        );
+        assert!(
+            want_max > f_at(kr, 0.0).max(f_at(kr, 1.0)),
+            "the max is interior"
+        );
+        assert!(
+            want_min < f_at(kr, 0.0).min(f_at(kr, 1.0)),
+            "the min is interior"
+        );
+    }
+
+    #[test]
+    fn scale_bounds_degenerate_cubics() {
+        // kr3 = 0: a linear derivative (the interior-peak fixture above is
+        // also this shape).
+        let (min, max) = scale_bounds(&warp_with([1.0, -0.2, 0.1, 0.0], 0.5, 0.5));
+        assert!(
+            (min - 0.9).abs() < 1e-12 && (max - 1.0).abs() < 1e-12,
+            "{min} {max}"
+        );
+        // kr2 = kr3 = 0: a constant derivative.
+        let (min, max) = scale_bounds(&warp_with([1.0, -0.1, 0.0, 0.0], 0.5, 0.5));
+        assert!(
+            (min - 0.9).abs() < 1e-12 && (max - 1.0).abs() < 1e-12,
+            "{min} {max}"
+        );
+        // kr1 = kr2 = kr3 = 0: a zero derivative, f constant.
+        let (min, max) = scale_bounds(&warp_with([0.75, 0.0, 0.0, 0.0], 0.5, 0.5));
+        assert_eq!((min, max), (0.75, 0.75));
+        // A double root (zero discriminant) at s = 0.5: f' = 3(s - 0.5)^2.
+        let (min, max) = scale_bounds(&warp_with([0.5, 0.75, -1.5, 1.0], 0.5, 0.5));
+        assert!(
+            (min - 0.5).abs() < 1e-12 && (max - 0.75).abs() < 1e-12,
+            "{min} {max}"
+        );
+        // Negative discriminant: no real root, endpoints only.
+        let (min, max) = scale_bounds(&warp_with([0.5, 0.1, 0.0, 0.1], 0.5, 0.5));
+        assert!(
+            (min - 0.5).abs() < 1e-12 && (max - 0.7).abs() < 1e-12,
+            "{min} {max}"
+        );
+        // The identity and lerp(0) of any warp are admitted.
+        let identity = warp_with([1.0, 0.0, 0.0, 0.0], 0.5, 0.5);
+        assert!(full_active_area_admits(&identity, scale_bounds(&identity)));
+        // f < 0 somewhere is refused; so is a centre outside the image.
+        let negative = warp_with([-0.5, 0.0, 0.0, 0.0], 0.5, 0.5);
+        assert!(!full_active_area_admits(&negative, scale_bounds(&negative)));
+        let off = warp_with([1.0, -0.1, 0.0, 0.0], 1.5, 0.5);
+        assert!(!full_active_area_admits(&off, scale_bounds(&off)));
+        let off = warp_with([1.0, -0.1, 0.0, 0.0], 0.5, -0.1);
+        assert!(!full_active_area_admits(&off, scale_bounds(&off)));
+        // A centre on the image edge is inside.
+        let edge = warp_with([1.0, -0.1, 0.0, 0.0], 0.0, 1.0);
+        assert!(full_active_area_admits(&edge, scale_bounds(&edge)));
+        // The scale's own bounds are inclusive too: f falls from 1 at the
+        // centre to exactly 0 at the corner (every corner pixel samples the
+        // centre), so DEC-059 §3's 0 <= f <= 1 admits it (SPEC-064 verify).
+        let to_zero = warp_with([1.0, -1.0, 0.0, 0.0], 0.5, 0.5);
+        assert_eq!(scale_bounds(&to_zero), (0.0, 1.0));
+        assert!(full_active_area_admits(&to_zero, scale_bounds(&to_zero)));
+    }
+
+    #[test]
+    fn scale_bounds_huge_coefficients_keep_the_interior_peak() {
+        // SPEC-064 verify: f(0) = f(1) = 0.5 (the s^2 and s^3 terms cancel at
+        // s = 1), but f(2/3) = 0.5 + k·4/27, far above 1. Unscaled, the
+        // derivative's discriminant overflows (b·b for k = 1e154 and up; b
+        // itself at k = 1e308), the interior root is lost, and the bounds
+        // came back as [0.5, 0.5], so the predicate admitted the warp.
+        for k in [1e153, 1e154, 1e200, 1e308] {
+            let warp = warp_with([0.5, 0.0, k, -k], 0.5, 0.5);
+            let (min, max) = scale_bounds(&warp);
+            assert_eq!(min, 0.5, "k = {k:e}: min");
+            let want = 0.5 + k * (4.0 / 27.0);
+            assert!(
+                ((max - want) / want).abs() < 1e-12,
+                "k = {k:e}: max {max:e}, want {want:e}"
+            );
+            assert!(!full_active_area_admits(&warp, (min, max)), "k = {k:e}");
+        }
+    }
+
+    #[test]
+    fn scale_bounds_nan_refuses() {
+        for i in 0..4 {
+            let mut kr = [1.0, -0.1, 0.0, 0.0];
+            kr[i] = f64::NAN;
+            let warp = warp_with(kr, 0.5, 0.5);
+            let bounds = scale_bounds(&warp);
+            assert!(
+                bounds.0.is_nan() || bounds.1.is_nan(),
+                "kr[{i}] NaN: bounds {bounds:?} must carry the NaN"
+            );
+            assert!(!full_active_area_admits(&warp, bounds), "kr[{i}] NaN");
+            // Even if a caller hands in clean bounds, the warp's own NaN
+            // refuses.
+            assert!(!full_active_area_admits(&warp, (0.5, 0.9)), "kr[{i}] NaN");
+        }
+        for (cx, cy) in [(f64::NAN, 0.5), (0.5, f64::NAN), (f64::INFINITY, 0.5)] {
+            let warp = warp_with([1.0, -0.1, 0.0, 0.0], cx, cy);
+            assert!(
+                !full_active_area_admits(&warp, scale_bounds(&warp)),
+                "{cx} {cy}"
+            );
+        }
+        let mut kt = warp_with([1.0, -0.1, 0.0, 0.0], 0.5, 0.5);
+        kt.kt = [f64::NAN, 0.0];
+        assert!(!full_active_area_admits(&kt, scale_bounds(&kt)), "kt NaN");
+        // NaN bounds on a clean warp refuse too.
+        let clean = warp_with([1.0, -0.1, 0.0, 0.0], 0.5, 0.5);
+        assert!(!full_active_area_admits(&clean, (f64::NAN, 0.9)));
+        assert!(!full_active_area_admits(&clean, (0.5, f64::NAN)));
     }
 }

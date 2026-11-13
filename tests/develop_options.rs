@@ -165,10 +165,12 @@ fn assert_contains_at(
     }
 }
 
-/// A non-identity `WarpRectilinear` `OpcodeList3` (`kr1 = -0.1`), the same
-/// shape `tests/develop.rs`'s warp-branch fixture uses.
-fn non_identity_warp() -> Vec<u8> {
-    opcode_support::single_warp_rectilinear_list([1.0, -0.1, 0.0, 0.0], [0.0, 0.0], 0.5, 0.5, 1, 0)
+/// An over-unity `WarpRectilinear` `OpcodeList3` (`kr1 = +0.1`, so the radial
+/// scale reaches 1.1 at the corner). `SPEC-064` edit: this was `kr1 = -0.1`,
+/// whose scale stays in `[0.9, 1]` and which `DEC-059` §3 now admits under
+/// `FullActiveArea`; the refusal below needs a warp the bounds rule refuses.
+fn over_unity_warp() -> Vec<u8> {
+    opcode_support::single_warp_rectilinear_list([1.0, 0.1, 0.0, 0.0], [0.0, 0.0], 0.5, 0.5, 1, 0)
 }
 
 /// An identity `WarpRectilinear` (`kr = [1, 0, 0, 0]`, `kt = 0`), which
@@ -384,8 +386,8 @@ fn full_active_area_dimensions() {
     assert_eq!(output_dimensions(&bordered_sensor(1)).unwrap(), (4, 3));
     assert_eq!(output_dimensions(&bordered_sensor(6)).unwrap(), (3, 4));
 
-    // Tier B: the warp-free bordered files, and a Q2M (which develop then
-    // refuses, §4 — output_dimensions_with does not look at opcode lists).
+    // Tier B: the warp-free bordered files, and a Q2M (output_dimensions_with
+    // does not look at opcode lists).
     let tier_b =
         WARP_FREE_BORDERED
             .iter()
@@ -501,10 +503,11 @@ fn full_active_area_contains_the_standard_crop() {
 
 #[test]
 fn full_active_area_with_a_warp_is_refused_before_any_write() {
-    // Synthetic: a non-identity warp AND a FixBadPixelsConstant.
+    // Synthetic: an over-unity warp AND a FixBadPixelsConstant. SPEC-064
+    // edit: since DEC-059 only a warp that fails the bounds rule is refused.
     let mut sensor = bordered_sensor(1);
     sensor.opcode_list_1 = Some(opcode_support::single_fix_bad_pixels_constant_list(0, 0, 0));
-    sensor.opcode_list_3 = Some(non_identity_warp());
+    sensor.opcode_list_3 = Some(over_unity_warp());
     let src = distinct_plane(&sensor);
 
     let (w, h) = output_dimensions_with(&sensor, &full_active_area()).unwrap();
@@ -520,7 +523,8 @@ fn full_active_area_with_a_warp_is_refused_before_any_write() {
             err,
             Error::UnsupportedWarpedFullActiveArea {
                 active_width: 7,
-                active_height: 6
+                active_height: 6,
+                ..
             }
         ),
         "got {err:?}"
@@ -561,26 +565,20 @@ fn full_active_area_with_a_warp_is_refused_before_any_write() {
         "StandardCrop keeps today's order (OpcodeList1 first): got {err:?}"
     );
 
-    // Real file: every held Q2M frame carries a non-identity warp. The
-    // refusal comes before src is read, so a zero plane of the right length
-    // reaches it without a 47 MP unpack.
+    // Real file: every held Q2M frame carries a non-identity warp whose
+    // scale stays in [0, 1]. SPEC-064 edit: SPEC-063 refused it here; DEC-059
+    // admits it, so FullActiveArea now develops it (tests/warp_alpha.rs AC5
+    // checks the pixels). A zero plane of the right length avoids a 47 MP
+    // unpack; the output is the whole active area, written.
     let path = "LEICA-Q2-MONO/L1021223.DNG";
     if let Some((sensor, _byte_order, _bytes)) = corpus_sensor(path) {
         let src = vec![0u16; (sensor.width as usize) * (sensor.height as usize)];
         let (w, h) = output_dimensions_with(&sensor, &full_active_area()).unwrap();
+        assert_eq!((w, h), (8392, 5632), "{path}: FullActiveArea size");
         let mut dst = vec![SENTINEL; (w as usize) * (h as usize)];
-        let err = develop_with_into(&sensor, &src, &mut dst, &full_active_area()).unwrap_err();
-        assert!(
-            matches!(
-                err,
-                Error::UnsupportedWarpedFullActiveArea {
-                    active_width: 8392,
-                    active_height: 5632
-                }
-            ),
-            "{path}: got {err:?}"
-        );
-        assert!(dst.iter().all(|&v| v == SENTINEL), "{path}: dst untouched");
+        develop_with_into(&sensor, &src, &mut dst, &full_active_area())
+            .unwrap_or_else(|e| panic!("{path}: FullActiveArea now develops: {e}"));
+        assert!(dst.iter().all(|&v| v == 0), "{path}: dst written");
     }
 }
 
@@ -796,9 +794,14 @@ fn dst_length_is_checked_against_the_options_dimensions() {
 
 #[test]
 fn refusal_display_names_the_active_size() {
+    // SPEC-064 edit: the variant gained three fields (DEC-059 §3); the
+    // assertions are unchanged.
     let err = Error::UnsupportedWarpedFullActiveArea {
         active_width: 8392,
         active_height: 5632,
+        warp_alpha: 1.0,
+        scale_min: 0.9,
+        scale_max: 1.1,
     };
     let text = err.to_string();
     assert!(text.contains("8392"), "{text}");
