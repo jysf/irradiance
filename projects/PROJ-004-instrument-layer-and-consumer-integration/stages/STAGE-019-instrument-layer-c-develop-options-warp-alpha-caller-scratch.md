@@ -141,7 +141,7 @@ does not need it and can run in parallel with any of them.
 
 - [x] SPEC-063 (shipped 2026-11-12) [M→M] — DevelopOptions + develop_with_into: #[non_exhaustive] options with a byte-identical Default, Framing StandardCrop / FullActiveArea, apply_orientation; develop_into delegates; a DEC for the options shape and the version rule.
 - [x] SPEC-064 (shipped 2026-11-12) [M→M] — warp_alpha over WarpRect::lerp: measure the backward radial scale across held frames, refuse typed where FullActiveArea plus the lerped warp would sample outside the active area, bounds oracle at five alphas, over-unity red-proof. Depends on the options spec.
-- [ ] SPEC-065 (frame) [S] — Caller-owned develop scratch: scratch_len plus a scratch variant covering the warp buffers, the FixBadPixelsConstant plane copy and the neighbours Vec; zero-allocation test; typed wrong-length error. Depends on the options spec.
+- [ ] SPEC-065 (build) [M] (re-sized from S at design: shared core, allocation-free opcode walkers, two test binaries) — Caller-owned develop scratch: scratch_len plus a scratch variant covering the warp buffers, the FixBadPixelsConstant plane copy and the neighbours Vec; zero-allocation test; typed wrong-length error. Depends on the options spec.
 - [ ] SPEC-066 (frame) [S] — CFA-as-mono option: develop a CFA-declared plane on the mono path with per-position black and white levels (BlackLevelRepeatDim mapping, small DEC); synthetic oracle and swapped-position red-proof. Depends on the options spec.
 - [ ] SPEC-067 (frame) [S] — Blocked Orientation 5-8 transpose in crop_orient_normalize_into: byte-identical for all eight orientations, before/after Q2M timing with a method fixed at design.
 
@@ -155,6 +155,13 @@ Facts and open questions to pin at design time:
   non-identity warp applies; `Vec::with_capacity(8)` inside
   `apply_fix_bad_pixels_constant` (~504). The scratch spec must remove all of them on its
   path, or say which remain and why.
+  **Measured by the SPEC-065 design (DEC-060):** on a Q2M frame `develop_into` makes 6
+  allocations / 283,943,504 bytes. Two of the small ones are the `Vec<Opcode>` that
+  `parse_opcode_list` builds inside `parse_fix_bad_pixels_constant` and
+  `parse_warp_rectilinear`, which these notes missed. Those lookups become
+  allocation-free walkers. With the plane copy reused for the warp output, the scratch is
+  P + A = 94,707,712 samples on the Q2M, and `develop_into` drops to 1 allocation of
+  189.4 MB.
 - **The warp clamps to edge** (DEC-024, `src/warp.rs`): an out-of-extent source sample
   repeats the nearest edge pixel. Under `StandardCrop` the clamped region is cropped away;
   under `FullActiveArea` it would be visible. The warp-alpha spec decides whether
