@@ -900,7 +900,7 @@ pub fn apply_fix_bad_pixels_constant(
 /// or identity (`develop_into`'s only path before `SPEC-018`, and still the
 /// zero-extra-allocation path after it). Assumes `src`/`dst` are already
 /// length-checked by the caller.
-fn crop_orient_normalize_into(
+fn crop_orient_normalize_for(
     sensor: &Sensor,
     geometry: &Geometry,
     blacks: Blacks<'_>,
@@ -912,18 +912,18 @@ fn crop_orient_normalize_into(
     // with a constant black (`SPEC-066` §4).
     match blacks {
         Blacks::Uniform(black) => {
-            crop_orient_normalize_with(sensor, geometry, |_, _| black, white, src, dst);
+            crop_orient_normalize_into(sensor, geometry, |_, _| black, white, src, dst);
         }
         pattern @ Blacks::Pattern { .. } => {
             let black_at = |x, y| pattern.at(x, y);
-            crop_orient_normalize_with(sensor, geometry, black_at, white, src, dst);
+            crop_orient_normalize_into(sensor, geometry, black_at, white, src, dst);
         }
     }
 }
 
-/// [`crop_orient_normalize_into`]'s loop; `black_at(raw_x, raw_y)` is each
-/// photosite's black, read on the raw plane's own coordinates.
-fn crop_orient_normalize_with(
+/// The loop [`crop_orient_normalize_for`] runs; `black_at(raw_x, raw_y)` is
+/// each photosite's black, read on the raw plane's own coordinates.
+fn crop_orient_normalize_into(
     sensor: &Sensor,
     geometry: &Geometry,
     black_at: impl Fn(u32, u32) -> u32,
@@ -990,7 +990,7 @@ fn crop_orient_normalize_with(
 /// (opcode-lists included) `ActiveArea`-sized image, not the other way
 /// round. Assumes `src`/`dst_active` are already length-checked by the
 /// caller.
-fn normalize_active_area_into(
+fn normalize_active_area_for(
     sensor: &Sensor,
     geometry: &Geometry,
     blacks: Blacks<'_>,
@@ -1000,19 +1000,19 @@ fn normalize_active_area_into(
 ) {
     match blacks {
         Blacks::Uniform(black) => {
-            normalize_active_area_with(sensor, geometry, |_, _| black, white, src, dst_active);
+            normalize_active_area_into(sensor, geometry, |_, _| black, white, src, dst_active);
         }
         pattern @ Blacks::Pattern { .. } => {
             let black_at = |x, y| pattern.at(x, y);
-            normalize_active_area_with(sensor, geometry, black_at, white, src, dst_active);
+            normalize_active_area_into(sensor, geometry, black_at, white, src, dst_active);
         }
     }
 }
 
-/// [`normalize_active_area_into`]'s loop. The black is taken here, on raw
+/// The loop [`normalize_active_area_for`] runs. The black is taken here, on raw
 /// coordinates, BEFORE the warp resamples: black subtraction is per
 /// photosite and does not commute with interpolation (`DEC-061` §4).
-fn normalize_active_area_with(
+fn normalize_active_area_into(
     sensor: &Sensor,
     geometry: &Geometry,
     black_at: impl Fn(u32, u32) -> u32,
@@ -1610,15 +1610,15 @@ fn run_passes(
 
     match (plan.fix_bad_pixels, &plan.warp) {
         (None, None) => {
-            crop_orient_normalize_into(sensor, geometry, blacks, white, src, dst);
+            crop_orient_normalize_for(sensor, geometry, blacks, white, src, dst);
         }
         (Some(constant), None) => {
             copy_and_fix_bad_pixels(sensor, geometry, constant, src, scratch)?;
-            crop_orient_normalize_into(sensor, geometry, blacks, white, scratch, dst);
+            crop_orient_normalize_for(sensor, geometry, blacks, white, scratch, dst);
         }
         (None, Some(warp)) => {
             let (normalized, warped) = split_scratch(scratch, active_len)?;
-            normalize_active_area_into(sensor, geometry, blacks, white, src, normalized);
+            normalize_active_area_for(sensor, geometry, blacks, white, src, normalized);
             crate::warp::apply_warp_into(
                 warp,
                 geometry.active_width,
@@ -1637,7 +1637,7 @@ fn run_passes(
         (Some(constant), Some(warp)) => {
             let (plane, normalized) = split_scratch(scratch, src.len())?;
             copy_and_fix_bad_pixels(sensor, geometry, constant, src, plane)?;
-            normalize_active_area_into(sensor, geometry, blacks, white, plane, normalized);
+            normalize_active_area_for(sensor, geometry, blacks, white, plane, normalized);
             // The plane copy is dead now; its first A samples take the warp.
             let (warped, _) = split_scratch(plane, active_len)?;
             crate::warp::apply_warp_into(
