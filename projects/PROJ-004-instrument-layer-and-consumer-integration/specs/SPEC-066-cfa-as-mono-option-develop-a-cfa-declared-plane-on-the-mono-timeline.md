@@ -7,4 +7,7 @@ Cycle prompts live in `prompts/SPEC-066-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **design** — completed 2026-11-13 (DEC-061; level-tag probe on every held DNG: all LinearRaw files 1x1, Canon 5,602,332 of 22,430,520 active samples change by <= 6; HANDOFF-139 build ready)
+- [ ] **build** — HANDOFF-139
+- [ ] **verify**
+- [ ] **ship**
