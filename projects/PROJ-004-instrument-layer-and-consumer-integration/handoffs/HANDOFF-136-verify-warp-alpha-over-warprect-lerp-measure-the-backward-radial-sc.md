@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-12
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                  # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-064
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
+  verdict: punch-list              # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 9767366            # REAL combined count — what cost-audit reads
+  estimated_usd: 7.52              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 80
+  branch: claude/spec-064-verify-6c54aa
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  completed_at: 2026-11-12         # YYYY-MM-DD
+  notes: "Floor, re-summed before the commit/push turns from transcript 96a55158-ca61-41a9-b180-9e911b37f616.jsonl (54 messages, deduped by message.id, max output; no subagents): input 118, cache-write 166,899 (1-hour), cache-read 9,557,331, output 43,018, opus-5-5 rates. Re-sum at ship. Gates with the fix and the corpus: just test 633 passed / 0 failed / 1 ignored, 12/12 present, no SKIP; lint-ci, lint-no-allow, lint-fuzz, fmt-check, validate, doc-check, deny, msrv, cost-audit, gate-audit green; decisions-audit --changed advisory only. Fuzz develop target with the fix: 5,199,076 runs in 66 s, clean."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -267,43 +267,112 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-064-verify-6c54aa`, PR: see `handback.pr` (a superset of #219: the build head 863b857, this handoff, and one fix commit).
+- **Completed at:** 2026-11-12
+- **All acceptance criteria met?** AC1 to AC13 are met by the build, with one defect inside AC9/DEC-059 §3's "exact, closed-form" claim, which this verify fixed (below).
+- **For `verify`:** ⚠ PUNCH LIST, one item, fixed in the verify PR. Approved otherwise.
+
+**The punch-list item: the bounds rule admitted an over-unity warp whose coefficients are finite but huge.**
+- `warp::scale_bounds` formed the derivative's discriminant `b·b − 4·a·c` from the raw coefficients. With finite coefficients of magnitude about 1e154 or more, it overflows to +∞ or NaN (at about 1e308, `2·kr2` itself overflows). The interior root is then lost.
+- Concrete case: `kr = [0.5, 0, 1e200, −1e200]`, centre 0.5. f(0) = f(1) = 0.5, but f(2/3) ≈ 1.5e199. The build returned bounds [0.5, 0.5], and `full_active_area_admits` returned true. Reproduced with a verbatim copy of the function in a standalone program, and through `develop_with_into` under `FullActiveArea` by the new `each_bounds_clause_refuses` case, which is red on the build.
+- Impact: a crafted DNG gets through the `FullActiveArea` refusal and develops with edge-clamped samples visible. That is exactly what DEC-059 §3 promises cannot happen. It cannot panic or read out of bounds: the DEC-024 clamp still bounds every sample. No real lens is near this.
+- Fix (verify commit): divide `kr1..kr3` by the largest of their magnitudes before forming `a`, `b`, `c`. The roots are unchanged, `|a|, |b|, |c| ≤ 3`, and the discriminant is at most 45. A non-finite scale finds no roots, and the finiteness clause refuses that warp anyway.
+- Pinned by the new unit test `scale_bounds_huge_coefficients_keep_the_interior_peak` (k = 1e153, 1e154, 1e200, 1e308) and the new AC6 case "overflowing interior peak". Both are red with the scaling reverted and green with it.
+
+**Also pinned in the same commit:** the `f = 0` end of the `[0, 1]` bound. The mutant `min > 0.0` survived the build's tests. `scale_bounds_degenerate_cubics` now asserts that `kr = [1, −1, 0, 0]` has bounds exactly (0, 1) and is admitted. It is red under that mutant.
+
+**Independent re-derivation (scratchpad, own TIFF walker and OpcodeList3 parser, no crate code).**
+- The coefficients read from the five DNGs equal the spec §1 full-precision values bit for bit.
+- Dense 10⁶-point extrema at α ∈ {0, .25, .5, .75, 1} match the §1 table, and its α-scaling rule, to all nine printed digits for the three Q2M frames, the Pixel 3a and the Pixel 7 Pro. The Pixel 4a is identity.
+- Pixel-exact out-of-image counts over the whole active area, at all five α:
+  - L1021223, L1026016, L1026192: 0 at every α;
+  - Pixel 7 Pro: 0;
+  - Pixel 3a: 299 / 323 / 382 / 439 at α = .25 / .5 / .75 / 1 (worst 3.09 px), matching §1 exactly.
+  The predicate admits exactly the zero-count cases.
+- `src/warp.rs` matches the probe within 1e-9 to 1e-12, via its own unit test.
+
+**Reading of the cubic code.**
+- Quadratic roots: the `c = 0` / `b = 0` branches divide only by non-zero values. The `a = 0` / `b = 0` double root gives `q = 0`, which is guarded. A negative discriminant gives no roots. Roots outside `(0, 1)` are skipped.
+- The cancellation-free `q` form is correct.
+- NaN: Horner's `f(0) = kr0 + 0·(…)` is already NaN for any NaN or ∞ coefficient, so the bounds carry NaN, and `full_active_area_admits` also has an explicit finiteness clause. Every comparison refuses on NaN.
+- No integer arithmetic, so clippy's `arithmetic_side_effects` is not engaged.
+- The only defect is the overflow above.
+
+**`lerp`:**
+- the formula is exactly `(1.0 - alpha) + alpha * kr0`;
+- AC2 compares with `to_bits`;
+- `git diff origin/main -- tests/develop_options.rs` leaves all eight MD5 pins unedited.
+
+**Under `FullActiveArea` the warp is parsed once.** `early_warp` is always `Some(…)` there, so the second `non_identity_warp` call is never reached.
+
+**My mutants (28 on the build, plus 2 on the fix): 24 red, 4 green, and the 4 greens are judged.**
+- Red, with the test that caught each:
+  - α validation after `check_required_processing`, or after the opcode parse → `warp_alpha_outside_the_domain_is_a_caller_error`;
+  - `output_dimensions_with` without validation → the same test;
+  - NaN-unsafe validation, or rejecting `-0.0` → the same test;
+  - validation exclusive at 1 → eight `tests/develop.rs` tests;
+  - refusal after the FixBadPixels copy, refusal after a `dst` write, or bounds check under `StandardCrop` → `develop_options::full_active_area_with_a_warp_is_refused_before_any_write`;
+  - blanket refusal restored → `passing_warps…`, `each_bounds…` and three more;
+  - lerp not applied, `kr3` not scaled, or `kt` not scaled → AC2/AC3/AC4/AC8 tests;
+  - default α 0.5 → AC1;
+  - corner only, interior roots dropped, or the second root dropped → `scale_bounds_match_the_probe` (plus AC6 for the first two);
+  - `f ≥ 0` dropped, centre dropped, centre made exclusive, or `max < 1` strict → unit tests and/or `each_bounds_clause_refuses`;
+  - finiteness dropped, `kt` finiteness dropped, or NaN-unsafe predicate → `scale_bounds_nan_refuses`.
+- Green, all accepted:
+  1. **`kr0` rearranged to `kr0 + (1 − kr0)(1 − α)`.** This is the spec Notes' own example, but it is exactly `kr0` at α = 1 and exactly 1 at α = 0 for these values, so it is equivalent at both ends. The bit-identity property still holds, and AC2 pins the formula that matters.
+  2. **`disc > 0` strict.** A double root of f′ is an inflection, not an extremum, so this is equivalent.
+  3. **The NaN branch in `include` removed.** This is equivalent, because Horner's `f(0)` already carries the NaN.
+  4. **`min > 0` strict.** A real gap, now pinned (above).
+- The build's AC4 guard ("the impulse survives", peak ≥ 65535/4) is sufficient. With the guard, the argmax can only land on the expected corner if the warp really maps the predicted source there. The α = 1 displacement is separately anchored to the analytic `m·(1 − f(1))` within 1.5 px, so computing the expectation is not circular.
+
+**Boundaries.**
+- The centre at exactly 0 and 1 is pinned (unit test, plus the AC6 tier-A develop at cx = 0, cy = 1).
+- `f` exactly 1 is pinned (the identity is admitted in the unit test).
+- `f` exactly 0 was not pinned, and now is. It was worth pinning because DEC-059 §3 states the bounds as inclusive.
+
+**Gates.** All run with the corpus, on the build and again with the fix. See the CI and gate lines in the PR body.
+- Build: `just test` 632/0/1 ignored, 12/12 present, no SKIP. The tier-B AC5 test ran (421 s binary) over all three Q2M frames at five α, including L1026016 with `apply_orientation: false`.
+- With the fix: see `notes` in the front matter.
+
+**Fuzz seeds.** The six new seeds are written by `examples/fuzz-seeds.rs` from numeric coefficients in source, with no corpus bytes (DEC-003). Fuzz run: see `notes`.
+
+**No regression.**
+- The `src/` diff adds no `Vec`, `vec!`, `Box`, `collect`, `to_vec`, `String` or `format!`.
+- `DEVELOP_VERSION` is "4".
+- `InvalidWarpAlpha` is in `kind()` with no wildcard.
+- Both `Display` texts are tested.
+- CHANGELOG no longer says the Q2M is refused.
+- Every edited line in `develop_options.rs` and `error_kind.rs` is within the AC6/AC10 allowance.
+
+**CI on #219 head 863b857:** 44/44 pass, observed with `gh pr checks 219`.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** see front matter (`tokens_total`).
+- **Estimated USD:** see front matter.
+- **Duration (minutes):** see front matter.
+- **Source of the number:** the harness transcript, deduped by `message.id`, largest output per message (basis: transcript). No subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none. The fix makes the code meet DEC-059 §3 as written.
+- **Deviations from spec:** the build's three declared deviations are accepted:
+  - AC4 computes its anchor (503.7 px at the crop size);
+  - `kt` must be finite;
+  - red-proof 10 is caught by the AC9 unit test.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - The spec Notes' example of a "rearrangement that rounds differently" (`kr0 + (1 − kr0)(1 − α)`) is in fact exact at α = 1. The spec text could name a genuinely different form, for example `alpha * (kr0 - 1.0) + 1.0`. Doc only.
+  - Lesson signal candidate: a closed-form "exact" check over untrusted f64 inputs needs an overflow case, not only NaN and degenerate cases.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing material. The handoff's list of risks (cancellation, NaN, division by zero) did not include overflow, which is where the defect was.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-059 §3 should say the extrema computation is exact for every finite coefficient set, including ones whose discriminant would overflow. That is the property the fix restores.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would run the extreme-magnitude probe first. It took one standalone program and found the only defect. The mutation sweep confirmed the tests but found nothing new beyond the `f = 0` boundary.
