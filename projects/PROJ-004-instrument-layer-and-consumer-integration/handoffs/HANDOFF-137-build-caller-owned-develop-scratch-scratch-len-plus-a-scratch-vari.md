@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 20612106           # REAL combined count — what cost-audit reads
-  estimated_usd: 14.65             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 24495029           # REAL combined count — what cost-audit reads
+  estimated_usd: 16.99             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 65
   branch: claude/spec-065-build
   pr: 224
   completed_at: 2026-11-12         # YYYY-MM-DD
-  notes: "FLOOR, taken live before the handback commit, PR and CI turns: transcript 2a702dbf-8f01-4323-84fe-26eccdf7e734.jsonl (the scratchpad UUID), 93 unique message.ids, all claude-opus-5-5, no subagents. input 188 + cache-creation 232,426 (1-hour) + cache-read 20,292,243 + output 87,249 (max per message). Opus-5-5 rates: in 5, out 25 per MTok, cache read 0.5, 1-hour write 10. Re-sum at ship."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript 2a702dbf-8f01-4323-84fe-26eccdf7e734.jsonl (106 unique message.ids, all claude-opus-5-5, no subagents): input 216 + cache-creation 246,913 (1-hour) + cache-read 24,150,133 + output 97,767 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 20,612,106 / 14.65 before the handback commit, PR and CI turns."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  synced_at: 2026-11-13
 ---
 
 # HANDOFF-137: BUILD: caller-owned develop scratch, allocation-free (SPEC-065)
