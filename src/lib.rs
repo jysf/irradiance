@@ -660,6 +660,20 @@ pub enum Error {
         actual: usize,
     },
 
+    /// `SPEC-065`, `DEC-060`. [`develop::develop_with_scratch_into`]'s
+    /// `scratch` does not hold exactly [`develop::scratch_len`] samples for
+    /// this sensor and options. Also returned by [`develop::scratch_len`]
+    /// itself, with `expected: u64::MAX` and `actual: 0`, when the length
+    /// cannot be represented (a hostile header whose plane is near
+    /// `u32::MAX` squared).
+    DevelopScratchWrongLength {
+        /// [`develop::scratch_len`], the required length; `u64::MAX` when it
+        /// overflows.
+        expected: u64,
+        /// `scratch.len()` as given.
+        actual: usize,
+    },
+
     /// `SPEC-018`. An opcode's declared parameter block does not fit the
     /// byte stream it came from, or — for a recognized opcode ID — its
     /// contents do not match what that opcode's own parameter layout
@@ -1272,6 +1286,13 @@ impl fmt::Display for Error {
                     "destination image buffer holds {actual} sample(s), expected {expected}"
                 )
             }
+            Error::DevelopScratchWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "develop scratch holds {actual} sample(s), expected exactly {expected} \
+                     (ask develop::scratch_len)"
+                )
+            }
             Error::MalformedOpcodeParams { id, declared_size } => {
                 write!(
                     f,
@@ -1505,6 +1526,7 @@ impl Error {
             | Error::PlaneTooLarge { .. }
             | Error::SourcePlaneWrongLength { .. }
             | Error::DevelopBufferWrongLength { .. }
+            | Error::DevelopScratchWrongLength { .. }
             | Error::WarpSourceWrongLength { .. }
             | Error::WarpDestWrongLength { .. }
             | Error::FixBadPixelsPlaneWrongLength { .. }

@@ -42,17 +42,27 @@
 //! bits 2-3  warp_alpha: 00 = 1.0, 01 = 0.0, 10 = 0.5, 11 = NaN
 //! bit 4     warp_alpha = 1.5 (overrides bits 2-3)
 //! ```
+//!
+//! **Scratch differential (`SPEC-065`, `DEC-060`).** After `develop_with_into`,
+//! the same input and options go through `scratch_len` and
+//! `develop_with_scratch_into` with a scratch prefilled with `0xA5A5`. The
+//! `Result` (compared by `Debug`) and `dst` must equal `develop_with_into`'s,
+//! so the shared core's byte identity and error order are fuzzed, not only
+//! its freedom from panics. A scratch one sample long must be refused with
+//! `DevelopScratchWrongLength` whenever `develop_with_into` succeeded. The
+//! existing seeds reach all four `DEC-060` §3 cases.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 
 use irradiance::develop::{
-    develop_into, develop_with_into, output_dimensions, output_dimensions_with, DevelopOptions,
-    Framing,
+    develop_into, develop_with_into, develop_with_scratch_into, output_dimensions,
+    output_dimensions_with, scratch_len, DevelopOptions, Framing,
 };
 use irradiance::ifd::Container;
 use irradiance::plane::unpack_into;
+use irradiance::Error;
 
 /// Same cap `fuzz_targets/plane.rs` uses, for the same reason: bounding a
 /// hostile `width x height` before THIS HARNESS allocates its own buffers —
@@ -136,5 +146,42 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     let mut developed_with = vec![0u16; opt_len];
-    let _ = develop_with_into(&sensor, &plane, &mut developed_with, &options);
+    let reference = develop_with_into(&sensor, &plane, &mut developed_with, &options);
+
+    // SPEC-065: the scratch path must agree with the allocating one exactly.
+    let Ok(needed) = scratch_len(&sensor, &options) else {
+        return;
+    };
+    if u64::try_from(needed).map_or(true, |n| n > MAX_PIXELS * 3) {
+        return;
+    }
+    let mut scratch = vec![0xA5A5u16; needed];
+    let mut developed_scratch = vec![0u16; opt_len];
+    let result = develop_with_scratch_into(
+        &sensor,
+        &plane,
+        &mut developed_scratch,
+        &mut scratch,
+        &options,
+    );
+    assert_eq!(
+        format!("{result:?}"),
+        format!("{reference:?}"),
+        "develop_with_scratch_into's result differs from develop_with_into's"
+    );
+    assert!(
+        developed_scratch == developed_with,
+        "develop_with_scratch_into's output differs from develop_with_into's"
+    );
+
+    let mut long = vec![0xA5A5u16; needed + 1];
+    let mut developed_long = vec![0u16; opt_len];
+    let result =
+        develop_with_scratch_into(&sensor, &plane, &mut developed_long, &mut long, &options);
+    if reference.is_ok() {
+        assert!(
+            matches!(result, Err(Error::DevelopScratchWrongLength { .. })),
+            "a scratch one sample long was not refused: {result:?}"
+        );
+    }
 });

@@ -30,8 +30,7 @@ use irradiance::develop::{
     DevelopOptions, Framing,
 };
 use irradiance::ifd::{
-    ActiveArea, ByteOrder, Container, DefaultCropOrigin, DefaultCropSize, Sensor,
-    TAG_OPCODE_LIST_1,
+    ActiveArea, ByteOrder, Container, DefaultCropOrigin, DefaultCropSize, Sensor, TAG_OPCODE_LIST_1,
 };
 use irradiance::plane::unpack_into;
 use irradiance::{Error, ErrorKind};
@@ -265,7 +264,10 @@ fn scratch_len_on_held_files() {
             "{path}: P + A at default options"
         );
         assert_eq!(
-            dbg(scratch_len(&sensor, &opts(Framing::StandardCrop, 0.0, true))),
+            dbg(scratch_len(
+                &sensor,
+                &opts(Framing::StandardCrop, 0.0, true)
+            )),
             dbg(Ok::<usize, Error>(47_443_968)),
             "{path}: P at α 0"
         );
@@ -309,7 +311,11 @@ fn scratch_output_equals_develop_with_into() {
     // The fix and the warp both did something on the "both" fixture, so the
     // identity above is not between two copies of the plain crop.
     let options = DevelopOptions::default();
-    let both = reference(&case_sensor(Case::Both, 1), &plane(&bordered_sensor(1)), &options);
+    let both = reference(
+        &case_sensor(Case::Both, 1),
+        &plane(&bordered_sensor(1)),
+        &options,
+    );
     let fbp = reference(
         &case_sensor(Case::FbpOnly, 1),
         &plane(&bordered_sensor(1)),
@@ -375,7 +381,10 @@ fn wrong_length_scratch_is_refused_before_any_write() {
             "length {len}"
         );
         assert_eq!(err.kind(), ErrorKind::CallerError);
-        assert!(dst.iter().all(|&v| v == SENTINEL), "length {len}: dst written");
+        assert!(
+            dst.iter().all(|&v| v == SENTINEL),
+            "length {len}: dst written"
+        );
         assert!(
             scratch.iter().all(|&v| v == 0x5A5A),
             "length {len}: scratch written"
@@ -388,7 +397,9 @@ fn wrong_length_scratch_is_refused_before_any_write() {
     let mut dst = vec![SENTINEL; dst_len(&sensor, &options)];
     let mut one = [0x5A5Au16; 1];
     assert_eq!(
-        dbg(develop_with_scratch_into(&sensor, &src, &mut dst, &mut one, &options)),
+        dbg(develop_with_scratch_into(
+            &sensor, &src, &mut dst, &mut one, &options
+        )),
         dbg(Err::<(), _>(Error::DevelopScratchWrongLength {
             expected: 0,
             actual: 1,
@@ -405,7 +416,10 @@ fn wrong_length_scratch_is_refused_before_any_write() {
 // AC6 — scratch contents never matter
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn fills() -> [(&'static str, fn(usize) -> u16); 3] {
+/// A named scratch prefill.
+type Fill = (&'static str, fn(usize) -> u16);
+
+fn fills() -> [Fill; 3] {
     [
         ("zero", |_| 0),
         ("ones", |_| 0xFFFF),
@@ -422,7 +436,10 @@ fn output_does_not_depend_on_scratch_contents() {
             let want = reference(&sensor, &src, &options);
             for (name, fill) in fills() {
                 let got = with_scratch(&sensor, &src, &options, fill);
-                assert_eq!(got, want, "{name} fill, orientation {orientation}, {options:?}");
+                assert_eq!(
+                    got, want,
+                    "{name} fill, orientation {orientation}, {options:?}"
+                );
             }
         }
     }
@@ -450,11 +467,14 @@ fn malformed_fix_bad_pixels() -> Vec<u8> {
     opcode_support::opcode_list(&[opcode_support::raw_opcode(4, 0x0103_0000, 0, &[0, 0, 0, 0])])
 }
 
+/// `(label, sensor, src length delta, dst length delta, options)`.
+type Hostile = (&'static str, Sensor, isize, isize, DevelopOptions);
+
 /// One row per distinct refusal shape in `tests/develop.rs`,
 /// `tests/develop_options.rs` and `tests/warp_alpha.rs`, rebuilt here on the
 /// "both" fixture (test binaries cannot share fixtures). Each row is
 /// `(label, sensor, src length delta, dst length delta, options)`.
-fn hostile_fixtures() -> Vec<(&'static str, Sensor, isize, isize, DevelopOptions)> {
+fn hostile_fixtures() -> Vec<Hostile> {
     let both = case_sensor(Case::Both, 1);
     let default = DevelopOptions::default();
     let full = opts(Framing::FullActiveArea, 1.0, true);
@@ -480,20 +500,18 @@ fn hostile_fixtures() -> Vec<(&'static str, Sensor, isize, isize, DevelopOptions
 
     let mut s = both.clone();
     s.opcode_list_3 = Some(opcode_support::opcode_list(&[
-        opcode_support::raw_opcode(1, 0x0104_0000, 0, &opcode_support::warp_rectilinear_params(
-            Q2M_KR,
-            [0.0, 0.0],
-            0.5,
-            0.5,
+        opcode_support::raw_opcode(
             1,
-        )),
-        opcode_support::raw_opcode(1, 0x0104_0000, 0, &opcode_support::warp_rectilinear_params(
-            Q2M_KR,
-            [0.0, 0.0],
-            0.5,
-            0.5,
+            0x0104_0000,
+            0,
+            &opcode_support::warp_rectilinear_params(Q2M_KR, [0.0, 0.0], 0.5, 0.5, 1),
+        ),
+        opcode_support::raw_opcode(
             1,
-        )),
+            0x0104_0000,
+            0,
+            &opcode_support::warp_rectilinear_params(Q2M_KR, [0.0, 0.0], 0.5, 0.5, 1),
+        ),
     ]));
     out.push(("second mandatory warp in OpcodeList3", s, 0, 0, default));
 
@@ -534,7 +552,13 @@ fn hostile_fixtures() -> Vec<(&'static str, Sensor, isize, isize, DevelopOptions
     out.push(("black at or above white", s, 0, 0, default));
 
     out.push(("dst one long", both.clone(), 0, 1, default));
-    out.push(("dst one short under FullActiveArea", both.clone(), 0, -1, full));
+    out.push((
+        "dst one short under FullActiveArea",
+        both.clone(),
+        0,
+        -1,
+        full,
+    ));
 
     let mut s = both.clone();
     s.opcode_list_1 = Some(malformed_fix_bad_pixels());
@@ -582,7 +606,13 @@ fn hostile_fixtures() -> Vec<(&'static str, Sensor, isize, isize, DevelopOptions
         1,
         0,
     ));
-    out.push(("tangential terms (the applier refuses)", s.clone(), 0, 0, default));
+    out.push((
+        "tangential terms (the applier refuses)",
+        s.clone(),
+        0,
+        0,
+        default,
+    ));
     let mut no_fbp = s;
     no_fbp.opcode_list_1 = None;
     out.push(("tangential terms, warp only", no_fbp, 0, 0, default));

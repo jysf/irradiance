@@ -168,7 +168,12 @@ struct Prepared {
     expect_ok: bool,
 }
 
-fn prepare(label: String, sensor: Sensor, options: DevelopOptions, scratch_delta: isize) -> Prepared {
+fn prepare(
+    label: String,
+    sensor: Sensor,
+    options: DevelopOptions,
+    scratch_delta: isize,
+) -> Prepared {
     let src = plane(&sensor);
     let dst = vec![0u16; dst_len(&sensor, &options)];
     let n = scratch_len(&sensor, &options).unwrap_or(0);
@@ -405,4 +410,3 @@ fn corpus_plane(path: &str) -> Option<(Sensor, Vec<u16>)> {
         .unwrap_or_else(|e| panic!("{path}: unpack: {e}"));
     Some((sensor, plane))
 }
-

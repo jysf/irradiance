@@ -46,6 +46,21 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   first by `develop_with_into` and `output_dimensions_with`, under every framing and
   whether or not the file carries a warp.
 
+- **Caller-owned develop scratch, allocation-free** (`irradiance::develop`, SPEC-065,
+  STAGE-019, PROJ-004, DEC-060). `scratch_len(sensor, &options)` reports how many `u16`
+  samples of scratch a mono develop needs (0 when the file carries neither
+  `FixBadPixelsConstant` nor a non-identity `WarpRectilinear`), and
+  `develop_with_scratch_into(sensor, src, dst, scratch, &options)` develops into that
+  caller-owned slice with **no heap allocation at all**, on success and on every error
+  path. The slice must be exactly `scratch_len` long; its contents are unspecified on
+  entry and return and never affect the output. Output and errors are identical to
+  `develop_with_into`. Ask for `scratch_len` rather than hard-coding it: a later version
+  may change it without changing the output. On a held Leica Q2 Monochrom frame it is
+  94,707,712 samples (47,443,968 at `warp_alpha = 0`).
+- **`Error::DevelopScratchWrongLength { expected, actual }`** (additive;
+  `ErrorKind::CallerError`). A scratch whose length is not exactly `scratch_len`,
+  checked after both opcode lists are parsed and before any write.
+
 - **Embedded preview access, zero-copy** (`irradiance::ifd`, SPEC-062, STAGE-018,
   PROJ-004, DEC-057). `Container::previews()` iterates a DNG's embedded previews: every
   IFD whose `NewSubfileType` is exactly 1 (`PreviewKind::Primary`) or 65537
@@ -87,6 +102,18 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **`develop_into` / `develop_with_into` allocate at most once** (SPEC-065, DEC-060).
+  They now run the same core as `develop_with_scratch_into`, feeding it one internal
+  allocation of exactly `scratch_len` samples (none when that is 0). The warp output
+  reuses the dead fixed-plane copy, so peak working memory on a file with both
+  `FixBadPixelsConstant` and a warp drops from P + 2A to P + A samples. On a Leica Q2
+  Monochrom frame: **1 allocation of 189,415,424 bytes, down from 6 totalling
+  283,943,504**. Output is unchanged (MD5-pinned), so `DEVELOP_VERSION` stays `"4"`.
+- **`opcode::parse_fix_bad_pixels_constant` and `opcode::parse_warp_rectilinear` no
+  longer allocate** (SPEC-065). They walk the raw opcode framing instead of building
+  `parse_opcode_list`'s `Vec`, with identical results and errors: every opcode is still
+  read and every recognised one validated. `develop::apply_fix_bad_pixels_constant`
+  allocates nothing either.
 - `UnsupportedStripLayout`'s message no longer says tiled planes are unsupported; it
   now fires only for a plane with neither valid strip tags nor tile tags.
 
