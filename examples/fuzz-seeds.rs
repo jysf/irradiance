@@ -797,6 +797,47 @@ fn develop_option_seeds() -> Vec<(&'static str, Vec<u8>)> {
         seed.push(byte);
         seeds.push((name, seed));
     }
+
+    // SPEC-066 (DEC-061): per-position black levels, option bit 5. A CFA
+    // plane whose ActiveArea origin is odd (rows 1..6, cols 1..7) with a
+    // non-uniform 2x2 pattern; a [1, 2] pattern; and four values against a
+    // [1, 1] dimension, which reaches InvalidBlackLevelPattern. The values
+    // are numbers in source (the Pixel 3a/4a pattern and hand-picked ones);
+    // no corpus byte is used (DEC-003).
+    let black_pattern = |blacks: Vec<u32>, repeat: [u16; 2]| {
+        let mut d = describe(None);
+        d.kind = dng_writer::PlaneKind::Cfa {
+            repeat_dim: [2, 2],
+            pattern: vec![0, 1, 1, 2],
+            plane_color: vec![0, 1, 2],
+        };
+        d.meta.black_level = Some(blacks);
+        d.meta.black_level_repeat_dim = Some(repeat);
+        d.meta.white_level = Some(vec![16368]);
+        d.payload = dng_writer::Payload::Samples((0..48u16).map(|i| 1000 + i * 41).collect());
+        write(&d)
+    };
+    let black_seeds: [(&'static str, Vec<u8>, u8); 3] = [
+        (
+            "black-levels-2x2-odd-active-area",
+            black_pattern(vec![1023, 1023, 1022, 1022], [2, 2]),
+            0b10_0000,
+        ),
+        (
+            "black-levels-1x2",
+            black_pattern(vec![1000, 1100], [1, 2]),
+            0b10_0001,
+        ),
+        (
+            "black-levels-count-mismatch",
+            black_pattern(vec![1000, 1001, 1002, 1003], [1, 1]),
+            0b10_0000,
+        ),
+    ];
+    for (name, mut seed, byte) in black_seeds {
+        seed.push(byte);
+        seeds.push((name, seed));
+    }
     seeds
 }
 

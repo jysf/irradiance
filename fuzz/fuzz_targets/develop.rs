@@ -34,14 +34,24 @@
 //! `warp_alpha` from `{1.0, 0.0, 0.5, NaN}` (in that order), and bit 4
 //! replaces the choice with `1.5`, out of range. So the lerped warp, the
 //! `FullActiveArea` bounds rule and the `InvalidWarpAlpha` refusal are all
-//! reached. Bits 5-7 are unused.
+//! reached.
+//!
+//! **`black_levels` (`SPEC-066`, `DEC-061`).** Bit 5 selects
+//! `BlackLevels::PerPosition`. Bits 6-7 are unused.
 //!
 //! ```text
 //! bit 0     FullActiveArea
 //! bit 1     apply_orientation = false
 //! bits 2-3  warp_alpha: 00 = 1.0, 01 = 0.0, 10 = 0.5, 11 = NaN
 //! bit 4     warp_alpha = 1.5 (overrides bits 2-3)
+//! bit 5     black_levels = PerPosition
 //! ```
+//!
+//! **Collapse differential (`SPEC-066`).** When bit 5 is set and the develop
+//! is `Ok`, the same input also runs under `FirstValue`; if the sensor's
+//! `BlackLevel` holds at most one distinct value, the two outputs must be
+//! byte-equal. The relation only says the pattern arm collapses to the
+//! uniform one, so it does not depend on the pattern arm's own indexing.
 //!
 //! **Scratch differential (`SPEC-065`, `DEC-060`).** After `develop_with_into`,
 //! the same input and options go through `scratch_len` and
@@ -58,7 +68,7 @@ use libfuzzer_sys::fuzz_target;
 
 use irradiance::develop::{
     develop_into, develop_with_into, develop_with_scratch_into, output_dimensions,
-    output_dimensions_with, scratch_len, DevelopOptions, Framing,
+    output_dimensions_with, scratch_len, BlackLevels, DevelopOptions, Framing,
 };
 use irradiance::ifd::Container;
 use irradiance::plane::unpack_into;
@@ -133,6 +143,9 @@ fuzz_target!(|data: &[u8]| {
     if option_byte & 0b1_0000 != 0 {
         options.warp_alpha = 1.5;
     }
+    if option_byte & 0b10_0000 != 0 {
+        options.black_levels = BlackLevels::PerPosition;
+    }
     let Ok((opt_width, opt_height)) = output_dimensions_with(&sensor, &options) else {
         return;
     };
@@ -147,6 +160,23 @@ fuzz_target!(|data: &[u8]| {
     };
     let mut developed_with = vec![0u16; opt_len];
     let reference = develop_with_into(&sensor, &plane, &mut developed_with, &options);
+
+    // SPEC-066: with at most one distinct BlackLevel value, PerPosition
+    // collapses to FirstValue exactly.
+    if options.black_levels == BlackLevels::PerPosition && reference.is_ok() {
+        let first = sensor.black_levels.first().copied();
+        if sensor.black_levels.iter().all(|&v| Some(v) == first) {
+            let mut first_options = options;
+            first_options.black_levels = BlackLevels::FirstValue;
+            let mut developed_first = vec![0u16; opt_len];
+            let collapsed =
+                develop_with_into(&sensor, &plane, &mut developed_first, &first_options);
+            assert!(
+                collapsed.is_ok() && developed_first == developed_with,
+                "PerPosition with one distinct black differs from FirstValue: {collapsed:?}"
+            );
+        }
+    }
 
     // SPEC-065: the scratch path must agree with the allocating one exactly.
     let Ok(needed) = scratch_len(&sensor, &options) else {

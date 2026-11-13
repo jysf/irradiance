@@ -100,6 +100,15 @@
 //! `DEC-058` §4). Options are mono only; the colour path takes none. No
 //! option changes any existing (input, options) output, so `DEVELOP_VERSION`
 //! is unchanged (`DEC-058` §5, `DEC-059` Consequences).
+//!
+//! **CFA planes develop here too — `SPEC-066`, `DEC-061`.** Nothing on this
+//! path reads `PhotometricInterpretation` or the CFA tags, so a CFA-declared
+//! plane (a converted, CFA-removed camera) develops as monochrome; choosing
+//! demosaic or mono is the caller's decision. What such a plane needs is its
+//! per-position black: [`DevelopOptions::black_levels`] chooses between the
+//! first `BlackLevel` value for every photosite ([`BlackLevels::FirstValue`],
+//! the default) and `BlackLevel` indexed by `BlackLevelRepeatDim` from the
+//! `ActiveArea` origin ([`BlackLevels::PerPosition`]).
 
 use crate::ifd::{ActiveArea, Sensor};
 use crate::Error;
@@ -293,18 +302,61 @@ pub struct DevelopOptions {
     /// write. [`Framing::StandardCrop`] has no such check, at any α
     /// (`DEC-059` §4).
     pub warp_alpha: f64,
+    /// Which `BlackLevel` value each photosite's black comes from
+    /// (`SPEC-066`, `DEC-061`). Default [`BlackLevels::FirstValue`], the first
+    /// value for every photosite, exactly [`develop_into`].
+    ///
+    /// **This is the "CFA as mono" option.** A CFA-declared plane (a camera
+    /// with its colour filter array removed still declares `CFAPattern`)
+    /// already develops on this path; what it lacks is its per-position
+    /// black. [`BlackLevels::PerPosition`] applies DNG's rule: with
+    /// `BlackLevelRepeatDim` `[R, C]` (`[1, 1]` when absent or malformed),
+    /// the photosite at raw `(x, y)` takes `BlackLevel[((y − top) mod R) × C +
+    /// ((x − left) mod C)]`, phased from the `ActiveArea` origin `(left,
+    /// top)` (not the `DefaultCrop` origin, not the plane origin). The black
+    /// is taken on raw samples, before `WarpRectilinear`.
+    ///
+    /// White stays per sample: DNG gives a one-sample plane one `WhiteLevel`,
+    /// resolved as today, so there is no per-position white.
+    ///
+    /// The pattern is validated only when it is used. Under `PerPosition`, a
+    /// `BlackLevel` count other than `R × C` (or `R` or `C` zero, or `R × C`
+    /// overflowing) is [`Error::InvalidBlackLevelPattern`], and any value not
+    /// below the white level is [`Error::InvalidLevels`], both reported where
+    /// [`Error::InvalidLevels`] always was (after the geometry, before the
+    /// `dst` length). A sensor with an absent or unreadable `BlackLevel`, or
+    /// a 1×1 pattern, develops identically under both values.
+    pub black_levels: BlackLevels,
 }
 
 impl Default for DevelopOptions {
-    /// [`Framing::StandardCrop`], `apply_orientation: true` and
-    /// `warp_alpha: 1.0`: exactly [`develop_into`].
+    /// [`Framing::StandardCrop`], `apply_orientation: true`,
+    /// `warp_alpha: 1.0` and [`BlackLevels::FirstValue`]: exactly
+    /// [`develop_into`].
     fn default() -> DevelopOptions {
         DevelopOptions {
             framing: Framing::StandardCrop,
             apply_orientation: true,
             warp_alpha: 1.0,
+            black_levels: BlackLevels::FirstValue,
         }
     }
+}
+
+/// Which `BlackLevel` value each photosite's black comes from
+/// ([`DevelopOptions::black_levels`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum BlackLevels {
+    /// The first `BlackLevel` value for every photosite: [`develop_into`]'s
+    /// behaviour. The default.
+    #[default]
+    FirstValue,
+    /// `BlackLevel` indexed by `BlackLevelRepeatDim`, the pattern's origin at
+    /// the `ActiveArea` top-left (DNG 1.7). For a converted (CFA-removed)
+    /// camera developed as monochrome, and for any plane with a black
+    /// pattern.
+    PerPosition,
 }
 
 /// Which rectangle of the active area [`develop_with_into`] outputs
@@ -503,9 +555,7 @@ pub(crate) fn output_coords_from_crop(
 /// fixture reaches it.
 fn resolve_levels(sensor: &Sensor) -> Result<(u32, u32), Error> {
     let black = sensor.black_level.unwrap_or(0);
-    let white = sensor
-        .white_level
-        .unwrap_or_else(|| max_value_for_bits(sensor.bits_per_sample).unwrap_or(u32::MAX));
+    let white = resolve_white(sensor);
     if black >= white {
         return Err(Error::InvalidLevels {
             black_level: black,
@@ -513,6 +563,111 @@ fn resolve_levels(sensor: &Sensor) -> Result<(u32, u32), Error> {
         });
     }
     Ok((black, white))
+}
+
+/// Each photosite's black, resolved for one develop (`SPEC-066`,
+/// `DEC-061` §3). `Copy` and borrowed from `sensor.black_levels`, so
+/// resolving it allocates nothing.
+#[derive(Clone, Copy)]
+enum Blacks<'a> {
+    /// One black for every photosite: [`BlackLevels::FirstValue`], and any
+    /// `PerPosition` pattern whose values are all equal (or absent).
+    Uniform(u32),
+    /// `values[row × cols + col]`, with `row = (raw_y − top) mod rows` and
+    /// `col = (raw_x − left) mod cols`. `values.len() == rows × cols`, both
+    /// at least 1, checked by [`resolve_levels_with`].
+    Pattern {
+        values: &'a [u32],
+        rows: u32,
+        cols: u32,
+        left: u32,
+        top: u32,
+    },
+}
+
+impl Blacks<'_> {
+    /// The black of the photosite at raw `(raw_x, raw_y)`. Total: the
+    /// passes read only inside `ActiveArea`, so `raw ≥ origin` and the index
+    /// is in range; the fallbacks are never reached.
+    fn at(&self, raw_x: u32, raw_y: u32) -> u32 {
+        match *self {
+            Blacks::Uniform(black) => black,
+            Blacks::Pattern {
+                values,
+                rows,
+                cols,
+                left,
+                top,
+            } => {
+                let row = raw_y.checked_sub(top).and_then(|v| v.checked_rem(rows));
+                let col = raw_x.checked_sub(left).and_then(|v| v.checked_rem(cols));
+                row.zip(col)
+                    .and_then(|(row, col)| row.checked_mul(cols)?.checked_add(col))
+                    .and_then(|i| usize::try_from(i).ok())
+                    .and_then(|i| values.get(i).copied())
+                    .unwrap_or(0)
+            }
+        }
+    }
+}
+
+/// [`resolve_levels`] for `options.black_levels` (`DEC-061` §3).
+/// [`BlackLevels::FirstValue`] is [`resolve_levels`] exactly.
+fn resolve_levels_with<'a>(
+    sensor: &'a Sensor,
+    options: &DevelopOptions,
+) -> Result<(Blacks<'a>, u32), Error> {
+    let values = sensor.black_levels.as_slice();
+    if options.black_levels == BlackLevels::FirstValue || values.is_empty() {
+        let (black, white) = resolve_levels(sensor)?;
+        return Ok((Blacks::Uniform(black), white));
+    }
+    let white = resolve_white(sensor);
+    let [rows, cols] = sensor.black_level_repeat_dim.unwrap_or([1, 1]);
+    let fits = rows >= 1
+        && cols >= 1
+        && rows.checked_mul(cols).and_then(|n| usize::try_from(n).ok()) == Some(values.len());
+    if !fits {
+        return Err(Error::InvalidBlackLevelPattern {
+            repeat_rows: rows,
+            repeat_cols: cols,
+            count: values.len(),
+        });
+    }
+    if let Some(&black_level) = values.iter().find(|&&v| v >= white) {
+        return Err(Error::InvalidLevels {
+            black_level,
+            white_level: white,
+        });
+    }
+    // All equal (a 1×1 pattern included): today's scalar loop, no per-pixel
+    // index at all.
+    if let Some(&first) = values.first() {
+        if values.iter().all(|&v| v == first) {
+            return Ok((Blacks::Uniform(first), white));
+        }
+    }
+    let (left, top) = sensor
+        .active_area
+        .map_or((0, 0), |area| (area.left, area.top));
+    Ok((
+        Blacks::Pattern {
+            values,
+            rows,
+            cols,
+            left,
+            top,
+        },
+        white,
+    ))
+}
+
+/// `WhiteLevel`, or its DNG default `2^BitsPerSample - 1` when absent
+/// ([`resolve_levels`]). Per sample, never per position (`DEC-061` §3).
+fn resolve_white(sensor: &Sensor) -> u32 {
+    sensor
+        .white_level
+        .unwrap_or_else(|| max_value_for_bits(sensor.bits_per_sample).unwrap_or(u32::MAX))
 }
 
 /// `2^bits - 1`, without the panicking `pow`/shift operators
@@ -745,10 +900,33 @@ pub fn apply_fix_bad_pixels_constant(
 /// or identity (`develop_into`'s only path before `SPEC-018`, and still the
 /// zero-extra-allocation path after it). Assumes `src`/`dst` are already
 /// length-checked by the caller.
+fn crop_orient_normalize_for(
+    sensor: &Sensor,
+    geometry: &Geometry,
+    blacks: Blacks<'_>,
+    white: u32,
+    src: &[u16],
+    dst: &mut [u16],
+) {
+    // Branch once, outside the loops: `Uniform` monomorphises to today's loop
+    // with a constant black (`SPEC-066` §4).
+    match blacks {
+        Blacks::Uniform(black) => {
+            crop_orient_normalize_into(sensor, geometry, |_, _| black, white, src, dst);
+        }
+        pattern @ Blacks::Pattern { .. } => {
+            let black_at = |x, y| pattern.at(x, y);
+            crop_orient_normalize_into(sensor, geometry, black_at, white, src, dst);
+        }
+    }
+}
+
+/// The loop [`crop_orient_normalize_for`] runs; `black_at(raw_x, raw_y)` is
+/// each photosite's black, read on the raw plane's own coordinates.
 fn crop_orient_normalize_into(
     sensor: &Sensor,
     geometry: &Geometry,
-    black: u32,
+    black_at: impl Fn(u32, u32) -> u32,
     white: u32,
     src: &[u16],
     dst: &mut [u16],
@@ -797,7 +975,7 @@ fn crop_orient_normalize_into(
                 .and_then(|v| usize::try_from(v).ok())
                 .unwrap_or(usize::MAX);
             if let Some(slot) = dst.get_mut(out_index) {
-                *slot = normalize(sample, black, white);
+                *slot = normalize(sample, black_at(raw_x, raw_y), white);
             }
         }
     }
@@ -812,10 +990,32 @@ fn crop_orient_normalize_into(
 /// (opcode-lists included) `ActiveArea`-sized image, not the other way
 /// round. Assumes `src`/`dst_active` are already length-checked by the
 /// caller.
+fn normalize_active_area_for(
+    sensor: &Sensor,
+    geometry: &Geometry,
+    blacks: Blacks<'_>,
+    white: u32,
+    src: &[u16],
+    dst_active: &mut [u16],
+) {
+    match blacks {
+        Blacks::Uniform(black) => {
+            normalize_active_area_into(sensor, geometry, |_, _| black, white, src, dst_active);
+        }
+        pattern @ Blacks::Pattern { .. } => {
+            let black_at = |x, y| pattern.at(x, y);
+            normalize_active_area_into(sensor, geometry, black_at, white, src, dst_active);
+        }
+    }
+}
+
+/// The loop [`normalize_active_area_for`] runs. The black is taken here, on raw
+/// coordinates, BEFORE the warp resamples: black subtraction is per
+/// photosite and does not commute with interpolation (`DEC-061` §4).
 fn normalize_active_area_into(
     sensor: &Sensor,
     geometry: &Geometry,
-    black: u32,
+    black_at: impl Fn(u32, u32) -> u32,
     white: u32,
     src: &[u16],
     dst_active: &mut [u16],
@@ -840,7 +1040,7 @@ fn normalize_active_area_into(
                 .and_then(|v| usize::try_from(v).ok())
                 .unwrap_or(usize::MAX);
             if let Some(slot) = dst_active.get_mut(active_index) {
-                *slot = normalize(sample, black, white);
+                *slot = normalize(sample, black_at(raw_x, raw_y), white);
             }
         }
     }
@@ -1158,9 +1358,10 @@ fn needed_scratch(
 }
 
 /// Everything the passes read, resolved and validated by [`develop_core`].
-struct Plan {
+struct Plan<'a> {
     geometry: Geometry,
-    black: u32,
+    /// Each photosite's black (`SPEC-066`).
+    blacks: Blacks<'a>,
     white: u32,
     out_width: u32,
     out_height: u32,
@@ -1217,7 +1418,9 @@ fn develop_core(
     // Validate first (unchanged), then let the options rewrite what the
     // passes below read (`DEC-058` §3).
     let geometry = apply_options(resolve_geometry(sensor)?, options);
-    let (black, white) = resolve_levels(sensor)?;
+    // Step 4: levels, under `options.black_levels` (`DEC-061` §4: the pattern
+    // check sits exactly where the levels check always was).
+    let (blacks, white) = resolve_levels_with(sensor, options)?;
     let (out_width, out_height) = oriented_dimensions(
         geometry.orientation,
         geometry.crop_width,
@@ -1284,7 +1487,7 @@ fn develop_core(
 
     let plan = Plan {
         geometry,
-        black,
+        blacks,
         white,
         out_width,
         out_height,
@@ -1390,13 +1593,13 @@ fn copy_and_fix_bad_pixels(
 /// before it is read.
 fn run_passes(
     sensor: &Sensor,
-    plan: &Plan,
+    plan: &Plan<'_>,
     src: &[u16],
     dst: &mut [u16],
     scratch: &mut [u16],
 ) -> Result<(), Error> {
     let geometry = &plan.geometry;
-    let (black, white) = (plan.black, plan.white);
+    let (blacks, white) = (plan.blacks, plan.white);
     let active_len = u64::from(geometry.active_width)
         .checked_mul(u64::from(geometry.active_height))
         .and_then(|v| usize::try_from(v).ok())
@@ -1407,15 +1610,15 @@ fn run_passes(
 
     match (plan.fix_bad_pixels, &plan.warp) {
         (None, None) => {
-            crop_orient_normalize_into(sensor, geometry, black, white, src, dst);
+            crop_orient_normalize_for(sensor, geometry, blacks, white, src, dst);
         }
         (Some(constant), None) => {
             copy_and_fix_bad_pixels(sensor, geometry, constant, src, scratch)?;
-            crop_orient_normalize_into(sensor, geometry, black, white, scratch, dst);
+            crop_orient_normalize_for(sensor, geometry, blacks, white, scratch, dst);
         }
         (None, Some(warp)) => {
             let (normalized, warped) = split_scratch(scratch, active_len)?;
-            normalize_active_area_into(sensor, geometry, black, white, src, normalized);
+            normalize_active_area_for(sensor, geometry, blacks, white, src, normalized);
             crate::warp::apply_warp_into(
                 warp,
                 geometry.active_width,
@@ -1434,7 +1637,7 @@ fn run_passes(
         (Some(constant), Some(warp)) => {
             let (plane, normalized) = split_scratch(scratch, src.len())?;
             copy_and_fix_bad_pixels(sensor, geometry, constant, src, plane)?;
-            normalize_active_area_into(sensor, geometry, black, white, plane, normalized);
+            normalize_active_area_for(sensor, geometry, blacks, white, plane, normalized);
             // The plane copy is dead now; its first A samples take the warp.
             let (warped, _) = split_scratch(plane, active_len)?;
             crate::warp::apply_warp_into(
