@@ -240,6 +240,31 @@ their READMEs, and gamut-dng's `STATUS.md`. Nothing was built or run.
 
   That is about half a day. It is the "re-pitch" evidence §1.5 calls for.
 
+**Who each one was built for [V: crates.io reverse dependencies and GitHub,
+2026-11-12].** Each new crate has exactly one dependent on crates.io, and it is the
+author's own parent project. None has an external user yet.
+
+| Crate | Built for | Dependents |
+|---|---|---|
+| gamut-dng | **gamut** (visualcommons/gamut, "Memory-safe, specs-compliant, quality-optimized image primitives"; 9 stars; pushed 2026-11-10). visualcommons also keeps a `gamut-dng-samples` repo of CC0 camera DNGs. | crates.io: only the umbrella `gamut` 0.3.2. In practice, **rawshift** (visualcommons/rawshift, MPL-2.0, a multi-format RAW processor): `crates/rawshift-image-dng/Cargo.toml` takes `gamut-dng` and `gamut-ifd` in its default `decode` feature. gamut-dng's `STATUS.md` names rawshift as the downstream that runs its own develop pipeline on gamut's decode. |
+| filmcraft-dng | **FilmCraft**, a Rust video and film editor. The README calls the crate "Layer L0" feeding "FilmCraft's compositor"; CinemaDNG support (frame rate, timecode, reel) is a video need. | Only `filmcraft-media` 0.9.0, which feeds 8 `filmcraft-*`/`effectcraft-*` crates (project, edit, render, export, …). No repository is listed on crates.io. |
+| flashraw | The author's **in-browser editors**, LightFlow (WebGPU photo correction and grading) and ImageFlow, both listed in the README. That explains the WASM, GPU and C/Python bindings. 122 stars; pushed 2026-11-11. | Only its own `flashraw-cli` 0.2.0. |
+
+**What this means [J]:**
+
+- None of the three targets irradiance's niche: instrument-grade, deterministic
+  development with refuse-rather-than-guess behaviour and monochrome depth. gamut-dng
+  is a codec layer, filmcraft-dng serves video compositing, and flashraw serves web
+  editors.
+- **rawshift is a possible consumer to check.** It is a RAW processor sitting on a DNG
+  decode front end, which is the layer where irradiance's develop pipeline (opcodes,
+  demosaic, colour) could slot in. How rawshift develops today is *unverified*.
+- **A license caution.** rawshift is MPL-2.0, file-level copyleft. It also ships a
+  `rawshift-image-cr3` crate, and CR3 is on the patent-avoid list. Using gamut-dng
+  (MIT/Apache) as a front end is clean. Reading rawshift's source for irradiance work
+  is not: it falls under the clean-room rule in `AGENTS.md` §1.
+- I did not assess project health beyond star counts and last-push dates.
+
 ### 1.5 Recommendation for Part A [J]
 
 **Do not build the adapter yet.** Plan it as a separate `irradiance-image` crate and
