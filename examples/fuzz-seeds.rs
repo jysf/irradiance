@@ -751,6 +751,52 @@ fn develop_option_seeds() -> Vec<(&'static str, Vec<u8>)> {
         seed.push(byte);
         seeds.push((name, seed));
     }
+
+    // SPEC-065 (DEC-060): the two scratch layouts no seed above reaches, a
+    // `FixBadPixelsConstant` alone and with a warp. Every seed above leaves
+    // `OpcodeList1` absent, so before these the scratch differential only
+    // saw the warp-free and warp-only cases. Every seventh sample is 0, the
+    // opcode's `Constant`, so the fix has pixels to replace.
+    let with_fix = |warp: Option<Vec<u8>>| {
+        let mut d = describe(warp);
+        d.opcode_lists[0] = Some(opcode::single_fix_bad_pixels_constant_list(0, 0, 0));
+        d.payload = dng_writer::Payload::Samples(
+            (0..48u16)
+                .map(|i| if i % 7 == 3 { 0 } else { 100 + i * 37 })
+                .collect(),
+        );
+        write(&d)
+    };
+    let fix_only = with_fix(None);
+    let fix_and_warp = with_fix(Some(opcode::single_warp_rectilinear_list(
+        [
+            0.999_251_106,
+            -0.061_376_512_877_263_58,
+            -0.093_915_541_393_360_16,
+            0.055_882_009_215_291_75,
+        ],
+        [0.0, 0.0],
+        0.5,
+        0.5,
+        1,
+        0,
+    )));
+    let scratch_seeds: [(&'static str, &Vec<u8>, u8); 5] = [
+        ("scratch-fix-only-default", &fix_only, 0b0_0000),
+        ("scratch-fix-only-full-unoriented", &fix_only, 0b0_0011),
+        ("scratch-fix-and-warp-default", &fix_and_warp, 0b0_0000),
+        (
+            "scratch-fix-and-warp-full-alpha-half",
+            &fix_and_warp,
+            0b0_1001,
+        ),
+        ("scratch-fix-and-warp-alpha-0", &fix_and_warp, 0b0_0100),
+    ];
+    for (name, base, byte) in scratch_seeds {
+        let mut seed = base.clone();
+        seed.push(byte);
+        seeds.push((name, seed));
+    }
     seeds
 }
 
