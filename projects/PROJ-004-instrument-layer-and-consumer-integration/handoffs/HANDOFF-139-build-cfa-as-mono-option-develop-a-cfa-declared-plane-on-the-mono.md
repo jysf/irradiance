@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer
   created_at: 2026-11-13
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-066
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 16370481               # REAL combined count — what cost-audit reads
+  estimated_usd: 11.76              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 60
+  branch: claude/spec-066-build
+  pr: https://github.com/jysf/irradiance/pull/227
+  completed_at: 2026-11-13               # YYYY-MM-DD
+  notes: "FLOOR from transcript 5ed79b91-42b4-4c23-9230-1fe9f9e1acdf.jsonl at handback time (82 unique message.ids, all claude-opus-5-5, no subagents, max output per message): input 167 + cache-read 16,097,182 + cache-creation 208,139 (all 1-hour) + output 64,993. USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Excludes the handback commit and CI-confirmation turns; re-sum at ship."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -239,38 +239,117 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-066-build`, https://github.com/jysf/irradiance/pull/227
+- **Completed at:** 2026-11-13
+- **All acceptance criteria met?** yes. AC1–AC13 hold. Notes:
+  - **AC2, k = 15345.** The two per-position ranges (15345 and 15346) do not round
+    alike at this k: positions 0/1 give 65535 and positions 2/3 give 65531. Only the
+    analytic value is asserted there. At k = 0 and 200 the output is uniform and equals
+    the LinearRaw develop.
+  - **AC2, FirstValue at k = 15345.** FirstValue happens to equal PerPosition here, so
+    the "modes differ" assertion is made at k = 200 only.
+  - **AC3, crop origin.** It is (1, 2) inside the ActiveArea, not odd on both axes. With
+    an ActiveArea origin of (3, 1), a both-odd crop origin lands on the plane origin's
+    parity, and the "phase from the DefaultCrop origin" mutant would be invisible. With
+    (1, 2) the three candidate origins give three different blocks, as the Notes require.
+  - **AC5.** Uniformity needs the four ranges to round alike. Two cases are used: the
+    AC3 pattern at k = 0, and `[1000, 1001, 1002, 1003]` with white 65535 at k = 10.
+    The test asserts the rounding premise itself.
+- **Tests-first order:**
+  - `tests/black_levels.rs`, the `per_position_allocates_nothing` row and the
+    `error_kind` row were written first. All three binaries failed to compile on the
+    missing API (`BlackLevels`, `DevelopOptions::black_levels`,
+    `Error::InvalidBlackLevelPattern`): 2 + 4 + 6 errors.
+  - Then the implementation. Tier A went green after one test-side fix: the fixture's
+    phase function underflowed in the padding left of the ActiveArea, and
+    `rem_euclid` fixed it.
+- **Gates (corpus env set):**
+  - `just test`: 668 passed, 0 failed, 1 ignored.
+  - Also green: lint-ci, lint-no-allow, lint-fuzz, fmt-check, validate, doc-check,
+    deny, msrv, cost-audit, gate-audit.
+  - `decisions-audit --changed` is advisory only.
+- **First full run red, fixed in the change:** `develop_oracle`'s
+  `the_oracle_is_red_on_an_orientation_fault` scans the text of
+  `crop_orient_normalize_into` for its loop. My first cut moved that loop into a helper.
+  Fix the change, not the test: the loops stay in `crop_orient_normalize_into` and
+  `normalize_active_area_into`, and the level dispatch moved to the new
+  `crop_orient_normalize_for` and `normalize_active_area_for` wrappers. Commit 19af30c.
+- **Tier B:**
+  - Canon 5D3, FullActiveArea, unoriented: 5796×3870; positions 0–2 are equal; at
+    position 3 PerPosition is ≤ FirstValue on every sample, differs on exactly
+    5,602,332 samples, and by at most 6. This matches the design probe.
+  - The three Q2M frames, M Monochrom, Typ 246, K-3 III and Nikon under PerPosition
+    MD5-equal their SPEC-063 pins.
+- **Red-proofs:** 12 mutations, each applied by hand to `src/develop.rs`, run on tier A
+  only (no corpus env), and reverted. Each turned the named test red:
+  1. Pattern ignored (FirstValue always): AC2, AC3, AC4, AC5, AC6, AC7, AC9.
+  2. Entries 0 and 1 swapped: AC3, AC4, AC5.
+  3. Phase from the plane origin: AC2, AC3, AC4, AC5.
+  4. Phase from the DefaultCrop origin: AC2, AC3, AC4, AC5.
+  5. Index transposed: AC2, AC3, AC4, AC5.
+  6. Fixed 2×2 slot: AC4.
+  7. Warp site, black by active-grid (output) position: AC5.
+  8. Warp site, pattern ignored: AC5.
+  9. No count check, index clamped: AC6, AC7, AC9.
+  10. Pattern validated under FirstValue too: AC6.
+  11. Pattern check after the dst length check: AC7.
+  12. Per-position white (the last WhiteLevel value): AC3's two-WhiteLevel fixture.
+
+  All 12 were re-run after the 19af30c restructure and stayed red. Mutant 8's re-run
+  needed a closure type annotation to compile.
+- **Fuzz:**
+  - `develop` ran for 60 s: 4,566,463 runs in 61 s, clean.
+  - Seed classification, 38 develop seeds:
+    - 15 have no BlackLevel (one, `tiled-uncompressed-12-mm`, has bit 5 set by its
+      trailing byte; it develops Ok);
+    - 20 have a single uniform value with bit 5 clear;
+    - 3 are new non-uniform patterns with bit 5 set:
+      `black-levels-2x2-odd-active-area` (Ok), `black-levels-1x2` (Ok) and
+      `black-levels-count-mismatch` (InvalidBlackLevelPattern 1×1 / 4).
+- **Q2M L1021223 `develop_into` wall time** (release build, single runs, alternating
+  builds on an idle machine): 0.627 s and 0.631 s before (06d776a); 0.634 s and
+  0.644 s after. No meaningful change, as expected, since the Q2M takes Uniform.
+- **Docs:** CHANGELOG `[Unreleased]` (two Added entries), the develop module paragraph,
+  and the field and enum docs. No provenance row (DNG `BlackLevel` semantics, no new
+  algorithm). No `DEVELOP_VERSION` bump.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 16,370,481. This is a floor at handback; the handback commit and
+  CI turns are excluded.
+- **Estimated USD:** 11.76
+- **Duration (minutes):** about 60 by the transcript's timestamps.
+- **Source of the number:** transcript `5ed79b91-42b4-4c23-9230-1fe9f9e1acdf.jsonl`,
+  deduped by message.id, max output per message, opus-5-5 rates, no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - The AC3 crop origin is (1, 2), not odd on both axes (see above).
+  - AC5 uses two cases so that "uniform normalize(k)" is well defined.
+  - The per-position white red-proof is modelled as reading the last WhiteLevel value
+    (one global white), not a true per-pixel white; the two-WhiteLevel fixture catches
+    any read past the first value.
+- **Follow-up work identified:** none new beyond DEC-061 §5's three (RATIONAL
+  BlackLevel, the colour path's BlackLevelRepeatDim, BlackLevelDeltaH/V).
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Three things:
+   - AC2 and AC5 say "uniform normalize(k)", but distinct per-position blacks give
+     distinct ranges, so uniformity holds only at k values that happen to round alike.
+   - AC3 asks for an odd DefaultCrop origin, which with an odd ActiveArea origin
+     reproduces the plane parity.
 
+   All three needed the fixtures re-derived.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
-
+   — Yes. `tests/develop_oracle.rs` and `tests/develop.rs` fault-inject by scanning
+   `src/develop.rs` source text for named function bodies, so refactoring those
+   functions breaks a test that looks unrelated. A handoff touching `develop.rs` should
+   name them.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Grep `tests/` for `include_str!` and `read_to_string` of `src/` before
+   restructuring any function, and run the full suite before the first commit rather
+   than only the targeted binaries.
