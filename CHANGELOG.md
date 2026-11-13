@@ -119,6 +119,19 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **Mono develop of Orientations 5–8 is faster** (SPEC-067, STAGE-019, DEC-062). Both
+  mono orientation gathers (warp-free and post-warp) now visit the output in 64×64
+  tiles for Orientations 5–8, whose source reads run down a column; 1–4 keep the row
+  walk. Leica Q2 Monochrom L1021223, Apple M4 Pro, `develop_with_into`, release,
+  medians in ms, before → after (`just orient-timing`):
+  - warp-free (`warp_alpha` 0): O1 190 → 78, O5 332 → 95, O6 324 → 110, O7 371 → 146,
+    O8 371 → 146;
+  - post-warp (`warp_alpha` 1, the default for every Q2M frame): O1 574 → 567,
+    O5 705 → 581, O6 698 → 576, O7 721 → 609, O8 724 → 621.
+
+  Only the visiting order changed: output is byte-identical (MD5-pinned for all eight
+  orientations), so `DEVELOP_VERSION` stays `"4"`. The new `orient-timing` example
+  measures it.
 - **`develop_into` / `develop_with_into` allocate at most once** (SPEC-065, DEC-060).
   They now run the same core as `develop_with_scratch_into`, feeding it one internal
   allocation of exactly `scratch_len` samples (none when that is 0). The warp output
