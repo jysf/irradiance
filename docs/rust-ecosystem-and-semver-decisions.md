@@ -184,7 +184,63 @@ matrix and code, J where marked]:**
 That is exactly the set the phone-DNG issues are *not* about. A permissive pure-Rust
 competitor (gamut-dng) claims both ProRAW and JXL.
 
-### 1.4 Recommendation for Part A [J]
+### 1.4 Head-to-head with the three new permissive DNG crates
+
+**How this was checked:** a static reading of the published crate sources
+(`gamut-dng-1.0.0`, `filmcraft-dng-0.9.0`, `flashraw-0.2.0` from static.crates.io),
+their READMEs, and gamut-dng's `STATUS.md`. Nothing was built or run.
+
+**Gaps in what I could see:**
+
+- Only the top-level crates were read. gamut-dng's `gamut-ifd`/`gamut-jxl` and
+  flashraw's `flashraw-core`/`-codecs`/`-formats` sub-crates were not downloaded, so
+  their fuzzing, `unsafe` use and provenance are *unverified*.
+- None of the crates' README claims (ProRAW, the 98% corpus figure) were run against
+  the held corpus.
+
+| | **irradiance 0.2.1** | **gamut-dng 1.0.0** | **filmcraft-dng 0.9.0** | **flashraw 0.2.0** |
+|---|---|---|---|---|
+| What it is [V] | DNG **developer**: bytes in, finished pixels out | DNG **container codec**, encode and decode | DNG and CinemaDNG decoder plus a simple develop | Multi-format RAW decoder and converter, ~40 formats |
+| Compression [V] | uncompressed, SOF-3; strips and tiles | uncompressed, Deflate, SOF-3, **JXL**; tiles; BigTIFF | uncompressed, SOF-3; strips and tiles | CR2, **CR3**, NEF, ARW, RAF, DNG, …; README says JPEG-in-DNG is unsupported |
+| Develops to pixels [V] | yes (demosaic, colour, tone, crop, orientation) | **no**: demosaic, rendering and opcode execution are out of scope (README, `STATUS.md`) | yes, to linear Rec.709 f32 RGBA | yes, RGB with ICC |
+| Opcodes [V] | **applies** WarpRectilinear and FixBadPixelsConstant; **refuses** unapplied mandatory ones (DEC-049) | parses and round-trips them; does not execute them | **ignored** ("opcode lists … ignored"); no opcode code in `src/` | *unverified* |
+| Demosaic [V] | Hamilton-Adams (DEC-031 replaced Malvar-He-Cutler on patent grounds) | none | **Malvar-He-Cutler** (README spec table) | *unverified* |
+| Runtime deps [V] | **0** | 5 (four own sub-crates + miniz_oxide) | 2 (thiserror, rayon opt.) | 4 internal sub-crates + optional rayon, memmap2, serde, moxcms, gpu |
+| `unsafe` [V] | `forbid(unsafe_code)` | `forbid(unsafe_code)` | none in `src/` (no `forbid` attribute) | yes: AVX2 kernels, mmap, a `from_raw_parts` |
+| Hostile-input testing [V] | cargo-fuzz targets with CI smoke runs; red-proofs; dnglab MD5 oracles | Adobe DNG SDK and libtiff differential oracles; no fuzz dir in the package | 12,000 mutations under `catch_unwind`, every truncation, cyclic IFDs | `Limits` API; no `tests/` in the package |
+| Provenance [V] | per-algorithm ledger, clean-room rule | spec plus Adobe SDK as oracle | explicit clean-room statement; LibRaw run only as an oracle tool | no provenance statement found in the facade crate |
+| MSRV [V] | 1.90 | 1.92 | 1.95 | 1.85 |
+
+**Reading of the comparison [J]:**
+
+- **gamut-dng is a complement, not a competitor.** Its decode envelope is far wider
+  and better oracled than irradiance's: JXL, ProRAW-shaped LinearRaw, BigTIFF, all
+  checked against the Adobe SDK. But it stops at stored samples and leaves developing
+  to downstream "raw processors."
+  - That makes it a candidate **front end** for the formats irradiance does not read.
+  - It would also be a cheaper answer to DEC-064 than a clean-room JXL decoder.
+  - The catch: it is a dependency, so it needs a DEC and probably an optional crate or
+    feature to keep the zero-dependency default.
+- **filmcraft-dng is the direct competitor, and irradiance's edges are concrete:**
+  - It silently ignores opcode lists. So a Pixel DNG would develop without its
+    mandatory GainMap and produce wrong pixels with no error, where irradiance refuses.
+  - It ships Malvar-He-Cutler, the demosaic DEC-031 rejected on patent grounds. That
+    matters to commercial embedders.
+  - It wins on CinemaDNG and on a one-call `decode()`.
+- **flashraw plays a different game:** breadth and speed (SIMD, GPU, Python, C and
+  WASM bindings). It includes CR3, which is on the patent-avoid list. It is not
+  `unsafe`-free, and its provenance is unstated.
+  - irradiance should not chase its format count.
+  - Zero dependencies, no `unsafe`, refuse-rather-than-guess, and output identity are
+    the contrast.
+- **To settle it with evidence:** run all three over the held corpus.
+  - Compare plane MD5s against dnglab.
+  - Run a short mutation/fuzz pass on each to count panics.
+  - Check what each produces for the Pixel GainMap files.
+
+  That is about half a day. It is the "re-pitch" evidence §1.5 calls for.
+
+### 1.5 Recommendation for Part A [J]
 
 **Do not build the adapter yet.** Plan it as a separate `irradiance-image` crate and
 gate it on two things:
@@ -203,10 +259,12 @@ first impression is worse than no listing.
 
 - **Retire "the only permissive RAW crate" from the pitch.** Lead with zero-dep,
   panic-free/fuzzed, bit-exact oracles and the determinism contract (`DEVELOP_VERSION`).
-- **Do a half-day comparison against gamut-dng and filmcraft-dng** on the held corpus:
-  bit-exact plane checks plus panic-on-fuzz. If irradiance is not measurably better on
-  correctness or safety, the adapter's value proposition is weak, whatever its
-  coverage.
+- **Do a half-day comparison against gamut-dng and filmcraft-dng** on the held corpus
+  (§1.4): bit-exact plane checks plus panic-on-fuzz. If irradiance is not measurably
+  better on correctness or safety, the adapter's value proposition is weak, whatever
+  its coverage.
+- **Evaluate gamut-dng as an optional decode front end** for JXL and ProRAW, with
+  irradiance developing its output. This feeds DEC-064.
 
 **First outreach target, once gated:**
 
@@ -412,6 +470,9 @@ until the GainMap stage), JXL DNG 1.7 (unsupported) and ProRAW (likely refused:
 - build it after STAGE-016 and a JXL/ProRAW coverage decision, about one S/M spec;
 - meanwhile, re-pitch on zero-dep, panic-free and bit-exact determinism, and
   benchmark correctness and safety against gamut-dng and filmcraft-dng;
+- on a source reading (§1.4), gamut-dng is a decode-only codec that could front
+  irradiance, not a rival developer. filmcraft-dng is the direct rival, and it
+  silently ignores opcodes and ships the patented Malvar-He-Cutler demosaic;
 - first outreach target is oculante's `.dng` path, then astro rawloader dependants
   and image-rs Discussion #2570.
 
@@ -451,6 +512,6 @@ The IDs are indicative only. DEC-059 is next-free on `bd0e0df`; mint at write ti
 | 3 | **DEC-061: `cargo-semver-checks` joins the CI gate against the crates.io baseline** | Default features only; red-proof shape |
 | 4 | **DEC-062: Stability policy and 1.0 criteria** (`docs/stability.md`) | What counts as an "independent consumer"; the MSRV rule; the non-promise list. Could fold into #1. |
 | 5 | **DEC-063: The `image` integration is a separate `irradiance-image` crate, deferred until phone-DNG coverage** | Workspace member vs separate repo; the gate (STAGE-016 plus a JXL/ProRAW decision) |
-| 6 | **DEC-064: JXL-compressed DNG and 3-sample LinearRaw (ProRAW): in scope or not** | A dependency (jxl-oxide, MIT/Apache) vs clean-room vs out of scope; a ProRAW file is needed first |
+| 6 | **DEC-064: JXL-compressed DNG and 3-sample LinearRaw (ProRAW): in scope or not** | A dependency (jxl-oxide, MIT/Apache, or gamut-dng as a decode front end, §1.4) vs clean-room vs out of scope; a ProRAW file is needed first |
 | — | pyirradiance versioning (exact pin, `__irradiance_version__`, abi3-py311) | Belongs to the pyirradiance repo, not an irradiance DEC |
 | — | Adoption pitch rewrite (drop "only permissive") | Not a DEC: README and checklist edits |
