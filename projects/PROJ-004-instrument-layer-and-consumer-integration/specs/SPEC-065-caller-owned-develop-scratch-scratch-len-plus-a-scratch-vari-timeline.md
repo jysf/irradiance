@@ -9,5 +9,5 @@ Cycle prompts live in `prompts/SPEC-065-<cycle>.md`.
 
 - [x] **design** — completed 2026-11-12 (DEC-060; allocation probe: 6 allocs / 283.9 MB per Q2M develop; HANDOFF-137 build ready)
 - [ ] **build** — HANDOFF-137
-- [ ] **verify**
+- [x] **verify** — HANDOFF-138, completed 2026-11-13: ✅ APPROVED at fa2c01f (14 tier-A mutants red; just test 655/0 with 12/12 corpus; CI 44/44)
 - [ ] **ship**

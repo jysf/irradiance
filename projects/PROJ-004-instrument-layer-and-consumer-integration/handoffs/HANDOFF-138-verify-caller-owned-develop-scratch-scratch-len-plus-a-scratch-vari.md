@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier
   created_at: 2026-11-13
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-065
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 15435140           # REAL combined count — what cost-audit reads
+  estimated_usd: 10.10             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 75
+  branch: claude/spec-065-verify-5c79c7
+  pr: 224
+  completed_at: 2026-11-13         # YYYY-MM-DD
+  notes: "APPROVED at fa2c01f, no code changes. Transcript e26a2c54-c30a-4f6f-9422-53b2d77050c3.jsonl, no subagents, deduped by message.id with max output per message: input 227 + cache-creation 152,277 (1-hour) + cache-read 15,244,659 + output 37,977 = 15,435,140 tok, USD 10.10 at opus-5-5 rates (in 5, out 25). A floor: the turns after the handback commit are not counted. 14 tier-A mutants all red; just test 655/0/1 with 12/12 corpus present; fuzz develop 4,614,310 and opcode 3,985,931 runs in 66 s each, clean; CI 44/44 on fa2c01f."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -332,38 +332,148 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** branch `claude/spec-065-verify-5c79c7` (this handback only; no code
+  changes). The code under review is PR #224 (https://github.com/jysf/irradiance/pull/224),
+  head `fa2c01f`. Verdict comment posted on #224.
+- **Completed at:** 2026-11-13
+- **All acceptance criteria met?** yes. AC1–AC13 are each met by a test that goes red
+  when the property breaks (mutant table below).
+- **For `verify`:** ✅ **APPROVED at `fa2c01f`**
+
+**Gates.** All were run by the verifier at `d180f39`, which is `fa2c01f` plus docs.
+- **`just test`** with `IRRADIANCE_CORPUS_DIR` set: 655 passed, 0 failed, 1 ignored, and
+  `corpus: 12/12 present`. No SKIP lines.
+- **Also green:** `lint-ci`, `lint-no-allow`, `lint-fuzz`, `fmt-check`, `validate`,
+  `doc-check`, `deny`, `msrv` (which covers `split_at_mut_checked`), `cost-audit`,
+  `gate-audit` and `decisions-audit --changed`.
+- **Tier-A baseline** with no corpus: 655 / 0.
+- **CI on #224 head `fa2c01f`:** 44/44 pass (`gh pr checks 224`).
+
+**Real-file results.** These ran and passed with the corpus present:
+- `scratch_len_on_held_files`: 94,707,712, and 47,443,968 at α = 0, on all three Q2M
+  frames; 0 on the five warp-free files.
+- `scratch_develop_allocates_nothing_on_q2m`: (0, 0) on L1021223.
+- `develop_with_into_allocates_once`: (1, 189,415,424) on L1021223.
+- `scratch_output_matches_the_pins`: the eight SPEC-063 pins.
+- `output_does_not_depend_on_scratch_contents`: three fills on L1021223.
+
+`git diff origin/main -- tests/develop_options.rs` is empty: the pins are unedited.
+
+**Mutants.** All were run by hand against tier A only, in a separate detached worktree,
+each reverted. All 14 went red:
+
+| # | Mutant | Red test(s) |
+|---|---|---|
+| 1 | `vec!` in the caller path | `scratch_develop_allocates_nothing` |
+| 2 | walker preceded by `parse_opcode_list` | `opcode_lookups_allocate_nothing`, `scratch_develop_allocates_nothing`, `develop_with_into_allocates_once` |
+| 3 | walker returns at first match | `walkers_equal_parse_opcode_list_then_find_map` |
+| 4 | walker skips unknown-mandatory refusal | `walkers_equal_parse_opcode_list_then_find_map` (only; in a develop, `check_required_processing` refuses first) |
+| 5 | P + 2A layout | 5 binaries (develop, develop_options, develop_scratch, develop_scratch_alloc, warp_alpha) |
+| 6 | warp before normalize ("both") | `scratch_output_equals_develop_with_into`, composition oracle, `output_does_not_depend_on_scratch_contents`, 2 in `develop.rs` |
+| 7 | warp reads the wrong half (warp-only) | `tests/warp.rs`, `tests/warp_alpha.rs`, composition oracle, AC6 |
+| 8 | scratch write before the length check | `wrong_length_scratch_is_refused_before_any_write` |
+| 9 | length check before the `OpcodeList1` parse | `scratch_variant_reports_the_same_errors_in_the_same_order` |
+| 10 | "at least n" accepted | `wrong_length_…`, `scratch_develop_allocates_nothing` |
+| 11 | neighbours not sorted | `develop_warp_branch_actually_warps` (only — see follow-ups) |
+| 12 | `lower_median` over the whole array | `fix_bad_pixels_median_with_fewer_than_eight_neighbours` |
+| 13 | (verifier's) warp-only output pass reads `normalized` | `tests/warp.rs` `develop_into_crops_from_the_warped_active_area_not_the_warped_crop`, `tests/warp_alpha.rs` `displacement_is_linear_in_alpha`, composition oracle |
+| 14 | (verifier's) "both" output pass reads `normalized` | `develop.rs`, `warp_alpha.rs`, composition oracle, AC2 |
+
+So the warp-only path is checked outside the shared core: `tests/warp.rs` and
+`tests/warp_alpha.rs` catch mutants 7 and 13. No mutant was caught only by tier B.
+
+**The build's declared deviations, judged:**
+- **Seeds: sound, and needed.** I classified them myself with `scratch_len`. Each has
+  P = 48 and A = 30 (6×5):
+  - `scratch-fix-and-warp-default` and `-full-alpha-half` give 78 = P + A;
+  - `scratch-fix-only-default`, `-full-unoriented` and `-fix-and-warp-alpha-0` give
+    48 = P.
+
+  Re-running `examples/fuzz-seeds.rs` regenerates every seed byte-identically, so they
+  are synthetic with no corpus bytes (DEC-003).
+- **Composition oracle: sound and independent of `develop_core`.** The reference side
+  runs the public `apply_fix_bad_pixels_constant`, then the `WarpOnly`/`Neither` develop.
+  That is a different arm of `run_passes`, so a defect confined to one arm moves only one
+  side. It went red on mutants 6, 7, 13 and 14.
+- **Median corner/edge test: values re-derived.**
+  - (3,3) has neighbours 110, 120 and 150, so the median is 120.
+  - (2,0) has neighbours 20, 40, 60, 70 and 80, so the median is 60.
+
+  Both match.
+- **AC7 table: complete.** It has 27 rows, covering every refusal shape the core can
+  produce: required processing, unreadable list, unknown mandatory, `src` length, active
+  area, default crop, orientation, levels, `dst` length, malformed `OpcodeList1` and
+  `OpcodeList3` under both framings, over-unity, tangential terms, and α. It also has the
+  two wrong-scratch precedence assertions. No hostile fixture was dropped.
+- **AC10 overflow: correct.** `scratch_len_overflow_is_typed` pins
+  `{ expected: u64::MAX, actual: 0 }` for `u32::MAX`² planes, as DEC-060 §3 says.
+- **Allocation moved later: no precedence changed.** The diff under `tests/` against
+  `origin/main` touches only new files and `tests/error_kind.rs` rows and counts (AC13's
+  allowance). It also adds `tests/opcode.rs` tests, with no line removed.
+
+**Other checks:**
+- **Walker equivalence.** `first_recognised` reads `parse_opcode_list` line for line,
+  minus the `Vec` and the optional-unknown `to_vec`. It reads every opcode, parses every
+  recognised opcode's params, refuses an unknown mandatory, and keeps the first match
+  through `found.is_none()`.
+- **Layout.** It is exactly DEC-060 §3. In "both", the plane copy goes into `[0, P)`, is
+  normalized into `[P, P + A)`, and is then warped into `[0, A)`. Nothing reads `[0, P)`
+  after that. `A ≤ P` holds because `resolve_geometry` refuses
+  `right > width || bottom > height`.
+- **Length check.** It sits after both list parses and before the first write.
+- **No allocation on error paths.** No `Error` variant reachable from the develop path
+  holds heap data. The only `Vec` fields belong to `NoSensorIfdCandidatesMalformed` and
+  `UnsupportedCfaPattern`, which are container and demosaic errors.
+- **Counter.** It counts `alloc`, `alloc_zeroed` and `realloc`. Its counters are
+  thread-local and the negative control fires.
+- **No new heap use.** The diff of `src/develop.rs` and `src/opcode.rs` adds no
+  `Vec`, `Box`, `collect`, `to_vec`, `String` or `format!`, apart from the one
+  `Scratch::Allocate` `vec!`.
+- **Error surface and docs.** `DEVELOP_VERSION` is `"4"`, there is no new dependency, and
+  `kind()` has no wildcard. `Display` names both numbers (tested). The CHANGELOG
+  `[Unreleased]` entry states the exact-length rule and the no-allocation promise.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 15,435,140 (floor; see the front-matter `notes`)
+- **Estimated USD:** 10.10
+- **Duration (minutes):** ~75
+- **Source of the number:** the session transcript
+  (`e26a2c54-c30a-4f6f-9422-53b2d77050c3.jsonl`, no subagents), deduped by `message.id`
+  with the max output per message, at opus-5-5 per-component rates: in 5, out 25, cache
+  read 0.5, 1-hour cache write 10 ($/M).
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none by the verifier. The build's three declared deviations
+  are judged sound above.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - **[XS] Strengthen the median fixture.** Mutant 11 (neighbours unsorted) is caught
+    only by `develop_warp_branch_actually_warps`. The new corner/edge median fixture uses
+    a row-major ramp, so its neighbours arrive already sorted. A fixture with neighbour
+    values that are not monotone in scan order would name the property directly.
+  - **[XS] Add a develop-level error-path row to the alloc test.** AC3's alloc test has
+    no malformed-`OpcodeList1` row for a develop call. It is covered today, because the
+    walker alloc test includes malformed lists and no reachable `Error` variant holds
+    heap data, but a develop-level row would pin it end to end.
+  - **DEC-051 prose-table sweep** (the build's suggestion): no opinion formed in this
+    cycle; left to the orchestrator.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing in the spec. The fuzz toolchain trap (`cargo +nightly` resolving to
+   Homebrew's cargo, then `cargo fuzz` shelling out to a bare `rustc`) cost two reruns.
+   The answer is already in `guidance/toolchain-brief.md`, and I should have read it
+   first.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. One observation: `check_required_processing` shields the develop path from a
+   walker that skips the mandatory refusal. That is fine, but it means AC8's walker test
+   is the only guard for that property.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would run mutants in a detached worktree from the start, as I did here. That let
+   the 25-minute corpus `just test` run in parallel without a source-mutation race.
+   Then I would read the toolchain brief before the first fuzz call.
