@@ -51,15 +51,15 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 17582624           # REAL combined count — what cost-audit reads
-  estimated_usd: 13.06             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 19928566           # REAL combined count — what cost-audit reads
+  estimated_usd: 14.65             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 75
   branch: claude/spec-064-build
   pr: 219
   completed_at: 2026-11-12         # YYYY-MM-DD
-  notes: "FLOOR, re-summed before the handback commit from transcript 50667760-e761-4b85-9731-204e0e8a7891.jsonl (80 unique message.ids, all claude-opus-5-5, no subagents): input 159 + cache-creation 238,214 (1-hour) + cache-read 17,262,494 + output 81,757 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour write x2.0). The commit, push and CI-wait turns come after; re-sum at ship."
+  notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript (1 jsonl, 88 unique message.ids, all claude-opus-5-5, no subagents): input 177 + cache-creation 253,588 (1-hour) + cache-read 19,581,978 + output 92,823 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 17,582,624 / 13.06 before the commit, push and CI-wait turns."
                                    # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-12
 ---
 
 # HANDOFF-135: BUILD: warp_alpha over WarpRect::lerp, and the FullActiveArea bounds rule (SPEC-064)

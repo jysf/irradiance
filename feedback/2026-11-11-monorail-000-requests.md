@@ -260,8 +260,8 @@ Maintainer decisions (2026-11-11): use the suggested order (Stage A → Stage C 
 | Item | Stage | Spec | Notes |
 |---|---|---|---|
 | 5 preview slices | STAGE-018 (shipped 2026-11-12) | SPEC-062 shipped | `Container::previews()`; build PR 208, verify PR 209 (punch list, 2 test gaps fixed); in `[Unreleased]`, ships with the next 0.2.x |
-| 2 develop options (framing, apply_orientation) | STAGE-019 | SPEC-063 `[M]` (shipped) | shipped 2026-11-12 (DEC-058); `develop_with_into`, unreleased; FullActiveArea refused on warped frames (every Q2M) until SPEC-064 |
-| 2 develop options (warp_alpha / lerp) | STAGE-019 | SPEC-064 `[M]` (frame) | after SPEC-063; bounds oracle at five alphas |
+| 2 develop options (framing, apply_orientation) | STAGE-019 | SPEC-063 `[M]` (shipped) | shipped 2026-11-12 (DEC-058); `develop_with_into`, unreleased; FullActiveArea on warped frames enabled by SPEC-064 |
+| 2 develop options (warp_alpha / lerp) | STAGE-019 | SPEC-064 `[M]` (shipped) | shipped 2026-11-12 (DEC-059); `warp_alpha` in [0, 1] over `WarpRect::lerp`; FullActiveArea develops all three Q2M frames at every alpha (measured scale [0.8998, 0.99925], corner pull 506.1 px); over-unity lenses (Pixel 3a) refused typed; unreleased |
 | 3 caller scratch | STAGE-019 | SPEC-065 `[S]` (frame) | after SPEC-063; covers the FixBadPixelsConstant plane copy |
 | 6 CFA-as-mono | STAGE-019 | SPEC-066 `[S]` (frame) | after SPEC-063; per-position levels |
 | 4 orientation perf | STAGE-019 | SPEC-067 `[S]` (frame) | independent; byte-identical, timed before/after |
