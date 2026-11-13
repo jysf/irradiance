@@ -141,11 +141,13 @@ does not need it and can run in parallel with any of them.
 
 - [x] SPEC-063 (shipped 2026-11-12) [M→M] — DevelopOptions + develop_with_into: #[non_exhaustive] options with a byte-identical Default, Framing StandardCrop / FullActiveArea, apply_orientation; develop_into delegates; a DEC for the options shape and the version rule.
 - [x] SPEC-064 (shipped 2026-11-12) [M→M] — warp_alpha over WarpRect::lerp: measure the backward radial scale across held frames, refuse typed where FullActiveArea plus the lerped warp would sample outside the active area, bounds oracle at five alphas, over-unity red-proof. Depends on the options spec.
-- [ ] SPEC-065 (build) [M] (re-sized from S at design: shared core, allocation-free opcode walkers, two test binaries) — Caller-owned develop scratch: scratch_len plus a scratch variant covering the warp buffers, the FixBadPixelsConstant plane copy and the neighbours Vec; zero-allocation test; typed wrong-length error. Depends on the options spec.
+- [x] SPEC-065 (shipped 2026-11-13) [M→M] (re-sized from S at design: shared core, allocation-free opcode walkers, two test binaries) — Caller-owned develop scratch: scratch_len plus a scratch variant covering the warp buffers, the FixBadPixelsConstant plane copy and the neighbours Vec; zero-allocation test; typed wrong-length error. Depends on the options spec.
 - [ ] SPEC-066 (frame) [S] — CFA-as-mono option: develop a CFA-declared plane on the mono path with per-position black and white levels (BlackLevelRepeatDim mapping, small DEC); synthetic oracle and swapped-position red-proof. Depends on the options spec.
 - [ ] SPEC-067 (frame) [S] — Blocked Orientation 5-8 transpose in crop_orient_normalize_into: byte-identical for all eight orientations, before/after Q2M timing with a method fixed at design.
 
-**Count:** 2 shipped / 3 active / 0 pending (SPEC-063 25.96M tok / $18.62; SPEC-064 shipped 2026-11-12, DEC-059, verify punch-list (1 overflow fix in #221), 32.22M tok / $23.71)
+- [ ] (unframed) [XS] — SPEC-065 verify follow-ups: a median fixture whose neighbours arrive unsorted, so "neighbours unsorted" is caught by an `apply_fix_bad_pixels_constant` test directly; a develop-level malformed-`OpcodeList1` row in `tests/develop_scratch_alloc.rs`'s error-path list.
+
+**Count:** 3 shipped / 2 active / 0 pending (SPEC-063 25.96M tok / $18.62; SPEC-064 32.22M / $23.71; SPEC-065 shipped 2026-11-13, DEC-060, verify approved first round, 41.89M tok / $29.94)
 
 ## Design Notes
 

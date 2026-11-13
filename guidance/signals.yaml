@@ -1332,14 +1332,19 @@ signals:
   - id: shared-path-oracle-tautology
     type: lesson
     summary: "An encode->decode round-trip oracle cannot catch a regression in a helper that BOTH halves call — the error cancels — so a shared helper's sign/edge branches need a direct, hand-computed assertion, not just the round-trip."
-    evidence: "N=2. Instance 1 — SPEC-037 (verify, HANDOFF-088). The LJ92 round-trip oracle and the production decoder both call `predict`->`floor_div2`; mutating `floor_div2` to truncate-toward-zero (dropping the negative-odd floor) left all 18 ljpeg tests green — encode and decode made the same error and it cancelled, and the one hand-computed predictor test used only positive neighbours (no negative `>>1` intermediate). The cold verify caught it; the fix was one direct assertion with a negative-odd intermediate (predictor 5, Rb<Rc), mutation-confirmed to fail on truncation. Instance 2 — PROJ-003 close ultrareview, 2026-11-06. The restart-interval prediction rule (the `r == 0` first-line condition and the per-restart reset) is applied IDENTICALLY by the production decoder (`reconstruct`), the test encoder (`encode_lj92`), AND the `reference_decode` red-proof control, so a restart round-trip and the red-proof both cancel any divergence from T.81 on the restart boundary; the only truly independent check (`dnglab --raw-checksum`) runs on the two held files, neither of which carries a `DRI`, so the restart path is unverified by any non-shared oracle."
+    evidence: "N=3. Instance 3 — SPEC-065 (build, HANDOFF-137), 2026-11-12. After develop_with_into and develop_with_scratch_into were refactored onto one develop_core, AC2 byte identity between the two entries could not see a pass-order or wrong-buffer bug inside the core; the build's red-proofs 6 (warp before normalize) and 7b (warp reading the plane copy) stayed green in tier A and only the tier-B MD5 pins caught them, which CI cannot run. Fixed in the build by an independent composition oracle (public apply_fix_bad_pixels_constant then the warp-only develop); the cold verify confirmed it independent and all 14 tier-A mutants red. Instance 1 — SPEC-037 (verify, HANDOFF-088). The LJ92 round-trip oracle and the production decoder both call `predict`->`floor_div2`; mutating `floor_div2` to truncate-toward-zero (dropping the negative-odd floor) left all 18 ljpeg tests green — encode and decode made the same error and it cancelled, and the one hand-computed predictor test used only positive neighbours (no negative `>>1` intermediate). The cold verify caught it; the fix was one direct assertion with a negative-odd intermediate (predictor 5, Rb<Rc), mutation-confirmed to fail on truncation. Instance 2 — PROJ-003 close ultrareview, 2026-11-06. The restart-interval prediction rule (the `r == 0` first-line condition and the per-restart reset) is applied IDENTICALLY by the production decoder (`reconstruct`), the test encoder (`encode_lj92`), AND the `reference_decode` red-proof control, so a restart round-trip and the red-proof both cancel any divergence from T.81 on the restart boundary; the only truly independent check (`dnglab --raw-checksum`) runs on the two held files, neither of which carries a `DRI`, so the restart path is unverified by any non-shared oracle."
     bar: "N=2"
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-05
-    last_touched: 2026-11-09
+    last_touched: 2026-11-13
     raised_by: claude
     notes: |
+      ══ SPEC-065 SHIP, 2026-11-13: N=2 -> N=3, a new shape. ══ Not a round-trip
+      this time: two public entries refactored onto one core, with a design that named
+      identity between them as the oracle for bugs inside that core. Falsifier, cheap at
+      design: for each red-proof, name an oracle that does not execute the mutated line.
+      Codification still waits for a stage to land it in (the bar was already met).
       ══ STAGE-012 CLOSE, 2026-11-09: APPLIED, kept watch, deferred. ══ No new ljpeg
       instance (colour-develop/threading stage). STAGE-012 applied the discipline:
       SPEC-049/050/051's verifies each confirmed the byte-equality oracle compares

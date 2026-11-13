@@ -6,19 +6,19 @@
 task:
   id: SPEC-065
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 26000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-137
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 24495029
+      estimated_usd: 16.99
+      duration_minutes: 65
+      recorded_at: 2026-11-13
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript 2a702dbf-8f01-4323-84fe-26eccdf7e734.jsonl (106 unique message.ids, all claude-opus-5-5, no subagents): input 216 + cache-creation 246,913 (1-hour) + cache-read 24,150,133 + output 97,767 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 20,612,106 / 14.65 before the handback commit, PR and CI turns."
+    - cycle: verify
+      handoff: HANDOFF-138
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 17393311
+      estimated_usd: 12.95
+      duration_minutes: 75
+      recorded_at: 2026-11-13
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript e26a2c54-c30a-4f6f-9422-53b2d77050c3.jsonl (100 unique message.ids, all claude-opus-5-5, no subagents): input 247 + cache-creation 335,819 (1-hour) + cache-read 17,013,950 + output 43,295 (max per message), opus-5-5 rates. The handback floor was 15,435,140 / 10.10. Verdict APPROVED at fa2c01f with no code changes, posted as a comment on PR #224; 14 tier-A mutants all red; just test 655/0/1 with 12/12 corpus; fuzz develop 4,614,310 and opcode 3,985,931 runs in 66 s each, clean; CI 44/44. #224 merged as 7f233ff."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 41888340
+    estimated_usd: 29.94
+    session_count: 2
+shipped_at: 2026-11-13
 ---
 
 # SPEC-065: Caller-owned develop scratch: scratch_len plus develop_with_scratch_into, allocation-free
@@ -304,7 +325,7 @@ Confirm that in the handback.
 
 ## Acceptance Criteria
 
-- [ ] **AC1. `scratch_len` values.**
+- [x] **AC1. `scratch_len` values.**
   - **Tier A.** One fixture per case (neither, `fbp` only, warp only, both), non-square,
     with an `ActiveArea` border so P ≠ A. The function returns 0, P, 2A and P + A
     respectively, under both framings.
@@ -313,7 +334,7 @@ Confirm that in the handback.
   - **Tier B.** Each Q2M frame returns 94,707,712 at default options and 47,443,968 at
     `warp_alpha = 0`. The five warp-free held files return 0. A missing file is reported
     by name.
-- [ ] **AC2. Byte identity.** `develop_with_scratch_into`, given exactly `scratch_len`
+- [x] **AC2. Byte identity.** `develop_with_scratch_into`, given exactly `scratch_len`
   samples, produces the same `dst` as `develop_with_into`:
   - on all four tier-A fixtures;
   - under `StandardCrop` and `FullActiveArea`;
@@ -323,7 +344,7 @@ Confirm that in the handback.
   On tier B, the SPEC-063 MD5 pins hold through `develop_with_scratch_into` at default
   options on all eight files. On L1021223, the output also equals `develop_with_into`'s
   under `FullActiveArea` at α = 0.5.
-- [ ] **AC3. The scratch path allocates nothing** (`tests/develop_scratch_alloc.rs`, the
+- [x] **AC3. The scratch path allocates nothing** (`tests/develop_scratch_alloc.rs`, the
   `previews_alloc` pattern).
   - On each tier-A fixture, under every option combination in AC2, there are zero
     allocations between the switches. The `Sensor`, `src`, `dst` and `scratch` are built
@@ -333,12 +354,12 @@ Confirm that in the handback.
   - **Negative control:** a `Vec` allocated inside the switches is counted.
   - **Tier B:** zero allocations on L1021223 at default options. A missing file is
     reported by name.
-- [ ] **AC4. `develop_with_into` allocates at most once.**
+- [x] **AC4. `develop_with_into` allocates at most once.**
   - On the "both" fixture: exactly 1 allocation of `scratch_len × 2` bytes. On the
     neither fixture: 0.
   - On L1021223: exactly 1 allocation of 189,415,424 bytes, against 6 / 283,943,504
     before. This pins the peak-memory saving.
-- [ ] **AC5. Wrong length is typed, and nothing is written.** For the "both" fixture,
+- [x] **AC5. Wrong length is typed, and nothing is written.** For the "both" fixture,
   scratch of length `n − 1`, `n + 1` and 0 each give:
   - `DevelopScratchWrongLength { expected: n, actual }`;
   - `kind() == CallerError`;
@@ -346,9 +367,9 @@ Confirm that in the handback.
 
   For the neither fixture (`n == 0`), a scratch of length 1 is refused the same way, and
   an empty one succeeds.
-- [ ] **AC6. Output never depends on scratch contents.** On the "both" fixture, and on
+- [x] **AC6. Output never depends on scratch contents.** On the "both" fixture, and on
   L1021223, prefilling the scratch with 0x0000, 0xFFFF and a ramp gives identical `dst`.
-- [ ] **AC7. Error precedence.** `develop_with_scratch_into` with a correct-length
+- [x] **AC7. Error precedence.** `develop_with_scratch_into` with a correct-length
   scratch returns, for every hostile fixture in `tests/develop.rs`,
   `tests/develop_options.rs` and `tests/warp_alpha.rs` that `develop_with_into` refuses,
   the same error (Debug-equal). Run this as one table-driven test over those fixtures.
@@ -357,28 +378,28 @@ Confirm that in the handback.
   - an out-of-domain α is reported first.
 
   Every existing precedence test stays green unedited.
-- [ ] **AC8. The opcode walkers are equivalent and allocation-free.**
+- [x] **AC8. The opcode walkers are equivalent and allocation-free.**
   - **Equivalence.** For every opcode-list fixture in `tests/opcode.rs`, plus fixtures
     with a malformed second `WarpRectilinear`, a malformed second `FixBadPixelsConstant`,
     an optional unknown with params, and an unknown mandatory after the match:
     `parse_warp_rectilinear(b)` and `parse_fix_bad_pixels_constant(b)` give results
     Debug-equal to `parse_opcode_list(b)` followed by `find_map`.
   - **Allocation-free.** Both functions allocate nothing, in the alloc binary.
-- [ ] **AC9. `apply_fix_bad_pixels_constant` allocates nothing.** All its existing tests
+- [x] **AC9. `apply_fix_bad_pixels_constant` allocates nothing.** All its existing tests
   pass unedited, and the alloc binary shows 0 allocations on a plane with bad pixels.
-- [ ] **AC10. Error surface.**
+- [x] **AC10. Error surface.**
   - `DevelopScratchWrongLength` is in `Error::kind()` with no wildcard and has a row in
     `tests/error_kind.rs`.
   - A test pins that its `Display` contains both numbers.
   - `scratch_len` overflow is pinned by a unit test or documented as unreachable on
     64-bit, with the reason.
-- [ ] **AC11. API hygiene.**
+- [x] **AC11. API hygiene.**
   - Both functions are documented as §2 says.
   - `cargo doc` has no broken links.
   - CHANGELOG `[Unreleased]` is updated as §7 says.
-- [ ] **AC12. Fuzz.** Both differentials in §6 are in place, and 60 s runs of the
+- [x] **AC12. Fuzz.** Both differentials in §6 are in place, and 60 s runs of the
   `develop` and `opcode` targets are clean. Report the run counts.
-- [ ] **AC13. No regression.**
+- [x] **AC13. No regression.**
   - Every existing test passes with no assertion changed, other than `error_kind`'s rows
     and counts.
   - `just test` passes with the corpus env set. So do `lint-ci`, `lint-no-allow`,
@@ -423,6 +444,13 @@ Confirm that in the handback.
 - "At least `n`" accepted → AC5's `n + 1` case.
 - The neighbours array not sorted, or `lower_median` over the whole array → the existing
   `apply_fix_bad_pixels_constant` tests.
+- AC2's byte identity against `develop_with_into` cannot see a pass-order or wrong-buffer
+  bug inside the shared core → `each_case_equals_its_composition_from_public_parts`
+  (public `apply_fix_bad_pixels_constant` composed with the warp-only develop). *(Added at
+  ship; the build found the gap with red-proofs 6 and 7b.)*
+- The output pass reads `normalized` instead of the warped region, in the warp-only and
+  "both" cases → `tests/warp.rs`, `tests/warp_alpha.rs` and the composition oracle.
+  *(Added at ship; two extra mutants from the cold verify.)*
 
 ## Non-Goals
 
@@ -452,31 +480,46 @@ Confirm that in the handback.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Two changes, both about the design's oracle and coverage claims.
+   - **Name each oracle's independence from the code it guards.** I assigned the
+     pass-order and wrong-buffer red-proofs to AC2: byte identity with
+     `develop_with_into`. After the refactor both entries run the same core, so the
+     relation moves with any bug inside it. Only the tier-B MD5 pins caught those mutants,
+     and CI has no corpus. The build added an independent composition oracle in tier A.
+   - **Classify the fuzz seeds before saying "no new seeds are required."** No develop
+     seed carried `FixBadPixelsConstant`, so the P and P + A layouts were never fuzzed
+     until the build added five seeds.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — **DEC-060** held as written. Every measured figure matched the design probe:
+   - Q2M `scratch_len` 94,707,712, and 47,443,968 at α = 0;
+   - 0 allocations on the scratch path;
+   - 1 allocation of 189,415,424 B in `develop_with_into`.
+
+   **Signal bumped:** `shared-path-oracle-tautology` goes from N=2 to N=3 in
+   `guidance/signals.yaml`. This case has a new shape: two public entries on one core,
+   rather than a round-trip. The bar was already met, so codifying it waits for a stage
+   that can land it.
+
+   **The verify-return practice from SPEC-064 worked again.** The approval came back as a
+   PR comment plus a docs branch, and #224 squash-merged with no conflicting verify PR.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. The verify found two `[XS]` test strengthenings, now in the STAGE-019
+   backlog:
+   - **The median fixture.** Its neighbours already arrive sorted, so under "neighbours
+     unsorted" only `develop_warp_branch_actually_warps` goes red.
+   - **AC3's alloc test** has no develop-level row for a malformed `OpcodeList1`.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+   DEC-060 records two further options as additive later: warping straight into `dst`,
+   and a scratch variant of the colour path.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+4. **Where was the worst defect caught?**
+   — build
+
+5. **What can a user do now that they couldn't before?**
+   — Before: a Leica Q2 Monochrom develop made 6 heap allocations totalling 283,943,504
+   bytes, with no way to reuse buffers across frames. After: `develop_with_scratch_into`
+   develops it with 0 allocations into a caller-owned 189.4 MB scratch, sized by
+   `scratch_len`. `develop_into` itself now makes 1 allocation of 189,415,424 bytes, a
+   saving of 94.5 MB and five allocations per frame.
