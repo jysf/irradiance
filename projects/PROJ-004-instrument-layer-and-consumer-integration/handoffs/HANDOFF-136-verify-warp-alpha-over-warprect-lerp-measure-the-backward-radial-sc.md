@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: punch-list              # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 9767366            # REAL combined count — what cost-audit reads
-  estimated_usd: 7.52              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 12292258            # REAL combined count — what cost-audit reads
+  estimated_usd: 9.06              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 80
   branch: claude/spec-064-verify-6c54aa
-  pr: null
+  pr: 221
   completed_at: 2026-11-12         # YYYY-MM-DD
-  notes: "Floor, re-summed before the commit/push turns from transcript 96a55158-ca61-41a9-b180-9e911b37f616.jsonl (54 messages, deduped by message.id, max output; no subagents): input 118, cache-write 166,899 (1-hour), cache-read 9,557,331, output 43,018, opus-5-5 rates. Re-sum at ship. Gates with the fix and the corpus: just test 633 passed / 0 failed / 1 ignored, 12/12 present, no SKIP; lint-ci, lint-no-allow, lint-fuzz, fmt-check, validate, doc-check, deny, msrv, cost-audit, gate-audit green; decisions-audit --changed advisory only. Fuzz develop target with the fix: 5,199,076 runs in 66 s, clean."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript (1 jsonl, 65 unique message.ids, all claude-opus-5-5, no subagents): input 142 + cache-creation 177,145 (1-hour) + cache-read 12,064,583 + output 50,388 (max per message), opus-5-5 rates. The handback floor was 9,767,366 / 7.52. Verdict punch-list: one item (scale_bounds derivative discriminant overflowed for huge finite coefficients and lost an interior peak above 1), fixed by the verifier in PR #221 (c5b77f9), which superseded #219 and merged as 166ea15. Gates with the fix and the corpus green (633 passed); fuzz develop 5,199,076 runs in 66 s clean."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  synced_at: 2026-11-12
 ---
 
 # HANDOFF-136: VERIFY: warp_alpha over WarpRect::lerp, and the FullActiveArea bounds rule (SPEC-064)

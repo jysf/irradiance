@@ -6,19 +6,19 @@
 task:
   id: SPEC-064
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [punch-list]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 28000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-135
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 19928566
+      estimated_usd: 14.65
+      duration_minutes: 75
+      recorded_at: 2026-11-12
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript (1 jsonl, 88 unique message.ids, all claude-opus-5-5, no subagents): input 177 + cache-creation 253,588 (1-hour) + cache-read 19,581,978 + output 92,823 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 17,582,624 / 13.06 before the commit, push and CI-wait turns."
+    - cycle: verify
+      handoff: HANDOFF-136
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 12292258
+      estimated_usd: 9.06
+      duration_minutes: 80
+      recorded_at: 2026-11-12
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript (1 jsonl, 65 unique message.ids, all claude-opus-5-5, no subagents): input 142 + cache-creation 177,145 (1-hour) + cache-read 12,064,583 + output 50,388 (max per message), opus-5-5 rates. The handback floor was 9,767,366 / 7.52. Verdict punch-list: one item (scale_bounds derivative discriminant overflowed for huge finite coefficients and lost an interior peak above 1), fixed by the verifier in PR #221 (c5b77f9), which superseded #219 and merged as 166ea15. Gates with the fix and the corpus green (633 passed); fuzz develop 5,199,076 runs in 66 s clean."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 32220824
+    estimated_usd: 23.71
+    session_count: 2
+shipped_at: 2026-11-12
 ---
 
 # SPEC-064: warp_alpha over WarpRect::lerp, and FullActiveArea for a warp whose lerped scale stays in [0, 1]
@@ -295,11 +316,11 @@ corpus file (DEC-003). The coefficients are numbers in source, not corpus bytes.
 
 ## Acceptance Criteria
 
-- [ ] **AC1. Default.** `DevelopOptions::default().warp_alpha == 1.0`. SPEC-063's
+- [x] **AC1. Default.** `DevelopOptions::default().warp_alpha == 1.0`. SPEC-063's
   `develop_into_output_is_unchanged_on_held_files` (eight MD5 pins) stays green, unedited.
   `develop_with_into` with an explicit `warp_alpha = 1.0` matches the same pins.
   `DEVELOP_VERSION == "4"`.
-- [ ] **AC2. `lerp` is exact at its ends.**
+- [x] **AC2. `lerp` is exact at its ends.**
   - `w.lerp(1.0)` equals `w` field for field, comparing `kr` and `kt` with
     `f64::to_bits` (bit identity, not `==`). This holds for the three Q2M coefficient sets
     and the Pixel 3a set.
@@ -307,18 +328,18 @@ corpus file (DEC-003). The coefficients are numbers in source, not corpus bytes.
     to identity takes the warp-free path).
   - `cx`, `cy` and `planes` are unchanged at every α.
   - At α = 0.5, `kr0` equals `0.5 + 0.5·kr0` and each other coefficient is halved.
-- [ ] **AC3. α = 0 equals no warp.** On tier A and on the three Q2M files, under both
+- [x] **AC3. α = 0 equals no warp.** On tier A and on the three Q2M files, under both
   framings, `develop_with_into` with `warp_alpha = 0.0` equals `develop_with_into` of the
   same sensor with `opcode_list_3 = None`. On tier B this is an MD5 comparison of the two
   outputs computed in the test, not a pin. Under `FullActiveArea` this is also the first
   real-file success on the Q2M.
-- [ ] **AC4. Displacement is linear in α (analytic oracle, tier A).** Use `tests/warp.rs`'s
+- [x] **AC4. Displacement is linear in α (analytic oracle, tier A).** Use `tests/warp.rs`'s
   corner-impulse fixture at the Q2M crop size with L1021223's coefficients. The detected
   impulse displacement at α = 0.5 is half the displacement at α = 1, within 1 px. At
   α = 0.25 it is a quarter, within 1 px.
   - **Red-proof:** a `lerp` that scales only `kr1` (or forgets `kr0`'s `(1 − α)` term)
     misses this.
-- [ ] **AC5. The bounds oracle on held frames (tier B, the load-bearing oracle).** For
+- [x] **AC5. The bounds oracle on held frames (tier B, the load-bearing oracle).** For
   each Q2M frame and each α in {0, .25, .5, .75, 1}, with `apply_orientation: false` so
   both outputs are in stored order:
   - `FullActiveArea` develops. It returns `Ok`, and the output is 8392×5632.
@@ -330,7 +351,7 @@ corpus file (DEC-003). The coefficients are numbers in source, not corpus bytes.
     equals the SPEC-063 pin. This applies to all three frames; L1026016's pin is the
     oriented one.
   - The test reports a missing file by name, never a silent pass.
-- [ ] **AC6. The over-unity red-proof and the refusal.**
+- [x] **AC6. The over-unity red-proof and the refusal.**
   - **Pixel 3a, synthetic.** A tier-A sensor (non-square, with an `ActiveArea` border,
     also carrying `FixBadPixelsConstant`) with the Pixel 3a coefficients from §1, under
     `FullActiveArea`:
@@ -357,38 +378,38 @@ corpus file (DEC-003). The coefficients are numbers in source, not corpus bytes.
     and the Q2M real-file refusal) are updated. The synthetic one switches to an
     over-unity warp. The Q2M one becomes AC5's success. Record each edit and why in the
     handback. These are the only allowed edits to existing assertions.
-- [ ] **AC7. `warp_alpha` domain.** For `NaN`, `+∞`, `−∞`, `-0.01` and `1.01`,
+- [x] **AC7. `warp_alpha` domain.** For `NaN`, `+∞`, `−∞`, `-0.01` and `1.01`,
   `develop_with_into` and `output_dimensions_with` return `InvalidWarpAlpha` carrying the
   value, with `kind() == CallerError` and `dst` unchanged. This holds under both framings
   and on a sensor with **no** warp. `-0.0`, `0.0` and `1.0` are accepted. The error comes
   before a malformed `OpcodeList1`/`OpcodeList3` would be reported (step 0 is first).
-- [ ] **AC8. Tangential terms at α = 0.** A sensor whose warp has `kt = [0.01, 0]`:
+- [x] **AC8. Tangential terms at α = 0.** A sensor whose warp has `kt = [0.01, 0]`:
   - develops at α = 0 and equals the no-warp output;
   - is refused with `UnsupportedWarpTangentialTerms` at α = 1 under `StandardCrop`, as
     today.
-- [ ] **AC9. The bounds function (unit, in `src/warp.rs`).**
+- [x] **AC9. The bounds function (unit, in `src/warp.rs`).**
   - It returns the probe's α = 1 `[min, max]` for the three Q2M and the Pixel 3a / 7 Pro
     sets, within `1e-12`.
   - It handles `kr3 = 0` and `kr2 = kr3 = 0` without a division by zero.
   - It returns a refusal for a NaN coefficient.
   - **Red-proof:** dropping the interior roots makes AC6's interior-peak case pass the
     check (it must not).
-- [ ] **AC10. Error surface.**
+- [x] **AC10. Error surface.**
   - `InvalidWarpAlpha` is in `Error::kind()` with no wildcard, and has a row in
     `tests/error_kind.rs`.
   - Its `Display` contains the value.
   - `UnsupportedWarpedFullActiveArea`'s `Display` contains `warp_alpha`, `scale_min` and
     `scale_max`.
   - The `error_kind` counts move by exactly one.
-- [ ] **AC11. API hygiene.**
+- [x] **AC11. API hygiene.**
   - `warp_alpha` and `lerp` are documented: the domain, the default, the α = 0 meaning,
     and the bounds rule.
   - An external test sets `warp_alpha` only by field assignment on `Default`.
   - `cargo doc` has no broken links.
   - CHANGELOG `[Unreleased]` is updated as §5 says.
-- [ ] **AC12. Fuzz.** The `develop` target exercises the α choices in §4; the new seeds are
+- [x] **AC12. Fuzz.** The `develop` target exercises the α choices in §4; the new seeds are
   written by `examples/fuzz-seeds.rs`; a 60 s run is clean.
-- [ ] **AC13. No regression.**
+- [x] **AC13. No regression.**
   - Every existing test passes with no assertion changed, except AC6's two SPEC-063
     refusal tests and `error_kind`'s rows and counts.
   - `just test` passes with the corpus env set. So do `lint-ci`, `lint-no-allow`,
@@ -422,6 +443,11 @@ corpus file (DEC-003). The coefficients are numbers in source, not corpus bytes.
 - The lerp is not applied (the full warp is always used) → AC3, AC4.
 - The bounds check checks only `s = 1`, or omits the interior roots → AC6's interior-peak
   case, AC9.
+- The derivative's discriminant is formed from unscaled coefficients → the
+  huge-coefficient case (`kr = [0.5, 0, k, −k]` for k from 1e153 to 1e308) admits an
+  interior peak far above 1. *(Added at ship; the cold verify found this and fixed it in
+  #221.)*
+- `min > 0` strict instead of `>= 0` → the `f` exactly 0 boundary case. *(Added at ship.)*
 - The bounds check omits `f ≥ 0`, or the centre clause → AC6's `f < 0` / `cx = 1.5`
   cases.
 - NaN passes the check (comparisons written as `min < 0.0 || max > 1.0`) → AC6, AC9.
@@ -462,31 +488,47 @@ corpus file (DEC-003). The coefficients are numbers in source, not corpus bytes.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Two changes.
+   - **Say what range of inputs a closed-form numeric routine must survive.** I specified
+     the cubic-extrema bounds check as "closed form, no tolerance" and listed NaN and the
+     degenerate cubics. I said nothing about magnitude. Finite coefficients around 1e154
+     overflowed the discriminant, the interior peak was lost, and a warp peaking far above
+     1 was admitted. The verify found it with a crafted input. A design that names "every
+     finite input, including the extremes" invites the scaling at build time.
+   - **Quote analytic figures with the geometry they belong to.** AC4 quoted the 506.1 px
+     active-area pull for a crop-sized fixture, where the value is 503.7 px.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — **DEC-059** held as written. The fix changes how the extrema are computed, not the
+   rule.
+   - **New process step.** An approval with no fixes would have come back as a PR comment
+     plus a docs branch rather than a superset PR. This round needed fixes, so #221
+     superseded #219, and that merged cleanly because #219 was closed rather than
+     squash-merged first.
+   - **New watch signal (N=1).** `closed-form-numeric-needs-extreme-magnitude-fixtures`
+     is in `guidance/signals.yaml`. The build's argmax oracle also passed vacuously on an
+     all-zero plane until a check that the impulse survives was added. That is the same
+     family as `named-tests-can-pass-vacuously`, and it is recorded in the new signal's
+     notes.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec.
+   - **Pixel-exact check.** DEC-059 records a pixel-exact bounds check as an additive
+     relaxation, deferred until a lens with `f > 1` only near the centre turns up.
+   - **Rest of the stage.** SPEC-065 (caller scratch), SPEC-066 (CFA-as-mono) and SPEC-067
+     (blocked transpose) remain in STAGE-019.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before:
+   - `FullActiveArea` was refused on every Leica Q2 Monochrom frame;
+   - the lens correction was all or nothing.
+
+   After:
+   - `FullActiveArea` develops all three held Q2M frames at 8392×5632 (536,832 more
+     photosites than `StandardCrop`), at any `warp_alpha` in [0, 1];
+   - α = 0.5 gives exactly half the 506.1 px corner pull;
+   - the Pixel 3a's over-unity lens is still refused before any write;
+   - default output stays byte-identical on all eight pinned files.

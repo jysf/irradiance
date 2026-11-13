@@ -1552,3 +1552,20 @@ signals:
       fine and the fixture is aimed at the wrong guard. Falsifier, cheap at build: for
       each defensive check, delete it and ask which fixture would now pass; for each
       declared deviation, name the test that pins it in the handback.
+
+  - id: closed-form-numeric-needs-extreme-magnitude-fixtures
+    type: lesson
+    summary: "A closed-form numeric check specified as 'exact, no tolerance' was tested for NaN and degenerate shapes but not for finite extremes; huge finite inputs overflowed an intermediate and flipped a refusal into an admission. Give every numeric guard a fixture at the extremes of the finite range."
+    evidence: "N=1, STAGE-019 2026-11-12. SPEC-064's cold verify (HANDOFF-136) found scale_bounds formed the derivative's discriminant from raw coefficients; for kr = [0.5, 0, k, -k] with k from 1e154 the discriminant overflowed, the interior root was lost, and a warp peaking far above 1 passed the FullActiveArea bounds rule. Fixed in PR 221 by scaling the derivative by its largest coefficient before the discriminant; a unit test covers k from 1e153 to 1e308."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-12
+    last_touched: 2026-11-12
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote: N=1. Falsifier, cheap at design: for each numeric guard,
+      ask what its intermediates do at f64::MAX-scale finite inputs, and name that fixture
+      in the ACs. Related in the same verify: the build's argmax displacement oracle passed
+      vacuously on an all-zero plane until a 'the impulse survives' guard was added (same
+      family as [[named-tests-can-pass-vacuously]]).
