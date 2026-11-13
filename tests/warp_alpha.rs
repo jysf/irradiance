@@ -563,11 +563,19 @@ fn detected_displacement(sensor: &Sensor, alpha: f64) -> f64 {
     let mut src = vec![0u16; (IMPULSE_W as usize) * (IMPULSE_H as usize)];
     src[(py * IMPULSE_W + px) as usize] = u16::MAX;
     let (w, _, dst) = develop_with(sensor, &src, &opts(Framing::StandardCrop, alpha));
-    let (index, _) = dst
+    let (index, &peak) = dst
         .iter()
         .enumerate()
         .max_by_key(|&(_, &v)| v)
         .expect("non-empty");
+    // The impulse must survive. A wrong warp can map it off the image; the
+    // plane is then all zero and `max_by_key` returns the LAST pixel, which
+    // is exactly the corner this test expects. Bilinear spreads one impulse
+    // over at most four pixels, so its peak keeps at least a quarter.
+    assert!(
+        peak >= u16::MAX / 4,
+        "α = {alpha}: the impulse did not survive the develop (peak value {peak})"
+    );
     let peak_x = (index % w as usize) as f64;
     let peak_y = (index / w as usize) as f64;
     eprintln!("α = {alpha}: impulse at ({px}, {py}), developed peak at ({peak_x}, {peak_y})");

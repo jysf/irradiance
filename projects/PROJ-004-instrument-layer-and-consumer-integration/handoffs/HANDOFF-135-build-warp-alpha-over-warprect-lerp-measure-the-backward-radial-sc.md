@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-12
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-064
@@ -46,18 +46,19 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 17582624           # REAL combined count — what cost-audit reads
+  estimated_usd: 13.06             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 75
+  branch: claude/spec-064-build
+  pr: 219
+  completed_at: 2026-11-12         # YYYY-MM-DD
+  notes: "FLOOR, re-summed before the handback commit from transcript 50667760-e761-4b85-9731-204e0e8a7891.jsonl (80 unique message.ids, all claude-opus-5-5, no subagents): input 159 + cache-creation 238,214 (1-hour) + cache-read 17,262,494 + output 81,757 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour write x2.0). The commit, push and CI-wait turns come after; re-sum at ship."
+                                   # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -197,10 +198,98 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-064-build`, https://github.com/jysf/irradiance/pull/219
+  (build commit 75ea6d0, then this handback commit).
+- **Completed at:** 2026-11-12
+- **All acceptance criteria met?** Yes, AC1 to AC13.
+- **For `verify`:** n/a (build).
+
+**Test-first order.**
+1. I wrote `tests/warp_alpha.rs` (12 tests), the three `src/warp.rs` unit tests
+   (`scale_bounds_match_the_probe`, `scale_bounds_degenerate_cubics`,
+   `scale_bounds_nan_refuses`), the `tests/error_kind.rs` row and the AC6 edits.
+2. They were red as compile failures before any `src/` change: the lib test failed with
+   29 errors (no `scale_bounds` or `full_active_area_admits`). `warp_alpha` failed with 14
+   (no `lerp`, no `warp_alpha` field, no `InvalidWarpAlpha`, no new fields).
+   `error_kind` failed with 4 and `develop_options` with 3.
+3. Then I implemented `lib.rs`, `opcode.rs`, `warp.rs` and `develop.rs`.
+4. One test came back red after the implementation. AC4 asserted 506.1 px at α = 1,
+   but that figure is the 8392×5632 active area; the crop-size fixture's analytic value
+   is 503.7 px. The test now computes `m·(1 − f(1))` itself.
+
+**Gates.** All green with `IRRADIANCE_CORPUS_DIR` set:
+- `just test`: 632 passed, 0 failed, 1 ignored (pre-existing), 12/12 corpus files
+  present, no SKIP.
+- Also green: `lint-ci` (clippy 0.1.98), `lint-no-allow`, `lint-fuzz`, `fmt-check`,
+  `validate`, `doc-check`, `deny` (licenses ok), `msrv` (1.90.0), `cost-audit`,
+  `gate-audit`.
+- `decisions-audit --changed`: advisory list reviewed. The change is consistent with
+  DEC-024 (clamp unchanged under StandardCrop), DEC-051 (wildcard-free `kind`),
+  DEC-052 (`WarpRect` stays non-exhaustive; `lerp` builds it in-crate) and DEC-058 as
+  amended by DEC-059.
+
+**AC evidence (tier B).**
+- **AC1:** all 8 SPEC-063 MD5 pins hold, unedited, through `develop_into` and through an
+  explicit `warp_alpha = 1.0`.
+- **AC3:** α = 0 equals the warp-free develop on all three Q2M frames, under both
+  framings.
+- **AC5:** on all three Q2M frames at five α, `FullActiveArea` is 8392×5632 and contains
+  the `StandardCrop` output at (12, 24); at α = 1 the crop matches the pin.
+
+**Fuzz.** The `develop` target ran 5,639,854 times in 76 s (30 seeds) with zero crashes.
+
+**Red-proofs.** Each mutation was applied by hand to `src/`, run, shown red, and reverted
+with `git checkout`; `src/` is clean at the end.
+1. Default `warp_alpha` 0.5: `default_warp_alpha_is_one_and_pins_hold` red.
+2. `lerp` drops the `(1 − α)` term on kr0: `lerp_is_bit_exact_at_one_and_identity_at_zero`
+   and `displacement_is_linear_in_alpha` red.
+3. `lerp` does not scale kr1..kr3: the same two red.
+4. `lerp` scales only kr1: the same two red.
+5. The lerp is not applied (`non_identity_warp` lerps to 1.0):
+   `alpha_zero_equals_the_warp_free_develop` and `displacement_is_linear_in_alpha` red.
+6. Interior roots omitted: `each_bounds_clause_refuses` (interior peak) and
+   `scale_bounds_match_the_probe` red.
+7. Only `s = 1` checked (f(0) and the roots dropped): `each_bounds_clause_refuses`,
+   `scale_bounds_match_the_probe` and `scale_bounds_degenerate_cubics` red.
+8. `f ≥ 0` clause omitted: `each_bounds_clause_refuses`,
+   `scale_bounds_degenerate_cubics` and `scale_bounds_nan_refuses` red.
+9. Centre clause omitted: `each_bounds_clause_refuses` and
+   `scale_bounds_degenerate_cubics` red.
+10. NaN-unsafe comparisons `!(min < 0.0 || max > 1.0)`: `scale_bounds_nan_refuses` red.
+11. The same comparisons with the finiteness clause also dropped:
+    `each_bounds_clause_refuses` red.
+12. Bounds check applied under `StandardCrop` too:
+    `over_unity_warp_still_develops_under_standard_crop` red.
+13. Blanket refusal kept: `passing_warps_develop_under_full_active_area` (tier A) and
+    `full_active_area_develops_every_q2m_frame_at_five_alphas` (tier B) red.
+14. Refusal after the `OpcodeList1` parse:
+    `over_unity_pixel_3a_warp_is_refused_before_any_write` (precedence probe) red.
+15. Refusal after a `dst` write: the same test (sentinel) red.
+16. α validation after `check_required_processing`:
+    `warp_alpha_outside_the_domain_is_a_caller_error` red.
+
+Mutations 2, 3 and 5 at first left `displacement_is_linear_in_alpha` **green**. The wrong
+warp mapped the impulse off the image, the developed plane was all zero, and
+`max_by_key` returned the last pixel, which is exactly the corner the test expects. The
+test now asserts that the impulse survives (peak ≥ 65535/4). After that fix, all three
+are red. That fix is the only test change in the handback commit.
+
+**Edits to existing assertions** (the AC6 / AC10 allowance):
+- `tests/develop_options.rs::full_active_area_with_a_warp_is_refused_before_any_write`:
+  - The synthetic warp is now over-unity (`kr1 = +0.1`; the helper was renamed from
+    `non_identity_warp` to `over_unity_warp`). DEC-059 admits the old `kr1 = −0.1` warp
+    (scale [0.9, 1]).
+  - Its two `matches!` patterns gained `..` for the new fields.
+  - The Q2M L1021223 real-file block went from an expected refusal to an expected `Ok`:
+    8392×5632, `dst` written. That frame now passes the bounds rule (AC5).
+- `tests/develop_options.rs::refusal_display_names_the_active_size`: the variant literal
+  carries its three new fields so it compiles. Its assertions are unchanged.
+- `tests/develop_options.rs::full_active_area_dimensions`: a comment only ("which
+  develop then refuses" was removed).
+- `tests/error_kind.rs`:
+  - an `InvalidWarpAlpha` row;
+  - the `UnsupportedWarpedFullActiveArea` row's new fields;
+  - CallerError 12 → 13, total 62 → 63.
 
 ### Cost self-report
 
@@ -208,27 +297,49 @@ Mirror what you put in the `handback:` front-matter, and say where the number
 came from. **This is the number that lands in the spec** — the orchestrator
 transcribes it via `just handback-sync`, it does not estimate it.
 
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 17,582,624. This is a floor, measured before the handback commit;
+  the commit, push and CI-wait turns follow.
+- **Estimated USD:** 13.06, at opus-5-5 per-component rates.
+- **Duration (minutes):** about 75.
+- **Source of the number:** the harness transcript
+  `50667760-e761-4b85-9731-204e0e8a7891.jsonl`, deduped by `message.id` with the
+  largest output per message. There are no subagents.
+- **Breakdown:**
+  - input 159;
+  - cache-creation 238,214 (1-hour);
+  - cache-read 17,262,494;
+  - output 81,757.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - **AC4's anchor.** The spec quotes 506.1 px (the active-area corner pull). The AC4
+    fixture is at the crop size, where the analytic pull is 503.7 px. The test computes
+    the value rather than hard-coding either number. The relation AC4 asks for (linear
+    in α within 1 px) is unchanged.
+  - **The bounds predicate also requires `kt` finite.** DEC-059 §3 says "every
+    coefficient of the lerped warp".
+  - **Red-proof 10.** The spec's NaN mutation, on its own, is caught by the unit test
+    (AC9) and not by AC6. AC6's NaN case is still refused by the finiteness clause.
+    Dropping that clause as well (red-proof 11) turns AC6 red.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - None new. The tier-B `warp_alpha` binary takes about 7 min in debug (AC5's 33
+    develops of 47 MP). That is acceptable locally, and CI skips tier B.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — The 506.1 px figure is for the active area, not the crop-size fixture AC4 names.
+   It cost one failed run.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The corner-impulse fixture has a blind spot: when the warp loses the impulse,
+   `max_by_key` on an all-zero plane returns the corner. `tests/warp.rs`'s
+   `warp_moves_corner_impulse_to_spike_001s_source_coord` has the same shape and the same
+   blind spot (it checks no peak value). That is worth a lesson signal.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would land API stubs first, so the red phase is behavioural rather than a
+   compile failure. That would have caught the toothless AC4 before the red-proof pass
+   instead of during it.
