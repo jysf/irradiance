@@ -456,34 +456,78 @@ pub fn parse_opcode_list(bytes: &[u8]) -> Result<Vec<Opcode>, Error> {
     Ok(opcodes)
 }
 
+/// A recognised opcode, parsed from its parameter block, as the two
+/// first-instance lookups below see it. `FixBadPixelsConstant`'s `BayerPhase`
+/// is validated by the parse and then dropped: no lookup returns it.
+enum Recognised {
+    WarpRectilinear(WarpRect),
+    FixBadPixelsConstant { constant: u32 },
+}
+
+/// Walk an `OpcodeList` byte stream with no allocation (`SPEC-065`,
+/// `DEC-060` §2) and return the first recognised opcode `pick` accepts.
+///
+/// Exactly [`parse_opcode_list`]'s dispatch, minus its `Vec`: every opcode in
+/// the list is read, the parameter block of **every** recognised opcode is
+/// parsed (so a malformed later one is still an error), an unrecognised
+/// mandatory ID is refused, and an optional unknown is skipped without
+/// copying its parameters. The result is therefore identical to
+/// `parse_opcode_list(bytes)` followed by `find_map(pick)`, errors included —
+/// `tests/opcode.rs::walkers_equal_parse_opcode_list_then_find_map` pins that.
+/// It does **not** stop at the first match.
+fn first_recognised<T>(
+    bytes: &[u8],
+    mut pick: impl FnMut(Recognised) -> Option<T>,
+) -> Result<Option<T>, Error> {
+    let count = read_u32_be(bytes, 0)?;
+    let mut pos: usize = 4;
+
+    let mut found = None;
+    for _ in 0..count {
+        let RawOpcode { id, flags, params } = read_raw_opcode(bytes, &mut pos)?;
+        let recognised = match id {
+            OPCODE_ID_WARP_RECTILINEAR => {
+                Recognised::WarpRectilinear(parse_warp_rectilinear_params(params, id)?)
+            }
+            OPCODE_ID_FIX_BAD_PIXELS_CONSTANT => {
+                let (constant, _bayer_phase) = parse_fix_bad_pixels_constant_params(params, id)?;
+                Recognised::FixBadPixelsConstant { constant }
+            }
+            other => {
+                if flags & FLAG_OPTIONAL != 0 {
+                    continue;
+                }
+                return Err(Error::UnsupportedMandatoryOpcode { id: other });
+            }
+        };
+        if found.is_none() {
+            found = pick(recognised);
+        }
+    }
+
+    Ok(found)
+}
+
 /// Parse an `OpcodeList` byte stream and return its `WarpRectilinear`
 /// opcode, if any — the entry point [`crate::develop::develop_into`] calls.
 ///
 /// `None` when the list contains no `WarpRectilinear` opcode (a well-formed
 /// list is not an error just because this camera's `OpcodeList3` carries a
-/// different opcode, or none at all).
+/// different opcode, or none at all). The first instance wins.
+///
+/// **Allocates nothing** (`SPEC-065`, `DEC-060` §2): it walks the raw framing
+/// rather than building [`parse_opcode_list`]'s `Vec`, with an identical
+/// result — every opcode is still read and every recognised one's parameters
+/// still validated.
 ///
 /// # Errors
 ///
-/// Whatever [`parse_opcode_list`] returns.
+/// Exactly what [`parse_opcode_list`] returns for the same bytes.
 pub fn parse_warp_rectilinear(bytes: &[u8]) -> Result<Option<WarpRect>, Error> {
-    let opcodes = parse_opcode_list(bytes)?;
-    Ok(opcodes.into_iter().find_map(|op| match op {
-        Opcode::WarpRectilinear {
-            kr,
-            kt,
-            cx,
-            cy,
-            planes,
-        } => Some(WarpRect {
-            kr,
-            kt,
-            cx,
-            cy,
-            planes,
-        }),
-        Opcode::FixBadPixelsConstant { .. } | Opcode::Unknown { .. } => None,
-    }))
+    first_recognised(bytes, |op| match op {
+        Recognised::WarpRectilinear(warp) => Some(warp),
+        Recognised::FixBadPixelsConstant { .. } => None,
+    })
 }
 
 /// Parse an `OpcodeList` byte stream and return its `FixBadPixelsConstant`
@@ -491,23 +535,22 @@ pub fn parse_warp_rectilinear(bytes: &[u8]) -> Result<Option<WarpRect>, Error> {
 /// [`crate::develop::develop_into`] calls (`SPEC-017`).
 ///
 /// `None` when the list contains no `FixBadPixelsConstant` opcode. Mirrors
-/// [`parse_warp_rectilinear`]'s shape; `bayer_phase` is not returned because
+/// [`parse_warp_rectilinear`]'s shape, including the first instance winning
+/// and allocating nothing (`SPEC-065`); `bayer_phase` is not returned because
 /// no caller consumes it (module docs, `## Non-Goals` — `AC1`'s round-trip
 /// test is what reads it, satisfying the "unread field" rule without
 /// forwarding it downstream).
 ///
 /// # Errors
 ///
-/// Whatever [`parse_opcode_list`] returns — including
+/// Exactly what [`parse_opcode_list`] returns for the same bytes — including
 /// [`Error::UnsupportedMandatoryOpcode`] if `bytes` carries a DIFFERENT,
-/// unrecognized mandatory opcode (`AC6`): the dispatch happens inside
-/// [`parse_opcode_list`] itself, not in a second layer here.
+/// unrecognized mandatory opcode (`AC6`).
 pub fn parse_fix_bad_pixels_constant(bytes: &[u8]) -> Result<Option<u32>, Error> {
-    let opcodes = parse_opcode_list(bytes)?;
-    Ok(opcodes.into_iter().find_map(|op| match op {
-        Opcode::FixBadPixelsConstant { constant, .. } => Some(constant),
-        Opcode::WarpRectilinear { .. } | Opcode::Unknown { .. } => None,
-    }))
+    first_recognised(bytes, |op| match op {
+        Recognised::FixBadPixelsConstant { constant } => Some(constant),
+        Recognised::WarpRectilinear(_) => None,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

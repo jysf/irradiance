@@ -231,3 +231,157 @@ fn opcode_parser_returns_unknown_for_ninetynine() {
         }]
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-065 AC8 — the two lookups are first-instance walkers whose results equal
+// `parse_opcode_list` followed by `find_map`, errors included (DEC-060 §2).
+// Written before the rewrite and green on main: it pins today's behaviour.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `parse_opcode_list(b)` then the first `WarpRectilinear`, as the lookup did
+/// before SPEC-065.
+fn reference_warp(bytes: &[u8]) -> Result<Option<irradiance::opcode::WarpRect>, Error> {
+    let opcodes = parse_opcode_list(bytes)?;
+    Ok(opcodes.into_iter().find_map(|op| match op {
+        Opcode::WarpRectilinear {
+            kr,
+            kt,
+            cx,
+            cy,
+            planes,
+        } => {
+            let mut warp = irradiance::opcode::WarpRect::test_fixture();
+            warp.kr = kr;
+            warp.kt = kt;
+            warp.cx = cx;
+            warp.cy = cy;
+            warp.planes = planes;
+            Some(warp)
+        }
+        _ => None,
+    }))
+}
+
+/// `parse_opcode_list(b)` then the first `FixBadPixelsConstant`'s constant.
+fn reference_fbp(bytes: &[u8]) -> Result<Option<u32>, Error> {
+    let opcodes = parse_opcode_list(bytes)?;
+    Ok(opcodes.into_iter().find_map(|op| match op {
+        Opcode::FixBadPixelsConstant { constant, .. } => Some(constant),
+        _ => None,
+    }))
+}
+
+fn fbp_op(constant: u32, flags: u32) -> Vec<u8> {
+    let mut params = Vec::new();
+    params.extend_from_slice(&constant.to_be_bytes());
+    params.extend_from_slice(&0u32.to_be_bytes());
+    support::raw_opcode(4, 0x0103_0000, flags, &params)
+}
+
+fn warp_op(kr0: f64, flags: u32) -> Vec<u8> {
+    let params = support::warp_rectilinear_params([kr0, 0.0, 0.0, 0.0], [0.0, 0.0], 0.5, 0.5, 1);
+    support::raw_opcode(1, 0x0104_0000, flags, &params)
+}
+
+/// Every opcode-list fixture this file uses, plus the SPEC-065 cases.
+fn walker_fixtures() -> Vec<(String, Vec<u8>)> {
+    let mut out: Vec<(String, Vec<u8>)> = Vec::new();
+    for (name, _) in FRAMES {
+        out.push((name.to_string(), support::load_hex_fixture(name)));
+    }
+    out.push((
+        "opcodelist1-q2m".into(),
+        support::load_hex_fixture("opcodelist1-q2m"),
+    ));
+    for (name, bytes) in support::fuzz_seed_corpus() {
+        out.push((format!("warp seed {name}"), bytes));
+    }
+    for (name, bytes) in support::fix_bad_pixels_fuzz_seed_corpus() {
+        out.push((format!("fbp seed {name}"), bytes));
+    }
+    let optional_unknown = support::raw_opcode(0xDEAD_BEEF, 0x0104_0000, 1, &[1, 2, 3, 4]);
+    let mandatory_unknown = support::raw_opcode(0xDEAD_BEEF, 0x0104_0000, 0, &[1, 2, 3, 4]);
+    let malformed_warp = support::raw_opcode(1, 0x0104_0000, 0, &[0, 0, 0, 1]);
+    let malformed_fbp = support::raw_opcode(4, 0x0103_0000, 0, &[0, 0, 0, 0]);
+    let cases: Vec<(&str, Vec<Vec<u8>>)> = vec![
+        ("empty list", vec![]),
+        (
+            "two warps, first wins",
+            vec![warp_op(0.99, 0), warp_op(0.98, 1)],
+        ),
+        ("two fbps, first wins", vec![fbp_op(7, 0), fbp_op(9, 1)]),
+        (
+            "malformed second warp",
+            vec![warp_op(0.99, 0), malformed_warp.clone()],
+        ),
+        (
+            "malformed second fbp",
+            vec![fbp_op(0, 0), malformed_fbp.clone()],
+        ),
+        (
+            "malformed fbp after a warp",
+            vec![warp_op(0.99, 0), malformed_fbp],
+        ),
+        (
+            "malformed warp after an fbp",
+            vec![fbp_op(0, 0), malformed_warp],
+        ),
+        (
+            "optional unknown with params between",
+            vec![fbp_op(3, 0), optional_unknown.clone(), warp_op(0.99, 0)],
+        ),
+        ("optional unknown only", vec![optional_unknown]),
+        (
+            "unknown mandatory after the match (warp)",
+            vec![warp_op(0.99, 0), mandatory_unknown.clone()],
+        ),
+        (
+            "unknown mandatory after the match (fbp)",
+            vec![fbp_op(0, 0), mandatory_unknown],
+        ),
+    ];
+    for (name, ops) in cases {
+        out.push((name.to_string(), support::opcode_list(&ops)));
+    }
+    // A list cut short after its first, matching opcode.
+    let mut truncated = support::opcode_list(&[warp_op(0.99, 0), fbp_op(0, 0)]);
+    truncated.truncate(truncated.len() - 3);
+    out.push(("truncated after the match".into(), truncated));
+    // A count promising more opcodes than the bytes hold, after a match.
+    let mut lying = support::opcode_list(&[fbp_op(0, 0), warp_op(0.99, 0)]);
+    lying[0..4].copy_from_slice(&3u32.to_be_bytes());
+    out.push(("lying count after the matches".into(), lying));
+    out.push(("no count at all".into(), vec![0, 0]));
+    out
+}
+
+#[test]
+fn walkers_equal_parse_opcode_list_then_find_map() {
+    let fixtures = walker_fixtures();
+    assert!(
+        fixtures.len() >= 25,
+        "fixture table shrank: {}",
+        fixtures.len()
+    );
+    for (name, bytes) in &fixtures {
+        assert_eq!(
+            format!("{:?}", parse_warp_rectilinear(bytes)),
+            format!("{:?}", reference_warp(bytes)),
+            "{name}: parse_warp_rectilinear differs from parse_opcode_list + find_map"
+        );
+        assert_eq!(
+            format!("{:?}", parse_fix_bad_pixels_constant(bytes)),
+            format!("{:?}", reference_fbp(bytes)),
+            "{name}: parse_fix_bad_pixels_constant differs from parse_opcode_list + find_map"
+        );
+    }
+    // The malformed-second cases are errors, so a walker that stops at the
+    // first match cannot pass by accident.
+    let by_name = |n: &str| &fixtures.iter().find(|(name, _)| name == n).unwrap().1;
+    assert!(parse_warp_rectilinear(by_name("malformed second warp")).is_err());
+    assert!(parse_fix_bad_pixels_constant(by_name("malformed second fbp")).is_err());
+    assert!(parse_warp_rectilinear(by_name("malformed fbp after a warp")).is_err());
+    assert!(
+        parse_fix_bad_pixels_constant(by_name("unknown mandatory after the match (fbp)")).is_err()
+    );
+}

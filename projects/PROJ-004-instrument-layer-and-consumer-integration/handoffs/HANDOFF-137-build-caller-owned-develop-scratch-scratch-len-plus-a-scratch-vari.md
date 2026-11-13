@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-12
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-065
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 20612106           # REAL combined count — what cost-audit reads
+  estimated_usd: 14.65             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 65
+  branch: claude/spec-065-build
+  pr: 224
+  completed_at: 2026-11-12         # YYYY-MM-DD
+  notes: "FLOOR, taken live before the handback commit, PR and CI turns: transcript 2a702dbf-8f01-4323-84fe-26eccdf7e734.jsonl (the scratchpad UUID), 93 unique message.ids, all claude-opus-5-5, no subagents. input 188 + cache-creation 232,426 (1-hour) + cache-read 20,292,243 + output 87,249 (max per message). Opus-5-5 rates: in 5, out 25 per MTok, cache read 0.5, 1-hour write 10. Re-sum at ship."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -212,38 +212,79 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-065-build`, https://github.com/jysf/irradiance/pull/224
+  - 3446123: failing tests first;
+  - 06d486c: the implementation;
+  - 2f28be1: core-independent oracles found by the red-proofs;
+  - 71e50df: the scratch fuzz seeds;
+  - then this handback.
+- **Completed at:** 2026-11-12
+- **All acceptance criteria met?** Yes, AC1 to AC13. Three were strengthened beyond the spec; see Deviations.
+- **Tests-first order.** The new tests were committed before any `src/` change. `develop_scratch` and `develop_scratch_alloc` failed to compile on main: the API is missing (`E0432`) and so is `Error::DevelopScratchWrongLength` (`E0599`). `error_kind` failed to compile for the same reason. `walkers_equal_parse_opcode_list_then_find_map` **passed on main** before the rewrite, pinning today's lookups, and stayed green after it.
+- **Implementation order** was as Design §2–§5 lists it: the walkers (`first_recognised`), the neighbours array, then `develop_core` with validation steps 0–10, the `Scratch::{Caller, Allocate}` source and `run_passes` with the DEC-060 §3 layout via `split_at_mut_checked`. The public functions come last.
+- **Gates.** All runs set `IRRADIANCE_CORPUS_DIR` to the held images in place; corpus 12/12 present.
+  - `just test`: 655 passed, 0 failed, 1 ignored (the existing SPEC-017 SB-1 ignore).
+  - Green: `lint-ci` (clippy 0.1.98 pinned), `lint-no-allow`, `lint-fuzz`, `fmt-check`, `validate`, `doc-check`, `deny`, `msrv`, `cost-audit`, `gate-audit`.
+  - `decisions-audit --changed`: advisory only. The change is consistent with the listed DECs. DEC-051's prose table was not updated, matching what DEC-058 and DEC-059 did; `tests/error_kind.rs` carries the count (64; 14 CallerError).
+- **Q2M figures confirmed (tier B, L1021223):**
+  - `develop_with_into`: 1 allocation of 189,415,424 bytes;
+  - `develop_with_scratch_into`: 0 allocations;
+  - `scratch_len`: 94,707,712 at default options and 47,443,968 at α = 0 on all three Q2M frames, 0 on the five warp-free files;
+  - all 8 SPEC-063 pins hold through the scratch path.
+- **Fuzz (AC12):**
+  - `develop`: 4,860,234 runs in 71 s clean; after the new seeds, 3,050,060 runs in 71 s clean.
+  - `opcode`: 4,229,874 runs in 71 s clean.
+  - Seed coverage was checked by classifying every develop seed with `scratch_len`. Before: only 0 (neither) and 60 (2A). After the five new seeds: 0, 48 (P), 60 (2A) and 78 (P + A).
+- **Red-proofs.** Each mutation was applied by hand, run against the named test in tier A, and reverted; the tree was clean after each. All 15 went red:
+  1. A `vec!` left in the caller-scratch path → `scratch_develop_allocates_nothing`.
+  2. The warp lookup calls `parse_opcode_list` again → `opcode_lookups_allocate_nothing`.
+  3. The walker returns at the first match → `walkers_equal_parse_opcode_list_then_find_map`.
+  4. The walker skips the unknown-mandatory refusal → same test.
+  5. No reuse (P + 2A):
+     - (a) → `scratch_len_per_case_and_alpha`;
+     - (b) → `develop_with_into_allocates_once`.
+  6. The warp runs before normalize in the "both" case → `each_case_equals_its_composition_from_public_parts`.
+  7. The warp reads the wrong half:
+     - (a) warp-only, unwritten buffer → `scratch_output_equals_develop_with_into`;
+     - (c) the same mutation → `output_does_not_depend_on_scratch_contents`;
+     - (b) "both" case, reading the plane copy → the composition test.
+  8. A scratch write before the length check → `wrong_length_scratch_is_refused_before_any_write`.
+  9. The length check before the `OpcodeList1` parse → `scratch_variant_reports_the_same_errors_in_the_same_order`.
+  10. "At least n" accepted → `wrong_length_scratch_is_refused_before_any_write`.
+  11. The neighbours array:
+      - (a) not sorted → the existing `tests/develop.rs` suite;
+      - (b) `lower_median` over the whole array → `fix_bad_pixels_median_with_fewer_than_eight_neighbours`.
+- **Provenance ledger:** no row, because no new algorithm was added (spec §7). `DEVELOP_VERSION` is still `"4"`. No new dependency.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 20,612,106. This is a **floor**, taken live before the handback commit, the PR and the CI turns.
+- **Estimated USD:** 14.65 (opus-5-5, per component)
+- **Duration (minutes):** about 65
+- **Source of the number:** this session's transcript `2a702dbf-8f01-4323-84fe-26eccdf7e734.jsonl` (the scratchpad UUID). Method: dedupe by `message.id`, take the max `output_tokens` per message. There are no subagents. Re-sum it at ship.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - **§6 "no new seeds are required" was wrong.** No develop seed carried a `FixBadPixelsConstant`, so the differential never reached the P or P + A layouts. I added five seeds to `examples/fuzz-seeds.rs` (`scratch-fix-*`); `just fuzz-seeds` regenerated only those five files.
+  - **The byte-identity oracle (AC2/AC6) is blind to a bug in the shared core.** Both entries run the same passes, so a pass-order or wrong-buffer bug moves both sides. Red-proofs 6 and 7b were green in tier A against AC2, and only the tier-B MD5 pins caught them (CI has no corpus). I added `each_case_equals_its_composition_from_public_parts`: the "both" case must equal fixing with the public `apply_fix_bad_pixels_constant` and then running the warp-only develop, and the fix-only case the opcode-free develop. AC6's tier-A loop now covers all four cases, not only "both".
+  - **The spec's last red-proof (`lower_median` over the whole array) was invisible to every existing test**, because each fixture's bad pixel had all eight neighbours. I added `fix_bad_pixels_median_with_fewer_than_eight_neighbours` (corner and edge pixels, values by hand).
+  - **AC7's table** rebuilds one row per distinct refusal shape from `tests/develop.rs`, `develop_options.rs` and `warp_alpha.rs` on the "both" fixture (27 rows). Test binaries cannot share fixtures.
+  - **AC10:** `scratch_len` overflow is reachable on 64-bit (a hostile `u32::MAX × u32::MAX` header makes P + A or 2A exceed `u64`), so it is pinned by `scratch_len_overflow_is_typed` rather than documented as unreachable.
+  - **`develop_with_into`'s allocation sits after both opcode lists are parsed**, at step 9. Before, the plane copy came between the `OpcodeList1` parse and the `StandardCrop` `OpcodeList3` parse. It cannot fail, so no precedence changed, and every existing precedence test is unedited and green.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - Candidate lesson signal: **"identity against a shared-core twin is not an oracle."** When two public entries are refactored onto one core, a relation between them cannot see a bug inside the core. Pair it with an independent composition or an analytic oracle in tier A.
+  - DEC-051's prose table has not been updated since DEC-058. It may be worth a sweep, or a note that `tests/error_kind.rs` is now the source of truth.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Two claims in the spec were wrong, and the red-proofs found both. The seeds did not cover all four cases, and AC2's byte-identity relation could not catch the pass-order red-proofs the spec assigned to it. Neither slowed the build much, but both would have shipped silently without the hand-run mutations.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — A rule that a red-proof list should name its oracle's independence. Several mutations were assigned to an oracle that structurally shares the mutated code.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would write the composition oracle with the AC2 tests from the start, and classify the fuzz seeds before trusting a "seeds already cover it" claim.
+

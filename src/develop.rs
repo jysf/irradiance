@@ -59,44 +59,25 @@
 //! (orientation 5-8), so a second buffer is unavoidable regardless of the
 //! warp stage below.
 //!
-//! ⚠ **Amended by `SPEC-018`.** This function's own working memory used to
-//! be `O(1)` (`SPEC-014`'s original measurement: peak RSS **275,890,176
-//! bytes** on `L1021223.DNG`, `AC7` — `SPEC-012`'s 182,435,840 for file+raw
-//! plane, `DEC-016`, plus the 93,453,824-byte developed image). Resampling
-//! `WarpRectilinear` needs the FULL `ActiveArea`-sized, normalized result as
-//! its source while writing a *different* pixel to each destination, so when
-//! a real, non-identity warp is present (every real Q2M frame carries one,
-//! mandatory), this function now allocates TWO internal `Vec<u16>` scratch
-//! buffers (`active_width * active_height` samples each — the pre-warp
-//! normalized `ActiveArea` window and its warped result; `DefaultCrop` +
-//! `Orientation` then read from the second one straight into `dst`) — an
-//! internal allocation, not a third caller-facing parameter (see
-//! [`develop_into`]'s own "Allocation" doc for why). Re-measured peak RSS
-//! after `SPEC-018`: see `docs/provenance-ledger.md`'s `src/warp.rs` row.
+//! **Working memory — `SPEC-065`, `DEC-060`** (replacing the `SPEC-017` /
+//! `SPEC-018` allocation notes). Two opcodes need scratch beyond `src` and
+//! `dst`. `OpcodeList1`'s `FixBadPixelsConstant` mutates the raw plane, but
+//! `src` is a shared `&[u16]`, so the develop fixes a full-plane copy (P =
+//! `width * height` samples: a bad pixel's 3x3 neighbourhood may reach the
+//! padding outside `ActiveArea`). `OpcodeList3`'s non-identity
+//! `WarpRectilinear` resamples the whole normalized `ActiveArea` (A samples)
+//! into a second buffer of the same size. Once normalize has read the fixed
+//! plane, the copy is dead and the warp output reuses it, so the peak is
+//! **P + A** samples, not P + 2A.
 //!
-//! ⚠ **Amended again by `SPEC-017`.** `apply_fix_bad_pixels_constant` needs
-//! a MUTABLE plane (the opcode replaces pixels in place), but
-//! `develop_into`'s `src` parameter is a shared `&[u16]`
-//! (`DEC-016`'s caller-owned-buffer shape predates this spec and is not
-//! reopened here). When `OpcodeList1` carries a real `FixBadPixelsConstant`
-//! (every Q2M frame, mandatory), `develop_into` copies `src` into one
-//! internal `Vec<u16>` the FULL raw-plane size (`width * height` — larger
-//! than `SPEC-018`'s `ActiveArea`-sized scratch buffers, because a bad
-//! pixel's 3x3 neighbourhood can reach into the padding OUTSIDE
-//! `ActiveArea`, `SPEC-017`'s own `## Notes for the Implementer`) and
-//! develops from that copy instead of `src`. Same internal-allocation
-//! reasoning as `SPEC-018`'s addition above: not a caller-facing parameter,
-//! paid only when a real `OpcodeList1` is present — the hand-built test
-//! `Sensor`s that leave `opcode_list_1: None` take the original
-//! zero-extra-copy path unchanged, while the opcode tests (notably
-//! `develop_output_is_bit_identical_across_two_runs`) set it to `Some(..)`
-//! deliberately to exercise this copy path. This full-plane copy is
-//! ADDITIVE to `SPEC-018`'s warp buffers: on a real Q2M frame (`OpcodeList1`
-//! fix + non-identity `OpcodeList3` warp) measured peak RSS is **559,939,584
-//! bytes** (`/usr/bin/time -l target/release/irr develop L1021223.DNG`, at
-//! `SPEC-017` ship), up from `SPEC-018`'s warp-only figure in
-//! `docs/provenance-ledger.md` — not the pre-`SPEC-017` number that row
-//! still carries for the warp stage alone.
+//! [`scratch_len`] reports that need for a sensor and options (0 when neither
+//! opcode applies). [`develop_with_scratch_into`] takes it as one caller-owned
+//! slice and **performs no heap allocation at all**, error paths included.
+//! [`develop_into`] and [`develop_with_into`] run the same code with **one**
+//! internal allocation of exactly that length, and none when it is 0. On a
+//! Q2M frame that is one allocation of 189,415,424 bytes, where it was six
+//! allocations totalling 283,943,504 bytes before `SPEC-065`; output is
+//! unchanged.
 //!
 //! # Options — `SPEC-063`, `DEC-058`
 //!
@@ -625,8 +606,8 @@ fn lower_median(sorted: &[u16]) -> Option<u16> {
 /// replace every raw-plane sample equal to `constant`, within
 /// `active_area`, with the median of its 3x3 valid neighbours. Mutates
 /// `plane` in place — DNG's own semantics for this opcode, not a
-/// `develop_into`-specific choice (module docs, "Amended again by
-/// `SPEC-017`").
+/// `develop_into`-specific choice (module docs, "Allocation"). Allocates
+/// nothing (`SPEC-065`).
 ///
 /// Candidate pixels are restricted to `active_area` (`## Notes`: the
 /// padding columns outside it are not a real image region, matching
@@ -701,7 +682,9 @@ pub fn apply_fix_bad_pixels_constant(
     }
 
     let mut replaced = 0usize;
-    let mut neighbours: Vec<u16> = Vec::with_capacity(8);
+    // At most eight neighbours, so a fixed array and a fill count: this pass
+    // allocates nothing (`SPEC-065`, `DEC-060` §2).
+    let mut neighbours = [0u16; NEIGHBOR_OFFSETS.len()];
     for y in top..bottom {
         for x in left..right {
             let Some(index) = plane_index(width, x, y) else {
@@ -714,7 +697,7 @@ pub fn apply_fix_bad_pixels_constant(
                 continue;
             }
 
-            neighbours.clear();
+            let mut filled = 0usize;
             for (dx, dy) in NEIGHBOR_OFFSETS {
                 let Some(nx) = offset_coord(x, dx, width) else {
                     continue;
@@ -729,15 +712,21 @@ pub fn apply_fix_bad_pixels_constant(
                     continue;
                 };
                 if u32::from(nv) != constant {
-                    neighbours.push(nv);
+                    if let Some(slot) = neighbours.get_mut(filled) {
+                        *slot = nv;
+                        filled = filled.saturating_add(1);
+                    }
                 }
             }
 
-            if neighbours.is_empty() {
+            if filled == 0 {
                 continue; // rule 4: left at constant, not counted here
             }
-            neighbours.sort_unstable();
-            let Some(median) = lower_median(&neighbours) else {
+            let Some(valid) = neighbours.get_mut(..filled) else {
+                continue;
+            };
+            valid.sort_unstable();
+            let Some(median) = lower_median(valid) else {
                 continue;
             };
             if let Some(slot) = plane.get_mut(index) {
@@ -914,9 +903,8 @@ fn crop_and_orient_from_active_into(
 /// frame — nowhere near the normalized `[0, 65535]` range `WhiteLevel`
 /// would otherwise scale it into). `docs/measured-q2m-dng.md` line 44 states
 /// the same order. See [`apply_fix_bad_pixels_constant`]'s own doc for the
-/// replacement rules, and this module's own doc ("Allocation — amended
-/// again by `SPEC-017`") for why a real `OpcodeList1` costs one internal
-/// full-plane-sized copy.
+/// replacement rules, and this module's own doc ("Allocation") for the
+/// working memory a real `OpcodeList1` and `OpcodeList3` need.
 ///
 /// ⚠ **Pipeline order, corrected from `SPEC-018`'s own design-time
 /// assumption.** `SPEC-018`'s own design pass stated "OpcodeList3
@@ -958,22 +946,17 @@ fn crop_and_orient_from_active_into(
 /// against `SPIKE-001`'s measured ~504 px figure on real per-frame
 /// coefficients.
 ///
-/// # Allocation — amended by `SPEC-018`
+/// # Allocation — `SPEC-065`, `DEC-060`
 ///
-/// `DEC-018`'s original claim ("this function's own working memory is
-/// `O(1)`, not `O(pixels)`") no longer holds when a real, non-identity warp
-/// is present: resampling needs the FULL normalized `ActiveArea` window as
-/// its source while writing a *different* pixel to each destination, so this
-/// function allocates two internal `Vec<u16>` scratch buffers
-/// (`active_width * active_height` samples each) in that case only. This is
-/// an internal allocation, not a change to the public signature — `##
-/// Inputs`' "do NOT introduce a second allocator" is about the caller-facing
-/// buffer count (still two: `src`, `dst`), not about `develop_into`'s own
-/// working memory. Every real Q2M frame carries a mandatory (non-optional)
-/// `WarpRectilinear`, so this path is the common case for this camera, not a
-/// rare one — measured peak RSS is in `docs/provenance-ledger.md`'s
-/// `src/warp.rs` row, and in `DEC-024`'s Consequences section, which records
-/// this allocation as the pipeline-order fix's price.
+/// At most **one** internal allocation, of exactly
+/// [`scratch_len`]`(sensor, &DevelopOptions::default())` samples, and none
+/// when that is 0 (no `FixBadPixelsConstant` and no non-identity
+/// `WarpRectilinear`). It holds the fixed copy of the raw plane and the
+/// warp's active-area buffers, P + A samples at most (module docs,
+/// "Allocation"). On a Q2M frame: one allocation of 189,415,424 bytes, where
+/// it was six totalling 283,943,504 before `SPEC-065`. A caller that wants to
+/// own that memory uses [`develop_with_scratch_into`], which allocates
+/// nothing.
 ///
 /// # Errors
 ///
@@ -1013,7 +996,10 @@ pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(),
 /// pipeline — `FixBadPixelsConstant`, levels, `WarpRectilinear` over the
 /// `ActiveArea`, then framing and orientation — with the framing and the
 /// orientation step chosen by `options`. See [`develop_into`] for the
-/// pipeline order, the allocation notes and every error it shares.
+/// pipeline order, the allocation notes and every error it shares. It makes
+/// one allocation of exactly [`scratch_len`]`(sensor, options)` samples (none
+/// when that is 0); [`develop_with_scratch_into`] is the same develop into
+/// caller-owned scratch, with none.
 ///
 /// `dst` must hold exactly [`output_dimensions_with`]`(sensor, options)`'s
 /// product. **Mono only**: the colour path takes no options.
@@ -1044,6 +1030,161 @@ pub fn develop_with_into(
     sensor: &Sensor,
     src: &[u16],
     dst: &mut [u16],
+    options: &DevelopOptions,
+) -> Result<(), Error> {
+    develop_core(sensor, src, dst, Scratch::Allocate, options)
+}
+
+/// How many `u16` samples of scratch [`develop_with_scratch_into`] needs for
+/// this sensor and these options (`SPEC-065`, `DEC-060`).
+///
+/// `0` when the develop needs no scratch (no `FixBadPixelsConstant` in
+/// `OpcodeList1` and no non-identity `WarpRectilinear` in `OpcodeList3` at
+/// [`DevelopOptions::warp_alpha`]); the caller may then pass an empty slice.
+/// Otherwise room for a fixed copy of the raw plane and/or the
+/// active-area-sized buffers the warp reads and writes.
+///
+/// It depends only on `(sensor, options)`, but **ask for it rather than
+/// hard-coding it**: a later irradiance version may need a different amount
+/// for the same file without the output changing (and without a
+/// [`crate::DEVELOP_VERSION`] bump).
+///
+/// It answers "how much scratch", not "will this develop succeed": it reads
+/// the geometry and the two opcode lists, but does not run the
+/// required-processing check, the levels check or the
+/// [`Framing::FullActiveArea`] bounds check. [`develop_with_scratch_into`]
+/// still runs all of them.
+///
+/// # Errors
+///
+/// - [`Error::InvalidWarpAlpha`] for an out-of-domain
+///   [`DevelopOptions::warp_alpha`].
+/// - [`Error::InvalidActiveArea`], [`Error::InvalidDefaultCrop`] or
+///   [`Error::UnsupportedOrientation`] from the geometry, as
+///   [`output_dimensions_with`] reports them.
+/// - Whatever [`crate::opcode::parse_fix_bad_pixels_constant`] or
+///   [`crate::opcode::parse_warp_rectilinear`] return for a present list.
+/// - [`Error::DevelopScratchWrongLength`] `{ expected: u64::MAX, actual: 0 }`
+///   when the length overflows (a hostile header whose plane is near
+///   `u32::MAX` squared samples; no real plane is).
+pub fn scratch_len(sensor: &Sensor, options: &DevelopOptions) -> Result<usize, Error> {
+    validate_warp_alpha(options)?;
+    let geometry = apply_options(resolve_geometry(sensor)?, options);
+    let fix_bad_pixels = match &sensor.opcode_list_1 {
+        Some(bytes) => crate::opcode::parse_fix_bad_pixels_constant(bytes)?.is_some(),
+        None => false,
+    };
+    let warp = non_identity_warp(sensor, options.warp_alpha)?.is_some();
+    needed_scratch(sensor, &geometry, fix_bad_pixels, warp, 0)
+}
+
+/// [`develop_with_into`] into caller-owned scratch, **with no heap
+/// allocation at all** (`SPEC-065`, `DEC-060`).
+///
+/// `scratch` must hold **exactly** [`scratch_len`]`(sensor, options)`
+/// samples — the same exact-length rule as `src` and `dst`. A caller reusing
+/// one large buffer across frames passes `&mut buf[..len]`. When
+/// [`scratch_len`] is `0`, pass an empty slice.
+///
+/// - **No allocation**, on success and on every error path. The opcode
+///   lookups it runs allocate nothing either.
+/// - **Scratch contents are unspecified** on entry and on return. Every
+///   sample is written before it is read, so the output never depends on
+///   what the caller left there; do not read meaning into it afterwards.
+/// - **Output is identical** to [`develop_with_into`]`(sensor, src, dst,
+///   options)` for every input and options value: the two run the same code,
+///   which `develop_with_into` feeds with one allocation of exactly
+///   [`scratch_len`] samples.
+/// - **Mono only**, like [`develop_with_into`].
+///
+/// # Errors
+///
+/// Every error [`develop_with_into`] returns, in the same order, plus
+/// [`Error::DevelopScratchWrongLength`] when `scratch.len()` is not exactly
+/// [`scratch_len`]. That check runs after both opcode lists are parsed (so a
+/// malformed list is reported first) and before anything is written to `dst`
+/// or `scratch`.
+pub fn develop_with_scratch_into(
+    sensor: &Sensor,
+    src: &[u16],
+    dst: &mut [u16],
+    scratch: &mut [u16],
+    options: &DevelopOptions,
+) -> Result<(), Error> {
+    develop_core(sensor, src, dst, Scratch::Caller(scratch), options)
+}
+
+/// Where [`develop_core`] gets its scratch: the caller's slice
+/// ([`develop_with_scratch_into`]) or one allocation of exactly the needed
+/// length ([`develop_with_into`]).
+enum Scratch<'a> {
+    Caller(&'a mut [u16]),
+    Allocate,
+}
+
+/// `DEC-060` §3's scratch length for a plane of `plane` samples and an active
+/// area of `active`, or `None` on overflow. The layout it pays for is in
+/// [`run_passes`].
+fn layout_len(plane: u64, active: u64, fix_bad_pixels: bool, warp: bool) -> Option<u64> {
+    match (fix_bad_pixels, warp) {
+        (false, false) => Some(0),
+        (true, false) => Some(plane),
+        (false, true) => active.checked_mul(2),
+        // The warp output reuses the dead plane copy (`A <= P`).
+        (true, true) => plane.checked_add(active),
+    }
+}
+
+/// [`layout_len`] for this sensor and resolved geometry, as a `usize`, or
+/// [`Error::DevelopScratchWrongLength`] carrying `actual` when it cannot be
+/// represented.
+fn needed_scratch(
+    sensor: &Sensor,
+    geometry: &Geometry,
+    fix_bad_pixels: bool,
+    warp: bool,
+    actual: usize,
+) -> Result<usize, Error> {
+    let plane = u64::from(sensor.width).checked_mul(u64::from(sensor.height));
+    let active = u64::from(geometry.active_width).checked_mul(u64::from(geometry.active_height));
+    let expected = plane
+        .zip(active)
+        .and_then(|(plane, active)| layout_len(plane, active, fix_bad_pixels, warp))
+        .ok_or(Error::DevelopScratchWrongLength {
+            expected: u64::MAX,
+            actual,
+        })?;
+    usize::try_from(expected).map_err(|_| Error::DevelopScratchWrongLength { expected, actual })
+}
+
+/// Everything the passes read, resolved and validated by [`develop_core`].
+struct Plan {
+    geometry: Geometry,
+    black: u32,
+    white: u32,
+    out_width: u32,
+    out_height: u32,
+    /// `OpcodeList1`'s first `FixBadPixelsConstant` constant.
+    fix_bad_pixels: Option<u32>,
+    /// `OpcodeList3`'s first `WarpRectilinear`, lerped, non-identity.
+    warp: Option<crate::opcode::WarpRect>,
+}
+
+/// The one develop both public entries run (`DEC-060` §4). Validation order,
+/// unchanged from before `SPEC-065` except for the new step 9:
+///
+/// 0. `warp_alpha`; 1. required processing; 2. `src` length;
+/// 3. geometry, then options; 4. levels; 5. `dst` length;
+/// 6. under `FullActiveArea`, `OpcodeList3` and the bounds rule;
+/// 7. `OpcodeList1`; 8. under `StandardCrop`, `OpcodeList3`;
+/// 9. the scratch length (refused, or allocated); 10. the passes.
+///
+/// Nothing is written to `dst` or the scratch before step 10.
+fn develop_core(
+    sensor: &Sensor,
+    src: &[u16],
+    dst: &mut [u16],
+    scratch: Scratch<'_>,
     options: &DevelopOptions,
 ) -> Result<(), Error> {
     // Step 0 (`DEC-059` §2): `warp_alpha` is a pure argument check, so it is
@@ -1103,11 +1244,10 @@ pub fn develop_with_into(
 
     // `DEC-059` §3 (amending `DEC-058` §4): under `FullActiveArea` the
     // lerped warp is parsed here and must provably sample only inside the
-    // image, or it is refused — before `OpcodeList1` is parsed, before the
-    // plane copy below and before any write to `dst`. Only under
-    // `FullActiveArea`, so the parse order (and error precedence) under
-    // `StandardCrop` is exactly today's. `Some(warp)` carries the result
-    // down so the list is not parsed a second time.
+    // image, or it is refused — before `OpcodeList1` is parsed and before any
+    // write. Only under `FullActiveArea`, so the parse order (and error
+    // precedence) under `StandardCrop` is exactly the pre-`SPEC-064` one.
+    // `Some(warp)` carries the result down so the list is not parsed twice.
     let early_warp = if options.framing == Framing::FullActiveArea {
         let warp = non_identity_warp(sensor, options.warp_alpha)?;
         if let Some(w) = &warp {
@@ -1127,80 +1267,190 @@ pub fn develop_with_into(
         None
     };
 
-    // `OpcodeList1`'s `FixBadPixelsConstant` (`SPEC-017`) runs FIRST, on the
-    // raw plane, before levels normalize (module docs, "Pipeline order" /
-    // "Amended again by SPEC-017"). `parse_fix_bad_pixels_constant` propagates
+    // `OpcodeList1`'s `FixBadPixelsConstant` (`SPEC-017`). It is APPLIED
+    // first, on the raw plane, before levels normalize (module docs,
+    // "Pipeline order"); here it is only parsed. The lookup propagates
     // `Error::UnsupportedMandatoryOpcode` for any DIFFERENT unrecognized
-    // mandatory opcode in the same list (`AC6`) — no second dispatch layer
-    // needed here, `src/opcode.rs::parse_opcode_list` already refuses to
-    // silently drop one.
-    let fix_bad_pixels_constant = match &sensor.opcode_list_1 {
+    // mandatory opcode in the same list (`AC6`).
+    let fix_bad_pixels = match &sensor.opcode_list_1 {
         Some(bytes) => crate::opcode::parse_fix_bad_pixels_constant(bytes)?,
         None => None,
     };
-    let mut fixed_plane: Option<Vec<u16>> = None;
-    if let Some(constant) = fix_bad_pixels_constant {
-        let mut plane = src.to_vec();
-        let fix_active_area = ActiveArea {
-            top: geometry.active_top,
-            left: geometry.active_left,
-            bottom: geometry
-                .active_top
-                .checked_add(geometry.active_height)
-                .unwrap_or(sensor.height),
-            right: geometry
-                .active_left
-                .checked_add(geometry.active_width)
-                .unwrap_or(sensor.width),
-        };
-        apply_fix_bad_pixels_constant(
-            &mut plane,
-            sensor.width,
-            sensor.height,
-            fix_active_area,
-            constant,
-        )?;
-        fixed_plane = Some(plane);
-    }
-    let effective_src: &[u16] = fixed_plane.as_deref().unwrap_or(src);
 
     let warp = match early_warp {
         Some(warp) => warp,
         None => non_identity_warp(sensor, options.warp_alpha)?,
     };
 
-    match warp {
-        None => {
-            crop_orient_normalize_into(sensor, &geometry, black, white, effective_src, dst);
-        }
-        Some(warp) => {
-            let active_len = u64::from(geometry.active_width)
-                .checked_mul(u64::from(geometry.active_height))
-                .and_then(|v| usize::try_from(v).ok())
-                .ok_or(Error::DevelopBufferWrongLength {
-                    expected: u64::MAX,
-                    actual: dst.len(),
-                })?;
-            let mut active_normalized = vec![0u16; active_len];
-            normalize_active_area_into(
-                sensor,
-                &geometry,
-                black,
-                white,
-                effective_src,
-                &mut active_normalized,
-            );
+    let plan = Plan {
+        geometry,
+        black,
+        white,
+        out_width,
+        out_height,
+        fix_bad_pixels,
+        warp,
+    };
 
-            let mut active_warped = vec![0u16; active_len];
+    // Step 9 (`DEC-060` §2): after both lists are parsed, before any write.
+    match scratch {
+        Scratch::Caller(scratch) => {
+            let needed = needed_scratch(
+                sensor,
+                &plan.geometry,
+                plan.fix_bad_pixels.is_some(),
+                plan.warp.is_some(),
+                scratch.len(),
+            )?;
+            if scratch.len() != needed {
+                return Err(Error::DevelopScratchWrongLength {
+                    expected: u64::try_from(needed).unwrap_or(u64::MAX),
+                    actual: scratch.len(),
+                });
+            }
+            run_passes(sensor, &plan, src, dst, scratch)
+        }
+        Scratch::Allocate => {
+            let needed = needed_scratch(
+                sensor,
+                &plan.geometry,
+                plan.fix_bad_pixels.is_some(),
+                plan.warp.is_some(),
+                0,
+            )?;
+            // The one allocation `develop_with_into` makes (none when
+            // `needed` is 0: an empty `vec!` does not allocate).
+            let mut owned = vec![0u16; needed];
+            run_passes(sensor, &plan, src, dst, &mut owned)
+        }
+    }
+}
+
+/// `scratch.split_at_mut(at)`, panic-free. The caller has already checked
+/// `scratch`'s length against [`layout_len`], so the `Err` is unreachable;
+/// it reports the length it needed rather than panicking.
+fn split_scratch(scratch: &mut [u16], at: usize) -> Result<(&mut [u16], &mut [u16]), Error> {
+    let actual = scratch.len();
+    scratch
+        .split_at_mut_checked(at)
+        .ok_or(Error::DevelopScratchWrongLength {
+            expected: u64::try_from(at).unwrap_or(u64::MAX),
+            actual,
+        })
+}
+
+/// Copy the raw plane into `plane` and apply `OpcodeList1`'s
+/// `FixBadPixelsConstant` to the copy (`SPEC-017`): `src` is the caller's
+/// shared `&[u16]` and is never modified.
+fn copy_and_fix_bad_pixels(
+    sensor: &Sensor,
+    geometry: &Geometry,
+    constant: u32,
+    src: &[u16],
+    plane: &mut [u16],
+) -> Result<(), Error> {
+    // Equal lengths (P) by construction; `zip` keeps the copy panic-free.
+    for (to, from) in plane.iter_mut().zip(src) {
+        *to = *from;
+    }
+    let fix_active_area = ActiveArea {
+        top: geometry.active_top,
+        left: geometry.active_left,
+        bottom: geometry
+            .active_top
+            .checked_add(geometry.active_height)
+            .unwrap_or(sensor.height),
+        right: geometry
+            .active_left
+            .checked_add(geometry.active_width)
+            .unwrap_or(sensor.width),
+    };
+    apply_fix_bad_pixels_constant(
+        plane,
+        sensor.width,
+        sensor.height,
+        fix_active_area,
+        constant,
+    )?;
+    Ok(())
+}
+
+/// Step 10: the passes, by case, over `scratch` laid out as `DEC-060` §3
+/// records (P = the raw plane, A = the active area, `A <= P`):
+///
+/// | fix | warp | scratch | plane copy | normalized | warped |
+/// |---|---|---|---|---|---|
+/// | no | no | 0 | | | |
+/// | yes | no | P | `[0, P)` | | |
+/// | no | yes | 2A | | `[0, A)` | `[A, 2A)` |
+/// | yes | yes | P + A | `[0, P)` | `[P, P + A)` | `[0, A)` |
+///
+/// In the last case the warp writes over the plane copy, which is dead once
+/// normalize has read it into `[P, P + A)`. Every scratch sample is written
+/// before it is read.
+fn run_passes(
+    sensor: &Sensor,
+    plan: &Plan,
+    src: &[u16],
+    dst: &mut [u16],
+    scratch: &mut [u16],
+) -> Result<(), Error> {
+    let geometry = &plan.geometry;
+    let (black, white) = (plan.black, plan.white);
+    let active_len = u64::from(geometry.active_width)
+        .checked_mul(u64::from(geometry.active_height))
+        .and_then(|v| usize::try_from(v).ok())
+        .ok_or(Error::DevelopBufferWrongLength {
+            expected: u64::MAX,
+            actual: dst.len(),
+        })?;
+
+    match (plan.fix_bad_pixels, &plan.warp) {
+        (None, None) => {
+            crop_orient_normalize_into(sensor, geometry, black, white, src, dst);
+        }
+        (Some(constant), None) => {
+            copy_and_fix_bad_pixels(sensor, geometry, constant, src, scratch)?;
+            crop_orient_normalize_into(sensor, geometry, black, white, scratch, dst);
+        }
+        (None, Some(warp)) => {
+            let (normalized, warped) = split_scratch(scratch, active_len)?;
+            normalize_active_area_into(sensor, geometry, black, white, src, normalized);
             crate::warp::apply_warp_into(
-                &warp,
+                warp,
                 geometry.active_width,
                 geometry.active_height,
-                &active_normalized,
-                &mut active_warped,
+                normalized,
+                warped,
             )?;
-
-            crop_and_orient_from_active_into(&geometry, out_width, out_height, &active_warped, dst);
+            crop_and_orient_from_active_into(
+                geometry,
+                plan.out_width,
+                plan.out_height,
+                warped,
+                dst,
+            );
+        }
+        (Some(constant), Some(warp)) => {
+            let (plane, normalized) = split_scratch(scratch, src.len())?;
+            copy_and_fix_bad_pixels(sensor, geometry, constant, src, plane)?;
+            normalize_active_area_into(sensor, geometry, black, white, plane, normalized);
+            // The plane copy is dead now; its first A samples take the warp.
+            let (warped, _) = split_scratch(plane, active_len)?;
+            crate::warp::apply_warp_into(
+                warp,
+                geometry.active_width,
+                geometry.active_height,
+                normalized,
+                warped,
+            )?;
+            crop_and_orient_from_active_into(
+                geometry,
+                plan.out_width,
+                plan.out_height,
+                warped,
+                dst,
+            );
         }
     }
 
