@@ -141,10 +141,19 @@ pub(crate) fn scale_bounds(warp: &WarpRect) -> (f64, f64) {
     let [kr0, kr1, kr2, kr3] = warp.kr;
     let f = |s: f64| kr0 + s * (kr1 + s * (kr2 + s * kr3));
 
-    // f'(s) = a + b·s + c·s².
-    let a = kr1;
-    let b = 2.0 * kr2;
-    let c = 3.0 * kr3;
+    // f'(s) = a + b·s + c·s², divided through by the largest of |kr1|,
+    // |kr2|, |kr3| (which leaves its roots unchanged). Without that, finite
+    // but huge coefficients overflow `b·b − 4·a·c` to infinity or NaN, the
+    // roots are lost, and an interior peak far above 1 passes (SPEC-064
+    // verify). Scaled, |a|, |b|, |c| <= 3, so the discriminant is at most 45.
+    // A non-finite scale (an infinite or all-NaN tail) finds no roots; the
+    // finiteness clause of `full_active_area_admits` refuses that warp.
+    let scale = kr1.abs().max(kr2.abs()).max(kr3.abs());
+    let (a, b, c) = if scale > 0.0 && scale.is_finite() {
+        (kr1 / scale, 2.0 * (kr2 / scale), 3.0 * (kr3 / scale))
+    } else {
+        (0.0, 0.0, 0.0)
+    };
     let mut roots = [f64::NAN; 2];
     if c != 0.0 {
         let disc = b * b - 4.0 * a * c;
@@ -697,6 +706,32 @@ mod tests {
         // A centre on the image edge is inside.
         let edge = warp_with([1.0, -0.1, 0.0, 0.0], 0.0, 1.0);
         assert!(full_active_area_admits(&edge, scale_bounds(&edge)));
+        // The scale's own bounds are inclusive too: f falls from 1 at the
+        // centre to exactly 0 at the corner (every corner pixel samples the
+        // centre), so DEC-059 §3's 0 <= f <= 1 admits it (SPEC-064 verify).
+        let to_zero = warp_with([1.0, -1.0, 0.0, 0.0], 0.5, 0.5);
+        assert_eq!(scale_bounds(&to_zero), (0.0, 1.0));
+        assert!(full_active_area_admits(&to_zero, scale_bounds(&to_zero)));
+    }
+
+    #[test]
+    fn scale_bounds_huge_coefficients_keep_the_interior_peak() {
+        // SPEC-064 verify: f(0) = f(1) = 0.5 (the s^2 and s^3 terms cancel at
+        // s = 1), but f(2/3) = 0.5 + k·4/27, far above 1. Unscaled, the
+        // derivative's discriminant overflows (b·b for k = 1e154 and up; b
+        // itself at k = 1e308), the interior root is lost, and the bounds
+        // came back as [0.5, 0.5], so the predicate admitted the warp.
+        for k in [1e153, 1e154, 1e200, 1e308] {
+            let warp = warp_with([0.5, 0.0, k, -k], 0.5, 0.5);
+            let (min, max) = scale_bounds(&warp);
+            assert_eq!(min, 0.5, "k = {k:e}: min");
+            let want = 0.5 + k * (4.0 / 27.0);
+            assert!(
+                ((max - want) / want).abs() < 1e-12,
+                "k = {k:e}: max {max:e}, want {want:e}"
+            );
+            assert!(!full_active_area_admits(&warp, (min, max)), "k = {k:e}");
+        }
     }
 
     #[test]

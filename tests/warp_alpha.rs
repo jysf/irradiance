@@ -796,10 +796,19 @@ fn passing_warps_develop_under_full_active_area() {
 #[test]
 fn each_bounds_clause_refuses() {
     // (label, kr, cx, cy): each fails exactly one clause of DEC-059 §3.
-    let cases: [(&str, [f64; 4], f64, f64); 6] = [
+    let cases: [(&str, [f64; 4], f64, f64); 7] = [
         ("f < 0", [-0.5, 0.0, 0.0, 0.0], 0.5, 0.5),
         // f(0) = f(1) = 0.9, but f(0.5) = 1.05: a corner-only check misses it.
         ("interior peak", [0.9, 0.6, -0.6, 0.0], 0.5, 0.5),
+        // SPEC-064 verify: f(0) = f(1) = 0.5 and f(2/3) is about 1.5e199.
+        // Finite coefficients this large overflowed the derivative's
+        // discriminant, so the interior peak was lost and the warp admitted.
+        (
+            "overflowing interior peak",
+            [0.5, 0.0, 1e200, -1e200],
+            0.5,
+            0.5,
+        ),
         ("cx outside", L1021223_KR, 1.5, 0.5),
         ("cy outside", L1021223_KR, 0.5, -0.1),
         ("NaN kr1", [0.999, f64::NAN, 0.0, 0.0], 0.5, 0.5),
