@@ -107,12 +107,18 @@
 //! [`output_dimensions`] are exactly the `_with` forms called with
 //! [`DevelopOptions::default()`], so their output is unchanged. Options
 //! rewrite the geometry *after* it is resolved and validated: a malformed
-//! tag an option makes unused is still refused (`DEC-058` §3). One
-//! combination is refused outright, typed: `FullActiveArea` with a
-//! non-identity `WarpRectilinear` ([`Error::UnsupportedWarpedFullActiveArea`],
+//! tag an option makes unused is still refused (`DEC-058` §3).
+//! [`DevelopOptions::warp_alpha`] (`SPEC-064`, `DEC-059`) applies
+//! `OpcodeList3`'s `WarpRectilinear` partially: the warp is replaced by
+//! [`crate::opcode::WarpRect::lerp`]`(warp_alpha)`, so `1.0` (the default) is
+//! the full correction and `0.0` none at all. `FullActiveArea` with a warp
+//! is accepted when the lerped warp provably samples only inside the image
+//! (its radial scale stays in `[0, 1]` and its optical centre is inside the
+//! image), and otherwise refused, typed, before any write
+//! ([`Error::UnsupportedWarpedFullActiveArea`], `DEC-059` §3, amending
 //! `DEC-058` §4). Options are mono only; the colour path takes none. No
 //! option changes any existing (input, options) output, so `DEVELOP_VERSION`
-//! is unchanged (`DEC-058` §5).
+//! is unchanged (`DEC-058` §5, `DEC-059` Consequences).
 
 use crate::ifd::{ActiveArea, Sensor};
 use crate::Error;
@@ -274,23 +280,48 @@ pub(crate) fn oriented_dimensions(orientation: u32, width: u32, height: u32) -> 
 pub struct DevelopOptions {
     /// Which rectangle of the active area becomes the output. Default
     /// [`Framing::StandardCrop`]. [`Framing::FullActiveArea`] together with a
-    /// non-identity `WarpRectilinear` is refused with
-    /// [`Error::UnsupportedWarpedFullActiveArea`].
+    /// `WarpRectilinear` is refused with
+    /// [`Error::UnsupportedWarpedFullActiveArea`] unless the warp, lerped to
+    /// [`DevelopOptions::warp_alpha`], provably samples only inside the image
+    /// (`DEC-059` §3).
     pub framing: Framing,
     /// Whether `Orientation` is applied to the output. Default `true`. With
     /// `false` the output is in stored (sensor) order, at the unswapped
     /// framed size, as if `Orientation` were 1 — for a caller that rotates
     /// on its own (for example on a GPU).
     pub apply_orientation: bool,
+    /// How much of `OpcodeList3`'s `WarpRectilinear` lens correction to apply
+    /// (`SPEC-064`, `DEC-059`). Default `1.0`, the full correction. The warp
+    /// applied is [`crate::opcode::WarpRect::lerp`]`(warp_alpha)`, whose
+    /// backward radial scale is `(1 − α) + α·f(r)`: every pixel moves `α`
+    /// times as far as under the full warp. `0.0` disables the warp
+    /// entirely, its tangential terms included (a non-zero tangential term
+    /// is then not refused, because nothing is applied).
+    ///
+    /// **Domain:** a finite value in `[0, 1]`; `-0.0` is accepted. Anything
+    /// else is [`Error::InvalidWarpAlpha`], checked first by
+    /// [`develop_with_into`] and [`output_dimensions_with`], under every
+    /// framing, whether or not the file carries a warp.
+    ///
+    /// **Under [`Framing::FullActiveArea`]** the lerped warp, unless it is the
+    /// identity, must satisfy `DEC-059` §3's bounds rule: every coefficient
+    /// finite, the optical centre inside the image, and the radial scale in
+    /// `[0, 1]` for every `r² ∈ [0, 1]` (exact cubic extrema, no sampling).
+    /// Then no sample is clamped to the edge. Otherwise the develop is
+    /// refused with [`Error::UnsupportedWarpedFullActiveArea`] before any
+    /// write. [`Framing::StandardCrop`] has no such check, at any α
+    /// (`DEC-059` §4).
+    pub warp_alpha: f64,
 }
 
 impl Default for DevelopOptions {
-    /// [`Framing::StandardCrop`] and `apply_orientation: true`: exactly
-    /// [`develop_into`].
+    /// [`Framing::StandardCrop`], `apply_orientation: true` and
+    /// `warp_alpha: 1.0`: exactly [`develop_into`].
     fn default() -> DevelopOptions {
         DevelopOptions {
             framing: Framing::StandardCrop,
             apply_orientation: true,
+            warp_alpha: 1.0,
         }
     }
 }
@@ -309,8 +340,9 @@ pub enum Framing {
     /// every recorded photosite, including the border `DefaultCrop` trims.
     /// `DefaultCrop` is still validated, only not applied. Refused with
     /// [`Error::UnsupportedWarpedFullActiveArea`] when `OpcodeList3` carries
-    /// a non-identity `WarpRectilinear`, whose clamped edge samples would
-    /// otherwise be visible (`DEC-058` §4, `DEC-024`).
+    /// a `WarpRectilinear` that, lerped to [`DevelopOptions::warp_alpha`], is
+    /// not the identity and could sample outside the image, where its
+    /// clamped edge samples would be visible (`DEC-059` §3, `DEC-024`).
     FullActiveArea,
 }
 
@@ -360,13 +392,16 @@ pub fn output_dimensions(sensor: &Sensor) -> Result<(u32, u32), Error> {
 ///
 /// # Errors
 ///
-/// Whatever [`develop_with_into`] would reject about `sensor`'s geometry,
-/// under every options value (`DEC-058` §3): [`Error::InvalidActiveArea`],
+/// [`Error::InvalidWarpAlpha`] first, for a
+/// [`DevelopOptions::warp_alpha`] outside `[0, 1]`. Then whatever
+/// [`develop_with_into`] would reject about `sensor`'s geometry, under every
+/// options value (`DEC-058` §3): [`Error::InvalidActiveArea`],
 /// [`Error::InvalidDefaultCrop`], [`Error::UnsupportedOrientation`].
 pub fn output_dimensions_with(
     sensor: &Sensor,
     options: &DevelopOptions,
 ) -> Result<(u32, u32), Error> {
+    validate_warp_alpha(options)?;
     let geometry = apply_options(resolve_geometry(sensor)?, options);
     Ok(oriented_dimensions(
         geometry.orientation,
@@ -375,14 +410,34 @@ pub fn output_dimensions_with(
     ))
 }
 
-/// `OpcodeList3`'s first `WarpRectilinear`, or `None` when the list is
-/// absent, carries none, or carries an identity one (which this path skips).
-fn non_identity_warp(sensor: &Sensor) -> Result<Option<crate::opcode::WarpRect>, Error> {
+/// `DEC-059` §2, step 0 of [`develop_with_into`]: `warp_alpha` must be a
+/// finite value in `[0, 1]`. `RangeInclusive::contains` is false for NaN and
+/// for either infinity, and true for `-0.0`.
+fn validate_warp_alpha(options: &DevelopOptions) -> Result<(), Error> {
+    if (0.0..=1.0).contains(&options.warp_alpha) {
+        Ok(())
+    } else {
+        Err(Error::InvalidWarpAlpha {
+            warp_alpha: options.warp_alpha,
+        })
+    }
+}
+
+/// `OpcodeList3`'s first `WarpRectilinear` lerped to `alpha`
+/// ([`crate::opcode::WarpRect::lerp`]), or `None` when the list is absent,
+/// carries none, or the lerped warp is the identity (which this path skips —
+/// so `alpha = 0` skips every warp).
+fn non_identity_warp(
+    sensor: &Sensor,
+    alpha: f64,
+) -> Result<Option<crate::opcode::WarpRect>, Error> {
     let warp = match &sensor.opcode_list_3 {
         Some(bytes) => crate::opcode::parse_warp_rectilinear(bytes)?,
         None => None,
     };
-    Ok(warp.filter(|w| !crate::warp::is_identity(w)))
+    Ok(warp
+        .map(|w| w.lerp(alpha))
+        .filter(|w| !crate::warp::is_identity(w)))
 }
 
 /// Map a destination (post-orientation) pixel to its position within the
@@ -968,21 +1023,34 @@ pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(),
 /// Every error [`develop_into`] documents, under every options value — an
 /// option never skips a tag's validation (`DEC-058` §3) — plus:
 ///
+/// - [`Error::InvalidWarpAlpha`] for a [`DevelopOptions::warp_alpha`] that is
+///   not a finite value in `[0, 1]` (`DEC-059` §2). It is checked **first**,
+///   before the required-processing check and before any buffer or tag.
 /// - [`Error::UnsupportedWarpedFullActiveArea`] for
-///   [`Framing::FullActiveArea`] when `OpcodeList3` carries a non-identity
-///   `WarpRectilinear` (`DEC-058` §4). It is checked after the buffer lengths
-///   and before `OpcodeList1` is parsed, so it comes before the
-///   `FixBadPixelsConstant` plane copy and before any write to `dst`. A
+///   [`Framing::FullActiveArea`] when `OpcodeList3`'s `WarpRectilinear`,
+///   lerped to `warp_alpha`, is not the identity and fails `DEC-059` §3's
+///   bounds rule (a coefficient not finite, the optical centre outside the
+///   image, or the radial scale leaving `[0, 1]`). It is checked after the
+///   buffer lengths and before `OpcodeList1` is parsed, so it comes before
+///   the `FixBadPixelsConstant` plane copy and before any write to `dst`. A
 ///   consequence: under `FullActiveArea` a malformed `OpcodeList3` is
 ///   reported before a malformed `OpcodeList1`; under
-///   [`Framing::StandardCrop`] the order is [`develop_into`]'s.
+///   [`Framing::StandardCrop`] the order is [`develop_into`]'s. The bounds
+///   rule reads the radial scale only: a warp with non-zero tangential terms
+///   whose radial scale passes reaches
+///   [`Error::UnsupportedWarpTangentialTerms`] from the applier, at any
+///   `warp_alpha > 0`.
 pub fn develop_with_into(
     sensor: &Sensor,
     src: &[u16],
     dst: &mut [u16],
     options: &DevelopOptions,
 ) -> Result<(), Error> {
-    // Required-processing validation FIRST, before any allocation or decode
+    // Step 0 (`DEC-059` §2): `warp_alpha` is a pure argument check, so it is
+    // reported before anything about the file, under every framing.
+    validate_warp_alpha(options)?;
+
+    // Required-processing validation next, before any allocation or decode
     // (`SPEC-054`, `DEC-049`): a mandatory opcode this path will not apply is a
     // typed error, never a silently-uncorrected image.
     crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Mono)?;
@@ -1033,19 +1101,31 @@ pub fn develop_with_into(
         });
     }
 
-    // `DEC-058` §4: full-active-area framing with a real warp is refused
-    // here, before `OpcodeList1` is parsed, before the plane copy below and
-    // before any write to `dst`. Only under `FullActiveArea`, so the parse
-    // order (and error precedence) under `StandardCrop` is exactly today's.
-    // Once this check passes the warp is known to be absent or identity,
-    // so it is not parsed a second time below.
-    let warp_checked_early = options.framing == Framing::FullActiveArea;
-    if warp_checked_early && non_identity_warp(sensor)?.is_some() {
-        return Err(Error::UnsupportedWarpedFullActiveArea {
-            active_width: geometry.active_width,
-            active_height: geometry.active_height,
-        });
-    }
+    // `DEC-059` §3 (amending `DEC-058` §4): under `FullActiveArea` the
+    // lerped warp is parsed here and must provably sample only inside the
+    // image, or it is refused — before `OpcodeList1` is parsed, before the
+    // plane copy below and before any write to `dst`. Only under
+    // `FullActiveArea`, so the parse order (and error precedence) under
+    // `StandardCrop` is exactly today's. `Some(warp)` carries the result
+    // down so the list is not parsed a second time.
+    let early_warp = if options.framing == Framing::FullActiveArea {
+        let warp = non_identity_warp(sensor, options.warp_alpha)?;
+        if let Some(w) = &warp {
+            let (scale_min, scale_max) = crate::warp::scale_bounds(w);
+            if !crate::warp::full_active_area_admits(w, (scale_min, scale_max)) {
+                return Err(Error::UnsupportedWarpedFullActiveArea {
+                    active_width: geometry.active_width,
+                    active_height: geometry.active_height,
+                    warp_alpha: options.warp_alpha,
+                    scale_min,
+                    scale_max,
+                });
+            }
+        }
+        Some(warp)
+    } else {
+        None
+    };
 
     // `OpcodeList1`'s `FixBadPixelsConstant` (`SPEC-017`) runs FIRST, on the
     // raw plane, before levels normalize (module docs, "Pipeline order" /
@@ -1084,10 +1164,9 @@ pub fn develop_with_into(
     }
     let effective_src: &[u16] = fixed_plane.as_deref().unwrap_or(src);
 
-    let warp = if warp_checked_early {
-        None
-    } else {
-        non_identity_warp(sensor)?
+    let warp = match early_warp {
+        Some(warp) => warp,
+        None => non_identity_warp(sensor, options.warp_alpha)?,
     };
 
     match warp {

@@ -29,6 +29,19 @@
 //! under the same `MAX_PIXELS` cap, so all four option combinations are
 //! reached. Appending a byte to a TIFF does not change how it parses, so each
 //! seed exists once per trailing option byte (`examples/fuzz-seeds.rs`).
+//!
+//! **`warp_alpha` (`SPEC-064`, `DEC-059`).** The same byte's bits 2-3 select
+//! `warp_alpha` from `{1.0, 0.0, 0.5, NaN}` (in that order), and bit 4
+//! replaces the choice with `1.5`, out of range. So the lerped warp, the
+//! `FullActiveArea` bounds rule and the `InvalidWarpAlpha` refusal are all
+//! reached. Bits 5-7 are unused.
+//!
+//! ```text
+//! bit 0     FullActiveArea
+//! bit 1     apply_orientation = false
+//! bits 2-3  warp_alpha: 00 = 1.0, 01 = 0.0, 10 = 0.5, 11 = NaN
+//! bit 4     warp_alpha = 1.5 (overrides bits 2-3)
+//! ```
 
 #![no_main]
 
@@ -100,6 +113,15 @@ fuzz_target!(|data: &[u8]| {
     }
     if option_byte & 2 != 0 {
         options.apply_orientation = false;
+    }
+    options.warp_alpha = match (option_byte >> 2) & 0b11 {
+        0 => 1.0,
+        1 => 0.0,
+        2 => 0.5,
+        _ => f64::NAN,
+    };
+    if option_byte & 0b1_0000 != 0 {
+        options.warp_alpha = 1.5;
     }
     let Ok((opt_width, opt_height)) = output_dimensions_with(&sensor, &options) else {
         return;

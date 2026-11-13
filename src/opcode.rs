@@ -182,6 +182,44 @@ pub struct WarpRect {
 }
 
 impl WarpRect {
+    /// The warp moved `alpha` of the way from the identity to `self`
+    /// (`SPEC-064`, `DEC-059` §1): its backward radial scale is
+    /// `f_α(r) = (1 − α) + α·f(r)`, so every pixel's displacement
+    /// `(1 − f(r))·(x − c)` is exactly `alpha` times the full one.
+    ///
+    /// - `kr0' = (1 − α) + α·kr0`; `kr1..kr3` and `kt0`, `kt1` are each
+    ///   multiplied by `α`;
+    /// - `cx`, `cy` and `planes` are unchanged.
+    ///
+    /// `lerp(1.0)` returns `self` bit for bit (`1 − 1 = 0`, `0 + kr0 = kr0`,
+    /// `1·k = k`). `lerp(0.0)` returns the identity coefficients
+    /// `kr = [1, 0, 0, 0]`, `kt = [0, 0]` (some zeros may be `-0.0`, which
+    /// compares equal), which the develop path skips like an identity
+    /// opcode.
+    ///
+    /// Pure arithmetic: `alpha` is **not** validated, and a value outside
+    /// `[0, 1]` extrapolates. [`crate::develop::DevelopOptions::warp_alpha`]
+    /// is where the domain is enforced.
+    #[must_use]
+    pub fn lerp(&self, alpha: f64) -> WarpRect {
+        // Exactly this form for kr0: any rearrangement rounds differently
+        // and would break the alpha = 1 bit identity.
+        let [kr0, kr1, kr2, kr3] = self.kr;
+        let [kt0, kt1] = self.kt;
+        WarpRect {
+            kr: [
+                (1.0 - alpha) + alpha * kr0,
+                alpha * kr1,
+                alpha * kr2,
+                alpha * kr3,
+            ],
+            kt: [alpha * kt0, alpha * kt1],
+            cx: self.cx,
+            cy: self.cy,
+            planes: self.planes,
+        }
+    }
+
     /// An identity `WarpRect` (`kr = [1, 0, 0, 0]`, no tangential terms,
     /// centred, one plane) for the crate's own integration tests and examples
     /// — **dev-only**, compiled in solely under the `test-fixtures` cargo

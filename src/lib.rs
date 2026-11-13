@@ -728,18 +728,39 @@ pub enum Error {
         kt1: f64,
     },
 
-    /// `SPEC-063`, `DEC-058` §4. [`develop::develop_with_into`] was asked for
+    /// `SPEC-063`, `DEC-058` §4, narrowed by `SPEC-064`, `DEC-059` §3.
+    /// [`develop::develop_with_into`] was asked for
     /// [`develop::Framing::FullActiveArea`] on a sensor whose `OpcodeList3`
-    /// carries a non-identity `WarpRectilinear`. The warp clamps
-    /// out-of-extent samples to the nearest edge (`DEC-024`); under the
-    /// standard crop those pixels are cropped away, but over the whole active
-    /// area they would be visible. Refused rather than shown until the warp's
-    /// bounds are measured. An identity warp does not trigger this.
+    /// carries a `WarpRectilinear` that, lerped to
+    /// [`develop::DevelopOptions::warp_alpha`], is not the identity and is not
+    /// provably inside the image: its radial scale leaves `[0, 1]` somewhere
+    /// on `r² ∈ [0, 1]`, its optical centre lies outside the image, or a
+    /// coefficient is not finite. Such a warp would clamp out-of-extent
+    /// samples to the nearest edge (`DEC-024`) where they are visible.
+    ///
+    /// `scale_min` and `scale_max` are the lerped scale's exact extrema on
+    /// `[0, 1]`. For a non-finite coefficient or an out-of-image centre they
+    /// are whatever that computation gives, possibly NaN.
     UnsupportedWarpedFullActiveArea {
         /// `ActiveArea`'s resolved width (or the raw plane's, if absent).
         active_width: u32,
         /// `ActiveArea`'s resolved height (or the raw plane's, if absent).
         active_height: u32,
+        /// The requested [`develop::DevelopOptions::warp_alpha`].
+        warp_alpha: f64,
+        /// The lerped radial scale's minimum on `r² ∈ [0, 1]`.
+        scale_min: f64,
+        /// The lerped radial scale's maximum on `r² ∈ [0, 1]`.
+        scale_max: f64,
+    },
+
+    /// `SPEC-064`, `DEC-059` §2. [`develop::DevelopOptions::warp_alpha`] is
+    /// not a finite value in `[0, 1]` (`-0.0` is accepted). Reported first by
+    /// [`develop::develop_with_into`] and [`develop::output_dimensions_with`],
+    /// whatever the file holds.
+    InvalidWarpAlpha {
+        /// The value as given.
+        warp_alpha: f64,
     },
 
     /// `SPEC-018`. [`warp::apply_warp_into`]'s `src` does not hold exactly
@@ -1284,10 +1305,19 @@ impl fmt::Display for Error {
             Error::UnsupportedWarpedFullActiveArea {
                 active_width,
                 active_height,
+                warp_alpha,
+                scale_min,
+                scale_max,
             } => {
                 write!(
                     f,
-                    "full-active-area framing ({active_width}x{active_height}) is not supported with a non-identity WarpRectilinear: the warp's clamped edge samples would be visible"
+                    "full-active-area framing ({active_width}x{active_height}) is not supported with this WarpRectilinear at warp_alpha {warp_alpha}: its radial scale spans [{scale_min}, {scale_max}], and it must stay within [0, 1] with the optical centre inside the image, or clamped edge samples would be visible"
+                )
+            }
+            Error::InvalidWarpAlpha { warp_alpha } => {
+                write!(
+                    f,
+                    "warp_alpha {warp_alpha} is outside the domain [0, 1] (it must be finite, from 0 to 1)"
                 )
             }
             Error::WarpSourceWrongLength { expected, actual } => {
@@ -1482,7 +1512,8 @@ impl Error {
             | Error::DemosaicSourceWrongLength { .. }
             | Error::RgbBufferWrongLength { .. }
             | Error::ColorSourceWrongLength { .. }
-            | Error::LjpegPlaneWrongLength { .. } => ErrorKind::CallerError,
+            | Error::LjpegPlaneWrongLength { .. }
+            | Error::InvalidWarpAlpha { .. } => ErrorKind::CallerError,
 
             // Well-formed input this library does not decode. A non-TIFF or a
             // TIFF with no RAW sensor IFD is "not a file I read", and a file
