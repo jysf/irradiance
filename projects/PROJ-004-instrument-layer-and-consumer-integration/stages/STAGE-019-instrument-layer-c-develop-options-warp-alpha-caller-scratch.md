@@ -139,13 +139,13 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 Order: the options struct lands first; the other four hang off it. The blocked transpose
 does not need it and can run in parallel with any of them.
 
-- [~] SPEC-063 (build) [M] — DevelopOptions + develop_with_into: #[non_exhaustive] options with a byte-identical Default, Framing StandardCrop / FullActiveArea, apply_orientation; develop_into delegates; a DEC for the options shape and the version rule.
+- [x] SPEC-063 (shipped 2026-11-12) [M→M] — DevelopOptions + develop_with_into: #[non_exhaustive] options with a byte-identical Default, Framing StandardCrop / FullActiveArea, apply_orientation; develop_into delegates; a DEC for the options shape and the version rule.
 - [ ] SPEC-064 (frame) [M] — warp_alpha over WarpRect::lerp: measure the backward radial scale across held frames, refuse typed where FullActiveArea plus the lerped warp would sample outside the active area, bounds oracle at five alphas, over-unity red-proof. Depends on the options spec.
 - [ ] SPEC-065 (frame) [S] — Caller-owned develop scratch: scratch_len plus a scratch variant covering the warp buffers, the FixBadPixelsConstant plane copy and the neighbours Vec; zero-allocation test; typed wrong-length error. Depends on the options spec.
 - [ ] SPEC-066 (frame) [S] — CFA-as-mono option: develop a CFA-declared plane on the mono path with per-position black and white levels (BlackLevelRepeatDim mapping, small DEC); synthetic oracle and swapped-position red-proof. Depends on the options spec.
 - [ ] SPEC-067 (frame) [S] — Blocked Orientation 5-8 transpose in crop_orient_normalize_into: byte-identical for all eight orientations, before/after Q2M timing with a method fixed at design.
 
-**Count:** 0 shipped / 5 active / 0 pending (SPEC-063 designed 2026-11-12, DEC-058)
+**Count:** 1 shipped / 4 active / 0 pending (SPEC-063 shipped 2026-11-12, DEC-058, verify approved first round, 25.96M tok / $18.62)
 
 ## Design Notes
 

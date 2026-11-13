@@ -10,4 +10,4 @@ Cycle prompts live in `prompts/SPEC-063-<cycle>.md`.
 - [x] **design** — completed 2026-11-12 (DEC-058; HANDOFF-133 build ready)
 - [x] **build** — completed 2026-11-12 (HANDOFF-133, PR #214)
 - [x] **verify** — completed 2026-11-12 (HANDOFF-134, APPROVED at ae232c2)
-- [ ] **ship** — pending (verify approved; #214 merged)
+- [x] **ship** — completed 2026-11-12 (true cost 25,963,892 tok / $18.62)
