@@ -640,6 +640,20 @@ pub enum Error {
         white_level: u32,
     },
 
+    /// `SPEC-066`, `DEC-061`. Under
+    /// [`develop::BlackLevels::PerPosition`], `BlackLevel` does not hold
+    /// exactly `BlackLevelRepeatDim`'s `rows × cols` values (or a dimension
+    /// is 0, or the product overflows). Checked only when the option uses
+    /// the pattern.
+    InvalidBlackLevelPattern {
+        /// `BlackLevelRepeatDim`'s rows (1 if absent or malformed).
+        repeat_rows: u32,
+        /// `BlackLevelRepeatDim`'s columns (1 if absent or malformed).
+        repeat_cols: u32,
+        /// How many `BlackLevel` values the sensor carries.
+        count: usize,
+    },
+
     /// `SPEC-014`. [`develop::develop_into`]'s `src` does not hold exactly
     /// `sensor.width * sensor.height` samples — the other end of the pipeline
     /// from [`Error::PlaneBufferWrongLength`].
@@ -1274,6 +1288,17 @@ impl fmt::Display for Error {
                     "BlackLevel {black_level} is not less than WhiteLevel {white_level}"
                 )
             }
+            Error::InvalidBlackLevelPattern {
+                repeat_rows,
+                repeat_cols,
+                count,
+            } => {
+                write!(
+                    f,
+                    "BlackLevel holds {count} value(s), but BlackLevelRepeatDim \
+                     {repeat_rows}x{repeat_cols} needs exactly rows x cols (each at least 1)"
+                )
+            }
             Error::SourcePlaneWrongLength { expected, actual } => {
                 write!(
                     f,
@@ -1587,6 +1612,7 @@ impl Error {
             | Error::InvalidActiveArea { .. }
             | Error::InvalidDefaultCrop { .. }
             | Error::InvalidLevels { .. }
+            | Error::InvalidBlackLevelPattern { .. }
             | Error::MalformedOpcodeParams { .. }
             | Error::LjpegInvalidPointTransform { .. }
             | Error::LjpegInvalidHuffmanTable

@@ -10,6 +10,23 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **CFA as mono: per-position black levels, `DevelopOptions::black_levels`**
+  (`irradiance::develop`, SPEC-066, STAGE-019, PROJ-004, DEC-061). A converted
+  (CFA-removed) camera still declares `CFAPattern`; its plane already develops on the mono
+  path, and now it can take its declared per-position black. `black_levels:
+  BlackLevels::FirstValue | BlackLevels::PerPosition` (`#[non_exhaustive]`, default
+  `FirstValue`). `PerPosition` indexes `BlackLevel` by `BlackLevelRepeatDim` (`[1, 1]` when
+  absent or malformed), phased from the `ActiveArea` origin, on raw samples before the
+  warp; white stays per sample. No allocation on any entry point. Output is
+  **unchanged by default**, and every held `LinearRaw` file declares a 1×1 pattern, so it
+  develops byte-identically under both values; `DEVELOP_VERSION` stays `"4"`. On the
+  Canon 5D3 (`[2047, 2047, 2047, 2048]`) `PerPosition` changes 5,602,332 of 22,430,520
+  active samples, by at most 6.
+- **`Error::InvalidBlackLevelPattern { repeat_rows, repeat_cols, count }`** (additive;
+  `ErrorKind::Corrupt`). Under `BlackLevels::PerPosition`, a `BlackLevel` count other than
+  `BlackLevelRepeatDim`'s `rows × cols` (or a zero or overflowing dimension) is refused,
+  where `InvalidLevels` is reported, before any write. Validated only when the option
+  uses the pattern (SPEC-066, DEC-061).
 - **Develop options: full active area and unrotated output** (`irradiance::develop`,
   SPEC-063, STAGE-019, PROJ-004, DEC-058). `develop_with_into(sensor, src, dst, &options)`
   and `output_dimensions_with(sensor, &options)` take a `DevelopOptions`:

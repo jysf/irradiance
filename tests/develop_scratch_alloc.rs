@@ -20,7 +20,7 @@ use std::cell::Cell;
 use corpus::{CorpusRoot, Manifest};
 use irradiance::develop::{
     apply_fix_bad_pixels_constant, develop_with_into, develop_with_scratch_into,
-    output_dimensions_with, scratch_len, DevelopOptions, Framing,
+    output_dimensions_with, scratch_len, BlackLevels, DevelopOptions, Framing,
 };
 use irradiance::ifd::{ActiveArea, Container, DefaultCropOrigin, DefaultCropSize, Sensor};
 use irradiance::opcode::{parse_fix_bad_pixels_constant, parse_warp_rectilinear};
@@ -286,6 +286,93 @@ fn scratch_develop_allocates_nothing() {
     for (call, (ok, allocations)) in calls.iter().zip(counts) {
         assert_eq!(ok, call.expect_ok, "{}: result", call.label);
         assert_eq!(allocations, 0, "{}: allocated", call.label);
+    }
+}
+
+/// `SPEC-066` `AC9`: the per-position black pattern (`DEC-061` §4) reads
+/// `sensor.black_levels` in place. A `[2, 2]` pattern of four distinct blacks
+/// on the bordered fixture (`ActiveArea` origin (2, 1)), with and without a
+/// warp and `FixBadPixelsConstant`, and the pattern refusals.
+#[test]
+fn per_position_allocates_nothing() {
+    let per = |framing: Framing, alpha: f64| {
+        let mut options = opts(framing, alpha, true);
+        options.black_levels = BlackLevels::PerPosition;
+        options
+    };
+    let patterned = |fbp: bool, warp: bool, blacks: &[u32], repeat: Option<[u32; 2]>| {
+        let mut sensor = case_sensor(fbp, warp, 1);
+        sensor.black_level = blacks.first().copied();
+        sensor.black_levels = blacks.to_vec();
+        sensor.black_level_repeat_dim = repeat;
+        sensor.white_level = Some(4095);
+        sensor
+    };
+    let mut calls: Vec<Prepared> = Vec::new();
+    for (fbp, warp) in [(false, false), (true, false), (false, true), (true, true)] {
+        for framing in [Framing::StandardCrop, Framing::FullActiveArea] {
+            let sensor = patterned(fbp, warp, &[100, 200, 300, 400], Some([2, 2]));
+            let options = per(framing, 1.0);
+            // scratch_len does not depend on the option.
+            assert_eq!(
+                scratch_len(&sensor, &options).unwrap(),
+                scratch_len(&sensor, &opts(framing, 1.0, true)).unwrap(),
+                "fbp {fbp} warp {warp} {framing:?}: scratch_len"
+            );
+            calls.push(prepare(
+                format!("fbp {fbp} warp {warp} {framing:?}"),
+                sensor,
+                options,
+                0,
+            ));
+        }
+    }
+    for (label, blacks, repeat) in [
+        ("4 values, [1, 1]", vec![100, 200, 300, 400], Some([1, 1])),
+        ("3 values, [2, 2]", vec![100, 200, 300], Some([2, 2])),
+        ("[0, 2]", vec![100, 200], Some([0, 2])),
+        ("overflow", vec![100, 200], Some([u32::MAX, u32::MAX])),
+        ("value at white", vec![100, 4095, 300, 400], Some([2, 2])),
+    ] {
+        let mut bad = prepare(
+            label.into(),
+            patterned(true, true, &blacks, repeat),
+            per(Framing::StandardCrop, 1.0),
+            0,
+        );
+        bad.expect_ok = false;
+        calls.push(bad);
+    }
+
+    let mut counts = vec![(false, 0usize); calls.len()];
+    for (call, slot) in calls.iter_mut().zip(counts.iter_mut()) {
+        let (result, allocations, _) = counted(|| {
+            develop_with_scratch_into(
+                &call.sensor,
+                &call.src,
+                &mut call.dst,
+                &mut call.scratch,
+                &call.options,
+            )
+            .is_ok()
+        });
+        *slot = (result, allocations);
+    }
+    for (call, (ok, allocations)) in calls.iter().zip(counts) {
+        assert_eq!(ok, call.expect_ok, "{}: result", call.label);
+        assert_eq!(allocations, 0, "{}: allocated", call.label);
+    }
+
+    // develop_with_into: at most the one scratch allocation.
+    for call in calls.iter_mut() {
+        let (_, allocations, _) = counted(|| {
+            let _ = develop_with_into(&call.sensor, &call.src, &mut call.dst, &call.options);
+        });
+        assert!(
+            allocations <= 1,
+            "{}: develop_with_into allocated {allocations}",
+            call.label
+        );
     }
 }
 
