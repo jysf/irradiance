@@ -140,7 +140,7 @@ Order: the options struct lands first; the other four hang off it. The blocked t
 does not need it and can run in parallel with any of them.
 
 - [x] SPEC-063 (shipped 2026-11-12) [M→M] — DevelopOptions + develop_with_into: #[non_exhaustive] options with a byte-identical Default, Framing StandardCrop / FullActiveArea, apply_orientation; develop_into delegates; a DEC for the options shape and the version rule.
-- [ ] SPEC-064 (frame) [M] — warp_alpha over WarpRect::lerp: measure the backward radial scale across held frames, refuse typed where FullActiveArea plus the lerped warp would sample outside the active area, bounds oracle at five alphas, over-unity red-proof. Depends on the options spec.
+- [ ] SPEC-064 (build) [M] — warp_alpha over WarpRect::lerp: measure the backward radial scale across held frames, refuse typed where FullActiveArea plus the lerped warp would sample outside the active area, bounds oracle at five alphas, over-unity red-proof. Depends on the options spec.
 - [ ] SPEC-065 (frame) [S] — Caller-owned develop scratch: scratch_len plus a scratch variant covering the warp buffers, the FixBadPixelsConstant plane copy and the neighbours Vec; zero-allocation test; typed wrong-length error. Depends on the options spec.
 - [ ] SPEC-066 (frame) [S] — CFA-as-mono option: develop a CFA-declared plane on the mono path with per-position black and white levels (BlackLevelRepeatDim mapping, small DEC); synthetic oracle and swapped-position red-proof. Depends on the options spec.
 - [ ] SPEC-067 (frame) [S] — Blocked Orientation 5-8 transpose in crop_orient_normalize_into: byte-identical for all eight orientations, before/after Q2M timing with a method fixed at design.
@@ -173,6 +173,10 @@ Facts and open questions to pin at design time:
   or starts refusing (a behaviour change and a `DEVELOP_VERSION` question).
 - **Every held Q2M frame carries a non-identity warp.** SPEC-063 refuses `FullActiveArea`
   with a real warp (DEC-058 §4), so on the Q2M that framing waits for SPEC-064.
+  **Measured by the SPEC-064 design (DEC-059):** all three Q2M frames keep the backward
+  radial scale in `[0.8998, 0.99925]` at every α, so no sample leaves the active area and
+  `FullActiveArea` is admitted. The corner pull is 506.1 px on L1021223. The Pixel 3a is a
+  held over-unity lens (max 1.0015) and is the red-proof's polynomial.
 - **Options and the colour path** (`src/color.rs` mirrors the geometry, DEC-043). Keep the
   options mono-only and say so in the doc comment; do not half-wire colour.
 - **Benchmarking.** The repo has no bench harness. The transpose spec picks either an

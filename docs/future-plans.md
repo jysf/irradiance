@@ -223,6 +223,11 @@ displacement-field sampler.
    `f_α = (1−α) + α·f`, so `f <= 1` everywhere ⇒ `f_α <= 1` for every α. The
    sampler must check this on the Q2M, and the applier must still return a typed
    error (never read out of bounds or panic) for a lens where `f > 1`.
+   **Measured 2026-11-12 (SPEC-064, DEC-059):** every held Q2M frame has
+   `f ∈ [0.8998, 0.99925]`, decreasing to the corner; the corner pull is 506.1 px on
+   L1021223 (not the unrecorded 503.8). The Pixel 3a is a real `f > 1` lens
+   (max 1.0015, 439 out-of-extent pixels at α = 1). The rule adopted is
+   `0 ≤ f_α ≤ 1` on `r² ∈ [0, 1]` with the optical centre inside the image.
 2. **Zone 0 vs `at_black`.** "`at_black_count` *or* Zone 0 covers `== black_level`"
    is ambiguous. Specify one partition (`< black`, `== black`, zones…, `>= white`)
    so the counts sum to the in-area total, and test that invariant.

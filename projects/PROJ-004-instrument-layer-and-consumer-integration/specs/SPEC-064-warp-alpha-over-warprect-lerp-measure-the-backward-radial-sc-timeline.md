@@ -7,4 +7,7 @@ Cycle prompts live in `prompts/SPEC-064-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **design** — completed 2026-11-12 (DEC-059; probe measured every held warp; HANDOFF-135 build ready)
+- [ ] **build** — HANDOFF-135
+- [ ] **verify**
+- [ ] **ship**
