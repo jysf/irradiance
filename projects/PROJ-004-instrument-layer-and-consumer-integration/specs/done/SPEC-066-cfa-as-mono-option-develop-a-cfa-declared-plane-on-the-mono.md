@@ -6,19 +6,19 @@
 task:
   id: SPEC-066
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 28000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-139
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 18182173
+      estimated_usd: 12.92
+      duration_minutes: 60
+      recorded_at: 2026-11-13
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript 5ed79b91-42b4-4c23-9230-1fe9f9e1acdf.jsonl (89 unique message.ids, all claude-opus-5-5, no subagents): input 181 + cache-creation 215,677 (1-hour) + cache-read 17,893,761 + output 72,554 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 16,370,481 / 11.76 before the handback commit and CI turns. PR #227 squash-merged as 399acf4 before verify, at the maintainer's choice."
+    - cycle: verify
+      handoff: HANDOFF-140
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 8545090
+      estimated_usd: 6.59
+      duration_minutes: 36
+      recorded_at: 2026-11-13
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript d56548c4-3951-45c3-9fdc-3ad6d2e57f89.jsonl (51 unique message.ids, all claude-opus-5-5, no subagents): input 101 + cache-creation 145,643 (1-hour) + cache-read 8,361,271 + output 38,075 (max per message), opus-5-5 rates. The handback floor was 7,346,027 / 5.75. Verdict APPROVED at 399acf4 (post-merge verify of main), no code changes, posted as a comment on PR #227; 18/18 tier-A mutants red; just test 668/0/1 with 12/12 corpus; fuzz develop 4,654,282 runs in 63 s, clean; main CI green at 399acf4."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 26727263
+    estimated_usd: 19.51
+    session_count: 2
+shipped_at: 2026-11-13
 ---
 
 # SPEC-066: Per-position black levels on the mono path, so a converted camera's CFA-declared plane develops as monochrome
@@ -309,12 +330,12 @@ handback, release build, single run. The Q2M takes `Uniform`, so the time should
 
 ## Acceptance Criteria
 
-- [ ] **AC1. The default is unchanged.**
+- [x] **AC1. The default is unchanged.**
   - `DevelopOptions::default().black_levels == BlackLevels::FirstValue`.
   - SPEC-063's eight MD5 pins stay green and unedited, through `develop_into`,
     `develop_with_into` and `develop_with_scratch_into`.
   - `DEVELOP_VERSION == "4"`.
-- [ ] **AC2. The uniform-plane oracle (request 6, tier A, analytic).**
+- [x] **AC2. The uniform-plane oracle (request 6, tier A, analytic).**
   - **Fixture:** a CFA-declared sensor (`Cfa::test_fixture`, `photometric` 32803).
     - non-square, with an `ActiveArea` whose top and left are both **odd**, and a
       `DefaultCrop` whose origin is also odd;
@@ -331,7 +352,7 @@ handback, release build, single run. The Q2M takes `Uniform`, so the time should
     Pick `k` so it is. If the ranges differ, assert the analytic value only and say why.
   - **Under `FirstValue`**, the same plane is **not** uniform. That proves the fixture
     can tell the two modes apart.
-- [ ] **AC3. Per-position is honoured, and the phase is the `ActiveArea` origin.**
+- [x] **AC3. Per-position is honoured, and the phase is the `ActiveArea` origin.**
   - **Fixture:** four distinct blacks `[100, 200, 300, 400]`, `[2, 2]`, white 4095, an
     odd `ActiveArea` origin and an odd `DefaultCrop` origin, and a hand-built plane.
   - The `StandardCrop` output equals a hand-computed expected image for at least the
@@ -341,7 +362,7 @@ handback, release build, single run. The Q2M takes `Uniform`, so the time should
     - phasing from the plane origin;
     - phasing from the `DefaultCrop` origin;
     - transposing the index (`col × R + row`).
-- [ ] **AC4. Non-square patterns.**
+- [x] **AC4. Non-square patterns.**
   - **`[1, 2]`:** blacks alternate by column only. **`[2, 1]`:** they alternate by row
     only.
   - **`[3, 3]`:** nine values, with a plane whose active width and height are not
@@ -349,14 +370,14 @@ handback, release build, single run. The Q2M takes `Uniform`, so the time should
 
   Each is checked against a hand-computed block. Together they kill the "assume 2×2"
   mutant.
-- [ ] **AC5. The warp path applies the black before the warp.**
+- [x] **AC5. The warp path applies the black before the warp.**
   - **Fixture:** a non-identity, in-bounds `WarpRectilinear`, the AC3 fixture's pattern,
     and a plane equal to `black[pos] + k` everywhere.
   - **Under `PerPosition`**, the warped output is uniform `normalize(k)` (a constant
     field is invariant under the warp). Use both framings, at `warp_alpha` 1 and 0.5.
   - **Red-proof:** taking the black by output position after the warp, rather than by
     raw position before it, makes the output non-uniform.
-- [ ] **AC6. Count, shape and range refusals.** Each `PerPosition` case below is
+- [x] **AC6. Count, shape and range refusals.** Each `PerPosition` case below is
   `InvalidBlackLevelPattern` with the right fields, `kind() == Corrupt`, and `dst`
   unchanged (sentinel), from `develop_with_into` and `develop_with_scratch_into`:
   - 4 values with `[1, 1]`;
@@ -372,7 +393,7 @@ handback, release build, single run. The Q2M takes `Uniform`, so the time should
     under `PerPosition` and equals `FirstValue`.
   - `black_level_repeat_dim = None` with one value develops, and equals `FirstValue`.
   - `None` with four values is refused, because the default `[1, 1]` meets four values.
-- [ ] **AC7. Error order.** On a sensor that is also wrong in each of these ways, the
+- [x] **AC7. Error order.** On a sensor that is also wrong in each of these ways, the
   first one is still reported ahead of the pattern error:
   - out-of-domain `warp_alpha`;
   - a mandatory unknown opcode;
@@ -381,7 +402,7 @@ handback, release build, single run. The Q2M takes `Uniform`, so the time should
 
   On a sensor with a bad pattern **and** a wrong `dst` length, `InvalidBlackLevelPattern`
   wins. Every existing precedence test stays green unedited.
-- [ ] **AC8. Tier B.**
+- [x] **AC8. Tier B.**
   - **Canon 5D3**, `FullActiveArea`, `apply_orientation: false`:
     - the output is 5796×3870;
     - `PerPosition` equals `FirstValue` exactly at positions 0, 1 and 2;
@@ -390,24 +411,24 @@ handback, release build, single run. The Q2M takes `Uniform`, so the time should
   - **The six `LinearRaw` files and the Nikon:** `PerPosition` output MD5-equals
     `FirstValue` output, which is their SPEC-063 pin.
   - A missing file is reported by name.
-- [ ] **AC9. Allocation.** In `tests/develop_scratch_alloc.rs`:
+- [x] **AC9. Allocation.** In `tests/develop_scratch_alloc.rs`:
   - `develop_with_scratch_into` under `PerPosition` makes 0 allocations, on the AC3
     fixture with and without a warp and `FixBadPixelsConstant`, and on the AC6 error
     paths.
   - `develop_with_into` makes at most 1 allocation.
   - `scratch_len` is the same under both modes.
-- [ ] **AC10. Error surface.**
+- [x] **AC10. Error surface.**
   - `InvalidBlackLevelPattern` is in `Error::kind()` with no wildcard and has a row in
     `tests/error_kind.rs`. Its `Display` contains all three numbers, pinned by a test.
   - The `error_kind` counts move by exactly one.
-- [ ] **AC11. API hygiene.**
+- [x] **AC11. API hygiene.**
   - The enum and field are documented as §2 says. An external test sets `black_levels`
     only by field assignment on `Default`.
   - `cargo doc` has no broken links.
   - CHANGELOG `[Unreleased]` is updated as §6 says.
-- [ ] **AC12. Fuzz.** The §5 bit, the differential and the three seeds are in place. A
+- [x] **AC12. Fuzz.** The §5 bit, the differential and the three seeds are in place. A
   60 s `develop` run is clean. Report the run count and the seed classification.
-- [ ] **AC13. No regression.**
+- [x] **AC13. No regression.**
   - Every existing test passes with no assertion changed, except `error_kind`'s rows and
     counts.
   - `just test` passes with the corpus env set. So do `lint-ci`, `lint-no-allow`,
@@ -449,6 +470,24 @@ test red in **tier A**:
   `white_levels` has one value. Also add a fixture with `white_levels = [4095, 1000]` and
   assert the result equals the one with `white_levels = [4095]` (the first value only).
 
+*Added at ship, from the cold verify (HANDOFF-140), all red in tier A:*
+- the black taken after the warp, by output position, in a true per-pixel form → AC5
+  (each of its two cases alone);
+- a true per-pixel `white_levels[pos]` → the two-`WhiteLevel` fixture;
+- the phase from the geometry crop origin under `FullActiveArea` → AC3/AC4;
+- `R` and `C` swapped when forming the index → AC4 (`[1, 2]` / `[2, 1]`);
+- an empty `BlackLevel` refused instead of falling back → AC6;
+- `InvalidLevels` reporting the last offending value → AC6.
+
+*Design errors corrected at build (HANDOFF-139), kept here so the criteria read true:*
+- **AC2.** "Uniform `normalize(k)`" holds only at a k where the per-position ranges
+  round alike. At k = 15345, positions 0/1 give 65535 and 2/3 give 65531. Every k
+  asserts the analytic per-position value; uniformity is asserted at k = 0 and 200.
+- **AC3.** The crop origin inside the `ActiveArea` is (1, 2). A crop origin odd on both
+  axes over an odd `ActiveArea` origin reproduces the plane origin's parity, so the
+  `DefaultCrop`-origin mutant would have been invisible.
+- **AC5.** Uses two cases, each of which asserts its own rounding premise.
+
 ## Non-Goals
 
 - **Routing.** No refusal of CFA planes and no change to which entry point a caller uses.
@@ -479,31 +518,52 @@ test red in **tier A**:
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Two changes, both in the design's analytic oracles.
+   - **Check that the oracle's premise holds after integer rounding.** I wrote "uniform
+     `normalize(k)`" for AC2 and AC5. Distinct per-position blacks give distinct ranges,
+     and those round differently at large k (65535 against 65531 at k = 15345). The
+     premise is only true at k values that round alike.
+   - **Enumerate the parity cases rather than writing "odd".** I asked for both the
+     `ActiveArea` origin and the `DefaultCrop` origin to be odd. Combined, two odd
+     offsets land on even parity, the same as the plane origin, so one of the three
+     candidate origins became indistinguishable.
+
+   The build caught both and re-derived the fixtures, and the verify checked one block by
+   hand (8093 / 6579 / 9531).
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — **DEC-061** held as written. Every probe figure was confirmed, including the Canon's
+   5,602,332 differing samples, at most 6, all at position 3.
+   - **New watch signal (N=1):** `analytic-oracle-premise-must-survive-rounding`, in
+     `guidance/signals.yaml`.
+   - **Process note.** #227 was merged before the verify, at the maintainer's choice. The
+     verify then ran against `main` with instructions to return any fixes as a new PR. It
+     approved with no changes, so nothing was lost, but that order puts unverified code
+     on `main` for the length of the verify.
+   - **Build finding.** `tests/develop_oracle.rs` fault-injects by scanning
+     `src/develop.rs` source text, so moving a loop into a helper breaks a test that
+     looks unrelated. A handoff touching `develop.rs` should name it. That is recorded in
+     the stage notes and not promoted.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec.
+   - **Verify follow-ups.** Two `[XS]` items are added to the STAGE-019 verify follow-up
+     line:
+     - AC5's "the warp ran" guard does not prove the warp ran;
+     - AC7's `develop_err` does not check the scratch sentinel.
+   - **DEC-061 §5 follow-ups.** These are already in the stage backlog:
+     - a RATIONAL `BlackLevel` drops to 0;
+     - the colour path ignores `BlackLevelRepeatDim`;
+     - `BlackLevelDeltaH` / `BlackLevelDeltaV`.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — build
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — **Before:** a converted (CFA-removed) camera's CFA-declared plane developed on the
+   mono path with the first `BlackLevel` value applied to every photosite.
+
+   **After:** `DevelopOptions { black_levels: BlackLevels::PerPosition, .. }` applies the
+   declared per-position black, indexed by `BlackLevelRepeatDim` from the `ActiveArea`
+   origin, before the warp, with no allocation. On the Canon 5D3 that changes 5,602,332
+   of 22,430,520 samples by at most 6. Every 1×1 file, and the default, is byte-identical.

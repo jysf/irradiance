@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 16370481               # REAL combined count — what cost-audit reads
-  estimated_usd: 11.76              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 18182173               # REAL combined count — what cost-audit reads
+  estimated_usd: 12.92              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 60
   branch: claude/spec-066-build
-  pr: https://github.com/jysf/irradiance/pull/227
+  pr: 227
   completed_at: 2026-11-13               # YYYY-MM-DD
-  notes: "FLOOR from transcript 5ed79b91-42b4-4c23-9230-1fe9f9e1acdf.jsonl at handback time (82 unique message.ids, all claude-opus-5-5, no subagents, max output per message): input 167 + cache-read 16,097,182 + cache-creation 208,139 (all 1-hour) + output 64,993. USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Excludes the handback commit and CI-confirmation turns; re-sum at ship."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript 5ed79b91-42b4-4c23-9230-1fe9f9e1acdf.jsonl (89 unique message.ids, all claude-opus-5-5, no subagents): input 181 + cache-creation 215,677 (1-hour) + cache-read 17,893,761 + output 72,554 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 16,370,481 / 11.76 before the handback commit and CI turns. PR #227 squash-merged as 399acf4 before verify, at the maintainer's choice."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  synced_at: 2026-11-13
 ---
 
 # HANDOFF-139: BUILD: per-position black levels on the mono path, CFA-as-mono (SPEC-066)

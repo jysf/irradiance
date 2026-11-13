@@ -142,13 +142,13 @@ does not need it and can run in parallel with any of them.
 - [x] SPEC-063 (shipped 2026-11-12) [M→M] — DevelopOptions + develop_with_into: #[non_exhaustive] options with a byte-identical Default, Framing StandardCrop / FullActiveArea, apply_orientation; develop_into delegates; a DEC for the options shape and the version rule.
 - [x] SPEC-064 (shipped 2026-11-12) [M→M] — warp_alpha over WarpRect::lerp: measure the backward radial scale across held frames, refuse typed where FullActiveArea plus the lerped warp would sample outside the active area, bounds oracle at five alphas, over-unity red-proof. Depends on the options spec.
 - [x] SPEC-065 (shipped 2026-11-13) [M→M] (re-sized from S at design: shared core, allocation-free opcode walkers, two test binaries) — Caller-owned develop scratch: scratch_len plus a scratch variant covering the warp buffers, the FixBadPixelsConstant plane copy and the neighbours Vec; zero-allocation test; typed wrong-length error. Depends on the options spec.
-- [ ] SPEC-066 (build) [M] (re-sized from S at design: two normalize sites, odd-origin phase fixtures, tier-B Canon relation) — CFA-as-mono option: `DevelopOptions::black_levels` (`FirstValue` default / `PerPosition`), BlackLevel indexed by BlackLevelRepeatDim from the ActiveArea origin, white per sample (DEC-061); uniform-plane analytic oracle and swapped-position red-proof. Depends on the options spec.
+- [x] SPEC-066 (shipped 2026-11-13) [M→M] (re-sized from S at design: two normalize sites, odd-origin phase fixtures, tier-B Canon relation) — CFA-as-mono option: `DevelopOptions::black_levels` (`FirstValue` default / `PerPosition`), BlackLevel indexed by BlackLevelRepeatDim from the ActiveArea origin, white per sample (DEC-061); uniform-plane analytic oracle and swapped-position red-proof. Depends on the options spec.
 - [ ] SPEC-067 (frame) [S] — Blocked Orientation 5-8 transpose in crop_orient_normalize_into: byte-identical for all eight orientations, before/after Q2M timing with a method fixed at design.
 
-- [ ] (unframed) [XS] — SPEC-065 verify follow-ups: a median fixture whose neighbours arrive unsorted, so "neighbours unsorted" is caught by an `apply_fix_bad_pixels_constant` test directly; a develop-level malformed-`OpcodeList1` row in `tests/develop_scratch_alloc.rs`'s error-path list.
+- [ ] (unframed) [XS] — SPEC-065 and SPEC-066 verify follow-ups. SPEC-065: a median fixture whose neighbours arrive unsorted, so "neighbours unsorted" is caught by an `apply_fix_bad_pixels_constant` test directly; a develop-level malformed-`OpcodeList1` row in `tests/develop_scratch_alloc.rs`'s error-path list. SPEC-066: AC5's "the warp ran" guard does not prove the warp ran (`FirstValue` differs from `PerPosition` with no warp too); AC7's `develop_err` does not check the scratch sentinel.
 - [ ] (unframed, outside STAGE-019's requests) [S] — Level-tag follow-ups found by the SPEC-066 design (DEC-061 §5): a RATIONAL non-integral `BlackLevel` (Pixel 7 Pro) is costed as malformed and resolves to black 0 on every path, mono and colour; and the colour path's `level_at` indexes `black_levels` by a fixed 2x2 slot, ignoring `BlackLevelRepeatDim` (wrong for a `[1, 2]` or `[2, 1]` pattern; right for every held file).
 
-**Count:** 3 shipped / 2 active / 0 pending (SPEC-063 25.96M tok / $18.62; SPEC-064 32.22M / $23.71; SPEC-065 shipped 2026-11-13, DEC-060, verify approved first round, 41.89M tok / $29.94)
+**Count:** 4 shipped / 3 active / 0 pending (one spec, SPEC-067, plus two unframed follow-up lines. SPEC-063 25.96M tok / $18.62; SPEC-064 32.22M / $23.71; SPEC-065 41.89M / $29.94; SPEC-066 shipped 2026-11-13, DEC-061, verify approved post-merge, 26.73M / $19.51)
 
 ## Design Notes
 
@@ -186,6 +186,11 @@ Facts and open questions to pin at design time:
   `LinearRaw` file declares a 1x1 pattern, so both modes agree on them; the Canon
   changes 5,602,332 of 22,430,520 active samples by at most 6. White is per sample in DNG,
   so there is no per-position white.
+- **Source-scanning tests.** `tests/develop_oracle.rs` (and `tests/develop.rs`)
+  fault-inject by reading `src/develop.rs` text for named function bodies
+  (`crop_orient_normalize_into`, …). Restructuring those functions breaks them. Found by
+  the SPEC-066 build; name them in any handoff that touches `develop.rs` (SPEC-067's
+  transpose lives in `crop_orient_normalize_into`).
 - **Every held Q2M frame carries a non-identity warp.** SPEC-063 refuses `FullActiveArea`
   with a real warp (DEC-058 §4), so on the Q2M that framing waits for SPEC-064.
   **Measured by the SPEC-064 design (DEC-059):** all three Q2M frames keep the backward
