@@ -1574,3 +1574,21 @@ signals:
       in the ACs. Related in the same verify: the build's argmax displacement oracle passed
       vacuously on an all-zero plane until a 'the impulse survives' guard was added (same
       family as [[named-tests-can-pass-vacuously]]).
+
+  - id: analytic-oracle-premise-must-survive-rounding
+    type: lesson
+    summary: "An analytic oracle stated in exact arithmetic ('the output is uniform', 'equals the mono output') can be false after the pipeline's integer rounding; derive the premise in the integer form the code uses, and assert it in the test, before naming it as the oracle."
+    evidence: "N=1, STAGE-019 2026-11-13. SPEC-066's design wrote AC2 and AC5 as 'a plane of black[pos] + k develops to a uniform normalize(k)'. Distinct per-position blacks give distinct ranges (white - black), and round-half-up over those ranges diverges at large k: at k = 15345 positions 0/1 gave 65535 and 2/3 gave 65531. The build (HANDOFF-139) re-derived the fixtures, asserting the exact per-position value at every k and uniformity only where the ranges round alike; AC5 asserts its own rounding premise. In the same design an 'odd ActiveArea origin plus odd DefaultCrop origin' fixture landed on even parity and could not separate the plane origin from the crop origin; the build moved the crop origin to (1, 2)."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-13
+    last_touched: 2026-11-13
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote: N=1. Falsifier, cheap at design: compute the oracle's
+      expected values once with the code's integer formula at the extremes of each
+      fixture parameter (k = 0, mid, max) and for each parity combination, and check the
+      stated relation holds before writing the AC. Related to
+      [[closed-form-numeric-needs-extreme-magnitude-fixtures]] (both are "the premise was
+      only checked at comfortable values").
