@@ -26,8 +26,8 @@ mod opcode_support;
 
 use corpus::{CorpusRoot, Manifest};
 use irradiance::develop::{
-    develop_with_into, develop_with_scratch_into, output_dimensions_with, scratch_len,
-    DevelopOptions, Framing,
+    apply_fix_bad_pixels_constant, develop_with_into, develop_with_scratch_into,
+    output_dimensions_with, scratch_len, DevelopOptions, Framing,
 };
 use irradiance::ifd::{
     ActiveArea, ByteOrder, Container, DefaultCropOrigin, DefaultCropSize, Sensor, TAG_OPCODE_LIST_1,
@@ -330,6 +330,49 @@ fn scratch_output_equals_develop_with_into() {
     assert_ne!(fbp, neither, "the fix changes the output");
 }
 
+/// An oracle independent of the shared core. `scratch_output_equals_develop_with_into`
+/// compares two entries that run the SAME code, so a mistake in the core's
+/// passes (the warp reading the wrong buffer, the passes out of order) moves
+/// both sides and stays green. Here each fix case is checked against its
+/// composition from public parts instead: fix a copy of the plane with the
+/// public `apply_fix_bad_pixels_constant`, then develop the sensor with
+/// `OpcodeList1` removed. The "both" case must equal the warp-only develop of
+/// the pre-fixed plane, and the fix-only case the opcode-free develop of it.
+#[test]
+fn each_case_equals_its_composition_from_public_parts() {
+    for orientation in [1, 6] {
+        for options in ac2_options() {
+            for (with_fix, without_fix) in
+                [(Case::Both, Case::WarpOnly), (Case::FbpOnly, Case::Neither)]
+            {
+                let sensor = case_sensor(with_fix, orientation);
+                let src = plane(&sensor);
+                let mut fixed = src.clone();
+                apply_fix_bad_pixels_constant(
+                    &mut fixed,
+                    10,
+                    8,
+                    ActiveArea {
+                        top: 1,
+                        left: 2,
+                        bottom: 7,
+                        right: 9,
+                    },
+                    0,
+                )
+                .unwrap();
+                assert_ne!(fixed, src, "the fixture has bad pixels to fix");
+                let want = reference(&case_sensor(without_fix, orientation), &fixed, &options);
+                let got = with_scratch(&sensor, &src, &options, |_| 0xA5A5);
+                assert_eq!(
+                    got, want,
+                    "{with_fix:?} = fix, then {without_fix:?}; orientation {orientation}, {options:?}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn scratch_output_matches_the_pins() {
     for (path, width, height, pin) in PINNED {
@@ -429,17 +472,19 @@ fn fills() -> [Fill; 3] {
 
 #[test]
 fn output_does_not_depend_on_scratch_contents() {
-    for orientation in [1, 6] {
-        let sensor = case_sensor(Case::Both, orientation);
-        let src = plane(&sensor);
-        for options in ac2_options() {
-            let want = reference(&sensor, &src, &options);
-            for (name, fill) in fills() {
-                let got = with_scratch(&sensor, &src, &options, fill);
-                assert_eq!(
-                    got, want,
-                    "{name} fill, orientation {orientation}, {options:?}"
-                );
+    for case in CASES {
+        for orientation in [1, 6] {
+            let sensor = case_sensor(case, orientation);
+            let src = plane(&sensor);
+            for options in ac2_options() {
+                let want = reference(&sensor, &src, &options);
+                for (name, fill) in fills() {
+                    let got = with_scratch(&sensor, &src, &options, fill);
+                    assert_eq!(
+                        got, want,
+                        "{case:?}, {name} fill, orientation {orientation}, {options:?}"
+                    );
+                }
             }
         }
     }
@@ -794,4 +839,38 @@ fn pin_for(path: &str) -> &'static str {
         .find(|(p, _, _, _)| *p == path)
         .map(|(_, _, _, md5)| *md5)
         .unwrap_or_else(|| panic!("{path} has no SPEC-063 pin"))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AC9 — the fixed neighbours array keeps the median exact
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `apply_fix_bad_pixels_constant` now keeps its neighbours in an `[u16; 8]`
+/// and takes the median of the filled prefix only. Every earlier fixture's bad
+/// pixel had all eight neighbours, where prefix and array coincide; this one
+/// has corner and edge pixels (three and five neighbours), so a median over
+/// the whole array, or an unsorted prefix, is visible. Expected values by hand
+/// on a 4×4 plane whose sample `i` (row-major) is `10 * (i + 1)`.
+#[test]
+fn fix_bad_pixels_median_with_fewer_than_eight_neighbours() {
+    let mut plane: Vec<u16> = (0..16).map(|i| 10 * (i + 1)).collect();
+    // Bad (constant 0): corner (0, 0), corner (3, 3), edge (2, 0).
+    plane[0] = 0;
+    plane[15] = 0;
+    plane[2] = 0;
+    let all = ActiveArea {
+        top: 0,
+        left: 0,
+        bottom: 4,
+        right: 4,
+    };
+    let replaced = apply_fix_bad_pixels_constant(&mut plane, 4, 4, all, 0).unwrap();
+    assert_eq!(replaced, 3);
+    // (0, 0): neighbours (1, 0) 20, (0, 1) 50, (1, 1) 60.
+    assert_eq!(plane[0], 50, "corner (0, 0)");
+    // (2, 0): neighbours (1, 0) 20, (3, 0) 40, (1, 1) 60, (2, 1) 70, (3, 1) 80
+    // — (0, 0) is not a neighbour; the median of five is 60.
+    assert_eq!(plane[2], 60, "edge (2, 0)");
+    // (3, 3): neighbours 110, 120, 150.
+    assert_eq!(plane[15], 120, "corner (3, 3)");
 }
