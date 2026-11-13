@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier
   created_at: 2026-11-13
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-066
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 7346027            # REAL combined count — what cost-audit reads
+  estimated_usd: 5.75               # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 36
+  branch: claude/spec-066-verify-51c60b
+  pr: null                         # approved with no code changes: no PR; verdict commented on #227
+  completed_at: 2026-11-13         # YYYY-MM-DD
+  notes: "Floor at handback: transcript d56548c4-3951-45c3-9fdc-3ad6d2e57f89.jsonl, deduped by message.id, max output per message, no subagents; excludes the commit, push and PR-comment turns. Re-sum at ship."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -287,38 +287,160 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-066-verify-51c60b`. Approved with no code changes, so no PR
+  was opened. The verdict is commented on https://github.com/jysf/irradiance/pull/227.
+- **Completed at:** 2026-11-13
+- **All acceptance criteria met?** yes. AC1–AC13 each have a test that goes red when the
+  property breaks (see the mutants below).
+- **For `verify`:** ✅ **APPROVED at `399acf4`** (main; same tree as #227's head `ddbbf81`,
+  `d56dc33`).
+
+**Code review against DEC-061 §3–§4, `src/develop.rs` line by line.**
+- `FirstValue`, or `PerPosition` with `black_levels` empty, returns through the unchanged
+  `resolve_levels`, so it takes today's path exactly.
+- `[R, C]` defaults to `[1, 1]`. A zero dimension, an overflowing product or a count
+  mismatch gives `InvalidBlackLevelPattern` carrying the resolved `R`, `C` and the count.
+- `find` reports the first `B[i] ≥ white`. An all-equal `B` gives `Uniform`.
+- The phase origin is the `ActiveArea` top-left, or `(0, 0)` without the tag. The index is
+  `row × C + col`.
+- `Blacks::at` is all checked arithmetic. Clippy's arithmetic lints are green.
+- The `Uniform` arm passes a constant closure `|_, _| black` into the generic loop. That
+  monomorphises to the scalar loop and does no per-pixel modulo.
+- The call sits exactly where `resolve_levels` was: after geometry and options, before the
+  `dst` length. The loops stay in `crop_orient_normalize_into` and
+  `normalize_active_area_into`. On the warp path the black is chosen by raw coordinates
+  before the warp, and `copy_and_fix_bad_pixels` still runs first on raw values.
+- `git diff 06d776a 399acf4 -- tests/develop_options.rs tests/develop_scratch.rs` is empty,
+  so the eight SPEC-063 pins are unedited.
+- `DEVELOP_VERSION` is `"4"`.
+- `InvalidBlackLevelPattern` is in `kind()` with no wildcard.
+- `Display` names all three numbers, and `pattern_error_display_names_all_three` pins that.
+- `error_kind` moves to 65 variants, with Corrupt at 30.
+
+**Oracle independence.** Every expected value in AC2–AC5 comes from the test's own
+`normalize`, `pattern_black` and `expected_image`, or from literals. None calls `develop` or
+a crate re-export. Byte identity is used only where the spec asks for it: AC2's LinearRaw
+equality and AC6's absent-`B` / 1×1 cases. In both, an analytic assertion on the same data
+either sits beside it or isn't needed. No shared-path tautology.
+
+**The build's three fixture changes keep their ACs' intent.**
+- **AC2.** The analytic per-position assertion (`got == want`) runs at **every** k
+  (0, 200 and 15345), under both framings, both `apply_orientation` values and
+  orientations 1 and 6. It sits before the k-conditional block, so no k is weaker.
+  Uniformity and equality with LinearRaw are asserted at k = 0 and 200. At k = 15345 the
+  two ranges (15345 and 15346) genuinely round to 65535 and 65531, so uniformity is not a
+  property there. The FirstValue-is-not-uniform check runs at k = 200 and 15345.
+- **AC3.** Re-derived by hand. Output (0, 0) is raw (4, 3), with raw value
+  500 + 37·4 + 11·3 = 681.
+  - Phased from the `ActiveArea` origin (3, 1), the slot is (0, 1), so the black is 200 and
+    the value is ⌊(481·65535 + 1947) / 3895⌋ = **8093**. That matches the literal.
+  - Phased from the plane origin, the slot is (1, 0), so the black is 300 and the value is
+    **6579**.
+  - Phased from the `DefaultCrop` origin (4, 3), the slot is (0, 0), so the black is 100 and
+    the value is **9531**.
+
+  The three candidate origins give three different blocks. With an odd/odd crop origin the
+  `DefaultCrop` phase would equal the plane's parity, so (1, 2) is the right fix.
+- **AC5.** The premise assertion is a hard `assert_eq!` against the test's own `normalize`,
+  so it fails if a case stops rounding alike. I checked each case alone against a true
+  "black after the warp, by output position" mutant: normalize raw values with an identity
+  map, warp, then subtract the per-output-position black. **Both cases go red on their
+  own.** The AC3 pattern at k = 0 fails under `StandardCrop`. The narrow pattern at k = 10
+  fails only under `FullActiveArea`, because the centre crop barely moves.
+- **Per-position white.** The two-`WhiteLevel` fixture kills a **true per-pixel**
+  `white_levels[pos]` read (mutant 12b below) as well as the build's "last value" model.
+
+**Gates (corpus env set, 12/12 present, no SKIP line).**
+- `just test`: 668 passed, 0 failed, 1 ignored. The tier-B
+  `canon_per_position_differs_only_at_position_3` and
+  `one_by_one_files_are_identical_under_both_modes` ran and passed. They assert the
+  5,602,332 / ≤ 6 / positions-0–2-equal relation and the seven MD5 pins.
+- Green: lint-ci, lint-no-allow, lint-fuzz, fmt-check, validate, doc-check, deny, msrv,
+  cost-audit, gate-audit.
+- `decisions-audit --changed` is advisory and names only DEC-061.
+- main CI at `399acf4`: run 43500667607, success. #227's checks were 44/44.
+
+**Mutants: 18, applied by hand to `src/develop.rs`, tier A only (no corpus env), all
+reverted.** Every one is red.
+
+| # | Mutant | Tests that went red |
+|---|---|---|
+| 1 | Pattern ignored | AC2, AC3, AC4, AC5, AC6, AC7, AC9 |
+| 2 | Entries 0 and 1 swapped | AC3, AC4, AC5 |
+| 3 | Phase from the plane origin | AC2, AC3, AC4, AC5 |
+| 4 | Phase from the `DefaultCrop` origin (sensor tag) | AC2, AC3, AC4, AC5 |
+| 5 | Index transposed | AC2, AC3, AC4, AC5 |
+| 6 | Fixed 2×2 slot | AC4 |
+| 7a | Warp site, black by active-grid position | AC5 |
+| 7b | Black truly after the warp | AC5 |
+| 8 | Warp site, pattern ignored | AC5 |
+| 9 | No count check, index clamped | AC6, AC7, AC9 |
+| 10 | Validated under `FirstValue` too | AC6 |
+| 11 | Pattern check after `dst` | AC7 |
+| 12a | Last `WhiteLevel` | AC3, AC9 |
+| 12b | True per-pixel `white_levels[pos]` | AC3 |
+| 13 | Phase from `geometry.crop_origin` (0 under `FullActiveArea`) | AC3, AC4, AC5, through the `StandardCrop` assertions |
+| 14 | `R` and `C` swapped | AC4, AC6 |
+| 15 | Empty `B` refused instead of falling back | AC6 |
+| 16 | `InvalidLevels` reports the last offender | AC6 |
+
+**Order and no-write.**
+- `pattern_error_order` covers `warp_alpha`, a mandatory opcode, `src` length and
+  `ActiveArea` ahead of the pattern error, and the pattern error ahead of `dst`.
+- `refused()` checks the `dst` and scratch sentinels from both entry points.
+
+**Allocation.** `per_position_allocates_nothing` uses the thread-local `COUNTING` /
+`ALLOCATIONS` counter. Its negative control is intact. It covers all four
+fbp × warp arms under both framings, and five refusals.
+
+**Fuzz.**
+- `develop`: **4,654,282 runs in 63 s**, clean.
+- The three `black-levels-*` seeds are built by `examples/fuzz-seeds.rs` from numbers in the
+  source. Re-running it leaves the tree byte-identical, so there are no corpus bytes
+  (DEC-003).
+- The collapse differential asserts `collapsed.is_ok() && developed_first == developed_with`,
+  which is byte equality.
+
+**CHANGELOG.** It is accurate. One nit: "every held LinearRaw file declares a 1×1 pattern"
+is loose for the K-3 III, whose `BlackLevelRepeatDim` is malformed and defaults to
+`[1, 1]`. DEC-061 words it the same way. No change needed.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 7,346,027. This is a floor; the commit, push and comment
+  turns are excluded.
+- **Estimated USD:** 5.75
+- **Duration (minutes):** 36, by the transcript's timestamps.
+- **Source of the number:** transcript `d56548c4-3951-45c3-9fdc-3ad6d2e57f89.jsonl`, found
+  by the scratchpad UUID, deduped by message.id, max output per message. Priced per
+  component at opus-5-5 rates (5 in, 25 out, cache read ×0.10, 1-hour cache write ×2.0).
+  No subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none in the code. The three fixture changes the build made
+  (AC2, AC3, AC5) are judged above and keep their criteria's intent.
+- **Follow-up work identified:** two XS test-strength nits. Neither blocks.
+  1. AC5's comment "the warp really ran: FirstValue … differs" proves nothing about the
+     warp, because the two modes differ even without one. The narrow-pattern case also
+     catches the after-warp mutant only under `FullActiveArea`. An assertion that the
+     warped `FirstValue` output differs from an unwarped develop would make the comment
+     true.
+  2. `develop_err` (AC7) checks the `dst` sentinel but not the scratch sentinel. AC6's
+     `refused()` does check it.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
-
+   — Nothing material. The handoff's question list was precise. One small gap: the
+   `decisions-audit --changed` gate needs the flag passed unquoted to `just`. A loop that
+   quotes "recipe --flag" as a single word errors out with "no recipe".
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
-
+   — No. The build's note about `develop_oracle` scanning the text of `src/develop.rs` was
+   already in the hand-over. It mattered for writing mutants: I edited only inside the
+   function bodies and never renamed one.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the mutants against a copy in a separate `CARGO_TARGET_DIR`, so they can start
+   while the 15-minute `just test` debug corpus run is still going. Sharing the target
+   directory forced me to run them one after the other.
