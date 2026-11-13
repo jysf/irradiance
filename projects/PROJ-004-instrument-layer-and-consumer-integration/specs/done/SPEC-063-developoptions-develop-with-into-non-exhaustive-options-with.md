@@ -6,19 +6,19 @@
 task:
   id: SPEC-063
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -77,10 +77,31 @@ cost:
       duration_minutes: 45
       recorded_at: 2026-11-12
       notes: "Un-metered main-loop design in the long monorail-000 orchestrator session, which also framed STAGE-019. Its cost lands in STAGE-019's orchestration_cost at stage close, not here."
+    - cycle: build
+      handoff: HANDOFF-133
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 18485591
+      estimated_usd: 12.92
+      duration_minutes: 90
+      recorded_at: 2026-11-12
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript (acc02f26, 1 jsonl, 87 unique message.ids, all claude-opus-5-5, no subagents): input 179 + cache-creation 220,830 (1-hour) + cache-read 18,200,327 + output 64,255 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 16,105,570 / 11.56 before the final commit, push and CI-wait turns."
+    - cycle: verify
+      handoff: HANDOFF-134
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 7478301
+      estimated_usd: 5.70
+      duration_minutes: 75
+      recorded_at: 2026-11-12
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript (fad3eb49, 1 jsonl, 47 unique message.ids, all claude-opus-5-5, no subagents): input 100 + cache-creation 134,482 (1-hour) + cache-read 7,315,870 + output 27,849 (max per message). USD at opus-5-5 list rates. The handback floor was 6,342,969 / 5.01 before the final commit turn. Verdict approved at ae232c2; PR 215 conflicted after the squash-merge of 214 and was replayed onto main as PR 216."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 25963892
+    estimated_usd: 18.62
+    session_count: 3
+shipped_at: 2026-11-12
 ---
 
 # SPEC-063: DevelopOptions + develop_with_into: framing and orientation options with a byte-identical default
@@ -303,19 +324,19 @@ warp, each ending in each option byte. No seed comes from a corpus file (DEC-003
 
 ## Acceptance Criteria
 
-- [ ] **AC1. Defaults.** `DevelopOptions::default()` has `framing == StandardCrop` and
+- [x] **AC1. Defaults.** `DevelopOptions::default()` has `framing == StandardCrop` and
   `apply_orientation == true`. `Framing::default() == StandardCrop`.
-- [ ] **AC2. Byte identity (tier B, the load-bearing oracle).** On each of the eight files
+- [x] **AC2. Byte identity (tier B, the load-bearing oracle).** On each of the eight files
   in §1, both `develop_into` and `develop_with_into(&DevelopOptions::default())` produce
   output whose MD5 equals the pinned value. Both refuse the three Pixel files with the same
   `Display` text, and `DEVELOP_VERSION == "4"`. The test must report a missing file by name
   (the corpus-skip convention), never pass silently.
-- [ ] **AC3. FullActiveArea dimensions.**
+- [x] **AC3. FullActiveArea dimensions.**
   - `output_dimensions_with` returns the active size on tier-A fixtures (with and without
     an `ActiveArea` tag; Orientation 1 and 6, swapped for 6).
   - On tier B: K-3 III 6224×4160, L1000622 5216×3472, Typ 246 5984×4000. On the Q2M it
     returns 8392×5632, even though develop refuses there (§4).
-- [ ] **AC4. FullActiveArea pixels, by two relations, not by a re-implementation.** On
+- [x] **AC4. FullActiveArea pixels, by two relations, not by a re-implementation.** On
   tier-A fixtures and on the three warp-free tier-B files, `FullActiveArea` output equals:
   - (a) `StandardCrop` output of the same sensor with `default_crop_origin = (0, 0)` and
     `default_crop_size` = the active size;
@@ -324,7 +345,7 @@ warp, each ending in each option byte. No seed comes from a corpus file (DEC-003
 
   At least one tier-A fixture carries `FixBadPixelsConstant`, so the copy path runs under
   `FullActiveArea`.
-- [ ] **AC5. The refusal.**
+- [x] **AC5. The refusal.**
   - **Synthetic.** A sensor with a non-identity warp (and also `FixBadPixelsConstant`)
     under `FullActiveArea` returns `UnsupportedWarpedFullActiveArea` with the right
     dimensions, `kind() == Unsupported`, and `dst` unchanged (a sentinel fill).
@@ -332,37 +353,39 @@ warp, each ending in each option byte. No seed comes from a corpus file (DEC-003
   - **Identity warp.** A sensor with an identity warp (`kr = [1, 0, 0, 0]`) under
     `FullActiveArea` develops.
   - **`StandardCrop`.** The non-identity sensor develops exactly as `develop_into` does.
-- [ ] **AC6. `apply_orientation: false`.**
+- [x] **AC6. `apply_orientation: false`.**
   - **All eight orientations.** For each of Orientation 1 to 8, on a non-square tier-A crop
     with distinct pixel values: output equals the default output of the same sensor with
     `orientation = Some(1)`, and its dimensions are the unswapped crop size.
   - **Warp path, real file.** On Q2M L1026016 (Orientation 6, warped), `apply_orientation:
     false` equals `develop_into` of the sensor with `orientation = Some(1)`, at 8368×5584.
-- [ ] **AC7. Combination.** `FullActiveArea` with `apply_orientation: false` on an
+- [x] **AC7. Combination.** `FullActiveArea` with `apply_orientation: false` on an
   Orientation 6 tier-A fixture gives the active size, unswapped. Its pixels equal AC4(a)'s
   sensor with `orientation = Some(1)`.
-- [ ] **AC8. Validation is not skipped (DEC-058 §3).**
+- [x] **AC8. Validation is not skipped (DEC-058 §3).**
   - Under `FullActiveArea`, a `DefaultCrop` that does not fit is still `InvalidDefaultCrop`.
   - Under `apply_orientation: false`, `Orientation = 9` is still `UnsupportedOrientation`.
   - Both hold for `develop_with_into` and for `output_dimensions_with`.
-- [ ] **AC9. Buffer lengths.** A `dst` sized for the default dimensions but passed with
-  `FullActiveArea`, or with `apply_orientation: false` on Orientation 6 when the crop is
-  non-square, is `DevelopBufferWrongLength`. Its `expected` is the options product. `dst`
-  is not written.
-- [ ] **AC10. Error surface.**
+- [x] **AC9. Buffer lengths.** A `dst` sized for the default dimensions but passed with
+  `FullActiveArea` is `DevelopBufferWrongLength`. Its `expected` is the options product, and
+  `dst` is not written. *(Corrected at ship. The design also asked for the same refusal with
+  `apply_orientation: false` on Orientation 6, but orientation swaps width and height and
+  cannot change a length, so that buffer is correct. The build pins instead that it is
+  accepted and receives the unswapped layout. Verify agreed.)*
+- [x] **AC10. Error surface.**
   - `UnsupportedWarpedFullActiveArea` is in `Error::kind()` with no wildcard.
   - It has a row in `tests/error_kind.rs`.
   - A test pins that its `Display` contains both dimensions.
-- [ ] **AC11. API hygiene.**
+- [x] **AC11. API hygiene.**
   - `DevelopOptions` and `Framing` are `#[non_exhaustive]`, with every field and variant
     documented.
   - An external test constructs options only via `Default` plus field assignment.
   - `cargo doc` has no broken links.
   - CHANGELOG `[Unreleased]` names every addition.
-- [ ] **AC12. Fuzz.** The `develop` target exercises `develop_with_into` under all four
+- [x] **AC12. Fuzz.** The `develop` target exercises `develop_with_into` under all four
   option combinations; the new seeds are written by `examples/fuzz-seeds.rs`; a 60 s run is
   clean.
-- [ ] **AC13. No regression.**
+- [x] **AC13. No regression.**
   - Every existing test passes with no assertion changed (other than `error_kind`'s rows
     and counts).
   - `just test` passes with the corpus env set. So do `lint-ci`, `lint-no-allow`,
@@ -394,8 +417,10 @@ warp, each ending in each option byte. No seed comes from a corpus file (DEC-003
 - `apply_options` skipped → AC3, AC4, AC6.
 - The crop override set to the crop instead of the active area → AC4.
 - The refusal removed → AC5.
-- The refusal moved after the `FixBadPixelsConstant` copy or after a `dst` write → AC5's
-  sentinel.
+- The refusal moved after a `dst` write → AC5's sentinel.
+- The refusal moved after the `FixBadPixelsConstant` copy → AC5's error-precedence probe (a
+  malformed `FixBadPixelsConstant` must not be reported first). The sentinel alone cannot
+  see this placement. *(Added at ship, from build and verify.)*
 - `apply_orientation` ignored → AC6.
 - `resolve_geometry` bypassed under an option → AC8.
 - `dst` checked against default dimensions → AC9.
@@ -434,31 +459,29 @@ warp, each ending in each option byte. No seed comes from a corpus file (DEC-003
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Check every buffer-length AC by arithmetic before writing it. AC9's orientation half
+   asked a length check to see a width/height swap, which no product can. The build caught
+   it, and so did verify. Pinning default output by MD5 from main **before** the change
+   worked well: it gave the build a real byte-identity oracle instead of a self-comparison.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No DEC change: DEC-058 held as written, with no option-specific branch needed in any
+   pass. The red-proof list now names the error-precedence probe, since a `dst` sentinel
+   cannot catch a refusal placed after the plane copy. Process note: #214 was squash-merged
+   before the verify PR #215, which made #215 conflict. It was replayed onto main as #216,
+   the same pattern as earlier waves.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. SPEC-064 relaxes the `FullActiveArea` + warp refusal, and on the Q2M
+   `FullActiveArea` is unusable until it lands. SPEC-066 must decide what the mono path does
+   with CFA files: the probe found Canon and Nikon CFA DNGs developing as mono with a scalar
+   black. Both are already in STAGE-019's backlog.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — build
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before: `develop_into` always cropped to `DefaultCrop` and always applied
+   `Orientation`. After: `develop_with_into` can return the full `ActiveArea` (6224×4160
+   rather than 6192×4128 on the K-3 III) or unrotated pixels, and the default stays
+   byte-identical on all eight pinned held files.

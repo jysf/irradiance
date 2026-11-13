@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: approved                # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 6342969            # REAL combined count — what cost-audit reads
-  estimated_usd: 5.01              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 7478301            # REAL combined count — what cost-audit reads
+  estimated_usd: 5.70              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 75
   branch: claude/spec-063-verify-fb8ccb
   pr: https://github.com/jysf/irradiance/pull/215
   completed_at: 2026-11-12         # YYYY-MM-DD
-  notes: "APPROVED at ae232c2 (PR 214 build head). tokens_total is a floor re-summed from transcript fad3eb49-ca46-4bac-837e-67350d3967aa.jsonl (41 unique message.ids, max output per id, no subagents) just before the handback commit; re-summed after the PR opened; it excludes only this final commit turn. Re-sum at ship."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript (fad3eb49, 1 jsonl, 47 unique message.ids, all claude-opus-5-5, no subagents): input 100 + cache-creation 134,482 (1-hour) + cache-read 7,315,870 + output 27,849 (max per message). USD at opus-5-5 list rates. The handback floor was 6,342,969 / 5.01 before the final commit turn. Verdict approved at ae232c2; PR 215 conflicted after the squash-merge of 214 and was replayed onto main as PR 216."
+  synced_at: 2026-11-12
 ---
 
 # HANDOFF-134: VERIFY: DevelopOptions + develop_with_into (SPEC-063)
