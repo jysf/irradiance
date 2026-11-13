@@ -728,6 +728,20 @@ pub enum Error {
         kt1: f64,
     },
 
+    /// `SPEC-063`, `DEC-058` §4. [`develop::develop_with_into`] was asked for
+    /// [`develop::Framing::FullActiveArea`] on a sensor whose `OpcodeList3`
+    /// carries a non-identity `WarpRectilinear`. The warp clamps
+    /// out-of-extent samples to the nearest edge (`DEC-024`); under the
+    /// standard crop those pixels are cropped away, but over the whole active
+    /// area they would be visible. Refused rather than shown until the warp's
+    /// bounds are measured. An identity warp does not trigger this.
+    UnsupportedWarpedFullActiveArea {
+        /// `ActiveArea`'s resolved width (or the raw plane's, if absent).
+        active_width: u32,
+        /// `ActiveArea`'s resolved height (or the raw plane's, if absent).
+        active_height: u32,
+    },
+
     /// `SPEC-018`. [`warp::apply_warp_into`]'s `src` does not hold exactly
     /// `width * height` samples.
     WarpSourceWrongLength {
@@ -1267,6 +1281,15 @@ impl fmt::Display for Error {
                     "WarpRectilinear has non-zero tangential terms (kt0 {kt0}, kt1 {kt1}), which this build does not apply"
                 )
             }
+            Error::UnsupportedWarpedFullActiveArea {
+                active_width,
+                active_height,
+            } => {
+                write!(
+                    f,
+                    "full-active-area framing ({active_width}x{active_height}) is not supported with a non-identity WarpRectilinear: the warp's clamped edge samples would be visible"
+                )
+            }
             Error::WarpSourceWrongLength { expected, actual } => {
                 write!(
                     f,
@@ -1476,6 +1499,7 @@ impl Error {
             | Error::UnsupportedMandatoryOpcode { .. }
             | Error::UnsupportedRequiredOpcode { .. }
             | Error::UnsupportedWarpTangentialTerms { .. }
+            | Error::UnsupportedWarpedFullActiveArea { .. }
             | Error::NotAColorFilterArray
             | Error::UnsupportedCfaPattern { .. }
             | Error::MissingColorCalibration

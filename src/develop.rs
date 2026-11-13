@@ -97,6 +97,22 @@
 //! `SPEC-017` ship), up from `SPEC-018`'s warp-only figure in
 //! `docs/provenance-ledger.md` — not the pre-`SPEC-017` number that row
 //! still carries for the warp stage alone.
+//!
+//! # Options — `SPEC-063`, `DEC-058`
+//!
+//! [`develop_with_into`] / [`output_dimensions_with`] take a
+//! [`DevelopOptions`]: [`Framing::FullActiveArea`] keeps the whole
+//! `ActiveArea` instead of extracting `DefaultCrop`, and `apply_orientation:
+//! false` leaves the pixels in stored order. [`develop_into`] /
+//! [`output_dimensions`] are exactly the `_with` forms called with
+//! [`DevelopOptions::default()`], so their output is unchanged. Options
+//! rewrite the geometry *after* it is resolved and validated: a malformed
+//! tag an option makes unused is still refused (`DEC-058` §3). One
+//! combination is refused outright, typed: `FullActiveArea` with a
+//! non-identity `WarpRectilinear` ([`Error::UnsupportedWarpedFullActiveArea`],
+//! `DEC-058` §4). Options are mono only; the colour path takes none. No
+//! option changes any existing (input, options) output, so `DEVELOP_VERSION`
+//! is unchanged (`DEC-058` §5).
 
 use crate::ifd::{ActiveArea, Sensor};
 use crate::Error;
@@ -222,22 +238,151 @@ pub(crate) fn oriented_dimensions(orientation: u32, width: u32, height: u32) -> 
     }
 }
 
+/// Options for the monochrome develop — [`develop_with_into`] and
+/// [`output_dimensions_with`] (`SPEC-063`, `DEC-058`).
+///
+/// [`DevelopOptions::default()`] is exactly [`develop_into`]: every field's
+/// default reproduces the output from before the field existed, and always
+/// will (`DEC-058` §2).
+///
+/// `#[non_exhaustive]`, so outside this crate options are built from
+/// [`Default`] and then assigned field by field; a later field is an addition,
+/// not a break:
+///
+/// ```
+/// use irradiance::develop::{DevelopOptions, Framing};
+///
+/// let mut options = DevelopOptions::default();
+/// options.framing = Framing::FullActiveArea;
+/// options.apply_orientation = false;
+/// ```
+///
+/// **Mono only.** The colour path ([`crate::color::develop_color_into`] and
+/// its variants) takes no options.
+///
+/// An option overrides what a tag is *used for*, never whether it is
+/// validated: a `DefaultCrop` that does not fit is still
+/// [`Error::InvalidDefaultCrop`] under [`Framing::FullActiveArea`], and an
+/// `Orientation` outside `1..=8` is still [`Error::UnsupportedOrientation`]
+/// with `apply_orientation: false` (`DEC-058` §3).
+///
+/// A caller caching developed pixels keys on `(DEVELOP_VERSION, options)`;
+/// [`crate::DEVELOP_VERSION`] identifies the output for every options value,
+/// not only the default (`DEC-058` §5).
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub struct DevelopOptions {
+    /// Which rectangle of the active area becomes the output. Default
+    /// [`Framing::StandardCrop`]. [`Framing::FullActiveArea`] together with a
+    /// non-identity `WarpRectilinear` is refused with
+    /// [`Error::UnsupportedWarpedFullActiveArea`].
+    pub framing: Framing,
+    /// Whether `Orientation` is applied to the output. Default `true`. With
+    /// `false` the output is in stored (sensor) order, at the unswapped
+    /// framed size, as if `Orientation` were 1 — for a caller that rotates
+    /// on its own (for example on a GPU).
+    pub apply_orientation: bool,
+}
+
+impl Default for DevelopOptions {
+    /// [`Framing::StandardCrop`] and `apply_orientation: true`: exactly
+    /// [`develop_into`].
+    fn default() -> DevelopOptions {
+        DevelopOptions {
+            framing: Framing::StandardCrop,
+            apply_orientation: true,
+        }
+    }
+}
+
+/// Which rectangle of the active area [`develop_with_into`] outputs
+/// ([`DevelopOptions::framing`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum Framing {
+    /// `DefaultCropOrigin`/`DefaultCropSize` within `ActiveArea` — the
+    /// image a consumer would display, and [`develop_into`]'s output. The
+    /// default.
+    #[default]
+    StandardCrop,
+    /// The whole `ActiveArea` (the whole raw plane when the tag is absent):
+    /// every recorded photosite, including the border `DefaultCrop` trims.
+    /// `DefaultCrop` is still validated, only not applied. Refused with
+    /// [`Error::UnsupportedWarpedFullActiveArea`] when `OpcodeList3` carries
+    /// a non-identity `WarpRectilinear`, whose clamped edge samples would
+    /// otherwise be visible (`DEC-058` §4, `DEC-024`).
+    FullActiveArea,
+}
+
+/// Rewrite the resolved, already-validated geometry for `options`
+/// (`DEC-058` §3). Validation is [`resolve_geometry`]'s job and has already
+/// run; this only changes what the passes downstream read, so none of them
+/// grows an option-specific branch.
+fn apply_options(mut geometry: Geometry, options: &DevelopOptions) -> Geometry {
+    match options.framing {
+        Framing::StandardCrop => {}
+        Framing::FullActiveArea => {
+            geometry.crop_origin_x = 0;
+            geometry.crop_origin_y = 0;
+            geometry.crop_width = geometry.active_width;
+            geometry.crop_height = geometry.active_height;
+        }
+    }
+    if !options.apply_orientation {
+        geometry.orientation = 1;
+    }
+    geometry
+}
+
 /// The developed image's dimensions the caller must size `dst` to, without
 /// running the transform itself — mirrors how a caller of
 /// [`crate::plane::unpack_into`] computes `sensor.width * sensor.height`
 /// itself before allocating.
+///
+/// Exactly [`output_dimensions_with`] with [`DevelopOptions::default()`].
 ///
 /// # Errors
 ///
 /// Whatever [`develop_into`] would reject about `sensor`'s geometry — see its
 /// docs. Never fails on `src`/`dst`, because neither is examined here.
 pub fn output_dimensions(sensor: &Sensor) -> Result<(u32, u32), Error> {
-    let geometry = resolve_geometry(sensor)?;
+    output_dimensions_with(sensor, &DevelopOptions::default())
+}
+
+/// The dimensions [`develop_with_into`] writes for `options`: the framed
+/// size (the `DefaultCrop` size, or the `ActiveArea` size under
+/// [`Framing::FullActiveArea`]), swapped for an `Orientation` of 5-8 only
+/// when `options.apply_orientation` is set.
+///
+/// Does not read the opcode lists, so it returns the active size even for a
+/// sensor [`develop_with_into`] will refuse with
+/// [`Error::UnsupportedWarpedFullActiveArea`].
+///
+/// # Errors
+///
+/// Whatever [`develop_with_into`] would reject about `sensor`'s geometry,
+/// under every options value (`DEC-058` §3): [`Error::InvalidActiveArea`],
+/// [`Error::InvalidDefaultCrop`], [`Error::UnsupportedOrientation`].
+pub fn output_dimensions_with(
+    sensor: &Sensor,
+    options: &DevelopOptions,
+) -> Result<(u32, u32), Error> {
+    let geometry = apply_options(resolve_geometry(sensor)?, options);
     Ok(oriented_dimensions(
         geometry.orientation,
         geometry.crop_width,
         geometry.crop_height,
     ))
+}
+
+/// `OpcodeList3`'s first `WarpRectilinear`, or `None` when the list is
+/// absent, carries none, or carries an identity one (which this path skips).
+fn non_identity_warp(sensor: &Sensor) -> Result<Option<crate::opcode::WarpRect>, Error> {
+    let warp = match &sensor.opcode_list_3 {
+        Some(bytes) => crate::opcode::parse_warp_rectilinear(bytes)?,
+        None => None,
+    };
+    Ok(warp.filter(|w| !crate::warp::is_identity(w)))
 }
 
 /// Map a destination (post-orientation) pixel to its position within the
@@ -799,7 +944,44 @@ fn crop_and_orient_from_active_into(
 ///   DIFFERENT, unrecognized mandatory opcode (`AC6`).
 /// - Whatever [`crate::opcode::parse_warp_rectilinear`] or
 ///   [`crate::warp::apply_warp_into`] return, if `OpcodeList3` is present.
+///
+/// # Options
+///
+/// Exactly [`develop_with_into`] with [`DevelopOptions::default()`]
+/// (`DEC-058` §2): it delegates, so the two cannot drift. Use
+/// [`develop_with_into`] for the uncropped active area or unrotated output.
 pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
+    develop_with_into(sensor, src, dst, &DevelopOptions::default())
+}
+
+/// [`develop_into`] with [`DevelopOptions`] (`SPEC-063`, `DEC-058`): the same
+/// pipeline — `FixBadPixelsConstant`, levels, `WarpRectilinear` over the
+/// `ActiveArea`, then framing and orientation — with the framing and the
+/// orientation step chosen by `options`. See [`develop_into`] for the
+/// pipeline order, the allocation notes and every error it shares.
+///
+/// `dst` must hold exactly [`output_dimensions_with`]`(sensor, options)`'s
+/// product. **Mono only**: the colour path takes no options.
+///
+/// # Errors
+///
+/// Every error [`develop_into`] documents, under every options value — an
+/// option never skips a tag's validation (`DEC-058` §3) — plus:
+///
+/// - [`Error::UnsupportedWarpedFullActiveArea`] for
+///   [`Framing::FullActiveArea`] when `OpcodeList3` carries a non-identity
+///   `WarpRectilinear` (`DEC-058` §4). It is checked after the buffer lengths
+///   and before `OpcodeList1` is parsed, so it comes before the
+///   `FixBadPixelsConstant` plane copy and before any write to `dst`. A
+///   consequence: under `FullActiveArea` a malformed `OpcodeList3` is
+///   reported before a malformed `OpcodeList1`; under
+///   [`Framing::StandardCrop`] the order is [`develop_into`]'s.
+pub fn develop_with_into(
+    sensor: &Sensor,
+    src: &[u16],
+    dst: &mut [u16],
+    options: &DevelopOptions,
+) -> Result<(), Error> {
     // Required-processing validation FIRST, before any allocation or decode
     // (`SPEC-054`, `DEC-049`): a mandatory opcode this path will not apply is a
     // typed error, never a silently-uncorrected image.
@@ -823,7 +1005,9 @@ pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(),
         });
     }
 
-    let geometry = resolve_geometry(sensor)?;
+    // Validate first (unchanged), then let the options rewrite what the
+    // passes below read (`DEC-058` §3).
+    let geometry = apply_options(resolve_geometry(sensor)?, options);
     let (black, white) = resolve_levels(sensor)?;
     let (out_width, out_height) = oriented_dimensions(
         geometry.orientation,
@@ -846,6 +1030,20 @@ pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(),
         return Err(Error::DevelopBufferWrongLength {
             expected: expected_dst,
             actual: dst.len(),
+        });
+    }
+
+    // `DEC-058` §4: full-active-area framing with a real warp is refused
+    // here, before `OpcodeList1` is parsed, before the plane copy below and
+    // before any write to `dst`. Only under `FullActiveArea`, so the parse
+    // order (and error precedence) under `StandardCrop` is exactly today's.
+    // Once this check passes the warp is known to be absent or identity,
+    // so it is not parsed a second time below.
+    let warp_checked_early = options.framing == Framing::FullActiveArea;
+    if warp_checked_early && non_identity_warp(sensor)?.is_some() {
+        return Err(Error::UnsupportedWarpedFullActiveArea {
+            active_width: geometry.active_width,
+            active_height: geometry.active_height,
         });
     }
 
@@ -886,11 +1084,11 @@ pub fn develop_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(),
     }
     let effective_src: &[u16] = fixed_plane.as_deref().unwrap_or(src);
 
-    let warp = match &sensor.opcode_list_3 {
-        Some(bytes) => crate::opcode::parse_warp_rectilinear(bytes)?,
-        None => None,
+    let warp = if warp_checked_early {
+        None
+    } else {
+        non_identity_warp(sensor)?
     };
-    let warp = warp.filter(|w| !crate::warp::is_identity(w));
 
     match warp {
         None => {

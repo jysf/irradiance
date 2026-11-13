@@ -8,6 +8,6 @@ Cycle prompts live in `prompts/SPEC-063-<cycle>.md`.
 ## Instructions
 
 - [x] **design** — completed 2026-11-12 (DEC-058; HANDOFF-133 build ready)
-- [ ] **build** — pending (cold session, after the design PR merges)
+- [x] **build** — completed 2026-11-12 (HANDOFF-133, PR #214)
 - [ ] **verify** — pending (waiting on build)
 - [ ] **ship** — pending (waiting on verify)

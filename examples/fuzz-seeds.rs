@@ -622,11 +622,86 @@ fn develop_seeds() -> Vec<(&'static str, Vec<u8>)> {
             develop_fixture(8, 6, None, None, None, None, Some(30_000), Some(30_000)),
         ),
     ];
+    // SPEC-063: the options surface. Each fixture once per trailing option
+    // byte (the target's last-byte convention).
+    seeds.extend(develop_option_seeds());
     // SPEC-045: a valid Compression-7 plane, so develop is fuzzed past the
     // public SOF-3 unpack too.
     seeds.push(("compression7-sof3", compression7_seed()));
     // SPEC-058: tiled planes, so develop is fuzzed past the tile unpack.
     seeds.extend(tiled_seeds());
+    seeds
+}
+
+/// `SPEC-063` seeds for the `develop` target's options byte: an 8×6 plane
+/// with an `ActiveArea` (rows 1..6, cols 1..7) and a 4×3 `DefaultCrop` inside
+/// it at Orientation 6, without and with a non-identity `WarpRectilinear`
+/// `OpcodeList3` (so `FullActiveArea` reaches its refusal), each ending in
+/// each of the four option bytes. Built with `tests/support/dng_writer.rs`;
+/// no corpus file is used (`DEC-003`).
+fn develop_option_seeds() -> Vec<(&'static str, Vec<u8>)> {
+    let (width, height) = (8u32, 6u32);
+    let describe = |warp: Option<Vec<u8>>| dng_writer::DngDescription {
+        order: tiff::Order::Little,
+        layout: dng_writer::IfdLayout::SensorInIfd0,
+        width,
+        height,
+        bits_per_sample: 16,
+        kind: dng_writer::PlaneKind::LinearRaw,
+        organisation: dng_writer::Organisation::Strips {
+            rows_per_strip: height,
+        },
+        payload: dng_writer::Payload::Samples((0..48u16).map(|i| 100 + i * 37).collect()),
+        meta: dng_writer::DngMeta {
+            black_level: Some(vec![0]),
+            white_level: Some(vec![65535]),
+            active_area: Some([1, 1, 6, 7]),
+            default_crop_origin: Some([1, 1]),
+            default_crop_size: Some([4, 3]),
+            orientation: Some(6),
+            ..dng_writer::DngMeta::default()
+        },
+        opcode_lists: [None, None, warp],
+        extra_tags: Vec::new(),
+        fault: None,
+    };
+    let write = |d: &dng_writer::DngDescription| {
+        dng_writer::write_dng(d).expect("option seed description is valid")
+    };
+    let bordered = write(&describe(None));
+    let warped = write(&describe(Some(opcode::single_warp_rectilinear_list(
+        [1.0, -0.1, 0.0, 0.0],
+        [0.0, 0.0],
+        0.5,
+        0.5,
+        1,
+        0,
+    ))));
+
+    let names: [(&'static str, &'static str); 4] = [
+        ("options-bordered-0-default", "options-warped-0-default"),
+        (
+            "options-bordered-1-full-active-area",
+            "options-warped-1-full-active-area",
+        ),
+        (
+            "options-bordered-2-unoriented",
+            "options-warped-2-unoriented",
+        ),
+        (
+            "options-bordered-3-full-unoriented",
+            "options-warped-3-full-unoriented",
+        ),
+    ];
+    let mut seeds = Vec::new();
+    for (byte, (bordered_name, warped_name)) in (0u8..4).zip(names) {
+        let mut b = bordered.clone();
+        b.push(byte);
+        seeds.push((bordered_name, b));
+        let mut w = warped.clone();
+        w.push(byte);
+        seeds.push((warped_name, w));
+    }
     seeds
 }
 

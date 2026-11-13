@@ -21,12 +21,23 @@
 //! Seeds are hand-built tier-A fixtures written by `cargo run --example
 //! fuzz-seeds` (`examples/fuzz-seeds.rs`) — no corpus file is used as a seed
 //! (`DEC-003`).
+//!
+//! **Options byte (`SPEC-063`, `DEC-058`).** After the plain `develop_into`
+//! call, the input's LAST byte selects a [`DevelopOptions`] value: bit 0 sets
+//! `Framing::FullActiveArea`, bit 1 clears `apply_orientation`. The same
+//! input then goes through `output_dimensions_with` / `develop_with_into`
+//! under the same `MAX_PIXELS` cap, so all four option combinations are
+//! reached. Appending a byte to a TIFF does not change how it parses, so each
+//! seed exists once per trailing option byte (`examples/fuzz-seeds.rs`).
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 
-use irradiance::develop::{develop_into, output_dimensions};
+use irradiance::develop::{
+    develop_into, develop_with_into, output_dimensions, output_dimensions_with, DevelopOptions,
+    Framing,
+};
 use irradiance::ifd::Container;
 use irradiance::plane::unpack_into;
 
@@ -80,4 +91,28 @@ fuzz_target!(|data: &[u8]| {
 
     let mut developed = vec![0u16; out_len];
     let _ = develop_into(&sensor, &plane, &mut developed);
+
+    // SPEC-063: the same input under the options the last byte selects.
+    let option_byte = data.last().copied().unwrap_or(0);
+    let mut options = DevelopOptions::default();
+    if option_byte & 1 != 0 {
+        options.framing = Framing::FullActiveArea;
+    }
+    if option_byte & 2 != 0 {
+        options.apply_orientation = false;
+    }
+    let Ok((opt_width, opt_height)) = output_dimensions_with(&sensor, &options) else {
+        return;
+    };
+    let Some(opt_pixels) = u64::from(opt_width).checked_mul(u64::from(opt_height)) else {
+        return;
+    };
+    if opt_pixels > MAX_PIXELS {
+        return;
+    }
+    let Ok(opt_len) = usize::try_from(opt_pixels) else {
+        return;
+    };
+    let mut developed_with = vec![0u16; opt_len];
+    let _ = develop_with_into(&sensor, &plane, &mut developed_with, &options);
 });
