@@ -362,6 +362,13 @@ gen-tone-table:
     cargo run --quiet --all-features --example gen-tone-table
     git diff --exit-code -- src/tone_table.rs
 
+# Time the mono develop at each Orientation, warp-free and post-warp, on the
+# held L1021223 (SPEC-067, DEC-062 §3). Release build: a debug timing means
+# nothing. A measurement, not a gate; prints a SKIP line when the file is
+# absent.
+orient-timing:
+    cargo run --release --all-features --example orient-timing
+
 # The MSRV gate (rust-version = "1.90" in Cargo.toml).
 #
 # ⚠ The `~/.cargo/bin/` prefix is load-bearing — this is the THIRD instance of

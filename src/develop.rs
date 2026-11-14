@@ -894,6 +894,51 @@ pub fn apply_fix_bad_pixels_constant(
     Ok(replaced)
 }
 
+/// The output tile edge for the transposed gathers (`DEC-062` §2): 64×64 `u16`
+/// is 8 KiB of output per tile with 64 source rows in flight, comfortably L1
+/// on small cores. Measured within 5% of 128 on the M4 Pro; not tuned per
+/// machine.
+const ORIENT_TILE: u32 = 64;
+
+/// Visit every output pixel `(out_x, out_y)` of an `out_width × out_height`
+/// image exactly once, in the order both mono gathers walk it (`DEC-062` §1).
+///
+/// Orientations 5–8 read the source down a column for each output row, so a
+/// row-major walk touches a new cache line per pixel. They walk the output in
+/// [`ORIENT_TILE`]-square tiles instead: tile rows top to bottom, tiles left to
+/// right, pixels row-major within a tile, edge tiles clipped. Orientations 1–4
+/// already read along a source row; for them the tile is the whole output,
+/// which is exactly the plain row-major walk. Only the order changes, never a
+/// pixel's value, so the output is byte-identical either way.
+#[inline]
+fn for_each_out_pixel(
+    orientation: u32,
+    out_width: u32,
+    out_height: u32,
+    mut visit: impl FnMut(u32, u32),
+) {
+    let (tile_w, tile_h) = if (5..=8).contains(&orientation) {
+        (ORIENT_TILE, ORIENT_TILE)
+    } else {
+        (out_width, out_height)
+    };
+    // `step_by` needs a non-zero step; a zero-sized output cannot reach here
+    // (`resolve_geometry`), but `max(1)` keeps this total.
+    let step_x = usize::try_from(tile_w.max(1)).unwrap_or(usize::MAX);
+    let step_y = usize::try_from(tile_h.max(1)).unwrap_or(usize::MAX);
+    for tile_y in (0..out_height).step_by(step_y) {
+        let end_y = tile_y.saturating_add(tile_h).min(out_height);
+        for tile_x in (0..out_width).step_by(step_x) {
+            let end_x = tile_x.saturating_add(tile_w).min(out_width);
+            for out_y in tile_y..end_y {
+                for out_x in tile_x..end_x {
+                    visit(out_x, out_y);
+                }
+            }
+        }
+    }
+}
+
 /// The crop+orient+normalize pass — the fast, no-warp path: reads directly
 /// from the raw plane and writes the final oriented+cropped+normalized
 /// image straight into `dst` in one pass. Used when `OpcodeList3` is absent
@@ -923,6 +968,11 @@ fn crop_orient_normalize_for(
 
 /// The loop [`crop_orient_normalize_for`] runs; `black_at(raw_x, raw_y)` is
 /// each photosite's black, read on the raw plane's own coordinates.
+///
+/// It visits the output through [`for_each_out_pixel`]: in 64×64 tiles for
+/// Orientations 5–8, whose source reads run down a column, so each tile's 64
+/// source rows stay in cache; row by row for 1–4 (`DEC-062`). Only the order
+/// changes, never a pixel's value.
 fn crop_orient_normalize_into(
     sensor: &Sensor,
     geometry: &Geometry,
@@ -936,8 +986,11 @@ fn crop_orient_normalize_into(
         geometry.crop_width,
         geometry.crop_height,
     );
-    for out_y in 0..out_height {
-        for out_x in 0..out_width {
+    for_each_out_pixel(
+        geometry.orientation,
+        out_width,
+        out_height,
+        |out_x, out_y| {
             let (crop_x, crop_y) = crop_source_coords(
                 geometry.orientation,
                 out_x,
@@ -977,8 +1030,8 @@ fn crop_orient_normalize_into(
             if let Some(slot) = dst.get_mut(out_index) {
                 *slot = normalize(sample, black_at(raw_x, raw_y), white);
             }
-        }
-    }
+        },
+    );
 }
 
 /// The warp path's first stage: normalize the `ActiveArea` window (and ONLY
@@ -1058,8 +1111,11 @@ fn crop_and_orient_from_active_into(
     active_src: &[u16],
     dst: &mut [u16],
 ) {
-    for out_y in 0..out_height {
-        for out_x in 0..out_width {
+    for_each_out_pixel(
+        geometry.orientation,
+        out_width,
+        out_height,
+        |out_x, out_y| {
             let (crop_x, crop_y) = crop_source_coords(
                 geometry.orientation,
                 out_x,
@@ -1087,8 +1143,8 @@ fn crop_and_orient_from_active_into(
             if let Some(slot) = dst.get_mut(out_index) {
                 *slot = sample;
             }
-        }
-    }
+        },
+    );
 }
 
 /// Develop the sensor plane [`crate::plane::unpack_into`] produced into the
@@ -1876,6 +1932,80 @@ mod tests {
 
         sensor.orientation = Some(1);
         assert_eq!(output_dimensions(&sensor).expect("fits"), (8, 6));
+    }
+
+    /// `SPEC-067` `AC3`: the order `for_each_out_pixel` visits a 130×67 output
+    /// in. 5–8 walk 64×64 tiles (the first 64 visits are row 0, columns 0–63,
+    /// and visit 65 is row 1, column 0); 1–4 walk whole rows. Either way every
+    /// pixel is visited exactly once. Byte identity cannot see the order, so
+    /// this is the only test that does.
+    #[test]
+    fn orientation_traversal_is_tiled_only_for_5_to_8() {
+        const W: u32 = 130;
+        const H: u32 = 67;
+        for orientation in 1..=8u32 {
+            let mut order: Vec<(u32, u32)> = Vec::new();
+            for_each_out_pixel(orientation, W, H, |x, y| order.push((x, y)));
+
+            let mut seen = vec![0u8; (W * H) as usize];
+            for &(x, y) in &order {
+                assert!(x < W && y < H, "O{orientation}: ({x}, {y}) outside");
+                seen[(y * W + x) as usize] += 1;
+            }
+            assert!(
+                seen.iter().all(|&n| n == 1),
+                "O{orientation}: not every pixel visited exactly once"
+            );
+
+            if orientation >= 5 {
+                let first: Vec<(u32, u32)> = (0..64).map(|x| (x, 0)).collect();
+                assert_eq!(order[..64], first[..], "O{orientation}: first tile row");
+                assert_eq!(order[64], (0, 1), "O{orientation}: visit 65");
+                // The whole order is the tile walk DEC-062 §1 names: tile
+                // rows, tiles left to right, row-major inside a tile.
+                let mut want = Vec::new();
+                for ty in (0..H).step_by(64) {
+                    for tx in (0..W).step_by(64) {
+                        for y in ty..(ty + 64).min(H) {
+                            for x in tx..(tx + 64).min(W) {
+                                want.push((x, y));
+                            }
+                        }
+                    }
+                }
+                assert_eq!(order, want, "O{orientation}: tile walk");
+            } else {
+                let row_major: Vec<(u32, u32)> =
+                    (0..H).flat_map(|y| (0..W).map(move |x| (x, y))).collect();
+                assert_eq!(order, row_major, "O{orientation}: row-major walk");
+            }
+        }
+    }
+
+    /// `AC3`'s other half: both mono gathers walk through
+    /// `for_each_out_pixel`, so the order the test above pins is the order
+    /// both of them use. A function that went back to its own row loop would
+    /// keep byte identity and pass every other test.
+    #[test]
+    fn both_gathers_walk_through_the_traversal_helper() {
+        let src = include_str!("develop.rs");
+        for name in [
+            concat!("fn crop_orient", "_normalize_into("),
+            concat!("fn crop_and_orient", "_from_active_into("),
+        ] {
+            let start = src.find(name).expect("function exists");
+            let rest = &src[start + name.len()..];
+            let body = &rest[..rest.find("\nfn ").unwrap_or(rest.len())];
+            assert_eq!(
+                body.matches(concat!("for_each", "_out_pixel(")).count(),
+                1,
+                "{name}: must walk through the traversal helper once"
+            );
+            assert!(
+                !body.contains(concat!("for out", "_y in")),
+                "{name}: has its own row loop"
+            );
+        }
     }
 
     #[test]

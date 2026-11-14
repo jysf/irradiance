@@ -208,7 +208,8 @@ fn counter_counts() {
 fn scratch_develop_allocates_nothing() {
     let mut calls: Vec<Prepared> = Vec::new();
     for (fbp, warp) in [(false, false), (true, false), (false, true), (true, true)] {
-        for orientation in [1, 6] {
+        // 6 and 8: the two tiled 90° gathers (SPEC-067).
+        for orientation in [1, 6, 8] {
             for framing in [Framing::StandardCrop, Framing::FullActiveArea] {
                 for alpha in [0.0, 0.5, 1.0] {
                     for apply_orientation in [true, false] {
