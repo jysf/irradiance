@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-13
-  status: accepted                 # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-068
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 9676886            # REAL combined count — what cost-audit reads
+  estimated_usd: 7.24              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 55
+  branch: claude/spec-068-verify-ced1ed
+  pr: 235
+  completed_at: 2026-11-13         # YYYY-MM-DD
+  notes: "APPROVED at d555dea, no code changes; verdict commented on PR 235. Tokens are a floor: measured before the commit/push/comment turns. Cache writes priced at the 1-hour rate (x2.0)." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -263,43 +263,75 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** branch `claude/spec-068-verify-ced1ed` (handback only, no PR, per the brief); verdict commented on https://github.com/jysf/irradiance/pull/235
+- **Completed at:** 2026-11-13
+- **All acceptance criteria met?** yes. AC6 holds as "no new allocation" for Compression 7 (judged acceptable below).
+- **For `verify`:** ✅ APPROVED at `d555dea` (PR #235 head; the code is `f2fb6ec`), with no code changes.
+
+**Gates (run here, corpus env set, 12/12 present).**
+- `just test`: 690 passed, 0 failed, 1 ignored. No tier-B SKIP. `plane_oracle` (dnglab pins, layer-0, tier-A fixture oracle and its red-proofs) ran and passed, as did `unit_counts_on_held_files`, `units_assemble_in_any_order_on_held_files` (including the 8-thread Q2M case) and `q2m_units_allocate_nothing`.
+- `lint-ci`, `lint-no-allow`, `lint-fuzz`, `fmt-check`, `validate`, `doc-check`, `deny`, `msrv`, `cost-audit` and `gate-audit` are all green.
+- `decisions-audit --changed` is advisory; the change is consistent with DEC-008, DEC-016, DEC-047, DEC-050, DEC-051, DEC-056 and DEC-063.
+- `just fuzz-plane 60`: 3,166,210 runs in 61 s, clean.
+- `gh pr checks 235`: 44 of 44 pass on `d555dea`.
+
+**`unpack_into` is unchanged (AC4).**
+- `git diff 811b513 -- tests/` shows only the two new files and the `error_kind` row (15/21/30, 66 variants).
+- `validate`, `BitReader`, `unpack_bitstream`, `unpack_byte_aligned`, `plane_kind`, `check_strips`, `check_tiles`, `tile_grid`, `select_layout`, `check_layout`, `StripWalk` and `TileWalk` are byte-identical to `811b513` (diffed function by function). The only difference is the unused `StripSpan.samples` field, dropped.
+- Structural claim confirmed by reading. `unpack_into` keeps its precedence (kind, `dst` length, `check_layout`), then loops `Units::new(.., u32::MAX)` and calls `decode_unit`; the four old `unpack_*` functions are gone. `unpack_unit_into` reaches the same `decode_unit`. Diffing each old body against its new home: the strip and Compression 7 strip bodies moved verbatim (the 8/16 vs 12/14 branch is now the `unpack_packed` helper); the tile bodies moved verbatim except that the window `y0` is band-relative and `dst` is the band. Traversal order (strips in order, tiles row by row, left to right) is preserved, so the first error is the same.
+- Every source-scan needle matches exactly once in live code: the chunk-extraction needle is in `BitReader::read`, the byte-order needles are in `unpack_byte_aligned` (both reached through `unpack_packed` from `decode_unit` and `decode_tile_row`), the shape guard is in `check_strip_shape` (called by both kernels), and the `plane_validate` guards are in `validate` and `check_strips`. The `plane_tiles` allocation scan passes.
+
+**Oracle independence (AGENTS.md §16 rule 5).** This is not `shared-path-oracle-tautology`. Tier A compares every assembly with the fixture's own input samples, which come from an independent in-test encoder, not with `unpack_into`. Tier B holds `unpack_into` to the manifest's pre-existing dnglab checksum first, so the unit assemblies are compared against that pin. Any order is real: every permutation up to 6 units, otherwise forward, reverse and a seeded shuffle, into a poison-filled plane, with coverage asserted (in order, no gap, no overlap). The AC2 fixtures cover a short last band, the 12-bit odd-width fallback (single and multi-strip), partial last tile rows and columns, and Compression 7 single strips, multi-strips and tiles.
+
+**Concurrency.** The tier-B test decodes the Q2M's 8 units on 8 `std::thread::scope` threads into `split_at_mut` bands and matches the dnglab pin. The module doc test does the same on a tiny tier-A plane and runs in `just test`, so safe-Rust splitting is proven without the corpus too.
+
+**Mutants (hand-applied in a scratch copy, tier A only, corpus unset; control green): 12 of 12 red.**
+1. Band byte offset one row late: red AC2, alloc, and existing `plane_unpack`/`plane_validate` tests.
+2. Last band of a strip one row long (iterator): red AC3, AC2, AC5 and others.
+3. Band decoded one row short (kernel): red AC2, AC5 and `plane_unpack`.
+4. Band allowed to cross a strip: red AC3 (the Nikon-shaped inside-one-strip check), AC2, AC5.
+5. Whole-strip fallback skipped: red AC2 (odd width), AC3, AC5, and the existing 14-bit per-strip padding test.
+6. Tile window `y0` left plane-relative: red AC2 and the existing `plane_tiles` Compression 7 tile round-trips.
+7. Unit re-derivation skipped: red `foreign_unit_is_a_typed_mismatch_before_any_write`.
+8. `dst` length checked before the mismatch: red the same test.
+9. One extra empty unit at each strip end: red AC3 (`len()` and coverage), AC2, AC5.
+10. Tile-row unit's last row unclipped: red AC3, AC2, AC5 and five existing `plane_tiles` tests.
+11. `max_band_rows` ignored: red `unit_counts_and_coverage` (only that test; enough).
+12. `PlaneUnitMismatch` swapped for `PlaneBufferWrongLength`: red `foreign_unit_is_a_typed_mismatch_before_any_write`. AC7's own test does not notice (it builds the variant directly); AC5 does, so this is covered.
+- The eighth spec red-proof (`unpack_into` left on old loops) is structural, confirmed by reading above.
+
+**The build's deviations, judged.**
+- **AC6, Compression 7 allocation: acceptable.** I counted allocations for `unpack_into` on `811b513` and on this build with the same fixtures: Compression 7 strips ×4 → 40 both, tiles ×12 → 120 both, uncompressed → 0 both. So every Compression 7 allocation is pre-existing (about 10 per strip or tile, from the `ljpeg` header parses, not a single `Vec` as the build said), and `units` plus iteration, every uncompressed decode, and the error paths allocate nothing. "No new allocation" is the right reading of AC6 for Compression 7. Gap, not a defect: the equality test cannot see a new allocation inside the shared kernel, because both sides would count it. The `plane_tiles` source scan backstops that inside `src/plane.rs`. An XS follow-up could pin the absolute count.
+- **Zero-width tiled plane: correct.** On the regression shape (width 0, height `u32::MAX − 7`, 8×4 tiles, and a Compression 7 variant at height `u32::MAX`) `811b513` and this build both return `Ok(())` from `unpack_into` in microseconds, and `units` yields 0 at band 1 and MAX.
+- **Narrow `usize`: acceptable.** `units` has no `dst`, so `PlaneBufferWrongLength` would be meaningless there; `PlaneTooLarge` matches `validate`. Unreachable on 64-bit (two `u32`s), and `unpack_into` is unchanged.
+- **Fuzz harness relaxation: benign.** Coverage-to-height is skipped only for zero-sample planes. The 65,536-unit cap can skip a plane that has samples only when it is taller than 65,536 rows at a small band; with the harness's 4M-pixel cap, the same plane is still checked when the last byte selects band 64 (at most 62,500 units).
+- **Edge cases.** `NonZeroU32::MAX` on a 1-row plane and on a height-`u32::MAX` zero-width strip plane both terminate instantly (1 unit each); band 1 on the latter reports `len()` 4,294,967,295 lazily, without walking.
+- **Scope.** No kernel arithmetic changed (no SPEC-069 speed-up), `validate` unchanged, the public additions are exactly DEC-063's five (`Unit` with `samples`, `Units`, `units`, `unpack_unit_into`, `PlaneUnitMismatch`), no new dependency, and the CHANGELOG states them honestly.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 9,676,886 (a floor: measured before the commit, push and comment turns)
+- **Estimated USD:** 7.24 (input 108, output 31,297, cache read 9,472,954, cache write 172,527 priced at the 1-hour ×2.0 rate)
+- **Duration (minutes):** about 55 by the transcript's timestamps
+- **Source of the number:** transcript `0f21eae1-4f8a-4e1d-bc12-3ea9b3c79654.jsonl` (found by the scratchpad UUID), deduplicated by `message.id` with the max output per message, 53 messages, all `claude-opus-5-5`; no subagents
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none of my own. The build's four (AC6 Compression 7, zero-width tiles, narrow `usize`, structural foreign unit) are judged acceptable above.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - XS: pin the absolute Compression 7 allocation count per strip/tile in `plane_units_alloc.rs`, so a new allocation in the shared kernel is caught by the count and not only by the source scan.
+  - Agree with the build: move slow tier-B tests (`units_assemble_in_any_order_on_held_files`, about 9.5 min in debug) to a release-profile lane.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Little. The brief's "AC7 should notice" the mismatch-variant mutant was off: AC7's test constructs the variant directly, and AC5 catches it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The Compression 7 allocation is about 10 allocations per strip/tile across the `ljpeg` parses, not one `Vec`. AC6 should have said "no new allocation" for Compression 7 from the start.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Start the old-versus-new probes (copied trees with their own target dirs) at the same time as `just test`. They answered three of the brief's questions in seconds.
