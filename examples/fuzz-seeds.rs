@@ -333,7 +333,109 @@ fn plane_seeds() -> Vec<(&'static str, Vec<u8>)> {
     ];
     // SPEC-058: the tile path.
     seeds.extend(tiled_seeds());
+    // SPEC-068: one seed per unit kind the differential must reach.
+    seeds.extend(unit_seeds());
     seeds
+}
+
+/// `SPEC-068` (`DEC-063`): seeds for the plane target's units differential,
+/// one per unit kind. The target takes `max_band_rows = 1 + (last byte % 64)`,
+/// so each seed ends in one byte past every strip or tile that picks its band.
+fn unit_seeds() -> Vec<(&'static str, Vec<u8>)> {
+    use dng_writer::{write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload};
+    let ramp = |n: u32, bits: u32| -> Vec<u16> {
+        (0..n)
+            .map(|i| ((i.wrapping_mul(2_654_435_761) >> 9) % (1 << bits)) as u16)
+            .collect()
+    };
+    // A 12-bit 4 x 7 plane in strips of 3 rows (3 + 3 + 1, the last short):
+    // rows of 48 bits are whole bytes, so each strip splits into bands; the
+    // trailing 0x01 picks bands of 2 rows (2 + 1 per full strip).
+    let mut banded = strips_seed(4, 7, 12, 3, &ramp(4 * 7, 12));
+    banded.push(0x01);
+    // A 12-bit 5 x 6 plane in strips of 2 rows: rows of 60 bits are NOT whole
+    // bytes, so each strip is one unit whatever the band (the trailing 0x00
+    // asks for bands of 1 row).
+    let mut whole_strips = strips_seed(5, 6, 12, 2, &ramp(5 * 6, 12));
+    whole_strips.push(0x00);
+    // An 8-bit 16 x 10 plane in 8 x 4 tiles: three tile rows, the last one
+    // clipped to 2 rows.
+    let mut tile_rows = write_dng(&DngDescription {
+        order: tiff::Order::Little,
+        layout: IfdLayout::SensorInIfd0,
+        width: 16,
+        height: 10,
+        bits_per_sample: 8,
+        kind: dng_writer::PlaneKind::LinearRaw,
+        organisation: Organisation::Tiles {
+            tile_width: 8,
+            tile_length: 4,
+            edge_fill: 0xEF,
+        },
+        payload: Payload::Samples(ramp(16 * 10, 8)),
+        meta: DngMeta::default(),
+        opcode_lists: [None, None, None],
+        extra_tags: Vec::new(),
+        fault: None,
+    })
+    .expect("the writer accepts the unit seed");
+    tile_rows.push(0x02);
+    vec![
+        ("units-strip-bands-12bit-short-last", banded),
+        ("units-whole-strips-12bit-odd-width", whole_strips),
+        ("units-tile-rows-partial-last", tile_rows),
+    ]
+}
+
+/// A one-IFD, little-endian, uncompressed `width x height` plane at `bits`
+/// (12 here: an MSB-first bitstream per strip, each strip's last byte padded,
+/// `DEC-008`), cut into strips of `rows_per_strip` rows. The strip arrays live
+/// at 256 and 384; the payload starts at 512.
+fn strips_seed(width: u32, height: u32, bits: u32, rows_per_strip: u32, plane: &[u16]) -> Vec<u8> {
+    let order = tiff::Order::Little;
+    let pack = |samples: &[u16]| -> Vec<u8> {
+        let mut out = Vec::new();
+        let (mut acc, mut nbits) = (0u32, 0u32);
+        for &s in samples {
+            acc = (acc << bits) | u32::from(s);
+            nbits += bits;
+            while nbits >= 8 {
+                nbits -= 8;
+                out.push(((acc >> nbits) & 0xFF) as u8);
+            }
+        }
+        if nbits > 0 {
+            out.push(((acc << (8 - nbits)) & 0xFF) as u8);
+        }
+        out
+    };
+    let strips: Vec<Vec<u8>> = plane
+        .chunks((rows_per_strip * width) as usize)
+        .map(pack)
+        .collect();
+    let count = strips.len() as u32;
+    let mut entries = vec![
+        tiff::long(tiff::NEW_SUBFILE_TYPE, 0),
+        tiff::long(tiff::IMAGE_WIDTH, width),
+        tiff::long(tiff::IMAGE_LENGTH, height),
+        tiff::short(tiff::BITS_PER_SAMPLE, bits as u16, order),
+        tiff::short(tiff::COMPRESSION, 1, order),
+        tiff::short(tiff::PHOTOMETRIC, tiff::LINEAR_RAW, order),
+        tiff::short(tiff::SAMPLES_PER_PIXEL, 1, order),
+        tiff::at_offset(tiff::STRIP_OFFSETS, 4, count, 256),
+        tiff::long(TAG_ROWS_PER_STRIP, rows_per_strip),
+        tiff::at_offset(tiff::STRIP_BYTE_COUNTS, 4, count, 384),
+    ];
+    entries.sort_by_key(|e| e.tag);
+    let mut data = tiff::tiff(order, 8, &[tiff::Ifd::new(8, entries, 0)]);
+    data.resize(512, 0);
+    for (i, strip) in strips.iter().enumerate() {
+        let at = data.len() as u32;
+        data[256 + 4 * i..260 + 4 * i].copy_from_slice(&at.to_le_bytes());
+        data[384 + 4 * i..388 + 4 * i].copy_from_slice(&(strip.len() as u32).to_le_bytes());
+        data.extend_from_slice(strip);
+    }
+    data
 }
 
 /// Sixteen one-row 16-bit strips of a 32-wide plane, every `StripOffsets`

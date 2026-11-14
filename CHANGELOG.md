@@ -10,6 +10,23 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **Plane units: decode the sensor plane in independent bands**
+  (`irradiance::plane`, SPEC-068, STAGE-020, PROJ-004, DEC-063).
+  `units(sensor, file, max_band_rows)` yields `Unit`s, full-width bands of whole rows
+  (`row_start`, `row_count`) in plane order, through `Units`, an allocation-free
+  `ExactSizeIterator`. `unpack_unit_into(sensor, byte_order, file, &unit, dst)` decodes
+  one into its own `row_count × width` band. A band is a contiguous run of the plane, so
+  a caller splits its buffer with `split_at_mut` and decodes bands on its own threads, in
+  any order, with no `unsafe`; the assembled plane equals `unpack_into` byte for byte.
+  The unit kinds: a band of at most `max_band_rows` rows inside one uncompressed strip
+  whose rows are whole bytes; otherwise the whole strip; one tile row for a tiled plane;
+  and the whole strip for a Compression 7 strip, so a single-scan Compression 7 file (the
+  K-3 III, the Typ 246) is one unit. `Unit` is `#[non_exhaustive]` and only `units`
+  makes one. irradiance itself stays single-threaded and adds no dependency.
+- **`Error::PlaneUnitMismatch { row_start, row_count }`** (additive;
+  `ErrorKind::CallerError`). A unit that is not a unit of this sensor's layout (for
+  example one from another sensor) is refused before `dst` is judged or written
+  (SPEC-068, DEC-063).
 - **CFA as mono: per-position black levels, `DevelopOptions::black_levels`**
   (`irradiance::develop`, SPEC-066, STAGE-019, PROJ-004, DEC-061). A converted
   (CFA-removed) camera still declares `CFAPattern`; its plane already develops on the mono

@@ -561,6 +561,19 @@ pub enum Error {
         actual: usize,
     },
 
+    /// `SPEC-068` (`DEC-063`). The [`plane::Unit`] handed to
+    /// [`plane::unpack_unit_into`] is not a unit of this sensor's plane: its
+    /// source strip or tile row does not exist, or its rows are not rows that
+    /// source can yield (a unit from another sensor, say). Checked against the
+    /// layout before `dst` is judged or written, so a foreign unit with a
+    /// wrong-length `dst` reports this, not [`Error::PlaneBufferWrongLength`].
+    PlaneUnitMismatch {
+        /// The unit's first plane row.
+        row_start: u32,
+        /// The unit's row count.
+        row_count: u32,
+    },
+
     /// `SPEC-039` (`DEC-050`). An uncompressed plane's `StripByteCounts` sum to
     /// more bytes than the whole file holds. Every strip is individually in
     /// bounds by the time this is checked, so the strips must alias the same
@@ -1248,6 +1261,16 @@ impl fmt::Display for Error {
                     "destination buffer holds {actual} sample(s), expected {expected}"
                 )
             }
+            Error::PlaneUnitMismatch {
+                row_start,
+                row_count,
+            } => {
+                write!(
+                    f,
+                    "plane unit of {row_count} row(s) starting at row {row_start} is not a \
+                     unit of this sensor's layout"
+                )
+            }
             Error::InvalidActiveArea {
                 top,
                 left,
@@ -1548,6 +1571,7 @@ impl Error {
             // The caller's argument decided it: a mis-sized buffer, or the
             // caller's own `max_pixels` budget (DEC-050).
             Error::PlaneBufferWrongLength { .. }
+            | Error::PlaneUnitMismatch { .. }
             | Error::PlaneTooLarge { .. }
             | Error::SourcePlaneWrongLength { .. }
             | Error::DevelopBufferWrongLength { .. }

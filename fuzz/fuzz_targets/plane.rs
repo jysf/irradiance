@@ -26,6 +26,13 @@
 //! `validate` `Err` means `unpack_into` is also `Err`. Seeds include forged
 //! dimensions on both paths and aliased strips.
 //!
+//! Since `SPEC-068` (`DEC-063`) it also runs the units differential after every
+//! `unpack_into` it makes, at `max_band_rows = 1 + (last byte % 64)`: on `Ok`,
+//! `units` is `Ok`, its rows tile `0..height` exactly, and every unit decoded
+//! in REVERSE order into a second plane is `Ok` and that plane equals the
+//! first; on `Err`, `units` returns that error, or it is `Ok` and the units in
+//! forward order fail with that error at the first failing unit.
+//!
 //! Seeds are hand-built tier-A fixtures written by `cargo run --example
 //! fuzz-seeds` (`examples/fuzz-seeds.rs`) — no corpus file is used as a seed
 //! (`DEC-003`).
@@ -34,8 +41,10 @@
 
 use libfuzzer_sys::fuzz_target;
 
-use irradiance::ifd::{Compression, Container};
-use irradiance::plane::{unpack_into, validate};
+use std::num::NonZeroU32;
+
+use irradiance::ifd::{ByteOrder, Compression, Container, Sensor};
+use irradiance::plane::{unpack_into, unpack_unit_into, units, validate, Unit};
 use irradiance::Error;
 
 /// The pixel budget this harness passes to `validate` — the caller's number
@@ -71,6 +80,7 @@ fuzz_target!(|data: &[u8]| {
 
             let mut dst = vec![0u16; n];
             let unpacked = unpack_into(&sensor, order, data, &mut dst);
+            check_units(&sensor, order, data, &unpacked, &dst);
             if sensor.compression == Compression::Uncompressed {
                 // The uncompressed contract: Ok(n) means the unpack cannot
                 // fail, and the plane is bounded by the bytes supplied.
@@ -111,6 +121,7 @@ fuzz_target!(|data: &[u8]| {
                     let mut dst = vec![0u16; len];
                     let unpacked = unpack_into(&sensor, order, data, &mut dst);
                     assert!(unpacked.is_err(), "validate Err but unpack_into Ok");
+                    check_units(&sensor, order, data, &unpacked, &dst);
                 }
             }
             // And with a tiny (wrong-size) dst it is an Err as well.
@@ -122,3 +133,70 @@ fuzz_target!(|data: &[u8]| {
         }
     }
 });
+
+/// The most units the differential walks for one input (`SPEC-068`).
+const UNIT_CAP: usize = 1 << 16;
+
+/// The `SPEC-068` units differential against `unpack_into`'s own `result` and
+/// `plane` (DEC-063 §3: both run the same kernel over the same units).
+fn check_units(
+    sensor: &Sensor,
+    order: ByteOrder,
+    data: &[u8],
+    result: &Result<(), Error>,
+    plane: &[u16],
+) {
+    let band = NonZeroU32::new(1 + u32::from(data.last().copied().unwrap_or(0) % 64))
+        .expect("1..=64 is non-zero");
+    let width = sensor.width as usize;
+    let listed = units(sensor, data, band);
+    match (result, listed) {
+        // The harness's own bound: a caller-chosen band of 1 on a zero-width
+        // plane is `height` empty units, a legal answer this harness does not
+        // collect.
+        (_, Ok(it)) if it.len() > UNIT_CAP => {}
+        (Ok(()), Ok(it)) => {
+            let len = it.len();
+            let us: Vec<Unit> = it.collect();
+            assert_eq!(us.len(), len, "units: len() disagrees with the count yielded");
+            let mut next = 0u32;
+            for u in &us {
+                assert_eq!(u.row_start, next, "units leave a gap or overlap at row {next}");
+                next = u.row_start + u.row_count;
+            }
+            // A plane with no samples (zero width) is accepted by the
+            // sample-counted coverage check whatever rows its strips declare,
+            // and a zero-width tiled plane has no units at all; the rows must
+            // reach `height` only when there are samples to place.
+            if !plane.is_empty() {
+                assert_eq!(next, sensor.height, "units do not end at the plane height");
+            }
+            let mut second = vec![0u16; plane.len()];
+            for u in us.iter().rev() {
+                let at = u.row_start as usize * width;
+                let n = u.samples(sensor.width).expect("band fits usize");
+                unpack_unit_into(sensor, order, data, u, &mut second[at..at + n])
+                    .unwrap_or_else(|e| panic!("unpack_into Ok but unit {u:?} failed: {e:?}"));
+            }
+            assert!(second == plane, "units in reverse order differ from unpack_into");
+        }
+        (Ok(()), Err(e)) => panic!("unpack_into Ok but units refused: {e:?}"),
+        (Err(want), Err(got)) => {
+            assert_eq!(format!("{got:?}"), format!("{want:?}"), "units vs unpack_into");
+        }
+        (Err(want), Ok(it)) => {
+            let mut scratch = vec![0u16; plane.len()];
+            let mut first = None;
+            for u in it {
+                let at = u.row_start as usize * width;
+                let n = u.samples(sensor.width).expect("band fits usize");
+                if let Err(e) = unpack_unit_into(sensor, order, data, &u, &mut scratch[at..at + n]) {
+                    first = Some(e);
+                    break;
+                }
+            }
+            let got = first.unwrap_or_else(|| panic!("unpack_into {want:?} but every unit Ok"));
+            assert_eq!(format!("{got:?}"), format!("{want:?}"), "first failing unit");
+        }
+    }
+}
