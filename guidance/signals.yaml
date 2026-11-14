@@ -1607,3 +1607,19 @@ signals:
       [[closed-form-numeric-needs-extreme-magnitude-fixtures]] (both are "the premise was
       only checked at comfortable values").
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
+
+  # --- process-debt: whole-corpus tier-B tests are slow in the debug profile -----
+  - id: slow-tier-b-tests-in-debug
+    type: process-debt
+    summary: "Tier-B tests that decode or develop every held file several times run in the debug profile under `just test` and now take about 10 minutes each, so every local full run (build, verify, each fix restart) pays for them."
+    evidence: "N=2. (2) STAGE-020 2026-11-14: SPEC-068's units_assemble_in_any_order_on_held_files takes about 9.5 min in debug (11 files x 8 assemblies, band 1 on the 47 MP planes); the build reported each fuzz finding restarted a 25-minute suite, and the verify agreed it belongs in a release lane. (1) STAGE-019 2026-11-13: SPEC-067's 24-pin tests/orientation_tiles.rs takes about 10 min in debug; both its build and verify filed it as a follow-up."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-14
+    last_touched: 2026-11-14
+    raised_by: claude
+    notes: |
+      CI skips tier B, so this is local cost only. Candidate fix: a release-profile
+      lane (a `just test-corpus` recipe running the tier-B binaries with --release),
+      with `just test` keeping tier A plus a fast subset. Decide at the STAGE-020 close.

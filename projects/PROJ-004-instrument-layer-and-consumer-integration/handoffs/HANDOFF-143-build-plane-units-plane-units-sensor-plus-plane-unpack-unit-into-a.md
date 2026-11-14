@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 23143680           # REAL combined count — what cost-audit reads
-  estimated_usd: 16.80             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 27164317         # REAL combined count — what cost-audit reads
+  estimated_usd: 19.20           # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 85
   branch: claude/spec-068-build
   pr: 235
   completed_at: 2026-11-13         # YYYY-MM-DD
-  notes: "FLOOR at handback, from transcript 4580ee72-d8aa-40e9-bea3-9a9798d9982d.jsonl (92 unique message.ids, all claude-opus-5-5, no subagents): input 185 + cache-creation 277,915 (1-hour) + cache-read 22,759,860 + output 105,720 (max per message). USD at opus-5-5 rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Excludes the handback commit and CI turns; re-sum at ship."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript 4580ee72-d8aa-40e9-bea3-9a9798d9982d.jsonl (104 unique message.ids, all claude-opus-5-5, no subagents): input 211 + cache-creation 293,753 (1-hour) + cache-read 26,754,878 + output 115,475 (max per message), opus-5-5 rates. The handback floor was 23,143,680 / 16.80. PR 235 squash-merged as 579aeb2." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  synced_at: 2026-11-14
 ---
 
 # HANDOFF-143: BUILD: plane units, full-width row bands decodable in any order (SPEC-068)

@@ -140,11 +140,12 @@ packed-bits kernel depends on the units spec, because it should speed up the per
 kernel the units call, not a path the units bypass. The Compression 7 speed-up does not
 depend on it.
 
-- [ ] SPEC-068 (build) [M] — Plane units (DEC-063): every unit a full-width row band (bands inside uncompressed strips with whole-byte rows, else the whole strip; one tile row per unit for tiled planes; a whole Compression 7 strip), so a caller splits dst with split_at_mut and needs no unsafe; plane::units(sensor, file, max_band_rows) + unpack_unit_into; unpack_into iterates the same units through one kernel. Restart-interval units deferred (no held file has any).
+- [x] SPEC-068 (shipped on 2026-11-14) [M] — Plane units (DEC-063): every unit a full-width row band (bands inside uncompressed strips with whole-byte rows, else the whole strip; one tile row per unit for tiled planes; a whole Compression 7 strip), so a caller splits dst with split_at_mut and needs no unsafe; plane::units(sensor, file, max_band_rows) + unpack_unit_into; unpack_into iterates the same units through one kernel. Restart-interval units deferred (no held file has any).
 - [ ] SPEC-069 (frame) [S] — Faster single-threaded packed-bits unpack, profile-gated: the Q2M 14-bit unpack takes 238 ms for 47 MP; profile first, and if the per-sample bit loop dominates, add a byte-group fast path for 12/14-bit whole-byte rows; byte-identical on every held file and tier-A width; before/after from a committed release timing example. Depends on the units spec. **SPEC-068 design probe:** an independent u64-accumulator 14-bit unpack of the Q2M strip took 44.7 ms against the crate's 238 ms, byte-identical (5.3x single-threaded).
 - [ ] SPEC-070 (frame) [M] — Faster single-stream Compression 7 decode, profile-gated: K-3 III Mono 704 ms and Typ 246 601 ms, both single scans with no restart markers, so units cannot split them; profile src/ljpeg.rs (Huffman decode, prediction), change only what the profile names; bit-exact against dnglab (SPEC-044's oracle) and every lossless-JPEG test; before/after timed.
+- [ ] (unframed) [XS] — SPEC-068 verify follow-up: pin the absolute Compression 7 allocation count per strip or tile in `tests/plane_units_alloc.rs` (about 10 from the `ljpeg` header parses), so a new allocation in the shared kernel is caught by the count, not only by the old-equals-new comparison and the source scan.
 
-**Count:** 0 shipped / 3 active / 0 pending
+**Count:** 1 shipped / 2 active / 0 pending (plus one unframed XS follow-up. SPEC-068 shipped 2026-11-14, DEC-063, verify approved first round, 39.44M tok / $28.11)
 
 ## Design Notes
 
