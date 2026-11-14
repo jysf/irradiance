@@ -42,6 +42,82 @@
 //! layouts is [`Error::StripsAndTiles`], a table that does not match the tile
 //! grid is [`Error::InvalidTileLayout`].
 //!
+//! # Units — `SPEC-068`, `DEC-063`
+//!
+//! [`units`] cuts the plane into **full-width bands of whole rows** that decode
+//! independently, and [`unpack_unit_into`] decodes one into its own band. A
+//! band is a contiguous run of the plane, so a caller splits its buffer with
+//! `split_at_mut` and decodes the bands on its own threads, in any order, with
+//! no `unsafe`; the result equals [`unpack_into`] byte for byte, because
+//! [`unpack_into`] iterates the same units through the same kernel. irradiance
+//! itself starts no thread.
+//!
+//! - **An uncompressed strip whose rows are whole bytes** splits into bands of
+//!   at most `max_band_rows` rows. A band never crosses a strip: each strip is
+//!   its own byte-padded bitstream.
+//! - **An uncompressed strip whose rows are not whole bytes**, and **a
+//!   Compression-7 strip**, are one unit each: neither can be entered mid-way.
+//! - **A tiled plane** is one unit per tile row: two tiles of one tile row
+//!   share plane rows, so they cannot be two disjoint bands.
+//!
+//! ```
+//! # fn tiny_dng() -> Vec<u8> {
+//! #     // A 4 × 6, 16-bit, one-strip LinearRaw plane, little-endian.
+//! #     let entries: [(u16, u16, u32); 9] = [
+//! #         (254, 4, 0), (256, 4, 4), (257, 4, 6), (258, 3, 16), (259, 3, 1),
+//! #         (262, 3, 34892), (277, 3, 1), (273, 4, 512), (279, 4, 48),
+//! #     ];
+//! #     let mut f = b"II*\0\x08\0\0\0".to_vec();
+//! #     f.extend_from_slice(&9u16.to_le_bytes());
+//! #     for (tag, ty, value) in entries {
+//! #         f.extend_from_slice(&tag.to_le_bytes());
+//! #         f.extend_from_slice(&ty.to_le_bytes());
+//! #         f.extend_from_slice(&1u32.to_le_bytes());
+//! #         f.extend_from_slice(&value.to_le_bytes());
+//! #     }
+//! #     f.extend_from_slice(&0u32.to_le_bytes());
+//! #     f.resize(512, 0);
+//! #     f.extend((0u16..24).flat_map(|s| s.to_le_bytes()));
+//! #     f
+//! # }
+//! # fn main() -> Result<(), irradiance::Error> {
+//! use std::num::NonZeroU32;
+//!
+//! use irradiance::ifd::Container;
+//! use irradiance::plane::{unpack_into, unpack_unit_into, units, validate};
+//!
+//! let file = tiny_dng();
+//! let container = Container::parse(&file)?;
+//! let sensor = container.sensor()?;
+//! let order = container.byte_order();
+//! let n = validate(&sensor, order, &file, usize::MAX)?;
+//! let mut plane = vec![0u16; n];
+//!
+//! // Carve the plane into each unit's band; decode the bands on scoped threads.
+//! let max_band_rows = NonZeroU32::new(2).expect("non-zero");
+//! std::thread::scope(|scope| -> Result<(), irradiance::Error> {
+//!     let mut rest: &mut [u16] = &mut plane;
+//!     let mut workers = Vec::new();
+//!     for unit in units(&sensor, &file, max_band_rows)? {
+//!         let len = unit.samples(sensor.width).expect("the band fits usize");
+//!         let (band, tail) = rest.split_at_mut(len);
+//!         rest = tail;
+//!         let (sensor, file) = (&sensor, &file);
+//!         workers.push(scope.spawn(move || unpack_unit_into(sensor, order, file, &unit, band)));
+//!     }
+//!     for worker in workers {
+//!         worker.join().expect("a worker panicked")?;
+//!     }
+//!     Ok(())
+//! })?;
+//!
+//! let mut whole = vec![0u16; n];
+//! unpack_into(&sensor, order, &file, &mut whole)?;
+//! assert_eq!(plane, whole);
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! # Provenance
 //!
 //! Tiles: TIFF 6.0 §15, the Adobe DNG specification 1.7, and ITU-T T.81 Annex
@@ -76,10 +152,13 @@
 //!
 //! # Allocation — `DEC-016`
 //!
-//! [`unpack_into`] takes the destination buffer as a caller-owned `&mut
-//! [u16]` and allocates nothing itself, so it needs no allocator regardless
-//! of how `DEC-002` (`no_std` + `alloc`, still `proposed`) is eventually
-//! decided. See `DEC-016` for the alternative considered and rejected.
+//! [`unpack_into`] and [`unpack_unit_into`] take the destination buffer as a
+//! caller-owned `&mut [u16]`, and [`units`] holds no buffer, so this module
+//! allocates nothing itself and needs no allocator regardless of how
+//! `DEC-002` (`no_std` + `alloc`, still `proposed`) is eventually decided. See
+//! `DEC-016` for the alternative considered and rejected.
+
+use core::num::NonZeroU32;
 
 use crate::ifd::{ByteOrder, Compression, Sensor};
 use crate::Error;
@@ -452,18 +531,446 @@ pub fn unpack_into(
     // Compression-7 loop can fail only in the decode itself.
     let layout = check_layout(sensor, kind, expected_len, file)?;
 
-    // SPEC-043 / STAGE-011: dispatch on the sensor's `Compression` (DEC-012);
-    // SPEC-058: and on the layout.
-    match (layout, kind) {
-        (Layout::Strips, PlaneKind::Uncompressed { bits }) => {
-            unpack_uncompressed(sensor, bits, byte_order, file, dst)
-        }
-        (Layout::Strips, PlaneKind::Jpeg) => unpack_jpeg(sensor, file, dst),
-        (Layout::Tiles(grid), PlaneKind::Uncompressed { bits }) => {
-            unpack_tiles_uncompressed(sensor, grid, bits, byte_order, file, dst)
-        }
-        (Layout::Tiles(grid), PlaneKind::Jpeg) => unpack_tiles_jpeg(sensor, grid, file, dst),
+    // SPEC-068 / DEC-063 §3: the plane is the units `units` yields at the
+    // largest band — one per strip or tile row, so today's traversal exactly:
+    // strips in order, tiles in table (tile-row by tile-row) order — each
+    // carved off the head of `dst` in turn and decoded by the same private
+    // kernel `unpack_unit_into` calls. One decode path, so the whole-plane
+    // call and the units cannot drift. `check_layout` is not re-run per unit.
+    let plan = Plan::new(sensor, kind, layout)?;
+    let mut rest: &mut [u16] = dst;
+    for unit in Units::new(sensor, plan, u32::MAX) {
+        let samples = unit
+            .samples(sensor.width)
+            .ok_or(Error::PlaneBufferWrongLength {
+                expected: pixel_count,
+                actual: expected_len,
+            })?;
+        let (band, tail) = carve(rest, samples)?;
+        rest = tail;
+        decode_unit(sensor, plan, kind, byte_order, file, &unit, band)?;
     }
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Units — `SPEC-068`, `DEC-063`
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One independently decodable piece of the sensor plane: a **full-width band
+/// of whole rows**, `row_start .. row_start + row_count` (`DEC-063`).
+///
+/// Its output is the contiguous run `dst[row_start · width ..][.. row_count ·
+/// width]` of the plane, so units split a caller's buffer with `split_at_mut`
+/// and decode on the caller's own threads with no `unsafe`. Only
+/// [`units`] makes one: the struct is `#[non_exhaustive]` and carries a
+/// private source (which strip or tile row, and the band's offset inside a
+/// strip), so it cannot be built outside the crate:
+///
+/// ```compile_fail
+/// let unit = irradiance::plane::Unit { row_start: 0, row_count: 1 };
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Unit {
+    /// The band's first plane row.
+    pub row_start: u32,
+    /// The band's row count.
+    pub row_count: u32,
+    /// Where the band's bytes come from. Private, so a unit can only come
+    /// from [`units`], and so new kinds can be added later.
+    source: UnitSource,
+}
+
+/// Which part of the plane's layout a [`Unit`] decodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnitSource {
+    /// Rows `row_in_strip ..` of one uncompressed strip whose rows are whole
+    /// bytes.
+    StripBand {
+        /// Index into `StripOffsets`.
+        strip: usize,
+        /// The band's first row, counted from the strip's first row.
+        row_in_strip: u32,
+    },
+    /// A whole strip: a Compression-7 strip, or an uncompressed one whose rows
+    /// are not whole bytes.
+    Strip {
+        /// Index into `StripOffsets`.
+        strip: usize,
+    },
+    /// Every tile of one tile row, left to right.
+    TileRow {
+        /// The tile row, `0 .. ceil(height / TileLength)`.
+        tile_row: u32,
+    },
+}
+
+impl Unit {
+    /// `row_count · width`: the length of the band [`unpack_unit_into`]
+    /// writes, or `None` if it does not fit `usize`.
+    #[must_use]
+    pub fn samples(&self, width: u32) -> Option<usize> {
+        u64::from(self.row_count)
+            .checked_mul(u64::from(width))
+            .and_then(|n| usize::try_from(n).ok())
+    }
+}
+
+/// The unit layout of a plane whose [`check_layout`] has passed — the numbers
+/// [`Units`] walks and [`decode_unit`] reads, nothing proportional to the
+/// plane.
+#[derive(Debug, Clone, Copy)]
+enum Plan {
+    /// A strip plane.
+    Strips {
+        /// Number of strips.
+        strips: usize,
+        /// Rows per strip (the last strip holds the remainder).
+        rows_per_strip: u32,
+        /// Uncompressed with `width · bits` a whole number of bytes: the strip
+        /// splits into bands. Otherwise each strip is one unit.
+        whole_byte_rows: bool,
+    },
+    /// A tiled plane: one unit per tile row.
+    Tiles {
+        /// The checked tile grid.
+        grid: TileGrid,
+        /// `ceil(height / TileLength)`.
+        tile_rows: u32,
+    },
+}
+
+impl Plan {
+    /// The plan for a `layout` that [`check_layout`] has accepted.
+    fn new(sensor: &Sensor, kind: PlaneKind, layout: Layout) -> Result<Plan, Error> {
+        match layout {
+            Layout::Strips => {
+                let walk = StripWalk::new(sensor, kind, 0)?;
+                let whole_byte_rows = match kind {
+                    PlaneKind::Uncompressed { bits } => {
+                        u64::from(sensor.width)
+                            .saturating_mul(u64::from(bits))
+                            .checked_rem(8)
+                            == Some(0)
+                    }
+                    PlaneKind::Jpeg => false,
+                };
+                Ok(Plan::Strips {
+                    strips: walk.strips,
+                    rows_per_strip: walk.rows_per_strip,
+                    whole_byte_rows,
+                })
+            }
+            // A zero-width tiled plane has no tile columns, so its tile table
+            // is empty (`tile_grid` checked `across · down` entries) and it
+            // has no tile rows to decode. Yielding its `ceil(height / TL)`
+            // empty tile rows anyway would make `unpack_into` walk up to a
+            // billion of them where it used to walk zero tiles.
+            Layout::Tiles(grid) => Ok(Plan::Tiles {
+                grid,
+                tile_rows: if grid.across == 0 {
+                    0
+                } else {
+                    ceil_div(sensor.height, grid.tile_length).unwrap_or(0)
+                },
+            }),
+        }
+    }
+
+    /// Whether `unit` is a unit this plan can yield at SOME band size: its
+    /// source exists, and its rows are rows that source holds — any non-empty
+    /// run of rows inside a whole-byte strip, a strip's exact rows, or a tile
+    /// row's exact visible rows (`DEC-063` §2).
+    fn yields(self, height: u32, unit: &Unit) -> bool {
+        match (self, unit.source) {
+            (
+                Plan::Strips {
+                    strips,
+                    rows_per_strip,
+                    whole_byte_rows: true,
+                },
+                UnitSource::StripBand {
+                    strip,
+                    row_in_strip,
+                },
+            ) => {
+                let (first, rows) = strip_rows(height, rows_per_strip, strip);
+                strip < strips
+                    && unit.row_count >= 1
+                    && row_in_strip
+                        .checked_add(unit.row_count)
+                        .is_some_and(|end| end <= rows)
+                    && first.checked_add(row_in_strip) == Some(unit.row_start)
+            }
+            (
+                Plan::Strips {
+                    strips,
+                    rows_per_strip,
+                    whole_byte_rows: false,
+                },
+                UnitSource::Strip { strip },
+            ) => {
+                strip < strips
+                    && strip_rows(height, rows_per_strip, strip) == (unit.row_start, unit.row_count)
+            }
+            (Plan::Tiles { grid, tile_rows }, UnitSource::TileRow { tile_row }) => {
+                tile_row < tile_rows
+                    && strip_rows(
+                        height,
+                        grid.tile_length,
+                        usize::try_from(tile_row).unwrap_or(usize::MAX),
+                    ) == (unit.row_start, unit.row_count)
+            }
+            _ => false,
+        }
+    }
+}
+
+/// `(first_row, rows)` of row band `index` when the plane is cut into bands of
+/// `band` rows (a strip of `RowsPerStrip`, or a tile row of `TileLength`): the
+/// last band holds the remainder, and bands past the plane hold zero rows at
+/// `height`. Exactly the rows [`StripWalk`] assigns strip `index`.
+fn strip_rows(height: u32, band: u32, index: usize) -> (u32, u32) {
+    let first = u64::try_from(index)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(u64::from(band))
+        .min(u64::from(height));
+    let first = u32::try_from(first).unwrap_or(height);
+    (first, band.min(height.saturating_sub(first)))
+}
+
+/// `ceil(rows / band)` for `band > 0`, as a `u64`.
+fn bands_in(rows: u32, band: u32) -> u64 {
+    u64::from(ceil_div(rows, band).unwrap_or(0))
+}
+
+/// The units of one plane, in plane order — see [`units`]. An
+/// [`ExactSizeIterator`] that walks the strip or tile tables lazily and holds
+/// no buffer.
+#[derive(Debug, Clone)]
+pub struct Units<'a> {
+    /// The plane's geometry (`height` bounds every band).
+    sensor: &'a Sensor,
+    /// The checked layout.
+    plan: Plan,
+    /// `max_band_rows`.
+    band_rows: u32,
+    /// The next strip or tile row.
+    index: usize,
+    /// The next band's first row inside strip `index`.
+    row_in_strip: u32,
+    /// Units not yet yielded.
+    remaining: usize,
+}
+
+impl<'a> Units<'a> {
+    /// The units of `plan`, `band_rows >= 1`. `len()` is computed here, from
+    /// the plan's numbers alone.
+    fn new(sensor: &'a Sensor, plan: Plan, band_rows: u32) -> Units<'a> {
+        let height = sensor.height;
+        let count: u64 = match plan {
+            Plan::Strips { strips: 0, .. } => 0,
+            Plan::Strips {
+                strips,
+                whole_byte_rows: false,
+                ..
+            } => u64::try_from(strips).unwrap_or(u64::MAX),
+            Plan::Strips {
+                strips,
+                rows_per_strip,
+                whole_byte_rows: true,
+            } => {
+                // Strips holding a full `rows_per_strip`, then at most one
+                // holding the remainder; any strip after that holds no rows
+                // and yields no band.
+                let strips = u64::try_from(strips).unwrap_or(u64::MAX);
+                let full = u64::from(height.checked_div(rows_per_strip).unwrap_or(0)).min(strips);
+                let rest_rows = height.checked_rem(rows_per_strip).unwrap_or(0);
+                let rest = if full < strips {
+                    bands_in(rest_rows, band_rows)
+                } else {
+                    0
+                };
+                full.saturating_mul(bands_in(rows_per_strip, band_rows))
+                    .saturating_add(rest)
+            }
+            Plan::Tiles { tile_rows, .. } => u64::from(tile_rows),
+        };
+        Units {
+            sensor,
+            plan,
+            band_rows,
+            index: 0,
+            row_in_strip: 0,
+            remaining: usize::try_from(count).unwrap_or(usize::MAX),
+        }
+    }
+}
+
+impl Iterator for Units<'_> {
+    type Item = Unit;
+
+    fn next(&mut self) -> Option<Unit> {
+        let height = self.sensor.height;
+        let unit = match self.plan {
+            Plan::Strips {
+                strips,
+                rows_per_strip,
+                whole_byte_rows,
+            } => loop {
+                if self.index >= strips {
+                    return None;
+                }
+                let strip = self.index;
+                let (first, rows) = strip_rows(height, rows_per_strip, strip);
+                if !whole_byte_rows {
+                    self.index = strip.saturating_add(1);
+                    break Unit {
+                        row_start: first,
+                        row_count: rows,
+                        source: UnitSource::Strip { strip },
+                    };
+                }
+                let row_in_strip = self.row_in_strip;
+                if row_in_strip < rows {
+                    // A band never crosses a strip: it ends at the band size
+                    // or the strip's last row, whichever comes first.
+                    let row_count = rows.saturating_sub(row_in_strip).min(self.band_rows);
+                    self.row_in_strip = row_in_strip.saturating_add(row_count);
+                    break Unit {
+                        row_start: first.saturating_add(row_in_strip),
+                        row_count,
+                        source: UnitSource::StripBand {
+                            strip,
+                            row_in_strip,
+                        },
+                    };
+                }
+                self.index = strip.saturating_add(1);
+                self.row_in_strip = 0;
+            },
+            Plan::Tiles { grid, tile_rows } => {
+                let index = self.index;
+                let tile_row = u32::try_from(index).ok().filter(|r| *r < tile_rows)?;
+                self.index = index.saturating_add(1);
+                let (row_start, row_count) = strip_rows(height, grid.tile_length, index);
+                Unit {
+                    row_start,
+                    row_count,
+                    source: UnitSource::TileRow { tile_row },
+                }
+            }
+        };
+        self.remaining = self.remaining.saturating_sub(1);
+        Some(unit)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl ExactSizeIterator for Units<'_> {}
+
+/// The plane's kind and unit plan, after the checks [`unpack_into`] and
+/// [`validate`] share, in their order: compression and depth, the pixel count
+/// fits `usize`, then the full layout pass.
+fn plan_for(sensor: &Sensor, file: &[u8]) -> Result<(PlaneKind, Plan), Error> {
+    let kind = plane_kind(sensor)?;
+    // Unreachable on a 64-bit target (two `u32`s); on a narrower one, the
+    // same refusal `validate` gives with no budget.
+    let pixels = pixel_product(sensor);
+    let plane_samples = usize::try_from(pixels).map_err(|_| Error::PlaneTooLarge {
+        pixels,
+        limit: usize::MAX,
+    })?;
+    let layout = check_layout(sensor, kind, plane_samples, file)?;
+    Ok((kind, Plan::new(sensor, kind, layout)?))
+}
+
+/// The plane's units: full-width bands of whole rows that decode
+/// independently, in plane order, together covering every row exactly once
+/// (`SPEC-068`, `DEC-063`).
+///
+/// | Layout | Unit |
+/// |---|---|
+/// | Uncompressed strip, rows of whole bytes (`width · bits % 8 == 0`) | a band of at most `max_band_rows` rows **inside one strip** |
+/// | Uncompressed strip, rows not whole bytes | the whole strip |
+/// | Uncompressed or Compression-7 tiles | one tile row (the last one clipped) |
+/// | Compression-7 strip | the whole strip (a scan without restart markers cannot be entered mid-way) |
+///
+/// Only the bands depend on `max_band_rows`; with `max_band_rows >= height`
+/// the units are exactly one per strip or per tile row. A zero-width tiled
+/// plane has no tiles, so it has no units (there is nothing to write). Decode each with
+/// [`unpack_unit_into`] into its own `row_count · width` band of the plane,
+/// in any order, on any thread: the assembled plane equals [`unpack_into`]'s
+/// byte for byte (which iterates these same units).
+///
+/// Runs the same full layout check [`validate`] and [`unpack_into`] share
+/// before yielding anything. Allocation-free; reads no strip or tile byte.
+///
+/// # Errors
+///
+/// The pre-decode errors [`unpack_into`] documents, as the **same variant**
+/// and in the same order — except [`Error::PlaneBufferWrongLength`], since
+/// there is no buffer here.
+pub fn units<'a>(
+    sensor: &'a Sensor,
+    file: &[u8],
+    max_band_rows: NonZeroU32,
+) -> Result<Units<'a>, Error> {
+    let (_, plan) = plan_for(sensor, file)?;
+    Ok(Units::new(sensor, plan, max_band_rows.get()))
+}
+
+/// Decode one [`Unit`] of the plane into `dst`, which holds exactly that
+/// unit's band: `unit.row_count · width` samples, row-major (`SPEC-068`,
+/// `DEC-063`). Plane row `unit.row_start + r` lands in `dst[r · width ..]`.
+///
+/// Every sample comes from the same decode, from the same bytes, as
+/// [`unpack_into`]'s, so units decoded in any order into their bands of one
+/// plane equal [`unpack_into`] byte for byte. `byte_order` and `file` are as
+/// for [`unpack_into`]. Allocation-free, except the small Huffman-table parse
+/// a Compression-7 strip or tile has always made.
+///
+/// # Errors
+///
+/// In this order, so nothing is written on any refusal:
+///
+/// - the pre-decode errors [`units`] returns for this sensor;
+/// - [`Error::PlaneUnitMismatch`] if `unit` is not a unit of this sensor's
+///   plane — say, one taken from another sensor's [`units`];
+/// - [`Error::PlaneBufferWrongLength`] with `expected = row_count · width` if
+///   `dst` is not exactly the band;
+/// - for a Compression-7 strip or tile row, the decode-time errors
+///   [`unpack_into`] documents for it ([`Error::LjpegPlaneShapeMismatch`] and
+///   the `Ljpeg*` / [`Error::Truncated`] family) — the same error
+///   [`unpack_into`] stops at when it reaches this unit.
+pub fn unpack_unit_into(
+    sensor: &Sensor,
+    byte_order: ByteOrder,
+    file: &[u8],
+    unit: &Unit,
+    dst: &mut [u16],
+) -> Result<(), Error> {
+    let (kind, plan) = plan_for(sensor, file)?;
+    // The unit must be one this layout yields: checked BEFORE `dst`, so a
+    // foreign unit is reported as such whatever buffer came with it.
+    if !plan.yields(sensor.height, unit) {
+        return Err(Error::PlaneUnitMismatch {
+            row_start: unit.row_start,
+            row_count: unit.row_count,
+        });
+    }
+    let expected = u64::from(unit.row_count).saturating_mul(u64::from(sensor.width));
+    if u64::try_from(dst.len()).ok() != Some(expected) {
+        return Err(Error::PlaneBufferWrongLength {
+            expected,
+            actual: dst.len(),
+        });
+    }
+    decode_unit(sensor, plan, kind, byte_order, file, unit, dst)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -516,8 +1023,6 @@ struct StripSpan {
     end: usize,
     /// Rows this strip holds.
     rows: u32,
-    /// Samples (`rows · width`) this strip fills in the plane.
-    samples: usize,
 }
 
 /// Walks the strip tables in order, yielding each strip's checked
@@ -657,12 +1162,7 @@ impl<'s> StripWalk<'s> {
         }
 
         self.row_start = self.row_start.saturating_add(rows);
-        Ok(StripSpan {
-            at,
-            end,
-            rows,
-            samples,
-        })
+        Ok(StripSpan { at, end, rows })
     }
 }
 
@@ -743,7 +1243,7 @@ enum Layout {
 /// A tiled plane's checked tile grid: tile dimensions and how many tiles span
 /// the plane. Built only by [`tile_grid`], so every value is non-zero and the
 /// tile count equals both table lengths.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct TileGrid {
     /// `TileWidth`, `> 0`.
     tile_width: u32,
@@ -997,20 +1497,17 @@ fn check_layout(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The write loops — run only after `check_strips` has passed
+// The unit kernel — run only after `check_layout` has passed (`SPEC-068`)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Carve the next `span.samples` samples off the head of `rest`. After
-/// [`check_strips`] the carve always fits; the error arm keeps the write
+/// Carve the next `samples` samples off the head of `rest`. After
+/// [`check_layout`] the carve always fits; the error arm keeps the write
 /// bounds-checked and panic-free regardless.
-fn carve<'d>(
-    rest: &'d mut [u16],
-    span: &StripSpan,
-) -> Result<(&'d mut [u16], &'d mut [u16]), Error> {
+fn carve(rest: &mut [u16], samples: usize) -> Result<(&mut [u16], &mut [u16]), Error> {
     let available = rest.len();
-    rest.split_at_mut_checked(span.samples)
+    rest.split_at_mut_checked(samples)
         .ok_or(Error::PlaneBufferWrongLength {
-            expected: u64::try_from(span.samples).unwrap_or(u64::MAX),
+            expected: u64::try_from(samples).unwrap_or(u64::MAX),
             actual: available,
         })
 }
@@ -1024,47 +1521,245 @@ fn strip_bytes<'f>(file: &'f [u8], span: &StripSpan) -> Result<&'f [u8], Error> 
     })
 }
 
-/// The uncompressed sub-byte / byte-aligned strip assembly — `DEC-008`'s two
-/// paths, one sample per pixel, row-major (`SPEC-012` + `SPEC-028`). Called by
-/// [`unpack_into`] after [`check_strips`]; see [`unpack_into`] for the full
-/// contract.
-fn unpack_uncompressed(
-    sensor: &Sensor,
+/// `DEC-008`'s two uncompressed paths, chosen by depth: plain integers in the
+/// container's byte order for 8/16 bits, an MSB-first bitstream otherwise.
+/// `bytes` must start on the first sample's first bit.
+fn unpack_packed(
+    bytes: &[u8],
     bits: u32,
     byte_order: ByteOrder,
-    file: &[u8],
     dst: &mut [u16],
 ) -> Result<(), Error> {
-    // Assemble strip by strip into disjoint, in-order row slices of `dst`. Each
-    // strip is an INDEPENDENT bitstream padded to a byte boundary (DEC-008), so
-    // it is unpacked from a fresh cursor into its own slice — never by
-    // concatenating strip bytes, which for a sub-byte depth would read a
-    // strip's first sample across the previous strip's tail padding (SPEC-028).
-    let byte_aligned = bits.checked_rem(8) == Some(0);
-    let mut walk = StripWalk::new(sensor, PlaneKind::Uncompressed { bits }, dst.len())?;
-    let mut rest: &mut [u16] = dst;
-    while let Some(span) = walk.next_span(file.len()) {
-        let span = span?;
-        let (chunk, tail) = carve(rest, &span)?;
-        rest = tail;
-        let strip = strip_bytes(file, &span)?;
-        if byte_aligned {
-            unpack_byte_aligned(strip, bits, byte_order, chunk)?;
-        } else {
-            unpack_bitstream(strip, bits, chunk)?;
+    if bits.checked_rem(8) == Some(0) {
+        unpack_byte_aligned(bytes, bits, byte_order, dst)
+    } else {
+        unpack_bitstream(bytes, bits, dst)
+    }
+}
+
+/// Decode one unit into `band` (exactly `row_count · width` samples) — the
+/// one private kernel both [`unpack_into`] (every unit, in order) and
+/// [`unpack_unit_into`] (one unit) call (`DEC-063` §3). `plan` and `kind` come
+/// from a [`check_layout`] that has already passed, and `unit` from that same
+/// plan, so nothing structural can fail below; the error arms keep every
+/// slice checked regardless.
+///
+/// No `max <= WhiteLevel` assertion here (`DEC-029`, amending `DEC-008`). A
+/// sample above `WhiteLevel` is LEGAL: a real sensor records specular
+/// highlights above the nominal white point — the Canon 5D-III Bayer plane
+/// carries one at 15464 > WhiteLevel 15000 — and the bit-exact plane must
+/// PRESERVE the raw value, never clamp it. Clamping is develop's saturation
+/// step, not unpack's; doing it here would change bytes and break
+/// `SPEC-025`'s `dnglab --raw-checksum`.
+fn decode_unit(
+    sensor: &Sensor,
+    plan: Plan,
+    kind: PlaneKind,
+    byte_order: ByteOrder,
+    file: &[u8],
+    unit: &Unit,
+    band: &mut [u16],
+) -> Result<(), Error> {
+    let mismatch = Error::PlaneUnitMismatch {
+        row_start: unit.row_start,
+        row_count: unit.row_count,
+    };
+    match (unit.source, plan, kind) {
+        // A band of whole-byte rows inside one uncompressed strip. Each strip
+        // is an INDEPENDENT bitstream padded to a byte boundary (SPEC-028), so
+        // a band never crosses one; inside it, row `r` starts at exactly
+        // `r · row_bytes` because every row is whole bytes (DEC-063 §1).
+        (
+            UnitSource::StripBand {
+                strip,
+                row_in_strip,
+            },
+            Plan::Strips { .. },
+            PlaneKind::Uncompressed { bits },
+        ) => {
+            let span = strip_span(sensor, kind, strip, file)?;
+            let strip = strip_bytes(file, &span)?;
+            let row_bytes = u64::from(sensor.width)
+                .saturating_mul(u64::from(bits))
+                .checked_div(8)
+                .unwrap_or(0);
+            let truncated = || Error::Truncated {
+                at: span.at,
+                len: span.end.saturating_sub(span.at),
+            };
+            let to_usize = |v: u64| usize::try_from(v).map_err(|_| truncated());
+            let at = to_usize(u64::from(row_in_strip).saturating_mul(row_bytes))?;
+            let len = to_usize(u64::from(unit.row_count).saturating_mul(row_bytes))?;
+            let end = at.checked_add(len).ok_or_else(truncated)?;
+            let bytes = strip.get(at..end).ok_or_else(truncated)?;
+            unpack_packed(bytes, bits, byte_order, band)
+        }
+        // A whole uncompressed strip whose rows are not whole bytes: one
+        // bitstream from the strip's first byte (SPEC-028).
+        (UnitSource::Strip { strip }, Plan::Strips { .. }, PlaneKind::Uncompressed { bits }) => {
+            let span = strip_span(sensor, kind, strip, file)?;
+            unpack_packed(strip_bytes(file, &span)?, bits, byte_order, band)
+        }
+        // A whole Compression-7 strip: an INDEPENDENT SOF-3 datastream, decoded
+        // from its own bytes into its own row band (SPEC-043).
+        (UnitSource::Strip { strip }, Plan::Strips { .. }, PlaneKind::Jpeg) => {
+            let span = strip_span(sensor, kind, strip, file)?;
+            let strip = strip_bytes(file, &span)?;
+
+            // Bind the frame's SHAPE to this strip before decoding (`DEC-047`).
+            // `decode_into` fills `band` row-major by the frame's own width and
+            // checks only its AREA, so an equal-area transpose (a 4×6 frame in
+            // a 6×4 band) would decode to a silently mis-strided plane. The
+            // frame's effective width is `samples_per_line × components` (the
+            // `Nf=2` column interleave is `2·X` wide — SPEC-046); it must equal
+            // the sensor width, and its `lines` this strip's row count. The
+            // extra header parse is tens of bytes.
+            let (frame, _tables, _entropy_at) = crate::ljpeg::parse_headers(strip)?;
+            check_strip_shape(&frame, sensor.width, span.rows)?;
+
+            // Every malformed / truncated strip returns a typed `Error`, never
+            // a panic (inherited from SPEC-037/038). The scan completes on
+            // sample count; a missing trailing EOI is not an error (`DEC-050`
+            // §4).
+            crate::ljpeg::decode_into(strip, band)?;
+            Ok(())
+        }
+        (UnitSource::TileRow { tile_row }, Plan::Tiles { grid, .. }, _) => {
+            decode_tile_row(sensor, grid, kind, byte_order, file, tile_row, unit, band)
+        }
+        _ => Err(mismatch),
+    }
+}
+
+/// Strip `strip`'s checked span, by the same [`StripWalk`] checks the full
+/// pass ran, positioned at that strip.
+fn strip_span(
+    sensor: &Sensor,
+    kind: PlaneKind,
+    strip: usize,
+    file: &[u8],
+) -> Result<StripSpan, Error> {
+    let mut walk = StripWalk::new(sensor, kind, 0)?;
+    let (first_row, _) = strip_rows(sensor.height, walk.rows_per_strip, strip);
+    // The samples this strip and every later one may still claim.
+    let below =
+        u64::from(sensor.height.saturating_sub(first_row)).saturating_mul(u64::from(sensor.width));
+    walk.index = strip;
+    walk.row_start = first_row;
+    walk.remaining_samples = usize::try_from(below).unwrap_or(usize::MAX);
+    walk.next_span(file.len())
+        .unwrap_or(Err(Error::UnsupportedStripLayout {
+            strip_offsets: sensor.strip_offsets.len(),
+            strip_byte_counts: sensor.strip_byte_counts.len(),
+        }))
+}
+
+/// This tile's bytes. After [`check_tiles`] they are always in `file`.
+fn tile_bytes<'f>(file: &'f [u8], span: &TileSpan) -> Result<&'f [u8], Error> {
+    file.get(span.at..span.end).ok_or(Error::Truncated {
+        at: span.at,
+        len: span.end.saturating_sub(span.at),
+    })
+}
+
+/// One tile row (`DEC-063` §1): every tile in it, left to right, each written
+/// into its rectangle of `band` — the tile row's own rows, so each tile's
+/// window origin is made band-relative (`y0 − row_start`).
+///
+/// - **Uncompressed tiles** (`DEC-056` §1): each tile row is unpacked from its
+///   own byte slice — a tile row starts on a byte boundary
+///   ([`check_tile_rows`]) — and only its first `visible_width` samples are
+///   written. Rows below the plane are skipped.
+/// - **Compression-7 tiles** (`DEC-056` §2–3): each tile is an independent
+///   SOF-3 datastream, its frame shape bound to the TILE (`DEC-047`) before any
+///   sample is decoded, then reconstructed in place through a window onto its
+///   clipped rectangle — no scratch buffer (`DEC-016`).
+#[allow(clippy::too_many_arguments)]
+fn decode_tile_row(
+    sensor: &Sensor,
+    grid: TileGrid,
+    kind: PlaneKind,
+    byte_order: ByteOrder,
+    file: &[u8],
+    tile_row: u32,
+    unit: &Unit,
+    band: &mut [u16],
+) -> Result<(), Error> {
+    let band_len = band.len();
+    let wrong_len = || Error::PlaneBufferWrongLength {
+        expected: u64::try_from(band_len).unwrap_or(u64::MAX),
+        actual: band_len,
+    };
+    let width = usize::try_from(sensor.width).map_err(|_| wrong_len())?;
+    let band_top = usize::try_from(unit.row_start).map_err(|_| wrong_len())?;
+    let across = usize::try_from(grid.across).map_err(|_| wrong_len())?;
+    let first_tile = usize::try_from(tile_row)
+        .ok()
+        .and_then(|row| row.checked_mul(across))
+        .ok_or_else(wrong_len)?;
+
+    let mut walk = TileWalk::new(sensor, kind, grid);
+    walk.index = first_tile;
+    for _ in 0..grid.across {
+        let span = walk.next_span(file.len()).ok_or_else(wrong_len)??;
+        let tile = tile_bytes(file, &span)?;
+        // The tile's first row, relative to the band (every tile in a tile row
+        // starts on the band's first row).
+        let band_y0 = span.y0.checked_sub(band_top).ok_or_else(wrong_len)?;
+
+        match kind {
+            PlaneKind::Uncompressed { bits } => {
+                // `TileWidth · bits` is a multiple of 8 (`check_tile_rows`), so
+                // this is the exact byte length of one tile row.
+                let row_bytes = usize::try_from(
+                    u64::from(grid.tile_width)
+                        .saturating_mul(u64::from(bits))
+                        .checked_div(8)
+                        .unwrap_or(0),
+                )
+                .unwrap_or(usize::MAX);
+                for r in 0..span.visible_height {
+                    // After `check_tiles` every index below is in bounds; the
+                    // error arms keep the slicing checked and panic-free.
+                    let truncated = || Error::Truncated {
+                        at: span.at,
+                        len: span.end.saturating_sub(span.at),
+                    };
+                    let row_at = r.checked_mul(row_bytes).ok_or_else(truncated)?;
+                    let row_end = row_at.checked_add(row_bytes).ok_or_else(truncated)?;
+                    let row = tile.get(row_at..row_end).ok_or_else(truncated)?;
+
+                    let out_at = band_y0
+                        .checked_add(r)
+                        .and_then(|y| y.checked_mul(width))
+                        .and_then(|i| i.checked_add(span.x0))
+                        .ok_or_else(wrong_len)?;
+                    let out_end = out_at
+                        .checked_add(span.visible_width)
+                        .ok_or_else(wrong_len)?;
+                    let out = band.get_mut(out_at..out_end).ok_or_else(wrong_len)?;
+                    unpack_packed(row, bits, byte_order, out)?;
+                }
+            }
+            PlaneKind::Jpeg => {
+                // Bind the frame's SHAPE to the tile before decoding (DEC-047
+                // for tiles): an equal-area transpose would otherwise decode to
+                // a silently mis-strided tile. Real edge tiles are coded at
+                // full tile size (SPEC-058 probe), so a clipped-size edge frame
+                // is refused here too.
+                let (frame, _tables, _entropy_at) = crate::ljpeg::parse_headers(tile)?;
+                check_strip_shape(&frame, grid.tile_width, grid.tile_length)?;
+                let window = crate::ljpeg::Window {
+                    stride: width,
+                    x0: span.x0,
+                    y0: band_y0,
+                    visible_width: span.visible_width,
+                    visible_height: span.visible_height,
+                };
+                crate::ljpeg::decode_window_into(tile, band, window)?;
+            }
         }
     }
-
-    // No `max <= WhiteLevel` assertion here (DEC-029, amending DEC-008). A
-    // sample above WhiteLevel is LEGAL: a real sensor records specular
-    // highlights above the nominal white point — the Canon 5D-III Bayer plane
-    // carries one at 15464 > WhiteLevel 15000 — and the bit-exact plane must
-    // PRESERVE the raw value, never clamp it. Clamping is develop's saturation
-    // step (STAGE-007+), not unpack's; doing it here would change bytes and
-    // break SPEC-025's `dnglab --raw-checksum`. WhiteLevel is a develop-time
-    // parameter, not an unpack invariant. The per-sample byte-swap this
-    // assertion caught in SPIKE-002 is now guarded by the bit-exact oracle
-    // (SPEC-025) plus the per-strip layer-0 packed-bits check.
     Ok(())
 }
 
@@ -1075,8 +1770,8 @@ fn unpack_uncompressed(
 ///
 /// `ljpeg::decode_into` checks only the destination's AREA, so without this an
 /// equal-area transpose decodes to a silently mis-strided plane. Called by
-/// [`unpack_jpeg`] before each strip is decoded, and by the `ljpeg` fuzz hook
-/// on every parsed header.
+/// the unit kernel before each strip or tile is decoded, and by the `ljpeg`
+/// fuzz hook on every parsed header.
 ///
 /// # Errors
 ///
@@ -1099,195 +1794,6 @@ pub(crate) fn check_strip_shape(
             decoded_width,
             decoded_height,
         });
-    }
-    Ok(())
-}
-
-/// Route a DNG `Compression 7` (SOF-3 lossless JPEG) plane: each strip is an
-/// independent SOF-3 datastream, decoded by the crate's SOF-3 decoder straight
-/// into its own `rows_in_strip × width` row band of `dst` (`SPEC-043`, the
-/// binding half of `STAGE-011`).
-///
-/// Called by [`unpack_into`] after [`check_strips`] has passed for every strip
-/// (layout, `RowsPerStrip`, full coverage, in-file bounds — `SPEC-039`), so this
-/// loop does only the decode-time work: the frame-shape binding and the decode.
-/// It skips the sub-byte unpack and the layer-0 packed-byte-count check — both
-/// meaningless for a compressed strip, whose declared byte count is far below
-/// `width × rows × bits / 8`. The sample precision is the SOF-3 frame's own `P`,
-/// read by the decoder, so this path never consults `SUPPORTED_BITS`.
-///
-/// # Errors
-///
-/// - [`Error::LjpegPlaneShapeMismatch`] if a strip's SOF-3 frame shape
-///   (`samples_per_line × components` by `lines`) is not the strip's declared
-///   `width × rows_in_strip` — checked before any sample is decoded, so an
-///   equal-area transpose is refused rather than mis-strided (`DEC-047`).
-/// - any typed error from the decoder — the `Ljpeg*` / [`Error::Truncated`]
-///   family on a malformed or truncated strip (including
-///   [`Error::LjpegUnsupportedSampling`] for a subsampled component) — never a
-///   panic.
-fn unpack_jpeg(sensor: &Sensor, file: &[u8], dst: &mut [u16]) -> Result<(), Error> {
-    // Decode strip by strip into disjoint, in-order row bands of `dst`. Each
-    // strip is an INDEPENDENT SOF-3 datastream (DNG/TIFF JPEG), decoded from its
-    // own bytes into its own slice — the same independent-per-strip rule as
-    // SPEC-028's sub-byte assembly, with `decode_into` in place of the unpack.
-    let mut walk = StripWalk::new(sensor, PlaneKind::Jpeg, dst.len())?;
-    let mut rest: &mut [u16] = dst;
-    while let Some(span) = walk.next_span(file.len()) {
-        let span = span?;
-        // This strip's row band: `rows_in_strip * width` samples at the head of
-        // the remaining buffer. Sizing the band to `rows_in_strip * width` keeps
-        // `decode_into`'s own `out.len() == X·Y` area check meaningful, but the
-        // frame's SHAPE is bound explicitly below (`DEC-047`), since area alone
-        // admits a transpose.
-        let (chunk, tail) = carve(rest, &span)?;
-        rest = tail;
-        let strip = strip_bytes(file, &span)?;
-
-        // Bind the frame's SHAPE to this strip before decoding (`DEC-047`).
-        // `decode_into` fills `chunk` row-major by the frame's own width and
-        // checks only its AREA, so an equal-area transpose (a 4×6 frame in a
-        // 6×4 band) would decode to a silently mis-strided plane. The frame's
-        // effective width is `samples_per_line × components` (the `Nf=2`
-        // column interleave is `2·X` wide — SPEC-046); it must equal the
-        // sensor width, and its `lines` this strip's row count. The extra
-        // header parse is tens of bytes.
-        let (frame, _tables, _entropy_at) = crate::ljpeg::parse_headers(strip)?;
-        check_strip_shape(&frame, sensor.width, span.rows)?;
-
-        // Decode this strip's SOF-3 datastream into its row band. The returned
-        // `Frame` is not needed — the shape check above already bound it — so
-        // it is dropped; `decode_into`'s own length check stays as a second,
-        // now-redundant guard. Every malformed / truncated strip returns a
-        // typed `Error`, never a panic (inherited from SPEC-037/038). The scan
-        // completes on sample count; a missing trailing EOI is not an error
-        // (`DEC-050` §4).
-        crate::ljpeg::decode_into(strip, chunk)?;
-    }
-    Ok(())
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// The tile write loops — run only after `check_tiles` has passed (`SPEC-058`)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// This tile's bytes. After [`check_tiles`] they are always in `file`.
-fn tile_bytes<'f>(file: &'f [u8], span: &TileSpan) -> Result<&'f [u8], Error> {
-    file.get(span.at..span.end).ok_or(Error::Truncated {
-        at: span.at,
-        len: span.end.saturating_sub(span.at),
-    })
-}
-
-/// Uncompressed tiles (`DEC-056` §1): each tile row is unpacked from its own
-/// byte slice — a tile row starts on a byte boundary ([`check_tile_rows`]) —
-/// and only its first `visible_width` samples are written, into the plane row
-/// they belong to. Rows below the plane are skipped. `DEC-008`'s two paths
-/// apply per tile row, unchanged.
-fn unpack_tiles_uncompressed(
-    sensor: &Sensor,
-    grid: TileGrid,
-    bits: u32,
-    byte_order: ByteOrder,
-    file: &[u8],
-    dst: &mut [u16],
-) -> Result<(), Error> {
-    let byte_aligned = bits.checked_rem(8) == Some(0);
-    let width = usize::try_from(sensor.width).map_err(|_| Error::PlaneBufferWrongLength {
-        expected: u64::from(sensor.width),
-        actual: dst.len(),
-    })?;
-    // `TileWidth · bits` is a multiple of 8 (`check_tile_rows`), so this is
-    // the exact byte length of one tile row.
-    let row_bytes = usize::try_from(
-        u64::from(grid.tile_width)
-            .saturating_mul(u64::from(bits))
-            .checked_div(8)
-            .unwrap_or(0),
-    )
-    .unwrap_or(usize::MAX);
-
-    let mut walk = TileWalk::new(sensor, PlaneKind::Uncompressed { bits }, grid);
-    while let Some(span) = walk.next_span(file.len()) {
-        let span = span?;
-        let tile = tile_bytes(file, &span)?;
-        for r in 0..span.visible_height {
-            // After `check_tiles` every index below is in bounds; the error
-            // arms keep the slicing checked and panic-free regardless.
-            let truncated = || Error::Truncated {
-                at: span.at,
-                len: span.end.saturating_sub(span.at),
-            };
-            let row_at = r.checked_mul(row_bytes).ok_or_else(truncated)?;
-            let row_end = row_at.checked_add(row_bytes).ok_or_else(truncated)?;
-            let row = tile.get(row_at..row_end).ok_or_else(truncated)?;
-
-            let dst_len = dst.len();
-            let wrong_len = || Error::PlaneBufferWrongLength {
-                expected: u64::try_from(dst_len).unwrap_or(u64::MAX),
-                actual: dst_len,
-            };
-            let out_at = span
-                .y0
-                .checked_add(r)
-                .and_then(|y| y.checked_mul(width))
-                .and_then(|i| i.checked_add(span.x0))
-                .ok_or_else(wrong_len)?;
-            let out_end = out_at
-                .checked_add(span.visible_width)
-                .ok_or_else(wrong_len)?;
-            let out = dst.get_mut(out_at..out_end).ok_or_else(wrong_len)?;
-
-            if byte_aligned {
-                unpack_byte_aligned(row, bits, byte_order, out)?;
-            } else {
-                unpack_bitstream(row, bits, out)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Compression-7 tiles (`DEC-056` §2–3): each tile is an independent SOF-3
-/// datastream, its frame shape bound to the TILE (`samples_per_line ×
-/// components == TileWidth`, `lines == TileLength`; `DEC-047`) before any
-/// sample is decoded, then reconstructed in place through a window onto its
-/// clipped rectangle of `dst` — no scratch buffer (`DEC-016`).
-///
-/// # Errors
-///
-/// [`Error::LjpegPlaneShapeMismatch`] if a tile's frame is not
-/// `TileWidth × TileLength`, and any typed error from the SOF-3 decoder.
-fn unpack_tiles_jpeg(
-    sensor: &Sensor,
-    grid: TileGrid,
-    file: &[u8],
-    dst: &mut [u16],
-) -> Result<(), Error> {
-    let stride = usize::try_from(sensor.width).map_err(|_| Error::PlaneBufferWrongLength {
-        expected: u64::from(sensor.width),
-        actual: dst.len(),
-    })?;
-    let mut walk = TileWalk::new(sensor, PlaneKind::Jpeg, grid);
-    while let Some(span) = walk.next_span(file.len()) {
-        let span = span?;
-        let tile = tile_bytes(file, &span)?;
-
-        // Bind the frame's SHAPE to the tile before decoding (DEC-047 for
-        // tiles): an equal-area transpose would otherwise decode to a silently
-        // mis-strided tile. Real edge tiles are coded at full tile size
-        // (SPEC-058 probe), so a clipped-size edge frame is refused here too.
-        let (frame, _tables, _entropy_at) = crate::ljpeg::parse_headers(tile)?;
-        check_strip_shape(&frame, grid.tile_width, grid.tile_length)?;
-
-        let window = crate::ljpeg::Window {
-            stride,
-            x0: span.x0,
-            y0: span.y0,
-            visible_width: span.visible_width,
-            visible_height: span.visible_height,
-        };
-        crate::ljpeg::decode_window_into(tile, dst, window)?;
     }
     Ok(())
 }
