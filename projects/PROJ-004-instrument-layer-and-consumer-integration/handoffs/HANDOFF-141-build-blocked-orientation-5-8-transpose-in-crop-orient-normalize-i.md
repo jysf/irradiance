@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 11900467           # REAL combined count — what cost-audit reads
-  estimated_usd: 8.77              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 13493978           # REAL combined count — what cost-audit reads
+  estimated_usd: 9.81              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 64
   branch: claude/spec-067-build
   pr: 230
   completed_at: 2026-11-13         # YYYY-MM-DD
-  notes: "Floor at handback, from transcript 6e4cf74a-657d-4ea9-b784-1ff5cb117112.jsonl (67 unique message.ids, all claude-opus-5-5, no subagents): input 139 + cache-creation 175,242 (1-hour) + cache-read 11,677,775 + output 47,311 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Excludes the handback commit and CI turns; re-sum at ship."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript 6e4cf74a-657d-4ea9-b784-1ff5cb117112.jsonl (74 unique message.ids, all claude-opus-5-5, no subagents): input 155 + cache-creation 183,351 (1-hour) + cache-read 13,256,450 + output 54,022 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 11,900,467 / 8.77 before the handback commit and CI turns."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  synced_at: 2026-11-13
 ---
 
 # HANDOFF-141: BUILD: tiled Orientation 5–8 gather on both mono develop paths (SPEC-067)
