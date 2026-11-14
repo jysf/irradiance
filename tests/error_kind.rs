@@ -21,7 +21,7 @@ use std::collections::BTreeSet;
 use irradiance::{Error, ErrorKind};
 
 /// One representative of every `Error` variant, paired with `DEC-051`'s kind.
-/// Grouped in `DEC-051`'s order: 14 `CallerError`, 21 `Unsupported`,
+/// Grouped in `DEC-051`'s order: 15 `CallerError`, 21 `Unsupported`,
 /// 30 `Corrupt` (25 at 0.2.0, plus `UnreadableOpcodeList`, SPEC-056/DEC-053;
 /// SPEC-058/DEC-056 added `UnsupportedTileRowBits` (Unsupported) and
 /// `InvalidTileLayout` + `StripsAndTiles` (Corrupt); SPEC-062/DEC-057 added
@@ -29,11 +29,12 @@ use irradiance::{Error, ErrorKind};
 /// (Corrupt); SPEC-063/DEC-058 added `UnsupportedWarpedFullActiveArea`
 /// (Unsupported); SPEC-064/DEC-059 added `InvalidWarpAlpha` (CallerError);
 /// SPEC-065/DEC-060 added `DevelopScratchWrongLength` (CallerError);
-/// SPEC-066/DEC-061 added `InvalidBlackLevelPattern` (Corrupt)).
+/// SPEC-066/DEC-061 added `InvalidBlackLevelPattern` (Corrupt);
+/// SPEC-068/DEC-063 added `PlaneUnitMismatch` (CallerError)).
 fn dec_051_table() -> Vec<(Error, ErrorKind)> {
     use ErrorKind::{CallerError, Corrupt, Unsupported};
     vec![
-        // CallerError (14).
+        // CallerError (15).
         (
             Error::PlaneBufferWrongLength {
                 expected: 16,
@@ -127,6 +128,15 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             Error::DevelopScratchWrongLength {
                 expected: 122,
                 actual: 121,
+            },
+            CallerError,
+        ),
+        // SPEC-068, DEC-063: a plane unit that is not a unit of this
+        // sensor's layout is the caller's argument.
+        (
+            Error::PlaneUnitMismatch {
+                row_start: 4928,
+                row_count: 704,
             },
             CallerError,
         ),
@@ -431,8 +441,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        65,
-        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061) classified 65",
+        66,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063) classified 66",
         declared.len()
     );
 
@@ -450,12 +460,12 @@ fn every_variant_classified() {
         .collect();
     assert!(wrong.is_empty(), "misclassified: {wrong:#?}");
 
-    // DEC-051's bucket sizes: 14 / 21 / 30 (DEC-053 added one Corrupt;
+    // DEC-051's bucket sizes: 15 / 21 / 30 (DEC-053 added one Corrupt;
     // DEC-056 one Unsupported and two Corrupt; DEC-057 one of each; DEC-058
     // one Unsupported; DEC-059 and DEC-060 one CallerError each; DEC-061 one
-    // Corrupt).
+    // Corrupt; DEC-063 one CallerError).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
-    assert_eq!(count(ErrorKind::CallerError), 14);
+    assert_eq!(count(ErrorKind::CallerError), 15);
     assert_eq!(count(ErrorKind::Unsupported), 21);
     assert_eq!(count(ErrorKind::Corrupt), 30);
 }
