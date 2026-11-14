@@ -917,6 +917,7 @@ signals:
       two ship-blockers reach main, and closing them took two further patches and
       three review rounds. Related: [measurement-over-generalised] (one shape is
       not a boundary) and [named-tests-can-pass-vacuously].
+      ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
 
   - id: handback-sync-treats-hash-as-comment-in-unquoted-notes
     type: process-debt
@@ -1193,6 +1194,7 @@ signals:
       STAGE-007's framing: demosaic will assume the `Cfa` pattern + the unpacked
       plane are both in hand — probe that on both corpus files before speccing the
       interpolation.
+      ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
 
   # --- lesson: a named algorithm/dependency can be patent-encumbered ----------
   - id: patent-check-named-algorithms-at-frame
@@ -1231,6 +1233,7 @@ signals:
       maths, or the X-Trans DHT demosaic later). Related:
       [[probe-the-hard-assumption-at-frame-time]] — same family (a load-bearing frame
       assumption left unprobed); this is its patent/licence axis.
+      ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
 
   # --- golden-path: a reusable bit-exact oracle harness --------------------------
   - id: reusable-bit-exact-oracle-harness
@@ -1327,6 +1330,7 @@ signals:
       second instance appears (N=2) — a lone redundant-but-harmless clamp is not worth a
       rule. Related: the `oracle-must-be-shown-red` discipline (a guard you cannot show
       load-bearing is the same shape as an oracle you cannot show red).
+      ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
 
   # --- lesson: a round-trip oracle is blind to a helper both halves share ------
   - id: shared-path-oracle-tautology
@@ -1334,7 +1338,7 @@ signals:
     summary: "An encode->decode round-trip oracle cannot catch a regression in a helper that BOTH halves call — the error cancels — so a shared helper's sign/edge branches need a direct, hand-computed assertion, not just the round-trip."
     evidence: "N=3. Instance 3 — SPEC-065 (build, HANDOFF-137), 2026-11-12. After develop_with_into and develop_with_scratch_into were refactored onto one develop_core, AC2 byte identity between the two entries could not see a pass-order or wrong-buffer bug inside the core; the build's red-proofs 6 (warp before normalize) and 7b (warp reading the plane copy) stayed green in tier A and only the tier-B MD5 pins caught them, which CI cannot run. Fixed in the build by an independent composition oracle (public apply_fix_bad_pixels_constant then the warp-only develop); the cold verify confirmed it independent and all 14 tier-A mutants red. Instance 1 — SPEC-037 (verify, HANDOFF-088). The LJ92 round-trip oracle and the production decoder both call `predict`->`floor_div2`; mutating `floor_div2` to truncate-toward-zero (dropping the negative-odd floor) left all 18 ljpeg tests green — encode and decode made the same error and it cancelled, and the one hand-computed predictor test used only positive neighbours (no negative `>>1` intermediate). The cold verify caught it; the fix was one direct assertion with a negative-odd intermediate (predictor 5, Rb<Rc), mutation-confirmed to fail on truncation. Instance 2 — PROJ-003 close ultrareview, 2026-11-06. The restart-interval prediction rule (the `r == 0` first-line condition and the per-restart reset) is applied IDENTICALLY by the production decoder (`reconstruct`), the test encoder (`encode_lj92`), AND the `reference_decode` red-proof control, so a restart round-trip and the red-proof both cancel any divergence from T.81 on the restart boundary; the only truly independent check (`dnglab --raw-checksum`) runs on the two held files, neither of which carries a `DRI`, so the restart path is unverified by any non-shared oracle."
     bar: "N=2"
-    status: watch
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-05
     last_touched: 2026-11-13
@@ -1384,6 +1388,9 @@ signals:
       each shared helper's sign/edge branch, and the design's failing-tests should name
       it. Related: the `oracle-must-be-shown-red` constraint and SPEC-030's
       perturbed-kernel red-proof pattern.
+      ══ STAGE-019 CLOSE, 2026-11-13: CODIFIED (N=3, bar N=2). ══ Landed as AGENTS.md
+      §16 rule 5, "an oracle must be able to see the property", merged with
+      tolerant-oracle-cannot-pin-structure (the indifference side of the same rule).
 
   # --- lesson: probe the decode input, not just the container -----------------
   - id: probe-the-decode-input-not-just-the-container
@@ -1497,6 +1504,7 @@ signals:
       time; this reads the IMPLEMENTATION at design time) and from the
       measure-before-build family. Falsifier is cheap: open the function the DEC will
       build on and read its actual traversal / emit before committing the approach.
+      ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
 
   # --- process-debt: confirm a PR head advanced before treating a push as merged
   - id: confirm-pr-head-advanced-before-treating-pushed-commit-as-merged
@@ -1520,12 +1528,12 @@ signals:
   - id: tolerant-oracle-cannot-pin-structure
     type: lesson
     summary: "When the design states a structural property that every consumer tolerates the absence of (sorted IFD entries, alignment, canonical ordering), the output oracle cannot catch its loss; pin it with its own direct assertion at design time."
-    evidence: "N=2. (2) STAGE-015 2026-11-11: SPEC-058 AC5 refusal tests asserted only the typed error variant. The SPEC-058 cold verify (HANDOFF-130) made unpack_into skip the shared tile-table pass; the per-tile checks still refused with the same variants but only after earlier tiles were written, and every test stayed green. Fixed in PR 204 by pre-filling dst with a sentinel and asserting it untouched. (1) STAGE-013 2026-11-11. SPEC-057 Design 2 said the writer sorts each IFD's entries by tag. Both oracles, irradiance's reader and dnglab, accept unsorted IFDs, so the SPEC-057 cold verify (HANDOFF-128) removed the sort and all 25 tests stayed green. Its eleven other hand mutations went red. Fixed in place in PR 199 with ifd_entries_are_written_in_ascending_tag_order."
+    evidence: "N=3. (3) STAGE-019 2026-11-13: SPEC-067's cold verify (HANDOFF-142) found one surviving mutant: the post-warp gather calling the traversal helper with a constant orientation is byte-identical in output, so every pin and the independent reference stay green; only the timing example shows it. The build's source scan checked that both gathers call the helper, not with what argument. Filed as an XS follow-up to assert the argument. (2) STAGE-015 2026-11-11: SPEC-058 AC5 refusal tests asserted only the typed error variant. The SPEC-058 cold verify (HANDOFF-130) made unpack_into skip the shared tile-table pass; the per-tile checks still refused with the same variants but only after earlier tiles were written, and every test stayed green. Fixed in PR 204 by pre-filling dst with a sentinel and asserting it untouched. (1) STAGE-013 2026-11-11. SPEC-057 Design 2 said the writer sorts each IFD's entries by tag. Both oracles, irradiance's reader and dnglab, accept unsorted IFDs, so the SPEC-057 cold verify (HANDOFF-128) removed the sort and all 25 tests stayed green. Its eleven other hand mutations went red. Fixed in place in PR 199 with ifd_entries_are_written_in_ascending_tag_order."
     bar: "N=3 same-outcome"
-    status: watch
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-11
-    last_touched: 2026-11-11
+    last_touched: 2026-11-13
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Adjacent to [[shared-path-oracle-tautology]]
@@ -1540,6 +1548,10 @@ signals:
       indifferent to whether the refusal happened before or after a partial write.
       Falsifier for decoders: for each "refused before anything is written" sentence,
       ask whether any test would go red if the refusal came late.
+      ══ STAGE-019 CLOSE, 2026-11-13: N=2 -> N=3, BAR MET, CODIFIED. ══ Landed as
+      AGENTS.md §16 rule 5 together with shared-path-oracle-tautology: independence
+      (the oracle must not run the code under test) and sensitivity (it must not be
+      indifferent to the property) are the two halves of one design-time check.
 
   - id: hostile-fixture-shadowed-by-an-earlier-guard
     type: lesson
@@ -1557,6 +1569,7 @@ signals:
       fine and the fixture is aimed at the wrong guard. Falsifier, cheap at build: for
       each defensive check, delete it and ask which fixture would now pass; for each
       declared deviation, name the test that pins it in the handback.
+      ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
 
   - id: closed-form-numeric-needs-extreme-magnitude-fixtures
     type: lesson
@@ -1574,6 +1587,7 @@ signals:
       in the ACs. Related in the same verify: the build's argmax displacement oracle passed
       vacuously on an all-zero plane until a 'the impulse survives' guard was added (same
       family as [[named-tests-can-pass-vacuously]]).
+      ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
 
   - id: analytic-oracle-premise-must-survive-rounding
     type: lesson
@@ -1592,3 +1606,4 @@ signals:
       stated relation holds before writing the AC. Related to
       [[closed-form-numeric-needs-extreme-magnitude-fixtures]] (both are "the premise was
       only checked at comfortable values").
+      ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
