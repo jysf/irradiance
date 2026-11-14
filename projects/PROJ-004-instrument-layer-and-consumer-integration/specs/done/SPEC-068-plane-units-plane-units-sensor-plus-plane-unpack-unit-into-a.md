@@ -6,19 +6,19 @@
 task:
   id: SPEC-068
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 32000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-143
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 27164317
+      estimated_usd: 19.20
+      duration_minutes: 85
+      recorded_at: 2026-11-14
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript 4580ee72-d8aa-40e9-bea3-9a9798d9982d.jsonl (104 unique message.ids, all claude-opus-5-5, no subagents): input 211 + cache-creation 293,753 (1-hour) + cache-read 26,754,878 + output 115,475 (max per message), opus-5-5 rates. The handback floor was 23,143,680 / 16.80. PR 235 squash-merged as 579aeb2."
+    - cycle: verify
+      handoff: HANDOFF-144
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 12274201
+      estimated_usd: 8.91
+      duration_minutes: 55
+      recorded_at: 2026-11-14
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript 0f21eae1-4f8a-4e1d-bc12-3ea9b3c79654.jsonl (64 unique message.ids, all claude-opus-5-5, no subagents): input 130 + cache-creation 184,164 (1-hour) + cache-read 12,048,102 + output 41,805 (max per message), opus-5-5 rates. The handback floor was 9,676,886 / 7.24. Verdict APPROVED at d555dea, no code changes, posted as a comment on PR 235; 12/12 tier-A mutants red; fuzz clean."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 39438518
+    estimated_usd: 28.11
+    session_count: 2
+shipped_at: 2026-11-14
 ---
 
 # SPEC-068: Plane units: plane::units yields full-width row bands, and unpack_unit_into decodes one, byte-identically in any order
@@ -469,31 +490,42 @@ Report the run count for at least 60 s.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Read the existing allocation behaviour of every kernel an AC names before writing
+   "allocates nothing". AC6 said Compression 7 unit decodes allocate zero, but the
+   `ljpeg` header parse has always allocated (about 10 small allocations per strip or
+   tile). Both the build and the verify had to reinterpret it as "no new allocation".
+   Also, give the build a fuzz-first order for any change that adds an iterator over
+   structure the fuzzer can inflate. The zero-width tiled plane turned 0 tiles into about
+   1e9 tile rows, and only the fuzz run found it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — **DEC-063** held unchanged. The zero-width rule (no tiles, so no units) is a corner
+   of its §2, not a new decision.
+
+   Signal `slow-tier-b-tests-in-debug` is filed at N=2 (process-debt): SPEC-067's
+   24-pin test and SPEC-068's any-order assembly each take about 10 min in debug. It is
+   for decision at the STAGE-020 close.
+
+   `shared-path-oracle-tautology` (codified) did its job here. The handoff named it, and
+   the verify confirmed that tier A checks against the fixtures' own samples and tier B
+   pins `unpack_into` to dnglab first.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No spec. One item goes in the STAGE-020 backlog:
+   - `[XS]` pin the absolute Compression 7 allocation count per strip or tile in
+     `tests/plane_units_alloc.rs`. Today a new allocation in the shared kernel is caught
+     only by the old-equals-new comparison and the source scan.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+   SPEC-069 has its baseline: `unpack_into` on the Q2M takes 242 ms on one thread, and
+   8 units on 8 threads take 31 ms.
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+4. **Where was the worst defect caught?**
+   — build
+
+5. **What can a user do now that they couldn't before?**
+   — **Before:** a Q2M 47 MP plane unpacked only as one call on one thread, in 242 ms
+   (M4 Pro, release).
+
+   **After:** `plane::units` splits it into row bands that a caller decodes on separate
+   threads in safe Rust with `split_at_mut`. It takes 31 ms on 8 threads, byte-identical
+   to `unpack_into`.
