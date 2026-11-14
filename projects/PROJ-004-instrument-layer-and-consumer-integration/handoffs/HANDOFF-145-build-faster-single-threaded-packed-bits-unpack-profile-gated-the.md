@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 9728429            # REAL combined count — what cost-audit reads
-  estimated_usd: 7.35              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 10989685            # REAL combined count — what cost-audit reads
+  estimated_usd: 8.21              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 60
   branch: claude/spec-069-build
   pr: https://github.com/jysf/irradiance/pull/238
   completed_at: 2026-11-14
-  notes: "FLOOR, measured live from transcript 3b9fff38-fdd9-4f81-817f-80c9a2febeb8.jsonl (59 unique message.ids, all claude-opus-5-5, no subagents): input 121 + cache-creation 159,577 (1-hour) + cache-read 9,529,158 + output 39,573 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Re-sum at ship; the handback commit and wrap-up add a little."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (65 unique message.ids, all claude-opus-5-5, no subagents): input 133 + cache-creation 166,643 (1-hour) + cache-read 10,776,918 + output 45,991 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). The handback floor was 9,728,429 and $7.35."
+  synced_at: 2026-11-14
 ---
 
 # HANDOFF-145: BUILD: faster packed 12/14-bit unpack, whole byte groups (SPEC-069)

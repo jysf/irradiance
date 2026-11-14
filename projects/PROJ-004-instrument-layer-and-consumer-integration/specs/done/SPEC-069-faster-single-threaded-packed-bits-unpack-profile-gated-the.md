@@ -6,19 +6,19 @@
 task:
   id: SPEC-069
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 20000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-145
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 10989685
+      estimated_usd: 8.21
+      duration_minutes: 60
+      recorded_at: 2026-11-14
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (65 unique message.ids, all claude-opus-5-5, no subagents): input 133 + cache-creation 166,643 (1-hour) + cache-read 10,776,918 + output 45,991 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). The handback floor was 9,728,429 and $7.35."
+    - cycle: verify
+      handoff: HANDOFF-146
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 6884347
+      estimated_usd: 5.29
+      duration_minutes: 55
+      recorded_at: 2026-11-14
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (49 unique message.ids, all claude-opus-5-5, no subagents): input 104 + cache-creation 113,425 (1-hour) + cache-read 6,739,266 + output 31,552, same rates. APPROVED at 90c4bc4 (code 7b15289), no code changes. The handback floor was 4,912,796 and $3.81."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 17874032
+    estimated_usd: 13.50
+    session_count: 2
+shipped_at: 2026-11-14
 ---
 
 # SPEC-069: Faster packed 12/14-bit unpack: whole byte groups, `BitReader` for the tail
@@ -359,34 +380,30 @@ Written first in build; they must be red or fail to compile before the kernel ch
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Check in the design probe which red-proofs a timing example can actually see. The
+   spec assumed the timing run would expose a kernel that decodes one group too few; it
+   cannot, because the tail reader writes the same samples. Both cycles found it as a
+   benign green, and it stays unguarded by design.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No. DEC-064's single permitted test edit (the plane_oracle injector needle) was
+   enough, and the profile-first rule from STAGE-020 worked as framed. The two process
+   notes are XS follow-ups in the stage backlog: the stale injector assert message, and
+   AGENTS.md section 6 not listing the timing examples.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — SPEC-070, the Compression 7 speed-up, is already framed in STAGE-020 and is next.
+   Nothing new.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — build
+   *(A tail constructor on BitReader failed the dead_code lint and was replaced by
+   setting the position after `BitReader::new`. No defect reached verify.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — A Q2M 14-bit plane unpacks on one thread in 9.7 ms instead of 239 ms (about 25x,
+   reproduced at verify as 233.4 to 9.9 ms), and 8 plane units on 8 threads take 1.4 ms
+   instead of 31.2 ms, with byte-identical output.
