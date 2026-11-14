@@ -6,19 +6,19 @@
 task:
   id: SPEC-067
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 22000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-141
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 13493978
+      estimated_usd: 9.81
+      duration_minutes: 64
+      recorded_at: 2026-11-13
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended build transcript 6e4cf74a-657d-4ea9-b784-1ff5cb117112.jsonl (74 unique message.ids, all claude-opus-5-5, no subagents): input 155 + cache-creation 183,351 (1-hour) + cache-read 13,256,450 + output 54,022 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). The handback floor was 11,900,467 / 8.77 before the handback commit and CI turns."
+    - cycle: verify
+      handoff: HANDOFF-142
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 6259637
+      estimated_usd: 5.02
+      duration_minutes: 46
+      recorded_at: 2026-11-13
+      notes: "TRUE cost re-summed at ship by the orchestrator from the ended verify transcript 8d1256ae-02c8-466c-8164-acd2deb24e31.jsonl (44 unique message.ids, all claude-opus-5-5, no subagents): input 93 + cache-creation 126,291 (1-hour) + cache-read 6,105,009 + output 28,244 (max per message), opus-5-5 rates. The handback floor was 5,406,692 / 4.44. Verdict APPROVED at 26bcf48, no code changes, posted as a comment on PR #230; 24 pins ran and held; 14/15 tier-A mutants red (survivor: a constant-orientation helper argument, benign, XS follow-up); timing reproduced; #230 merged as dd93cf7."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 19753615
+    estimated_usd: 14.83
+    session_count: 2
+shipped_at: 2026-11-13
 ---
 
 # SPEC-067: Tiled Orientation 5–8 gather on both mono develop paths, byte-identical, with a committed timing example
@@ -257,12 +278,12 @@ red stay as they are. Record the edit in the handback.
 
 ## Acceptance Criteria
 
-- [ ] **AC1. Byte identity on real data (tier B).**
+- [x] **AC1. Byte identity on real data (tier B).**
   - **Twenty-four pins.** All 24 §1 MD5s hold, through `develop_with_into` and
     `develop_with_scratch_into` (using the `scratch_len` for each).
   - **SPEC-063.** Its eight pins stay green, unedited.
   - **Missing files.** A missing file is reported by name.
-- [ ] **AC2. Byte identity against an independent reference (tier A).**
+- [x] **AC2. Byte identity against an independent reference (tier A).**
   - **The reference.** `tests/orientation_tiles.rs` builds the expected output with its
     **own** naive gather: the eight orientation formulas written out in the test (TIFF
     6.0 / DNG Orientation), then crop, then the SPEC-066 normalize written in the test.
@@ -277,7 +298,7 @@ red stay as they are. Record the edit in the handback.
     - on crop sizes chosen to hit every tile edge: 1×1, 63×65, 64×64, 65×63, 130×67 and
       200×129, with odd `ActiveArea` and `DefaultCrop` origins;
     - under `BlackLevels::PerPosition` with a 2×2 pattern for at least one size.
-- [ ] **AC3. The tiled walk is really used.**
+- [x] **AC3. The tiled walk is really used.**
   - Add a `#[cfg(test)]` unit test in `src/develop.rs` that records the visit order of
     the traversal helper on a 130×67 output (or exposes the order via a small private
     iterator).
@@ -287,15 +308,15 @@ red stay as they are. Record the edit in the handback.
   - **Red-proofs:**
     - an untiled 5–8 walk;
     - a tiled 1–4 walk.
-- [ ] **AC4. The fault injector still bites.**
+- [x] **AC4. The fault injector still bites.**
   - `tests/develop_oracle.rs`'s orientation fault test passes. That means the injected
     fault is found and turns the oracle red.
   - The only diff in that file is the `needle` literal (`git diff` shows one changed
     string).
-- [ ] **AC5. No allocation.** `tests/develop_scratch_alloc.rs`'s
+- [x] **AC5. No allocation.** `tests/develop_scratch_alloc.rs`'s
   `scratch_develop_allocates_nothing` stays green. Add Orientation 6 and 8 rows (warped
   and warp-free) if none exist.
-- [ ] **AC6. Timing (recorded, not a CI gate).**
+- [x] **AC6. Timing (recorded, not a CI gate).**
   - `just orient-timing` runs, and its before and after tables are in the handback with
     the machine named.
   - **Target:** on the build machine, each of O5–O8's medians is within 1.15× of O1's at
@@ -304,7 +325,7 @@ red stay as they are. Record the edit in the handback.
     same machine class.
   - If the target is missed, report it with the numbers. The verify decides; byte
     identity still holds.
-- [ ] **AC7. No regression.**
+- [x] **AC7. No regression.**
   - Every existing test passes with no assertion changed, other than AC4's needle.
   - `just test` passes with the corpus env set. So do `lint-ci`, `lint-no-allow`,
     `lint-fuzz`, `fmt-check`, `validate`, `doc-check`, `deny` and `msrv`.
@@ -338,6 +359,23 @@ the change. AC3's unit test is the one that is red first.
   tiled → AC3. The unit test must cover the helper both functions use, or each
   function's order.
 
+*Recorded at ship:*
+- **AC4.** No needle edit was needed. rustfmt kept the per-pixel body at its old
+  indentation, so `tests/develop_oracle.rs` is unchanged, and the injector hits the live
+  call inside the traversal closure.
+- **AC3** gained a source-scan test, `both_gathers_walk_through_the_traversal_helper`,
+  for the "one gather left untiled" mutant.
+- **The one surviving verify mutant.** The post-warp gather passing a constant
+  orientation to the helper is benign: output stays byte-identical and only the timing
+  example shows it. It is filed as an `[XS]` follow-up to assert the argument in the
+  scan.
+- **AC6 timing.** On the verify's run (M4 Pro, median of 7):
+  - warp-free O6 went from 392 to 124 ms;
+  - post-warp O6 went from 785 to 630 ms, against O1 at 615 ms (0.99–1.05×), so the
+    target is met on the requester's path;
+  - the warp-free ratio target was missed (1.30–1.90×) only because O1 itself fell from
+    198 to 86 ms. The verify accepted this.
+
 ## Non-Goals
 
 - The colour path's orientation scatter.
@@ -368,31 +406,37 @@ the change. AC3's unit test is the one that is red first.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — State a performance target against a fixed baseline, not a ratio to a sibling case
+   the change might also move. "O5–O8 within 1.15× of O1" assumed O1 would stay put, but
+   the closure form made the warp-free O1 2.3–2.4× faster. That made the ratio miss on a
+   change that improved every orientation. "O6 at or below the pre-change O1", or an
+   absolute figure, would have been unambiguous.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — **DEC-062** held. The probe's key finding was right: the requester's frames orient
+   in the post-warp gather, which the stage notes had not named. Without that, the
+   change would have left their number unchanged.
+
+   The source-scan hazard that SPEC-066's build hit was named in the handoff this time
+   and cost nothing.
+
+   No new signal. The ratio-target point is noted here; a single instance is not a
+   pattern.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No spec. Three items go in the STAGE-019 backlog:
+   - `[XS]` harden the AC3 source scan: assert that the helper's orientation argument is
+     `geometry.orientation`, and ignore comment lines;
+   - `[XS, optional]` reorder O7/O8 tile visits so source rows ascend. This is the
+     remaining warp-free headroom: about 1.9× O1, against about 1.3× for O5/O6;
+   - speed up the 24-pin tier-B test, which takes about 10 min in debug.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — none
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — **Before:** a Q2M frame stored at Orientation 6 developed in 785 ms against 621 ms at
+   Orientation 1 (warped, M4 Pro).
+
+   **After:** it develops in 630 ms against 615 ms. Warp-free, Orientation 6 went from
+   392 to 124 ms. Output is byte-identical for every orientation.
