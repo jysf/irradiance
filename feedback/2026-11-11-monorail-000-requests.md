@@ -265,6 +265,9 @@ Maintainer decisions (2026-11-11): use the suggested order (Stage A → Stage C 
 | 3 caller scratch | STAGE-019 | SPEC-065 `[M]` (shipped) | shipped 2026-11-13 (DEC-060); `scratch_len` + `develop_with_scratch_into`, one exact-length `&mut [u16]`, typed `DevelopScratchWrongLength`; 0 allocations on every path (Q2M scratch 189.4 MB = P + A); `develop_into` down from 6 allocations / 283.9 MB to 1 / 189.4 MB; unreleased |
 | 6 CFA-as-mono | STAGE-019 | SPEC-066 `[M]` (shipped) | shipped 2026-11-13 (DEC-061); CFA planes already developed on the mono path, so no routing change; `DevelopOptions::black_levels = BlackLevels::PerPosition` applies `BlackLevel` per position by `BlackLevelRepeatDim` from the ActiveArea origin, before the warp, no allocation; white is per sample in DNG (no per-position white); default unchanged; unreleased |
 | 4 orientation perf | STAGE-019 | SPEC-067 `[S]` (shipped) | shipped 2026-11-13 (DEC-062); 64x64 output tiles for Orientations 5-8 in both mono gathers (the Q2M frames use the post-warp one); byte-identical (24 pinned MD5s); M4 Pro median: warped O6 785 -> 630 ms against O1 615, warp-free O6 392 -> 124 ms; `just orient-timing` reproduces it; unreleased |
+| 1 unit unpack | STAGE-020 (framed 2026-11-13) | SPEC-068 `[M]` (frame) | `plane::units` + `unpack_unit_into`; framing probe: all held files have byte-aligned rows, Q2M is one 47 MP strip (row bands), Pixel files 192 tiles |
+| 1 (kernel) packed-bits unpack speed | STAGE-020 | SPEC-069 `[S]` (frame) | profile-gated; Q2M 14-bit unpack 238 ms; depends on SPEC-068 |
+| 1b Compression 7 decode speed | STAGE-020 | SPEC-070 `[M]` (frame) | profile-gated; K-3 III 704 ms and Typ 246 601 ms, both restart-free single scans; bit-exact vs dnglab |
 | 8 `MaskedAreas` pass-through (onyx request 5) | unframed; STAGE-014 or beside Stage C | none yet | filed 2026-11-12, low priority; writer-built fixtures, no held file has the tag |
 
 *Fill in as more stages and specs are minted.*
