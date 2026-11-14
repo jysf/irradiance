@@ -136,6 +136,18 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **Packed 12- and 14-bit planes unpack about 25× faster** (`irradiance::plane`,
+  SPEC-069, STAGE-020, PROJ-004, DEC-064). The uncompressed MSB-first path now decodes
+  whole byte groups — 14-bit as 7 bytes → 4 samples, 12-bit as 3 bytes → 2 — and the
+  per-sample bit reader decodes only the tail after the last whole group. Leica Q2
+  Monochrom L1021223 (8424 × 5632, 14-bit, one strip), Apple M4 Pro, release, medians in
+  ms, before → after, run back to back (`just unpack-timing`, new):
+  - `unpack_into`, one thread: 239.0 → 9.7;
+  - 8 SPEC-068 units of 704 rows on 8 threads: 31.2 → 1.4.
+
+  Output and errors are byte-identical (the dnglab `raw_checksum` pins and every develop
+  pin are unchanged); no public item changed, nothing allocates, no `unsafe`, no new
+  dependency. 8- and 16-bit planes and Compression 7 are untouched.
 - **Mono develop of Orientations 5–8 is faster** (SPEC-067, STAGE-019, DEC-062). Both
   mono orientation gathers (warp-free and post-warp) now visit the output in 64×64
   tiles for Orientations 5–8, whose source reads run down a column; 1–4 keep the row

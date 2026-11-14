@@ -728,18 +728,19 @@ fn copy_dir_recursive(src: &Path, dst: &Path) {
 
 /// The ONE injected fault this red-proof exists to catch, and the reason it
 /// is not the design probe's `.max(1)` or this file's own first attempt (see
-/// the module doc comment): `BitReader::read`'s final chunk of a partial byte
-/// is meant to be the TOP `take` bits of the `bits_left` bits remaining in
-/// that byte (`in_byte.checked_div(pow2(bits_left - take))`). This swaps it
-/// for the BOTTOM `take` bits instead (`in_byte.checked_rem(pow2(take))`) --
-/// wrong whenever `take < bits_left` (every partial-byte read that does not
-/// exhaust the byte), same total bits consumed either way, so it corrupts
-/// values throughout the plane without ever touching the buffer's length.
+/// the module doc comment). Since `SPEC-069` (`DEC-064` §2) the 14-bit path
+/// decodes whole 7-byte groups of 4 samples, and `BitReader` reads only the
+/// tail; every held 14-bit plane and this file's hand-built fixture decode
+/// entirely through groups, so a fault inside `BitReader::read` would now be a
+/// no-op. This swaps the 14-bit group's first two shifts, 42 and 28, so samples
+/// 0 and 1 of every group trade places -- same total bits consumed either way,
+/// so it corrupts values throughout the plane without ever touching the
+/// buffer's length.
 fn inject_chunk_extraction_fault(plane_rs: &Path) {
     let src = std::fs::read_to_string(plane_rs)
         .unwrap_or_else(|e| panic!("read {}: {e}", plane_rs.display()));
 
-    let needle = ".checked_div(pow2(bits_left.saturating_sub(take)))";
+    let needle = "(v.checked_shr(42), v.checked_shr(28))";
     let occurrences = src.matches(needle).count();
     assert_eq!(
         occurrences, 1,
@@ -749,7 +750,7 @@ fn inject_chunk_extraction_fault(plane_rs: &Path) {
 
     let mutated = src.replacen(
         needle,
-        ".checked_rem(pow2(take)) /* RED-PROOF INJECTION -- tests/plane_oracle.rs, never in the real tree */",
+        "(v.checked_shr(28), v.checked_shr(42)) /* RED-PROOF INJECTION -- tests/plane_oracle.rs, never in the real tree */",
         1,
     );
     std::fs::write(plane_rs, mutated)

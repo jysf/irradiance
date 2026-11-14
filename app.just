@@ -369,6 +369,13 @@ gen-tone-table:
 orient-timing:
     cargo run --release --all-features --example orient-timing
 
+# Time the sensor-plane unpack of the held L1021223: unpack_into on one thread,
+# and 8 SPEC-068 units on 8 scoped threads (SPEC-069, DEC-064 §3). Release
+# build: a debug timing means nothing. A measurement, not a gate; prints a SKIP
+# line when the file is absent.
+unpack-timing:
+    cargo run --release --all-features --example unpack-timing
+
 # The MSRV gate (rust-version = "1.90" in Cargo.toml).
 #
 # ⚠ The `~/.cargo/bin/` prefix is load-bearing — this is the THIRD instance of

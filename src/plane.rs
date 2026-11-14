@@ -136,9 +136,12 @@
 //! # `DEC-008`'s two paths
 //!
 //! - **Sub-byte samples** (`bits_per_sample` not a multiple of 8 — 12 or 14 in
-//!   this corpus): an MSB-first bit stream, read with `BitReader`. The TIFF
-//!   byte-order tag does not apply; the packing is defined in bits, not
-//!   bytes.
+//!   this corpus): an MSB-first bit stream. The TIFF byte-order tag does not
+//!   apply; the packing is defined in bits, not bytes. Since `SPEC-069`
+//!   (`DEC-064`) it is decoded a whole byte group at a time — 14-bit as 7
+//!   bytes → 4 samples, 12-bit as 3 bytes → 2 — and `BitReader` reads only
+//!   the tail after the last whole group, positioned in the same slice, so
+//!   the plane and every error are unchanged.
 //! - **Byte-aligned samples** (a multiple of 8 — 8 or 16 here): plain
 //!   integers in the container's own byte order. No bit cursor.
 //!
@@ -276,9 +279,81 @@ impl<'a> BitReader<'a> {
     }
 }
 
+/// The low 14 bits of `field`, as a sample. `try_from` cannot fail after the
+/// mask; `unwrap_or` keeps this free of a dead error arm.
+fn low14(field: u64) -> u16 {
+    u16::try_from(field & 0x3FFF).unwrap_or(u16::MAX)
+}
+
+/// The low 12 bits of `field`, as a sample (see [`low14`]).
+fn low12(field: u32) -> u16 {
+    u16::try_from(field & 0x0FFF).unwrap_or(u16::MAX)
+}
+
+/// Decode whole 14-bit groups — 7 bytes, 4 samples — from the head of
+/// `strip` into the head of `dst`, and return how many groups were decoded:
+/// as many as both slices hold in full (`DEC-064` §1).
+///
+/// Big-endian in a `u64` is the MSB-first stream: the 56 group bits sit in
+/// the low 56 bits of `v`, sample 0 in its top 14 of those. `checked_shr`
+/// (not `>>`, denied at the crate root) cannot fail below 64; `unwrap_or(0)`
+/// is the structurally unreachable fallback.
+fn unpack_groups14(strip: &[u8], dst: &mut [u16]) -> usize {
+    let (groups, _) = strip.as_chunks::<7>();
+    let (outs, _) = dst.as_chunks_mut::<4>();
+    for (group, out) in groups.iter().zip(outs.iter_mut()) {
+        let [b0, b1, b2, b3, b4, b5, b6] = *group;
+        let v = u64::from_be_bytes([0, b0, b1, b2, b3, b4, b5, b6]);
+        let (s0, s1) = (v.checked_shr(42), v.checked_shr(28));
+        *out = [s0, s1, v.checked_shr(14), Some(v)].map(|field| low14(field.unwrap_or(0)));
+    }
+    groups.len().min(outs.len())
+}
+
+/// Decode whole 12-bit groups — 3 bytes, 2 samples — as [`unpack_groups14`]
+/// does 14-bit ones.
+fn unpack_groups12(strip: &[u8], dst: &mut [u16]) -> usize {
+    let (groups, _) = strip.as_chunks::<3>();
+    let (outs, _) = dst.as_chunks_mut::<2>();
+    for (group, out) in groups.iter().zip(outs.iter_mut()) {
+        let [b0, b1, b2] = *group;
+        let v = u32::from_be_bytes([0, b0, b1, b2]);
+        *out = [v.checked_shr(12), Some(v)].map(|field| low12(field.unwrap_or(0)));
+    }
+    groups.len().min(outs.len())
+}
+
+/// Unpack `dst.len()` MSB-first samples of `bits` from `strip`, which starts
+/// on a byte boundary of one continuous stream (`DEC-064` §1).
+///
+/// 12- and 14-bit decode whole byte groups first (3 bytes → 2 samples,
+/// 7 bytes → 4); a group ends on a byte boundary, so the samples after the
+/// last whole group start on one too. [`BitReader`] then reads exactly those
+/// samples, **positioned inside the same `strip`** at the first byte after
+/// the groups — never handed a sub-slice, so a short strip's
+/// [`Error::Truncated`] reports the same `at` as a reader that started at
+/// byte 0, and every sample before the failing one is written, as before.
+/// Groups may straddle rows: the stream is continuous.
 fn unpack_bitstream(strip: &[u8], bits: u32, dst: &mut [u16]) -> Result<(), Error> {
+    // (whole groups decoded, bytes per group, samples per group). Only 12 and
+    // 14 reach here (`SUPPORTED_BITS`; 8 and 16 go to `unpack_byte_aligned`);
+    // any other width is read entirely by the `BitReader` below.
+    let (full, group_bytes, per_group) = match bits {
+        14 => (unpack_groups14(strip, dst), 7usize, 4usize),
+        12 => (unpack_groups12(strip, dst), 3, 2),
+        _ => (0, 0, 0),
+    };
+    let tail_byte = full.checked_mul(group_bytes).unwrap_or(0);
+    let tail_sample = full.checked_mul(per_group).unwrap_or(0);
+    let Some((_, tail)) = dst.split_at_mut_checked(tail_sample) else {
+        return Ok(());
+    };
+
+    // Positioned in `strip` itself (bit 0 of the first byte after the groups),
+    // never on a sub-slice, so `Error::Truncated { at }` is unchanged.
     let mut reader = BitReader::new(strip);
-    for out in dst.iter_mut() {
+    reader.byte_pos = tail_byte;
+    for out in tail.iter_mut() {
         let sample = reader.read(bits)?;
         // `bits <= 16` (SUPPORTED_BITS), so `sample` always fits `u16`;
         // `unwrap_or` rather than a fallible conversion keeps this path free
@@ -1836,6 +1911,57 @@ mod tests {
         let mut reader = BitReader::new(&strip);
         for want in [1u32, 2, 3, 4] {
             assert_eq!(reader.read(8).unwrap(), want);
+        }
+    }
+
+    /// The pre-SPEC-069 `unpack_bitstream`: every sample through
+    /// `BitReader::read`. The old-behaviour reference for errors and partial
+    /// writes, not a value oracle (`tests/plane_groups.rs` is that).
+    fn bit_reader_only(strip: &[u8], bits: u32, dst: &mut [u16]) -> Result<(), Error> {
+        let mut reader = BitReader::new(strip);
+        for out in dst.iter_mut() {
+            *out = u16::try_from(reader.read(bits)?).unwrap();
+        }
+        Ok(())
+    }
+
+    /// SPEC-069 AC3. For 12 and 14 bits and every sample count 0–17, feed
+    /// `unpack_bitstream` the exact strip and every shorter one (so one byte
+    /// short of every residue, and short by whole groups too). The groups must
+    /// leave the same `Result` — the same `Error::Truncated { at, len }` — and
+    /// the same `dst` contents, written samples and untouched poison alike, as
+    /// a `BitReader`-only decode. Unreachable through the public API once
+    /// `check_layout` has passed, hence a unit test.
+    #[test]
+    fn groups_keep_bitreader_errors_and_partial_writes() {
+        const POISON: u16 = 0xA5A5;
+        for bits in [12u32, 14] {
+            for count in 0..=17usize {
+                let need = (count * bits as usize).div_ceil(8);
+                let bytes: Vec<u8> = (0..need)
+                    .map(|i| u8::try_from((i * 37 + 11) % 256).unwrap())
+                    .collect();
+                for len in 0..=need {
+                    let strip = &bytes[..len];
+                    let mut got = vec![POISON; count];
+                    let mut want = vec![POISON; count];
+                    let got_result = unpack_bitstream(strip, bits, &mut got);
+                    let want_result = bit_reader_only(strip, bits, &mut want);
+                    let label = format!("{bits}-bit, {count} samples, {len} of {need} bytes");
+                    match (&got_result, &want_result) {
+                        (Ok(()), Ok(())) => assert_eq!(len, need, "{label}: Ok when short"),
+                        (
+                            Err(Error::Truncated { at: a, len: l }),
+                            Err(Error::Truncated { at: wa, len: wl }),
+                        ) => {
+                            assert_eq!((a, l), (wa, wl), "{label}: Truncated differs");
+                            assert!(len < need, "{label}: Truncated on a whole strip");
+                        }
+                        _ => panic!("{label}: got {got_result:?}, want {want_result:?}"),
+                    }
+                    assert_eq!(got, want, "{label}: dst differs");
+                }
+            }
         }
     }
 

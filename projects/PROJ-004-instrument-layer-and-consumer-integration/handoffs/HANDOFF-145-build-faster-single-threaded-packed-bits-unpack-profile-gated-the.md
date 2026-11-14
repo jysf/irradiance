@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-14
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-069
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 9728429            # REAL combined count — what cost-audit reads
+  estimated_usd: 7.35              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 60
+  branch: claude/spec-069-build
+  pr: https://github.com/jysf/irradiance/pull/238
+  completed_at: 2026-11-14
+  notes: "FLOOR, measured live from transcript 3b9fff38-fdd9-4f81-817f-80c9a2febeb8.jsonl (59 unique message.ids, all claude-opus-5-5, no subagents): input 121 + cache-creation 159,577 (1-hour) + cache-read 9,529,158 + output 39,573 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Re-sum at ship; the handback commit and wrap-up add a little."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -222,38 +222,64 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-069-build`, https://github.com/jysf/irradiance/pull/238. The change is 7b15289, cut from 2e48dd7. CI was 44/44 green on 7b15289; this handback commit follows it.
+- **Completed at:** 2026-11-14
+- **All acceptance criteria met?** Yes.
+  - **AC1:** `just test` with `IRRADIANCE_CORPUS_DIR` set ran 695 passed, 0 failed, 1 ignored, with no SKIP lines. Every plane and develop pin is unedited and green.
+  - **AC2:** `tests/plane_groups.rs` (new) has strips, bands and clipped tiles; it passed on the old code too, as the spec expects.
+  - **AC3:** `groups_keep_bitreader_errors_and_partial_writes` checks every strip length from 0 to the exact length, for 0–17 samples at 12 and 14 bits.
+  - **AC4:** the retargeted injector gives fixture honest `d1d83299c631541fac68da1051b19a23` against mutant `ca91201dc89cb9b90cc168de7e4b3e92`, and L1021223 honest `cb653b5bec24d166eef2fd258ee61ac4` against mutant `8773222ba81cdd4289fb79c595ea1b26`. Both controls are green.
+  - **AC5:** no allocation, no `unsafe`, no new dependency. `plane_tiles` and `plane_units_alloc` are green and unedited.
+  - **AC6:** 9.7 ms, against a 30 ms target (table below).
+  - **AC7:** every gate is green: `just test`, lint-ci, lint-no-allow, lint-fuzz, fmt-check, validate, doc-check, deny, msrv, cost-audit and gate-audit. `just decisions-audit --changed` is advisory; it names DEC-063 and DEC-064, and I re-read both. `just fuzz-plane 60` was clean twice: 3,183,714 runs, then 2,741,344 on the final code.
+
+**Timing.** `just unpack-timing` on a Mac16,8 (Apple M4 Pro), release, one warm-up then the median and min of 7, in ms. The before run is 2e48dd7 plus only the example; the two runs were back to back.
+
+| case | before median / min | after median / min |
+|---|---|---|
+| `unpack_into`, 1 thread | 239.0 / 238.1 | **9.7 / 9.6** |
+| 8 units of 704 rows, 8 threads | 31.2 / 30.8 | 1.4 / 1.3 |
+
+An earlier pair, run about 20 min apart, gave 244.7 → 10.0 and 32.3 → 1.5. The CHANGELOG line uses the back-to-back pair.
+
+**Red-proofs.** Each was applied by hand and then reverted; `src/plane.rs` was compared byte for byte afterwards. All are tier A.
+
+| mutant | red |
+|---|---|
+| 14-bit shifts 42 and 28 swapped (the injection) | AC2 strips, bands and tiles; `hand_built_fixtures_plane_matches_its_known_md5`; AC3 |
+| 14-bit mask `0x3FFF` changed to `0x1FFF` | AC2 ×3; AC3 |
+| 12-bit first shift 12 changed to 11 | AC2 ×3; AC3 |
+| 12-bit dispatched to the 14-bit group | AC2 ×3; AC3 |
+| tail reader one byte after the last group | AC2 ×3; AC3 |
+| tail handed a sub-slice instead of a position | AC3 only, on the `Truncated` `at` assertion (AC2 stays green, as expected) |
+| `full` reduced by one | **green everywhere**: the benign mutant. The tail re-decodes one group correctly, so only `unpack-timing` would show it. |
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 9,728,429 (a floor, measured while the session was live)
+- **Estimated USD:** 7.35
+- **Duration (minutes):** about 60
+- **Source of the number:** transcript `3b9fff38-fdd9-4f81-817f-80c9a2febeb8.jsonl`, deduplicated by message.id with the max output per message, at opus-5-5 rates. There are no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - The tail reader is `BitReader::new(strip)` followed by `reader.byte_pos = tail_byte`, one of spec §2's two options. I first added a private `BitReader::at` constructor, but that left `new` without a non-test caller, and `-D dead_code` failed lint-ci. Setting `byte_pos` leaves `BitReader` byte-for-byte unedited and needs no `allow`.
+  - The injector needle is `(v.checked_shr(42), v.checked_shr(28))`, a tuple binding. rustfmt splits a four-element array literal across lines, which would have made a one-line needle fragile.
+  - The injector's `assert_eq!` failure message still says "BitReader::read's chunk extraction". Spec §3 forbids editing assertions, so the message is left stale; it only prints if the needle moves.
+  - I did not add `unpack-timing` to the AGENTS.md §6 command block. `orient-timing` is not listed there either.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - [XS] Reword the stale `inject_chunk_extraction_fault` assert message in `tests/plane_oracle.rs` to name the 14-bit group shifts.
+  - [XS] AGENTS.md §6 lists neither `orient-timing` nor `unpack-timing`. Decide whether timing examples belong in that block.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little; the probe numbers and red-proof list made it transcription. The handoff's out-of-scope line "Editing `BitReader`" read against spec §2's "Add a private constructor", until dead_code settled it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — rustfmt's array-width heuristic. Any needle-based red-proof must survive `cargo fmt`, so the spec's suggested needle shape should be checked against formatted code.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run `cargo fmt` and lint-ci right after the kernel edit, before the first red-proof pass. Both changes forced a second full red-proof pass.
