@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-14
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-069
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                     # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved                    # verify handoffs: approved | punch-list | rejected
+  basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 4912796               # REAL combined count — what cost-audit reads
+  estimated_usd: 3.81              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 55
+  branch: claude/spec-069-verify-a21a37
+  pr: 238
+  completed_at: 2026-11-14               # YYYY-MM-DD
+  notes: "APPROVED at 90c4bc4 (code 7b15289), no code changes; verdict commented on PR 238. Tokens are a floor: measured before the commit, push and comment turns. Cache writes priced at the 1-hour rate (x2.0). No subagents."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -248,43 +248,89 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-069-verify-a21a37` (handback only). The verdict is a comment on https://github.com/jysf/irradiance/pull/238. No PR was opened, because there are no code changes.
+- **Completed at:** 2026-11-14
+- **All acceptance criteria met?** Yes.
+  - **AC1:** `just test` with the corpus env ran 695 passed, 0 failed, 1 ignored, with 12/12 corpus files present and no SKIP. These all ran and passed:
+    - the dnglab pins: `plane_md5_matches_the_pinned_raw_checksum`, `dnglab_checksum_matches_strips` and `dnglab_checksum_matches_tiles_with_edge_tiles`;
+    - `units_assemble_in_any_order_on_held_files`;
+    - the develop and orientation pins.
+
+    `git diff 2e48dd7 -- tests/` shows only `tests/plane_groups.rs` (new) and `inject_chunk_extraction_fault`; only its needle, replacement and doc comment changed. `u16::from_le_bytes(*chunk)` and `u16::from_be_bytes(*chunk)` each occur once, in `unpack_byte_aligned`. The `plane_validate` guards and the `plane_tiles` scans pass unedited.
+  - **AC2:** `tests/plane_groups.rs` packs with its own MSB-first packer and never calls the crate to pack. It covers 12- and 14-bit, widths 1–17 and heights 1–5:
+    - one strip, and strips of 1 and 2 rows;
+    - bands at `max_band_rows` 1 and 2 through `unpack_unit_into`;
+    - clipped tiles 4 and 8 wide and 1–3 long.
+
+    So every tail residue appears at a row end and at a strip end.
+  - **AC3:** `groups_keep_bitreader_errors_and_partial_writes` compares the `Result` and the whole `dst`, poison included, for every strip length up to the exact one. It catches the sub-slice mutant on every residue. Once at least one group has been decoded (any count of 4 or more at 14-bit), the tail's error `at` is the group boundary plus the local offset, and the sub-slice reader drops the boundary. That holds for residues 0–3 alike.
+  - **AC4:** the needle `(v.checked_shr(42), v.checked_shr(28))` occurs once in `src/plane.rs`, at line 307, in the live body of `unpack_groups14` and not in a comment. The swap trades samples 0 and 1 of each group, so it changes values but not the bit count.
+    - Both red-proofs passed in my `just test`, and so did both controls: `the_fixture_oracle_control_is_green_without_a_corpus` and `the_honest_control_is_green`.
+    - The build's handback lists honest and mutant digests that differ (fixture d1d8… vs ca91…, L1021223 cb65… vs 8773…). I did not re-print them; the `assert_ne!` passing is the same evidence.
+  - **AC5:** the diff adds no `unsafe` and no allocation; `plane_tiles` and `plane_units_alloc` are green unedited.
+    - `BitReader`, `pow2`, `unpack_byte_aligned`, `unpack_packed`, `decode_unit` and `decode_tile_row` have no diff hunks.
+    - No item is `pub`. Nothing indexes; the arithmetic is checked and the shifts use `checked_shr`.
+    - `as_chunks` and `as_chunks_mut` pass `just msrv` (1.90); `as_chunks` was already in use.
+  - **AC6:** reproduced back to back (table below): 9.9 ms against the 30 ms target.
+  - **AC7:** green: lint-ci, lint-no-allow, lint-fuzz, fmt-check, validate, doc-check, deny, msrv, cost-audit and gate-audit. `decisions-audit --changed` is advisory and exited 0. `fuzz-plane 60` ran 3,241,476 runs clean. `gh pr checks 238` shows 44/44 pass on 90c4bc4.
+- **For `verify`:** ✅ **APPROVED at 90c4bc4** (the PR #238 head; the code is 7b15289).
+
+**Timing.** `just unpack-timing` on a Mac16,8 (Apple M4 Pro), release, one warm-up then the median and min of 7, in ms. The before tree is 2e48dd7 plus only `examples/unpack-timing.rs`, in its own target dir; the two runs were back to back.
+
+| case | before median / min | after median / min |
+|---|---|---|
+| `unpack_into`, 1 thread | 233.4 / 232.9 | **9.9 / 9.5** |
+| 8 units of 704 rows, 8 threads | 30.8 / 30.7 | 1.3 / 1.3 |
+
+This agrees with the build's 239.0 → 9.7 and 31.2 → 1.4, and the CHANGELOG figures are honest.
+
+**Mutants.** Each mutant was applied by script to a `git archive` copy of HEAD with its own target dir. Each ran tier A only, with `IRRADIANCE_CORPUS_DIR` unset: `--lib`, plus `plane_groups`, `plane_unpack`, `plane_units`, `plane_tiles`, `plane_validate` and `plane_oracle`. The unmutated control was green.
+
+| mutant | result (tier A) |
+|---|---|
+| 14-bit shifts 42 and 28 swapped | red: AC2 ×3, AC3, the fixture MD5, the SPEC-068 tier-A any-order test and the tile tests |
+| 14-bit mask `0x1FFF` | red: AC2 ×3, AC3 and the tile and unit tests |
+| 12-bit first shift 11 | red: AC2 ×3, AC3 and the tile and unit tests |
+| 12-bit sent to the 14-bit group | red: AC2 ×3, AC3 and `validate_and_unpack_agree_on_mutated_layouts` |
+| tail one byte after the groups | red: AC2 ×3, AC3 and `a_two_strip_14bit_plane_respects_per_strip_byte_padding` |
+| tail handed a sub-slice | red: AC3 only (expected: the values match, `at` differs) |
+| `full` minus one | **green**: benign (see below) |
+| 14-bit stride of 6 bytes, with matching arithmetic | red: AC2 ×3, AC3 and the fixture MD5 |
+| 12-bit mask `0x07FF` | red: AC2 ×3, AC3 and the tile and unit tests |
+| `full` from `strip.len()` alone | red: clipped tiles only (AC2 tiles, plus the `plane_tiles` and SPEC-068 tiled tests) |
+| group path also taken for 16-bit | **green**: benign, because it is unreachable |
+
+- **`full` from the strip alone.** A clipped tile row still never writes or reads past its window: the group loop zips against `dst.as_chunks_mut`, so writes stay inside `dst`. The tail is what breaks. `split_at_mut_checked` sees a boundary past `dst`, returns `Ok(())`, and leaves the tail samples unwritten (poison). AC2's clipped tiles turn red.
+
+  Strips cannot show this mutant. Byte padding never adds a whole group, so in a strip `strip.len() / group_bytes` never exceeds `dst.len() / per_group`. That is why only tiles catch it, and they do on tier A.
+- **The group path for 16-bit.** `unpack_packed` sends every multiple of 8 to `unpack_byte_aligned`, so `unpack_bitstream` never sees 16. Nothing can notice, and nothing needs to.
+- **`full − 1`.** It is benign, but `unpack-timing` does not guard it. It moves one group (4 samples) per call onto `BitReader`, which is invisible in a 47 MP timing. The example would only catch a gross regression, such as `full` forced to 0, which puts the whole plane back at about 233 ms. The output is identical, so the one-group case needs no guard.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 4,912,796 (a floor: measured before the commit, push and PR-comment turns)
+- **Estimated USD:** 3.81 (opus-5-5 at $5/$25 per MTok; cache reads ×0.10; cache writes at the 1-hour rate, ×2.0)
+- **Duration (minutes):** about 55
+- **Source of the number:** transcript `6b90664d-1770-409c-a9e3-f2f21059effa.jsonl` (the scratchpad UUID), deduplicated by message.id with the max output per message. There are no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none in the code under review. The build's `byte_pos` assignment is one of §2's two permitted options, and `BitReader` is byte-for-byte unchanged.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - [XS] The stale assert message in `inject_chunk_extraction_fault` ("BitReader::read's chunk extraction"). Leaving it was right: spec §3 says every assertion stays unedited, and the message prints only if the needle moves. Reword it in a later chore.
+  - [XS] AGENTS.md §6 lists neither `orient-timing` nor `unpack-timing` (the build's note). I agree.
+  - The spec's red-proof list calls the timing example the guard for `full − 1`. It is not one, and nothing needs to be, since that mutant gives identical output. Future specs should call such mutants "benign, unguarded".
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing material. The handoff's "`full` from `strip.len()` alone" left the variant open; I mutated the group functions' return value, the only place `full` combines the two lengths.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — That strip byte padding can never add a whole group, so only clipped tiles exercise the `dst`-bounded side of `full`. The tests already cover it; the spec could say why tiles are load-bearing there.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — The same: start the 25-minute suite and the mutant sweep (on an archived copy) at once, and hold the timing pair until the CPU is quiet.
