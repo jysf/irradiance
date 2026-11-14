@@ -7,4 +7,7 @@ Cycle prompts live in `prompts/SPEC-068-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **design** — completed 2026-11-13 (DEC-063: a unit is a full-width row band, so callers split dst with split_at_mut, no unsafe; probe: Q2M row bands 44.7 ms single -> 6.1 ms at 8 threads, byte-identical; crate kernel 238 ms vs probe 44.7 ms = SPEC-069 evidence; HANDOFF-143 build ready)
+- [ ] **build** — HANDOFF-143
+- [ ] **verify**
+- [ ] **ship**
