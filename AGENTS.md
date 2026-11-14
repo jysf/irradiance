@@ -1434,8 +1434,8 @@ Use 1.0 only for decisions that are truly locked (tech stack choice
 after it's been installed and working, for example). Most decisions
 should land between 0.7 and 0.95.
 
-### Four rules earned the hard way — three codified at STAGE-001's close,
-### 2026-08-22; the fourth at STAGE-002's close, 2026-09-06
+### Five rules earned the hard way — three codified at STAGE-001's close,
+### 2026-08-22; the fourth at STAGE-002's close, 2026-09-06; the fifth at STAGE-019's close, 2026-11-13
 
 These are not style preferences. Each is a **lesson at or past its bar** in
 `guidance/signals.yaml`, and between them they account for a false green that
@@ -1511,6 +1511,39 @@ verify parsed OpcodeList3 out of all three decodable Q2M frames directly and
 measured: only `kr0 = 0.9992511060` is constant; `kr1` varies **~1.9×** across
 frames. Same camera and same file (L1026016) as instance 2 — the third mis-cite
 of that frame. Full evidence and detail in `guidance/signals.yaml`.
+
+**5. An oracle must be able to see the property — `shared-path-oracle-tautology` (N=3) and `tolerant-oracle-cannot-pin-structure` (N=3). Codified at STAGE-019's close, 2026-11-13.**
+
+> For every property a spec states, name the test that would go red without it, and
+> check two things about that test's oracle. **Independence:** it must not execute the
+> code under test. A round-trip through a shared helper, identity between two entry
+> points on one core, or an expected value computed by calling the crate all move with
+> the bug. **Sensitivity:** it must not be indifferent to the property. An output
+> oracle cannot see a sort order, a traversal order, or a refusal that came after a
+> partial write. Where either fails, add a direct assertion: hand-computed literals,
+> the formula written in the test, a sentinel, or a structural check.
+
+Rules 2 and 5 meet at source scans: a structural check that reads source text follows
+rule 2 (anchor, exclude comments, count matches).
+
+Six instances, two shapes:
+- **The oracle shares the code:**
+  - SPEC-037: an LJ92 round trip through a shared `floor_div2`;
+  - the PROJ-003 close: the restart-interval rule in both the decoder and the reference;
+  - SPEC-065: byte identity between `develop_with_into` and the scratch variant after
+    both moved onto one core. Pass-order mutants were caught only by tier-B MD5 pins,
+    which CI cannot run.
+- **The oracle is indifferent to the property:**
+  - SPEC-057: unsorted IFD entries accepted by both readers;
+  - SPEC-058: a refusal that came after a partial write;
+  - SPEC-067: a gather given a constant orientation stays byte-identical, and only the
+    timing shows it.
+
+STAGE-019 applied the rule in design from SPEC-065 on:
+- analytic oracles with the formula in the test;
+- odd-origin fixtures, so three candidate origins give three different answers;
+- traversal-order unit tests;
+- 24 MD5s pinned **before** the change.
 
 **In this repo, "measured once, on one file" is not 1.0.** The oracle contract
 was verified against a single Leica Q2 Monochrom frame from one firmware. High

@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-019                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-12
-shipped_at: null
+shipped_at: 2026-11-13
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -51,7 +51,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 85749370
+      estimated_usd: 67.61
+      recorded_at: 2026-11-13
+      notes: "Stage orchestration, measured from the orchestrator transcript (session 2b783e6b, claude-opus-5-5) from the user's 'Frame Stage C' message at 2026-11-12T20:04Z through this stage close: 362 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus list rates (input 852 + cache-creation 1,737,890 (1-hour) + cache-read 83,675,035 + output 335,593); no subagents. Covers framing STAGE-019, five design probes and DEC-058..062, ten build/verify dispatches and reconciliations, five ships, and this close. Dominated by cache reads of one long session's context (98%). A FLOOR: the final messages after the measurement are not in it."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -148,7 +153,7 @@ does not need it and can run in parallel with any of them.
 - [ ] (unframed) [XS] — SPEC-065 and SPEC-066 verify follow-ups. SPEC-065: a median fixture whose neighbours arrive unsorted, so "neighbours unsorted" is caught by an `apply_fix_bad_pixels_constant` test directly; a develop-level malformed-`OpcodeList1` row in `tests/develop_scratch_alloc.rs`'s error-path list. SPEC-066: AC5's "the warp ran" guard does not prove the warp ran (`FirstValue` differs from `PerPosition` with no warp too); AC7's `develop_err` does not check the scratch sentinel. SPEC-067: assert the post-warp gather passes `geometry.orientation` to the traversal helper and ignore comments in `both_gathers_walk_through_the_traversal_helper` (the one surviving verify mutant); optionally reorder O7/O8 tile visits so source rows ascend (warp-free O7/O8 still about 1.9x O1); speed up `tiled_output_matches_the_pre_change_pins` (about 10 min in debug).
 - [ ] (unframed, outside STAGE-019's requests) [S] — Level-tag follow-ups found by the SPEC-066 design (DEC-061 §5): a RATIONAL non-integral `BlackLevel` (Pixel 7 Pro) is costed as malformed and resolves to black 0 on every path, mono and colour; and the colour path's `level_at` indexes `black_levels` by a fixed 2x2 slot, ignoring `BlackLevelRepeatDim` (wrong for a `[1, 2]` or `[2, 1]` pattern; right for every held file).
 
-**Count:** 5 shipped / 2 active / 0 pending (all five specs shipped; the two open lines are unframed follow-ups. SPEC-063 25.96M tok / $18.62; SPEC-064 32.22M / $23.71; SPEC-065 41.89M / $29.94; SPEC-066 26.73M / $19.51; SPEC-067 shipped 2026-11-13, DEC-062, verify approved first round, 19.75M / $14.83)
+**Count:** 5 shipped / 0 active / 0 pending (all five specs shipped; two unframed follow-up lines carried to the PROJ-004 brief; the two open lines are unframed follow-ups. SPEC-063 25.96M tok / $18.62; SPEC-064 32.22M / $23.71; SPEC-065 41.89M / $29.94; SPEC-066 26.73M / $19.51; SPEC-067 shipped 2026-11-13, DEC-062, verify approved first round, 19.75M / $14.83)
 
 ## Design Notes
 
@@ -221,16 +226,80 @@ Facts and open questions to pin at design time:
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled at stage close, 2026-11-13.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes, with one documented
+  narrowing.
+  - **`DevelopOptions` / `develop_with_into`** (SPEC-063, DEC-058): `Default` is
+    byte-identical to `develop_into`, pinned by eight MD5s on every held file and never
+    edited after.
+  - **`warp_alpha` over `WarpRect::lerp`** (SPEC-064, DEC-059): an exact closed-form
+    bounds rule. `FullActiveArea` now develops every Q2M frame at every α. The Pixel 3a
+    over-unity lens is refused, typed.
+  - **`scratch_len` / `develop_with_scratch_into`** (SPEC-065, DEC-060): zero allocations
+    on every path, error paths included. `develop_into` dropped from 6 allocations /
+    283.9 MB to 1 allocation / 189.4 MB per Q2M frame.
+  - **CFA-as-mono** (SPEC-066, DEC-061): `BlackLevels::PerPosition`.
+  - **The tiled Orientation 5–8 gather** (SPEC-067, DEC-062): byte-identical. Warped O6
+    went from 785 to 630 ms, against O1 at 615 ms.
+
+  **The narrowing.** The framing promised "per-position black **and white** levels".
+  DNG defines `WhiteLevel` per sample, not per position, so white stays scalar
+  (DEC-061 §3).
+
+  **Every success criterion holds.** No default output changed, `DEVELOP_VERSION` is
+  still `"4"`, and there is no new dependency.
+- **How many specs did it actually take?** Five, as planned.
+  - Sizes: 4 M and 1 S. SPEC-065 and SPEC-066 were re-sized from S to M at design.
+  - Total spec cost: 146.55M tokens / $106.61 (SPEC-063 25.96M, SPEC-064 32.22M,
+    SPEC-065 41.89M, SPEC-066 26.73M, SPEC-067 19.75M).
+  - Orchestration: 85.75M / $67.61 (floor).
+- **How many outlines survived unchanged?** 3 of 5 (SPEC-063, SPEC-064, SPEC-065). Two
+  changed at design, both from a probe:
+  - **SPEC-066.** No routing change was needed (the mono path already accepted CFA
+    planes), and there is no per-position white.
+  - **SPEC-067.** Both gathers needed tiling, not only `crop_orient_normalize_into`.
+    The requester's frames orient after the warp.
+- **What changed between starting and shipping?** The design probes kept moving the
+  work onto the real code path. Each of the five found something the framing had wrong
+  or had not measured:
+  - the six allocations, including two from the opcode parser;
+  - the post-warp gather;
+  - the mono path's existing CFA acceptance;
+  - the Pixel 3a's real over-unity lens;
+  - the measured corner pull.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?**
-  - <note>
+  - **Codified:** AGENTS.md §16 rule 5, "an oracle must be able to see the property".
+    It combines `shared-path-oracle-tautology` (N=3; the bar is N=2) and
+    `tolerant-oracle-cannot-pin-structure` (N=3 at this close).
+  - **Process, not codified:**
+    - Verify returning an approval as a PR comment plus a docs branch avoided every
+      squash conflict from SPEC-064 on.
+    - SPEC-066's merge before verify cost nothing, but it left unverified code on `main`
+      for the length of the verify.
+- **Signals dispositioned at this close?** All 10 `lesson` signals with
+  `disposition_at: stage-close` in `watch` were walked.
+  - **Codified** (AGENTS.md §16 rule 5):
+    - `shared-path-oracle-tautology`: N=3. Instance 3 is SPEC-065: identity between two
+      entries on one core.
+    - `tolerant-oracle-cannot-pin-structure`: N=2 → 3. Instance 3 is SPEC-067: the
+      verify's surviving mutant. A gather given a constant orientation stays
+      byte-identical, so only a direct check of the traversal argument sees it.
+  - **Stay `watch`, raised this stage, no new instance:**
+    - `closed-form-numeric-needs-extreme-magnitude-fixtures` (N=1);
+    - `analytic-oracle-premise-must-survive-rounding` (N=1).
+  - **Stay `watch`, earlier stages, no instance this stage:**
+    - `hostile-fixture-shadowed-by-an-earlier-guard` (N=1);
+    - `a-fix-inherits-the-precondition-of-the-thing-it-fixes` (N=2);
+    - `probe-the-hard-assumption-at-frame-time` (N=1);
+    - `patent-check-named-algorithms-at-frame` (N=1);
+    - `saturating-as-cast-masks-explicit-clamp-in-quantize-tests` (N=1);
+    - `read-the-kernel-before-deciding-the-approach` (N=1).
+
+    Each was applied without a new failure, so none is bumped.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - **Handback floors ran 10–25% low on every cycle** (re-sums: SPEC-065 build +19%,
+    verify +13%; SPEC-066 build +11%, verify +16%; SPEC-067 build +13%, verify +16%).
+    Re-summing at ship from the ended transcripts stays the rule.
+  - **State performance targets against a fixed baseline** (SPEC-067). One instance, so
+    it stays in the spec reflection.
