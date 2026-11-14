@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier
   created_at: 2026-11-13
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-067
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 5406692            # REAL combined count — what cost-audit reads
+  estimated_usd: 4.44              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 46
+  branch: claude/spec-067-verify-270044
+  pr: 230
+  completed_at: 2026-11-13         # YYYY-MM-DD
+  notes: "APPROVED at 26bcf48, no code changes; verdict commented on PR 230. Tokens are a floor: measured before the commit/push/comment turns." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -256,38 +256,103 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** branch `claude/spec-067-verify-270044` (handback only, no PR, per the brief); verdict commented on https://github.com/jysf/irradiance/pull/230
+- **Completed at:** 2026-11-13
+- **All acceptance criteria met?** yes. AC6's warp-free 1.15× target is missed as a ratio but accepted (see Timing).
+- **For `verify`:** ✅ APPROVED at `26bcf48` (PR #230 head), with no code changes.
+
+**Gates (run here, corpus env set, 12/12 present).**
+- `just test`: 675 passed, 0 failed, 1 ignored.
+- `lint-ci`, `lint-no-allow`, `lint-fuzz`, `fmt-check`, `validate`, `doc-check`, `deny`, `msrv`, `cost-audit` and `gate-audit` are all green.
+- `decisions-audit --changed` is advisory only.
+- `gh pr checks 230` is all green on `26bcf48`.
+
+**Byte identity (the hard criterion).**
+- **AC1.** The 24 pins in `tests/orientation_tiles.rs` match the spec's §1 list field for field. I compared them by script; the only difference is the label `Std`/`Full` versus `Framing::…`.
+  - `tiled_output_matches_the_pre_change_pins` **ran**: it took over 60 s and printed no SKIP. That includes the O1 α 0 `Std` and `Full` pins.
+  - Each develop writes into a sentinel-filled buffer and is MD5'd whole. So every pixel is computed on both entry points, and no work is skipped.
+  - `git diff 56976a1 -- tests/` shows only the new file and the O8 alloc row. The SPEC-063 pins are unedited.
+- **AC2 (independent reference).**
+  - The test writes its own forward-map orientation table (crop → output, the opposite direction from the crate's gather) and its own `normalize`, with round-half-up, clamp and per-position black.
+  - It does not call `crop_source_coords`, `develop` internals or a crate re-export. Only the public develop entry points are under test.
+  - The crop sizes are 1×1, 63×65, 64×64, 65×63, 130×67 and 200×129, with odd `ActiveArea` (3,1) and `DefaultCrop` (1,3) origins.
+  - The warped case compares against the `apply_orientation: false` develop, re-oriented by the test's own formulas. The test also asserts that the warp is not a no-op.
+  - `PerPosition` is covered by a 2×2 pattern on two sizes.
+- **AC4.** `git diff 56976a1 -- tests/develop_oracle.rs` is empty.
+  - The needle (12/16-space indentation) matches the **live** `crop_source_coords(` call inside the closure, exactly once. The function's doc comment does not contain it.
+  - `the_oracle_is_red_on_an_orientation_fault` passes, which means the injected copy went red.
+  - Under mutants b4, b5 and v1 that test failed, which is the expected collateral of a broken gather.
+
+**Mutants (by hand, tier A only, on a scratch copy of the tree; corpus env unset; all reverted, original file byte-compared after).** Tests run: the `develop::tests` unit tests, `orientation_tiles`, `develop_oracle` and `develop_scratch_alloc`.
+- **The build's 8:** all red.
+  - b1 inclusive clip, b2 end not clipped, b3 `step_by(tile + 1)`, b4 tile axes swapped and b5 transposed write: AC2 and AC3.
+  - b6 5–8 untiled and b7 1–4 tiled: AC3's order test.
+  - b8 `crop_and_orient_from_active_into` on its own row loop: `both_gathers_walk_through_the_traversal_helper`.
+- **Tile start `tile_x + 1`:** red (AC2, AC3 and existing unit tests).
+- **Split as `(4..=8)` or `(5..8)`:** both red (AC3).
+- **`ORIENT_TILE = 1`:** red. AC3's order test hard-codes 64, so the timing example is not the only guard.
+- **Visiting a pixel twice:** red (AC3's "exactly once").
+- **Survivor (mine):** `crop_and_orient_from_active_into` calls `for_each_out_pixel(1, …)` instead of `geometry.orientation`.
+  - The post-warp gather stays a row walk with byte-identical output. It makes exactly one helper call and has no own row loop, so every tier-A test is green.
+  - Only `just orient-timing` would show it, on the requester's path.
+  - **Judged benign:** it is a deliberately wrong argument, not a plausible refactor slip. Recorded as an XS follow-up below.
+  - The source scan has the same class of gap: it counts a `for_each_out_pixel(` substring, so a commented-out call next to a loop with renamed variables would also pass.
+
+**No allocation, no panics, scope.**
+- `scratch_develop_allocates_nothing` now covers O1, O6 and O8 × fbp × warp × framing × α × apply_orientation, and it is green.
+- The helper uses `saturating_add` and `.min`, and `step_by` receives `tile.max(1)`, so it never gets 0. There is no `unsafe` and no allocation.
+- `crop_source_coords`, the per-pixel bodies and the colour path have no diff beyond the loop header becoming a closure.
+- There is no `pub` change, and `DEVELOP_VERSION` is `"4"`.
+
+**Timing (AC6).** `just orient-timing`, Apple M4 Pro (aarch64), release, median of 7, in ms. "Before" is `56976a1` plus only `examples/orient-timing.rs`; "after" is `26bcf48`'s code. Both were run back-to-back on an idle machine.
+
+| α | | O1 | O2 | O3 | O4 | O5 | O6 | O7 | O8 | O6 unoriented |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | before | 198 | 201 | 215 | 198 | 391 | 392 | 413 | 416 | 198 |
+| 0 | after | 86 | 101 | 104 | 103 | 112 | 124 | 163 | 164 | 87 |
+| 1 | before | 621 | 617 | 619 | 620 | 784 | 785 | 793 | 788 | 614 |
+| 1 | after | 615 | 617 | 607 | 606 | 644 | 630 | 646 | 647 | 612 |
+
+- **The build's tables reproduce** to within about 10% (my machine ran about 5–10% slower in both columns).
+- **Floor: met.** Warp-free O6 went from 392 to 124 ms (−68%).
+- **Target, post-warp (the requester's path; every Q2M frame warps): met**, at 0.99–1.05×. O6 went from 785 to 630 ms. The requester's 774/617 gap is gone.
+- **Target, warp-free: missed as a ratio**, at 1.30–1.90×. **Accepted.**
+  - The denominator moved: O1 fell from 198 to 86 ms.
+  - Every O5–O8 is now 2.5–3.5× faster than before, and faster than the old O1.
+  - The spec's ratio assumed O1 would not move; this is not a regression.
+- **The O1 speed-up is real codegen, not skipped work.**
+  - In `crop_orient_normalize_into` the only change is that `for out_y { for out_x { body } }` became `for_each_out_pixel(…, |out_x, out_y| body)`. For 1–4 the helper runs one tile spanning the whole output, so it is the same nested row-major loop. The body is identical text.
+  - The output is pinned whole (O1 α 0 `Std`/`Full` MD5s over sentinel-filled buffers).
+  - The unoriented O6 control (the same O1 walk) moves identically, from 198 to 87.
+  - The post-warp O1, whose gather got the same closure treatment, did not move. So the gain is specific to how LLVM optimises the warp-free body once it is inlined through a generic closure (black-level closure plus normalize), most likely hoisting or unswitching it could not do before.
+  - I did not disassemble to name the exact transform.
+- **O7/O8 warp-free remain the slowest** (about 163 ms). They read the source in descending row order.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 5,406,692 (floor)
+- **Estimated USD:** 4.44
+- **Duration (minutes):** about 45
+- **Source of the number:** transcript `8d1256ae-02c8-466c-8164-acd2deb24e31.jsonl` (found by the scratchpad UUID), deduplicated by `message.id` with the max `output_tokens` per message, priced per component at opus-5-5 rates. There are no subagents. This is a floor: the commit, push and PR-comment turns after the measurement are excluded.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - AC6's warp-free target is missed as a ratio only, accepted above.
+  - The spec named `justfile` for the recipe; the build put it in `app.just`, which is where the repo's cargo recipes live. That is fine.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - **[XS] Harden the AC3 source scan.** Assert that each gather's helper call passes `geometry.orientation` as its first argument, and ignore comment lines. This closes the surviving constant-orientation mutant and the commented-call gap.
+  - **[XS, optional] Reorder O7/O8 tile visits** so that source rows ascend. The build proposed this; I agree it is the remaining warp-free headroom, about 1.9× O1 against about 1.3× for O5/O6.
+  - Speeding up the 24-pin debug test (about 10 min) remains the build's follow-up.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing material. `just decisions-audit --changed` must be invoked with the flag as an argument, not quoted as one recipe name. My gate loop quoted it and got a false "no recipe" error.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — A timing target relative to O1 should state the baseline it is anchored to (the pre-change O1, or absolute ms). The build said the same.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — The same approach: run the mutants on an archived copy of the tree with its own target dir. That allowed the 10-minute corpus `just test` to run in parallel without the fault-injecting oracle tests copying a mutated `src/develop.rs`.
