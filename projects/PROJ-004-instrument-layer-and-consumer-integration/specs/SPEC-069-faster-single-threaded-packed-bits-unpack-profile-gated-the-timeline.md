@@ -7,4 +7,7 @@ Cycle prompts live in `prompts/SPEC-069-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **design** — completed 2026-11-14 (DEC-064: 12/14-bit packed unpack reads whole byte groups, 7 bytes -> 4 samples and 3 -> 2, with the unchanged BitReader positioned in the same slice for the tail; profile: 3350/3350 samples in unpack_packed; probe on Q2M: 238 ms -> 9.7 ms lint-clean, byte-identical on all 3 files and against an independent reader for n 0..299; one permitted test edit retargets the plane_oracle injector; target <= 30 ms absolute; HANDOFF-145 build ready)
+- [ ] **build** — HANDOFF-145
+- [ ] **verify**
+- [ ] **ship**
