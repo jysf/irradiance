@@ -136,6 +136,23 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **Compression 7 (lossless-JPEG) planes decode about 6.5× faster** (`irradiance::plane`,
+  SPEC-070, STAGE-020, PROJ-004, DEC-065). The scan reader buffers whole destuffed bytes
+  in a 64-bit word instead of reading one bit at a time, and each Huffman table carries an
+  11-bit lookahead (code length and symbol, and total bits and the final difference), so
+  most differences decode with one table read. Codes longer than 11 bits, the scan end
+  and every error still take the old bit-at-a-time path, reached having consumed
+  nothing. `plane::unpack_into` on one thread, Apple M4 Pro, release, medians in ms,
+  before → after, run back to back (`just ljpeg-timing`, new):
+  - Pentax K-3 III Monochrome (6304 × 4224, one restart-free strip): 692.1 → 103.2;
+  - Leica M Monochrom Typ 246 (5984 × 4000, the same shape): 590.8 → 90.7;
+  - Google Pixel 4a (4032 × 3024, 192 tiles): 323.7 → 60.8.
+
+  Output and errors are byte-identical: the dnglab `raw_checksum` pins and every develop
+  pin are unchanged, and two new tier-A tests compare every value, every error and its
+  fields, and the position after each restart against a verbatim copy of the old reader
+  on random tables and corrupted streams. No public item changed, the allocation count is
+  unchanged, no `unsafe`, no new dependency. Each Huffman table grows by 12 KiB.
 - **Packed 12- and 14-bit planes unpack about 25× faster** (`irradiance::plane`,
   SPEC-069, STAGE-020, PROJ-004, DEC-064). The uncompressed MSB-first path now decodes
   whole byte groups — 14-bit as 7 bytes → 4 samples, 12-bit as 3 bytes → 2 — and the

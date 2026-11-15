@@ -32,7 +32,12 @@
 //!   destuffing and marker detection (Annex B), `DECODE`s a Huffman symbol
 //!   (Figure F.16), and `RECEIVE`+`EXTEND`s it to a signed difference
 //!   (Figure F.17 / §F.2.2.1). [`ScanReader::restart`] byte-aligns and consumes
-//!   an `RSTm` marker (`SPEC-037` calls it per restart interval).
+//!   an `RSTm` marker (`SPEC-037` calls it per restart interval). It buffers
+//!   up to 8 whole data bytes and decodes most codes through an 11-bit
+//!   lookahead table built with the [`HuffTable`] (`SPEC-070`, `DEC-065`); the
+//!   Annex F bit-at-a-time `DECODE` remains the path for long codes, the scan
+//!   end and every error, so values and errors are those of the plain
+//!   bit-at-a-time reader.
 //!
 //! # Panic policy
 //!
@@ -113,8 +118,8 @@ const MARKER_COM: u8 = 0xFE;
 const SAMPLING_H1_V1: u8 = 0x11;
 
 /// `2^n` for `n` in `0..=16`, without the shift/`pow` operators the crate root
-/// denies (`clippy::arithmetic_side_effects`). The bit reader needs `n <= 7`
-/// (a byte holds at most 8 unconsumed bits), `EXTEND` needs `n <= 15`, and the
+/// denies (`clippy::arithmetic_side_effects`). `EXTEND` and the lookahead
+/// table's extra-bits mask need `n <= 15`, and the
 /// Huffman over-subscription check needs `n <= 16`; the catch-all is never
 /// reached and returns `0` so the function has no panicking path at all
 /// (mirrors `plane::pow2`'s total-function shape).
@@ -244,6 +249,128 @@ pub(crate) struct HuffTable {
     valptr: [usize; 16],
     /// The symbol values in canonical order (the `HUFFVAL` list).
     huffval: Vec<u8>,
+    /// The 11-bit lookahead for codes of up to [`LUT_BITS`] bits (`DEC-065`
+    /// §2): indexed by the next [`LUT_BITS`] bits of the scan, an entry is the
+    /// code length in its high byte and the symbol (`SSSS`) in its low byte,
+    /// replicated over every index that starts with that code. `0` is "no
+    /// code of up to [`LUT_BITS`] bits starts these bits".
+    lookup: [u16; LUT_SIZE],
+    /// The same lookahead with the extra bits folded in, for every code
+    /// whose length plus extra bits fits in [`LUT_BITS`]: the total bits to
+    /// consume in the high half and the final signed difference in the low 16
+    /// bits, as [`fast_entry`] packs it. `0` is "no entry".
+    fast: [u32; LUT_SIZE],
+}
+
+/// The width of the Huffman lookahead (`DEC-065` §2). The probe measured 11
+/// and 12 bits within 2% of each other and 10, 13 and 14 slower; 11 keeps the
+/// two tables at 12 KiB.
+const LUT_BITS: u32 = 11;
+
+/// Entries in each lookahead table, `2^LUT_BITS`.
+const LUT_SIZE: usize = match 1usize.checked_shl(LUT_BITS) {
+    Some(n) => n,
+    None => 0,
+};
+
+/// The low [`LUT_BITS`] bits set: a lookahead index from the bit buffer.
+const LUT_MASK: u64 = match 1u64.checked_shl(LUT_BITS) {
+    Some(n) => n.wrapping_sub(1),
+    None => 0,
+};
+
+/// The offset that maps a difference (`-32767..=32768`; `-32768` cannot be
+/// decoded) onto `0..=65535`, the low 16 bits of a [`HuffTable::fast`] entry.
+const FAST_DIFF_BIAS: i32 = 32767;
+
+/// Pack a [`HuffTable::fast`] entry: `total` (`1..=LUT_BITS`, so never `0`)
+/// in the high half, `diff + FAST_DIFF_BIAS` in the low 16 bits.
+fn fast_entry(total: u32, diff: i32) -> u32 {
+    let biased = u32::try_from(diff.wrapping_add(FAST_DIFF_BIAS)).unwrap_or(0);
+    total.checked_shl(16).unwrap_or(0) | (biased & 0xFFFF)
+}
+
+/// The difference a [`fast_entry`] holds.
+fn fast_diff(entry: u32) -> i32 {
+    i32::try_from(entry & 0xFFFF)
+        .unwrap_or(0)
+        .wrapping_sub(FAST_DIFF_BIAS)
+}
+
+/// Build [`HuffTable::lookup`] and [`HuffTable::fast`] from the
+/// `MINCODE`/`MAXCODE`/`VALPTR`/`HUFFVAL` form (`DEC-065` §2).
+///
+/// A code of length `l <= LUT_BITS` fills the `2^(LUT_BITS − l)` indices that
+/// start with it. That entry is exactly what [`ScanReader::decode_symbol`]
+/// finds for those bits: canonical codes are prefix-free, so the code is the
+/// only one that starts the index, and its length is the first at which the
+/// bit-at-a-time search matches. An index no short code starts stays `0`.
+fn build_lookahead(
+    mincode: &[i32; 16],
+    maxcode: &[i32; 16],
+    valptr: &[usize; 16],
+    huffval: &[u8],
+) -> ([u16; LUT_SIZE], [u32; LUT_SIZE]) {
+    let mut lookup = [0u16; LUT_SIZE];
+    for l in 1..=LUT_BITS {
+        let i = usize::try_from(l.wrapping_sub(1)).unwrap_or(usize::MAX);
+        let (Some(&minc), Some(&maxc), Some(&vp)) = (mincode.get(i), maxcode.get(i), valptr.get(i))
+        else {
+            continue;
+        };
+        let shift = LUT_BITS.wrapping_sub(l);
+        let span = 1usize.checked_shl(shift).unwrap_or(0);
+        // `l` is at most 11, so the high byte holds it.
+        let high = u16::try_from(l).unwrap_or(0).checked_shl(8).unwrap_or(0);
+        // `maxc < 0` marks an empty length, and the range is then empty.
+        for code in minc..=maxc {
+            let symbol = usize::try_from(code.wrapping_sub(minc))
+                .ok()
+                .and_then(|offset| vp.checked_add(offset))
+                .and_then(|h| huffval.get(h));
+            let start = usize::try_from(code)
+                .ok()
+                .and_then(|c| c.checked_shl(shift));
+            // `build` checked `sum(BITS) == HUFFVAL.len()` and that every code
+            // fits its length, so both are present; a missing one leaves the
+            // entries empty and the slow path reports the table.
+            if let (Some(&symbol), Some(start)) = (symbol, start) {
+                if let Some(slots) = lookup.get_mut(start..start.saturating_add(span)) {
+                    slots.fill(high | u16::from(symbol));
+                }
+            }
+        }
+    }
+
+    let mut fast = [0u32; LUT_SIZE];
+    for (idx, (slot, &entry)) in fast.iter_mut().zip(lookup.iter()).enumerate() {
+        if entry == 0 {
+            continue;
+        }
+        let len = u32::from(entry.checked_shr(8).unwrap_or(0));
+        let ssss = u32::from(entry & 0xFF);
+        let (extra, diff) = match ssss {
+            0 => (0, 0),
+            16 => (0, 32768),
+            1..=15 => {
+                let total = len.saturating_add(ssss);
+                let index = u32::try_from(idx).unwrap_or(0);
+                // The `ssss` bits right after the code, from the index.
+                let v = index
+                    .checked_shr(LUT_BITS.saturating_sub(total))
+                    .unwrap_or(0)
+                    & pow2(ssss).wrapping_sub(1);
+                (ssss, extend(v, ssss))
+            }
+            // Above 16 is the slow path's `LjpegInvalidHuffmanTable`.
+            _ => continue,
+        };
+        let total = len.saturating_add(extra);
+        if total <= LUT_BITS {
+            *slot = fast_entry(total, diff);
+        }
+    }
+    (lookup, fast)
 }
 
 impl HuffTable {
@@ -309,11 +436,14 @@ impl HuffTable {
             code = code.checked_mul(2).ok_or(Error::LjpegInvalidHuffmanTable)?;
         }
 
+        let (lookup, fast) = build_lookahead(&mincode, &maxcode, &valptr, &huffval);
         Ok(HuffTable {
             mincode,
             maxcode,
             valptr,
             huffval,
+            lookup,
+            fast,
         })
     }
 }
@@ -650,17 +780,34 @@ fn parse_scan_header(data: &[u8], pos: &mut usize) -> Result<(u8, u8, Vec<u8>), 
 /// marker detection, Huffman `DECODE`, and `RECEIVE`+`EXTEND` to a signed
 /// difference.
 ///
-/// Mirrors `plane::BitReader` (checked arithmetic, `pow2`, [`Error::Truncated`]
-/// on EOF) and adds JPEG byte-stuffing: `0xFF 0x00` is a literal `0xFF` data
+/// Mirrors `plane::BitReader` (checked arithmetic, [`Error::Truncated`] on
+/// EOF) and adds JPEG byte-stuffing: `0xFF 0x00` is a literal `0xFF` data
 /// byte, and any other `0xFF xx` is a marker that ends the entropy segment.
+///
+/// **Buffered** (`SPEC-070`, `DEC-065` §1): [`ScanReader::fill`] keeps up to 8
+/// whole destuffed data bytes in a `u64` and **stops silently** at a marker,
+/// a final lone `0xFF` or EOF. It never fails: an error happens only when a
+/// bit is needed and none is buffered, and [`ScanReader::read_bit`] then
+/// returns [`ScanReader::fetch_byte`]'s error at that `byte_pos`, which is the
+/// point, position and error of a bit-at-a-time reader. Huffman codes decode
+/// through the 11-bit [`HuffTable`] lookahead when every bit they need is
+/// buffered, and otherwise through the bit-at-a-time path, having consumed
+/// nothing.
 pub(crate) struct ScanReader<'a> {
     data: &'a [u8],
-    /// Next byte to fetch from `data`.
+    /// The next source byte to fetch from `data`: just past the last byte
+    /// buffered. After a [`ScanReader::restart`] it is the next source byte a
+    /// bit-at-a-time reader would fetch.
     byte_pos: usize,
-    /// The current data byte (post-destuffing) being consumed.
-    bit_buffer: u32,
-    /// Bits still unconsumed in `bit_buffer`, from the MSB side (`0..=8`).
-    bits_left: u32,
+    /// Buffered data bits; the next one is bit `nbits − 1`. Bits above
+    /// `nbits` are already consumed and are masked off on every read.
+    acc: u64,
+    /// The count of valid bits in `acc` (`0..=64`).
+    nbits: u32,
+    /// One flag per buffered byte, the most recent in bit 0: set if that data
+    /// byte came from a stuffed `0xFF 0x00` pair (2 source bytes), so
+    /// `restart` can give back the right number of source bytes.
+    stuffed: u64,
     /// The `m` of the next expected `RSTm` marker (`0..=7`, cycling).
     expected_rst: u8,
 }
@@ -672,10 +819,94 @@ impl<'a> ScanReader<'a> {
         ScanReader {
             data: entropy,
             byte_pos: 0,
-            bit_buffer: 0,
-            bits_left: 0,
+            acc: 0,
+            nbits: 0,
+            stuffed: 0,
             expected_rst: 0,
         }
+    }
+
+    /// Buffer whole data bytes while 8 more bits fit (`nbits <= 56`), each
+    /// MSB-first below the bits already held. A byte other than `0xFF` is one
+    /// source byte; `0xFF 0x00` is a stuffed `0xFF` data byte from two. The
+    /// fill **stops silently**, leaving `byte_pos` on it, at EOF, at `0xFF`
+    /// followed by anything but `0x00` (a marker), and at a final lone `0xFF`:
+    /// exactly where [`ScanReader::fetch_byte`] would fail. So the buffer only
+    /// ever holds bytes `fetch_byte` would have returned.
+    #[inline]
+    fn fill(&mut self) {
+        // Eight source bytes with no `0xFF` among them are eight data bytes:
+        // take the whole bytes that fit at once. This stops exactly where the
+        // byte loop below would, with every stuffed flag clear.
+        let word = self
+            .data
+            .get(self.byte_pos..self.byte_pos.saturating_add(8))
+            .and_then(|chunk| <[u8; 8]>::try_from(chunk).ok())
+            .map(u64::from_be_bytes);
+        if let Some(word) = word {
+            // A zero byte of `!word` is an `0xFF` of `word` (the exact
+            // "has a zero byte" test: no false positives or negatives).
+            let inverted = !word;
+            let has_ff =
+                inverted.wrapping_sub(0x0101_0101_0101_0101) & !inverted & 0x8080_8080_8080_8080;
+            if has_ff == 0 {
+                let whole = 64u32.saturating_sub(self.nbits).checked_div(8).unwrap_or(0);
+                let bits = whole.saturating_mul(8);
+                self.acc = self.acc.checked_shl(bits).unwrap_or(0)
+                    | word.checked_shr(64u32.saturating_sub(bits)).unwrap_or(0);
+                self.nbits = self.nbits.saturating_add(bits);
+                self.stuffed = self.stuffed.checked_shl(whole).unwrap_or(0);
+                self.byte_pos = self
+                    .byte_pos
+                    .saturating_add(usize::try_from(whole).unwrap_or(0));
+                return;
+            }
+        }
+        while self.nbits <= 56 {
+            let Some(&b) = self.data.get(self.byte_pos) else {
+                break;
+            };
+            let stuffed = if b == 0xFF {
+                if self.data.get(self.byte_pos.saturating_add(1)) == Some(&0x00) {
+                    true
+                } else {
+                    break;
+                }
+            } else {
+                false
+            };
+            let size: usize = if stuffed { 2 } else { 1 };
+            let Some(next) = self.byte_pos.checked_add(size) else {
+                break;
+            };
+            self.acc = self.acc.checked_shl(8).unwrap_or(0) | u64::from(b);
+            self.nbits = self.nbits.saturating_add(8);
+            self.stuffed = self.stuffed.checked_shl(1).unwrap_or(0) | u64::from(stuffed);
+            self.byte_pos = next;
+        }
+    }
+
+    /// Consume and return the next `n` buffered bits, MSB-first. The caller
+    /// guarantees `1 <= n <= 32` and `n <= nbits`.
+    #[inline]
+    fn take(&mut self, n: u32) -> u32 {
+        let rest = self.nbits.wrapping_sub(n);
+        let mask = 1u64.checked_shl(n).unwrap_or(0).wrapping_sub(1);
+        let v = self.acc.checked_shr(rest).unwrap_or(0) & mask;
+        self.nbits = rest;
+        u32::try_from(v).unwrap_or(0)
+    }
+
+    /// The next [`LUT_BITS`] bits as a lookahead index, zero-padded on the
+    /// right when fewer are buffered. Consumes nothing.
+    #[inline]
+    fn peek_index(&self) -> usize {
+        let bits = if self.nbits >= LUT_BITS {
+            self.acc.checked_shr(self.nbits.wrapping_sub(LUT_BITS))
+        } else {
+            self.acc.checked_shl(LUT_BITS.wrapping_sub(self.nbits))
+        };
+        usize::try_from(bits.unwrap_or(0) & LUT_MASK).unwrap_or(0)
     }
 
     /// Fetch the next entropy **data** byte, applying `0xFF 0x00` destuffing.
@@ -720,24 +951,28 @@ impl<'a> ScanReader<'a> {
     }
 
     /// Read one bit, MSB-first.
+    ///
+    /// # Errors
+    ///
+    /// When no bit is buffered and none can be, [`ScanReader::fetch_byte`]'s
+    /// error at `byte_pos`: [`Error::LjpegUnexpectedMarker`] or
+    /// [`Error::Truncated`], as a bit-at-a-time reader would fail there.
     fn read_bit(&mut self) -> Result<u32, Error> {
-        if self.bits_left == 0 {
-            self.bit_buffer = u32::from(self.fetch_byte()?);
-            self.bits_left = 8;
+        if self.nbits == 0 {
+            self.fill();
+            if self.nbits == 0 {
+                // `fill` stops only where `fetch_byte` fails, so this returns
+                // today's error.
+                self.fetch_byte()?;
+                // Unreachable: had `fetch_byte` succeeded, `fill` would have
+                // buffered that byte. Kept so the path stays total.
+                return Err(Error::Truncated {
+                    at: self.byte_pos,
+                    len: 1,
+                });
+            }
         }
-        // The next unconsumed bit is bit `bits_left - 1` (MSB-first).
-        let shift = self.bits_left.checked_sub(1).ok_or(Error::Truncated {
-            at: self.byte_pos,
-            len: 1,
-        })?;
-        let bit = self
-            .bit_buffer
-            .checked_div(pow2(shift))
-            .unwrap_or(0)
-            .checked_rem(2)
-            .unwrap_or(0);
-        self.bits_left = shift;
-        Ok(bit)
+        Ok(self.take(1))
     }
 
     /// `RECEIVE(count)` (ITU-T T.81 Figure F.17): read `count` bits MSB-first
@@ -846,7 +1081,72 @@ impl<'a> ScanReader<'a> {
     ///
     /// A typed [`Error`] on any malformed table, code, or truncated scan; never
     /// a panic.
+    ///
+    /// The difference comes from the 11-bit lookahead when every bit it needs
+    /// is buffered ([`ScanReader::decode_buffered`]); otherwise from the
+    /// bit-at-a-time path, which then starts from the same bit as it would
+    /// have without the lookahead, so its value or error is unchanged.
+    #[inline(always)]
     pub(crate) fn decode_difference(&mut self, table: &HuffTable) -> Result<i32, Error> {
+        match self.decode_buffered(table) {
+            Some(diff) => Ok(diff),
+            None => self.decode_bit_at_a_time(table),
+        }
+    }
+
+    /// The lookahead decode (`DEC-065` §2): `Some(difference)` with the code
+    /// and its extra bits consumed, or `None` **having consumed nothing**.
+    /// Every entry it accepts is determined by real buffered bits only: the
+    /// guards keep a zero-padded peek from being trusted.
+    ///
+    /// 1. Top up the buffer when it holds fewer than 32 bits.
+    /// 2. A `fast` entry whose total is buffered: the code and its extra bits.
+    /// 3. A `lookup` entry whose code is buffered: `SSSS` 0 and 16 have no
+    ///    extra bits; `SSSS` 1–15 needs its extra bits buffered too.
+    /// 4. Anything else (a code longer than 11 bits, no code, `SSSS` above
+    ///    16, or bits not yet buffered at the scan end) is `None`.
+    #[inline(always)]
+    fn decode_buffered(&mut self, table: &HuffTable) -> Option<i32> {
+        if self.nbits < 32 {
+            self.fill();
+        }
+        let idx = self.peek_index();
+        let fast = table.fast.get(idx).copied()?;
+        let total = fast.checked_shr(16).unwrap_or(0);
+        if total != 0 && total <= self.nbits {
+            self.nbits = self.nbits.wrapping_sub(total);
+            return Some(fast_diff(fast));
+        }
+        let entry = table.lookup.get(idx).copied()?;
+        let len = u32::from(entry.checked_shr(8).unwrap_or(0));
+        if entry == 0 || len > self.nbits {
+            return None;
+        }
+        let after = self.nbits.wrapping_sub(len);
+        let ssss = u32::from(entry & 0xFF);
+        match ssss {
+            0 => {
+                self.nbits = after;
+                Some(0)
+            }
+            16 => {
+                self.nbits = after;
+                Some(32768)
+            }
+            1..=15 if ssss <= after => {
+                self.nbits = after;
+                let v = self.take(ssss);
+                Some(extend(v, ssss))
+            }
+            _ => None,
+        }
+    }
+
+    /// The bit-at-a-time decode: `DECODE` then `RECEIVE`+`EXTEND`, unchanged
+    /// from before the lookahead. Rare on real scans, so kept out of line.
+    #[cold]
+    #[inline(never)]
+    fn decode_bit_at_a_time(&mut self, table: &HuffTable) -> Result<i32, Error> {
         let ssss = self.decode_symbol(table)?;
         self.receive_and_extend(u32::from(ssss))
     }
@@ -860,8 +1160,20 @@ impl<'a> ScanReader<'a> {
     /// [`Error::LjpegUnexpectedMarker`] if the marker is absent or is not the
     /// next `RSTm` in the `D0..D7` cycle; [`Error::Truncated`] at EOF.
     pub(crate) fn restart(&mut self) -> Result<(), Error> {
-        // Byte-align: discard any unconsumed bits of the current byte.
-        self.bits_left = 0;
+        // Byte-align. The buffer holds the rest of the current byte
+        // (`nbits mod 8` bits), which is discarded, and `nbits / 8` whole bytes
+        // a bit-at-a-time reader would not have fetched yet. Give those back:
+        // move `byte_pos` over each, the most recent first, by its source size
+        // (2 for a stuffed `0xFF 0x00`).
+        let whole = self.nbits.checked_div(8).unwrap_or(0);
+        for i in 0..whole {
+            let was_stuffed = self.stuffed.checked_shr(i).unwrap_or(0) & 1 == 1;
+            let size: usize = if was_stuffed { 2 } else { 1 };
+            self.byte_pos = self.byte_pos.saturating_sub(size);
+        }
+        self.acc = 0;
+        self.nbits = 0;
+        self.stuffed = 0;
 
         let mut p = self.byte_pos;
         if !matches!(self.data.get(p), Some(&0xFF)) {
@@ -3697,6 +4009,690 @@ mod tests {
             assert!(
                 matches!(err, Error::LjpegPlaneWrongLength { .. }),
                 "{what}: got {err:?}"
+            );
+        }
+    }
+
+    // ══ SPEC-070: the buffered reader against today's bit-at-a-time reader ══
+    //
+    // DEC-065 replaces the one-byte, bit-at-a-time `ScanReader` with a buffered
+    // reader and an 11-bit lookahead. The hard criterion is that every value
+    // and every error is today's. No held file has a restart, a code longer
+    // than 11 bits or `SSSS` 16, so these tests drive synthetic tables and
+    // streams that do, and compare against `ReferenceReader`: today's reader
+    // (main at 4e48521), copied verbatim below. It is the old-behaviour
+    // reference, not a value oracle; it reads the same `HuffTable`'s
+    // `mincode` / `maxcode` / `valptr` / `huffval`.
+
+    /// Today's `ScanReader` (4e48521), verbatim apart from its name and
+    /// visibility. Do not edit it to match a change in `ScanReader`: it is the
+    /// behaviour the buffered reader must reproduce.
+    struct ReferenceReader<'a> {
+        data: &'a [u8],
+        /// Next byte to fetch from `data`.
+        byte_pos: usize,
+        /// The current data byte (post-destuffing) being consumed.
+        bit_buffer: u32,
+        /// Bits still unconsumed in `bit_buffer`, from the MSB side (`0..=8`).
+        bits_left: u32,
+        /// The `m` of the next expected `RSTm` marker (`0..=7`, cycling).
+        expected_rst: u8,
+    }
+
+    impl<'a> ReferenceReader<'a> {
+        /// Create a reader over the entropy-coded bytes (the slice beginning at the
+        /// offset [`parse_headers`] returns).
+        fn new(entropy: &'a [u8]) -> ReferenceReader<'a> {
+            ReferenceReader {
+                data: entropy,
+                byte_pos: 0,
+                bit_buffer: 0,
+                bits_left: 0,
+                expected_rst: 0,
+            }
+        }
+
+        /// Fetch the next entropy **data** byte, applying `0xFF 0x00` destuffing.
+        ///
+        /// # Errors
+        ///
+        /// [`Error::LjpegUnexpectedMarker`] if a real marker (`0xFF` + non-zero) is
+        /// reached where a data byte was expected; [`Error::Truncated`] at EOF.
+        fn fetch_byte(&mut self) -> Result<u8, Error> {
+            let b = *self.data.get(self.byte_pos).ok_or(Error::Truncated {
+                at: self.byte_pos,
+                len: 1,
+            })?;
+            if b != 0xFF {
+                self.byte_pos = self.byte_pos.checked_add(1).ok_or(Error::Truncated {
+                    at: self.byte_pos,
+                    len: 1,
+                })?;
+                return Ok(b);
+            }
+            // `0xFF`: inspect the following byte.
+            let next_pos = self.byte_pos.checked_add(1).ok_or(Error::Truncated {
+                at: self.byte_pos,
+                len: 1,
+            })?;
+            let next = *self.data.get(next_pos).ok_or(Error::Truncated {
+                at: next_pos,
+                len: 1,
+            })?;
+            if next == 0x00 {
+                // Stuffed: `0xFF 0x00` is a literal `0xFF` data byte.
+                self.byte_pos = self.byte_pos.checked_add(2).ok_or(Error::Truncated {
+                    at: self.byte_pos,
+                    len: 2,
+                })?;
+                Ok(0xFF)
+            } else {
+                // A marker where entropy data was expected. `byte_pos` is left at
+                // the `0xFF` so `restart` can find the marker.
+                Err(Error::LjpegUnexpectedMarker { marker: next })
+            }
+        }
+
+        /// Read one bit, MSB-first.
+        fn read_bit(&mut self) -> Result<u32, Error> {
+            if self.bits_left == 0 {
+                self.bit_buffer = u32::from(self.fetch_byte()?);
+                self.bits_left = 8;
+            }
+            // The next unconsumed bit is bit `bits_left - 1` (MSB-first).
+            let shift = self.bits_left.checked_sub(1).ok_or(Error::Truncated {
+                at: self.byte_pos,
+                len: 1,
+            })?;
+            let bit = self
+                .bit_buffer
+                .checked_div(pow2(shift))
+                .unwrap_or(0)
+                .checked_rem(2)
+                .unwrap_or(0);
+            self.bits_left = shift;
+            Ok(bit)
+        }
+
+        /// `RECEIVE(count)` (ITU-T T.81 Figure F.17): read `count` bits MSB-first
+        /// into an unsigned magnitude. `count` is `0..=15` in use; the accumulator
+        /// cannot overflow, and `unwrap_or` covers that structurally-unreachable
+        /// case without a dead error arm (as `plane::BitReader` does).
+        fn receive(&mut self, count: u32) -> Result<u32, Error> {
+            let mut value: u32 = 0;
+            let mut remaining = count;
+            while remaining > 0 {
+                let bit = self.read_bit()?;
+                value = value
+                    .checked_mul(2)
+                    .and_then(|v| v.checked_add(bit))
+                    .unwrap_or(value);
+                remaining = remaining.saturating_sub(1);
+            }
+            Ok(value)
+        }
+
+        /// `DECODE` one Huffman symbol (ITU-T T.81 Figure F.16): read bits until the
+        /// accumulated code lies within a code length's `[MINCODE, MAXCODE]`, then
+        /// look the symbol up in `HUFFVAL`.
+        ///
+        /// # Errors
+        ///
+        /// [`Error::LjpegInvalidHuffmanTable`] if the code does not resolve within
+        /// 16 bits; [`Error::LjpegUnexpectedMarker`]/[`Error::Truncated`] from the
+        /// underlying bit reads.
+        fn decode_symbol(&mut self, table: &HuffTable) -> Result<u8, Error> {
+            // `code` accumulates at most 16 bits, so `code < 2^16` and never
+            // overflows `i32`; `unwrap_or` covers the unreachable overflow.
+            let mut code: i32 = i32::try_from(self.read_bit()?).unwrap_or(0);
+            let mut l: usize = 1;
+            loop {
+                let idx = l.checked_sub(1).ok_or(Error::LjpegInvalidHuffmanTable)?;
+                let maxc = *table
+                    .maxcode
+                    .get(idx)
+                    .ok_or(Error::LjpegInvalidHuffmanTable)?;
+                if maxc >= 0 && code <= maxc {
+                    let minc = *table
+                        .mincode
+                        .get(idx)
+                        .ok_or(Error::LjpegInvalidHuffmanTable)?;
+                    let vp = *table
+                        .valptr
+                        .get(idx)
+                        .ok_or(Error::LjpegInvalidHuffmanTable)?;
+                    let offset = code
+                        .checked_sub(minc)
+                        .ok_or(Error::LjpegInvalidHuffmanTable)?;
+                    let offset =
+                        usize::try_from(offset).map_err(|_| Error::LjpegInvalidHuffmanTable)?;
+                    let hidx = vp
+                        .checked_add(offset)
+                        .ok_or(Error::LjpegInvalidHuffmanTable)?;
+                    return table
+                        .huffval
+                        .get(hidx)
+                        .copied()
+                        .ok_or(Error::LjpegInvalidHuffmanTable);
+                }
+                if l >= 16 {
+                    // No code of any length `1..=16` matched — a corrupt table or
+                    // bitstream (a code that overruns 16 bits).
+                    return Err(Error::LjpegInvalidHuffmanTable);
+                }
+                let bit = i32::try_from(self.read_bit()?).unwrap_or(0);
+                code = code
+                    .checked_mul(2)
+                    .and_then(|c| c.checked_add(bit))
+                    .unwrap_or(code);
+                l = l.checked_add(1).ok_or(Error::LjpegInvalidHuffmanTable)?;
+            }
+        }
+
+        /// Given a magnitude category `ssss` (`0..=16`), read and sign-extend the
+        /// difference (ITU-T T.81 Annex H.1.2.1): `0 → 0`; `16 → 32768` (no bits
+        /// read); otherwise `RECEIVE(ssss)` then `EXTEND`.
+        ///
+        /// # Errors
+        ///
+        /// [`Error::LjpegInvalidHuffmanTable`] if `ssss > 16`; bit-read errors
+        /// otherwise.
+        fn receive_and_extend(&mut self, ssss: u32) -> Result<i32, Error> {
+            match ssss {
+                0 => Ok(0),
+                16 => Ok(32768),
+                1..=15 => {
+                    let v = self.receive(ssss)?;
+                    Ok(extend(v, ssss))
+                }
+                _ => Err(Error::LjpegInvalidHuffmanTable),
+            }
+        }
+
+        /// Decode one sample's signed difference: `DECODE` the category, then
+        /// `RECEIVE`+`EXTEND` it (ITU-T T.81 §F.2.2.1 / Annex H.1.2.1).
+        ///
+        /// This is the end of `SPEC-036`'s scope: the *difference*, not the
+        /// reconstructed sample. Applying predictors, the initial prediction and
+        /// the point transform to turn these into `u16` samples is `SPEC-037`.
+        ///
+        /// # Errors
+        ///
+        /// A typed [`Error`] on any malformed table, code, or truncated scan; never
+        /// a panic.
+        fn decode_difference(&mut self, table: &HuffTable) -> Result<i32, Error> {
+            let ssss = self.decode_symbol(table)?;
+            self.receive_and_extend(u32::from(ssss))
+        }
+
+        /// Byte-align and consume the next expected `RSTm` marker (ITU-T T.81
+        /// B.2.1 / E.1.1). `SPEC-037` calls this at each restart interval; resetting
+        /// the predictor afterwards is `SPEC-037`'s, not this method's.
+        ///
+        /// # Errors
+        ///
+        /// [`Error::LjpegUnexpectedMarker`] if the marker is absent or is not the
+        /// next `RSTm` in the `D0..D7` cycle; [`Error::Truncated`] at EOF.
+        fn restart(&mut self) -> Result<(), Error> {
+            // Byte-align: discard any unconsumed bits of the current byte.
+            self.bits_left = 0;
+
+            let mut p = self.byte_pos;
+            if !matches!(self.data.get(p), Some(&0xFF)) {
+                return match self.data.get(p).copied() {
+                    Some(byte) => Err(Error::LjpegUnexpectedMarker { marker: byte }),
+                    None => Err(Error::Truncated { at: p, len: 1 }),
+                };
+            }
+            while matches!(self.data.get(p), Some(&0xFF)) {
+                p = p.checked_add(1).ok_or(Error::Truncated { at: p, len: 1 })?;
+            }
+            let code = *self.data.get(p).ok_or(Error::Truncated { at: p, len: 1 })?;
+            let expected = MARKER_RST0
+                .checked_add(self.expected_rst)
+                .ok_or(Error::LjpegUnexpectedMarker { marker: code })?;
+            if code != expected {
+                return Err(Error::LjpegUnexpectedMarker { marker: code });
+            }
+            self.byte_pos = p.checked_add(1).ok_or(Error::Truncated { at: p, len: 1 })?;
+            // Advance the restart counter, cycling 0..=7.
+            self.expected_rst = self
+                .expected_rst
+                .checked_add(1)
+                .unwrap_or(0)
+                .checked_rem(8)
+                .unwrap_or(0);
+            Ok(())
+        }
+    }
+
+    /// A small seeded PRNG (SplitMix64), so the differential is reproducible.
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+
+        /// Uniform in `0..n` (`n > 0`).
+        fn below(&mut self, n: u64) -> u64 {
+            self.next() % n
+        }
+
+        fn chance(&mut self, one_in: u64) -> bool {
+            self.below(one_in) == 0
+        }
+    }
+
+    /// A random valid canonical DC table: `BITS` over lengths `1..=max_len`
+    /// that never over-subscribe the code space, and a `HUFFVAL` drawn mostly
+    /// from `0..=16` with about one symbol in twenty above 16 (valid in the
+    /// table; decoding it is the error case). A quarter of the tables have
+    /// codes of length exactly 16, and another quarter top out at 12–15, so the
+    /// slow path sees codes longer than the 11-bit lookahead.
+    fn random_table(rng: &mut Rng) -> ([u8; 16], Vec<u8>) {
+        let max_len = match rng.below(4) {
+            0 => 16,
+            1 => 12 + rng.below(4),
+            _ => 1 + rng.below(16),
+        } as usize;
+        let mut bits = [0u8; 16];
+        // Codes still free at the current length.
+        let mut avail: u64 = 2;
+        let mut total: u64 = 0;
+        for l in 1..=max_len {
+            let cap = avail.min(if l == max_len { 12 } else { 4 });
+            let mut take = rng.below(cap + 1);
+            if l == max_len && take == 0 && avail > 0 {
+                take = 1;
+            }
+            take = take.min(40 - total);
+            bits[l - 1] = take as u8;
+            total += take;
+            avail = (avail - take) * 2;
+        }
+        if total == 0 {
+            bits[0] = 1;
+            total = 1;
+        }
+        let huffval = (0..total)
+            .map(|_| {
+                if rng.chance(20) {
+                    17 + rng.below(239) as u8
+                } else {
+                    rng.below(17) as u8
+                }
+            })
+            .collect();
+        (bits, huffval)
+    }
+
+    /// The canonical `(code, length)` of each `HUFFVAL` index (Annex C).
+    fn canonical_codes(bits: &[u8; 16]) -> Vec<(u32, u32)> {
+        let mut codes = Vec::new();
+        let mut code = 0u32;
+        for (i, &count) in bits.iter().enumerate() {
+            for _ in 0..count {
+                codes.push((code, i as u32 + 1));
+                code += 1;
+            }
+            code <<= 1;
+        }
+        codes
+    }
+
+    /// Encode `n` random symbols of the table `(bits, huffval)`: each code,
+    /// then `SSSS` random extra bits for `SSSS` 1–15 (none for 0 and 16, and
+    /// none for a symbol above 16, which ends a decode), `0xFF`-stuffed, with
+    /// an `RSTm` marker every `ri` symbols. A symbol above 16 is chosen only
+    /// rarely so most streams run to their end.
+    ///
+    /// With `junk`, some intervals also carry whole data bytes after their
+    /// last symbol and before the marker, including a stuffed `0xFF 0x00`
+    /// pair: `[x, FF, 00]`, `[FF, 00]` or `[FF, 00, x]`. The decoder has not
+    /// read them when it restarts, so they are exactly the whole buffered
+    /// bytes `restart` must give back, a stuffed pair as two source bytes. The
+    /// marker check then fails on them with the error today's reader gives,
+    /// whose `marker` field names the byte `restart` landed on.
+    fn encode_random_stream(
+        rng: &mut Rng,
+        bits: &[u8; 16],
+        huffval: &[u8],
+        n: usize,
+        ri: usize,
+        junk: bool,
+    ) -> Vec<u8> {
+        let codes = canonical_codes(bits);
+        let mut w = BitWriter::new();
+        let mut rst: u8 = 0;
+        for i in 0..n {
+            if ri > 0 && i > 0 && i % ri == 0 {
+                w.flush_to_byte();
+                if junk && rng.chance(3) {
+                    let x = rng.below(0xFF) as u8; // never 0xFF
+                    match rng.below(3) {
+                        0 => w.bytes.extend_from_slice(&[x, 0xFF, 0x00]),
+                        1 => w.bytes.extend_from_slice(&[0xFF, 0x00]),
+                        _ => w.bytes.extend_from_slice(&[0xFF, 0x00, x]),
+                    }
+                }
+                w.emit_marker(MARKER_RST0 + rst);
+                rst = (rst + 1) % 8;
+            }
+            let mut k = rng.below(huffval.len() as u64) as usize;
+            if huffval[k] > 16 && !rng.chance(20) {
+                // Prefer a decodable symbol when the table has one.
+                if let Some(j) = huffval.iter().position(|&s| s <= 16) {
+                    k = j;
+                }
+            }
+            let (code, len) = codes[k];
+            w.put_bits(code, len);
+            let ssss = u32::from(huffval[k]);
+            if (1..=15).contains(&ssss) {
+                w.put_bits(rng.below(1 << ssss) as u32, ssss);
+            }
+        }
+        w.flush_to_byte();
+        w.bytes
+    }
+
+    /// Corrupted copies of `clean`, mutating only bytes at or after `from`:
+    /// truncation (at every byte when the stream is short), single bit flips,
+    /// an injected `0xFF`, an injected `RSTm` or other marker, a deleted
+    /// marker, a trailing lone `0xFF`, and deleted bytes.
+    fn corruptions(rng: &mut Rng, clean: &[u8], from: usize) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        let len = clean.len();
+        let span = len - from;
+        if span == 0 {
+            out.push(clean.to_vec());
+            return out;
+        }
+        let pos = |rng: &mut Rng| from + rng.below(span as u64) as usize;
+        if span <= 40 {
+            for cut in from..len {
+                out.push(clean[..cut].to_vec());
+            }
+        } else {
+            for _ in 0..8 {
+                let cut = pos(rng);
+                out.push(clean[..cut].to_vec());
+            }
+        }
+        for _ in 0..4 {
+            let mut c = clean.to_vec();
+            let p = pos(rng);
+            c[p] ^= 1 << rng.below(8);
+            out.push(c);
+        }
+        for _ in 0..2 {
+            let mut c = clean.to_vec();
+            c.insert(pos(rng), 0xFF);
+            out.push(c);
+        }
+        for _ in 0..2 {
+            let mut c = clean.to_vec();
+            let code = if rng.chance(2) {
+                MARKER_RST0 + rng.below(8) as u8
+            } else {
+                1 + rng.below(0xFE) as u8
+            };
+            let p = pos(rng);
+            c.splice(p..p, [0xFF, code]);
+            out.push(c);
+        }
+        // Delete one marker (an `0xFF` followed by a non-zero, non-`0xFF` byte).
+        let markers: Vec<usize> = (from..len.saturating_sub(1))
+            .filter(|&i| clean[i] == 0xFF && clean[i + 1] != 0x00 && clean[i + 1] != 0xFF)
+            .collect();
+        if !markers.is_empty() {
+            let m = markers[rng.below(markers.len() as u64) as usize];
+            let mut c = clean.to_vec();
+            c.drain(m..m + 2);
+            out.push(c);
+        }
+        let mut c = clean.to_vec();
+        c.push(0xFF);
+        out.push(c);
+        for _ in 0..2 {
+            let mut c = clean.to_vec();
+            let p = pos(rng);
+            let n = (1 + rng.below(3) as usize).min(c.len() - p);
+            c.drain(p..p + n);
+            out.push(c);
+        }
+        out
+    }
+
+    /// The variant name of a `Result`'s error, or `Ok`, for the outcome counts.
+    fn outcome<T>(r: &Result<T, Error>) -> String {
+        match r {
+            Ok(_) => "Ok".to_owned(),
+            Err(e) => format!("{e:?}")
+                .split([' ', '{', '('])
+                .next()
+                .unwrap_or("")
+                .to_owned(),
+        }
+    }
+
+    /// Drive the buffered `ScanReader` and the `ReferenceReader` over `data`
+    /// with the same calls (`decode_difference` per symbol, `restart` every
+    /// `ri` symbols), `steps` symbols in all, stopping at the first `Err`.
+    /// Asserts each `Ok` value equal, the first `Err` equal (variant and
+    /// fields, by `Debug`; `Error` has no `PartialEq`), and `byte_pos` equal
+    /// after every successful `restart`. Returns the outcome.
+    fn drive_both(table: &HuffTable, data: &[u8], ri: usize, steps: usize, what: &str) -> String {
+        let mut new = ScanReader::new(data);
+        let mut old = ReferenceReader::new(data);
+        for i in 0..steps {
+            if ri > 0 && i > 0 && i % ri == 0 {
+                let a = new.restart();
+                let b = old.restart();
+                assert_eq!(
+                    format!("{a:?}"),
+                    format!("{b:?}"),
+                    "{what}: restart before symbol {i}"
+                );
+                if a.is_err() {
+                    return outcome(&a);
+                }
+                assert_eq!(
+                    new.byte_pos, old.byte_pos,
+                    "{what}: byte_pos after the restart before symbol {i}"
+                );
+            }
+            let a = new.decode_difference(table);
+            let b = old.decode_difference(table);
+            assert_eq!(format!("{a:?}"), format!("{b:?}"), "{what}: symbol {i}");
+            if a.is_err() {
+                return outcome(&a);
+            }
+        }
+        "Ok".to_owned()
+    }
+
+    fn print_outcomes(
+        test: &str,
+        cases: usize,
+        counts: &std::collections::BTreeMap<String, usize>,
+    ) {
+        println!("{test}: {cases} cases");
+        for (k, v) in counts {
+            println!("  {k}: {v}");
+        }
+    }
+
+    /// AC2 (SPEC-070): on random canonical tables (codes up to 16 bits,
+    /// `SSSS` 0–16 and above) and random streams with restart intervals 0, 1,
+    /// 2, 3 and 7, clean and corrupted, the buffered reader returns every value
+    /// and the first error exactly as today's bit-at-a-time reader does, and
+    /// lands on the same `byte_pos` after every restart.
+    #[test]
+    fn buffered_reader_matches_the_bit_at_a_time_reader() {
+        let mut rng = Rng(0x5EC0_0700_DEC0_0065);
+        let mut counts = std::collections::BTreeMap::<String, usize>::new();
+        let mut cases = 0usize;
+        for t in 0..300 {
+            let (bits, huffval) = random_table(&mut rng);
+            let table = HuffTable::build(&bits, huffval.clone()).unwrap();
+            for ri in [0usize, 1, 2, 3, 7] {
+                let n = 1 + rng.below(24) as usize;
+                let junk = rng.chance(2);
+                let clean = encode_random_stream(&mut rng, &bits, &huffval, n, ri, junk);
+                // Half the streams are driven for exactly their symbols, half
+                // for three more, which reach the end-of-scan errors.
+                let steps = if rng.chance(2) { n } else { n + 3 };
+                let mut streams = vec![clean.clone()];
+                streams.extend(corruptions(&mut rng, &clean, 0));
+                for (s, data) in streams.iter().enumerate() {
+                    let what = format!(
+                        "table {t} ({bits:?}, {huffval:?}), ri {ri}, stream {s}: {data:02X?}"
+                    );
+                    let o = drive_both(&table, data, ri, steps, &what);
+                    *counts.entry(o).or_default() += 1;
+                    cases += 1;
+                }
+            }
+        }
+        print_outcomes(
+            "buffered_reader_matches_the_bit_at_a_time_reader",
+            cases,
+            &counts,
+        );
+        assert!(cases >= 20_000, "only {cases} cases");
+        for class in [
+            "Ok",
+            "Truncated",
+            "LjpegUnexpectedMarker",
+            "LjpegInvalidHuffmanTable",
+        ] {
+            assert!(
+                counts.get(class).copied().unwrap_or(0) > 0,
+                "outcome class {class} never reached: {counts:?}"
+            );
+        }
+    }
+
+    /// `decode_into`, but with the `ReferenceReader` in place of `ScanReader`:
+    /// a test-local copy of `decode_into` → `reconstruct` → the dense
+    /// `reconstruct_window` for a single-component frame, calling the same
+    /// production `check_dense_length`, `check_window`, `initial_prediction`,
+    /// `neighbour`, `predict` and `apply_point_transform`. Only the reader
+    /// differs, so a difference in the `Result` or in `out` is the reader's.
+    fn reference_reader_decode_into(data: &[u8], out: &mut [u16]) -> Result<Frame, Error> {
+        let (frame, tables, offset) = parse_headers(data)?;
+        let entropy = data
+            .get(offset..)
+            .ok_or(Error::Truncated { at: offset, len: 0 })?;
+        let mut reader = ReferenceReader::new(entropy);
+        assert_eq!(frame.components, 1, "the AC3 streams are single-component");
+        let table = tables
+            .first()
+            .ok_or(Error::LjpegMissingMarker { marker: MARKER_DHT })?;
+        let width = usize::from(frame.samples_per_line);
+        let height = usize::from(frame.lines);
+        check_dense_length(width, height, out.len())?;
+        let win = Window::dense(width, height);
+        check_window(&win, width, height, out.len())?;
+        if width == 0 || height == 0 {
+            return Ok(frame);
+        }
+        let initial = initial_prediction(&frame);
+        let ri = usize::from(frame.restart_interval);
+        let mut count = 0usize;
+        for r in 0..height {
+            for c in 0..width {
+                if ri > 0 && count == ri {
+                    reader.restart()?;
+                    count = 0;
+                }
+                let diff = reader.decode_difference(table)?;
+                let idx = r * width + c;
+                let px = if count == 0 {
+                    initial
+                } else if r == 0 {
+                    neighbour(out, idx, 1)
+                } else if c == 0 {
+                    neighbour(out, idx, width)
+                } else {
+                    let ra = neighbour(out, idx, 1);
+                    let rb = neighbour(out, idx, width);
+                    let rc = neighbour(out, idx, width + 1);
+                    predict(frame.predictor, ra, rb, rc)
+                };
+                out[idx] = u16::try_from(px.wrapping_add(diff) & 0xFFFF).unwrap();
+                count += 1;
+            }
+        }
+        apply_point_transform(out, &win, frame.point_transform);
+        Ok(frame)
+    }
+
+    /// AC3 (SPEC-070): `encode_lj92` streams over restart intervals 0, 1, 2, 3,
+    /// 5, 7 and 16, precisions 2, 8, 12, 14 and 16, predictors 1–7, point
+    /// transforms 0–2 and sizes from 1×1 up. The clean stream round-trips to
+    /// its samples, and every corrupted copy (corrupted after the headers)
+    /// gives the same `Result` and the same `out` contents as the same decode
+    /// through the `ReferenceReader`.
+    #[test]
+    fn decode_into_is_unchanged_on_lj92_streams_with_restarts() {
+        let mut rng = Rng(0xDEC0_0065_5EC0_0070);
+        let mut counts = std::collections::BTreeMap::<String, usize>::new();
+        let mut cases = 0usize;
+        for ri in [0usize, 1, 2, 3, 5, 7, 16] {
+            for precision in [2u8, 8, 12, 14, 16] {
+                for predictor in 1u8..=7 {
+                    for pt in 0u8..=2 {
+                        if pt >= precision {
+                            continue;
+                        }
+                        let cols = 1 + rng.below(9) as usize;
+                        let rows = 1 + rng.below(7) as usize;
+                        let range = 1u64 << (precision - pt);
+                        let samples: Vec<u16> = (0..cols * rows)
+                            .map(|_| (rng.below(range) as u16) << pt)
+                            .collect();
+                        let clean = encode_lj92(&samples, cols, rows, precision, predictor, pt, ri);
+                        let mut out = vec![0u16; cols * rows];
+                        decode_into(&clean, &mut out).unwrap();
+                        assert_eq!(
+                            out, samples,
+                            "round trip: ri {ri}, P {precision}, Ss {predictor}, Pt {pt}"
+                        );
+                        let (_, _, offset) = parse_headers(&clean).unwrap();
+                        for (s, data) in corruptions(&mut rng, &clean, offset).iter().enumerate() {
+                            let mut a_out = vec![0xA5A5u16; cols * rows];
+                            let mut b_out = a_out.clone();
+                            let a = decode_into(data, &mut a_out);
+                            let b = reference_reader_decode_into(data, &mut b_out);
+                            let what = format!(
+                                "ri {ri}, P {precision}, Ss {predictor}, Pt {pt}, \
+                                 {cols}x{rows}, corruption {s}: {data:02X?}"
+                            );
+                            assert_eq!(format!("{a:?}"), format!("{b:?}"), "{what}");
+                            assert_eq!(a_out, b_out, "{what}: out");
+                            *counts.entry(outcome(&a)).or_default() += 1;
+                            cases += 1;
+                        }
+                    }
+                }
+            }
+        }
+        print_outcomes(
+            "decode_into_is_unchanged_on_lj92_streams_with_restarts",
+            cases,
+            &counts,
+        );
+        for class in ["Ok", "Truncated", "LjpegUnexpectedMarker"] {
+            assert!(
+                counts.get(class).copied().unwrap_or(0) > 0,
+                "outcome class {class} never reached: {counts:?}"
             );
         }
     }
