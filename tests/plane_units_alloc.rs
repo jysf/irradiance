@@ -4,7 +4,8 @@
 //! Its own test binary on purpose: the counting `#[global_allocator]` below
 //! sees every allocation in this process (the `tests/previews_alloc.rs`
 //! pattern). Fixtures are built and parsed BEFORE counting starts; only the
-//! unit calls are counted, on the test thread.
+//! unit calls are counted, on the test thread, with a per-thread tally so
+//! the file's parallel tests cannot count each other's allocations.
 //!
 //! One pre-existing allocation is outside this spec: the Compression-7 header
 //! parse (`ljpeg::parse_headers`) collects its Huffman tables into a small
@@ -24,7 +25,6 @@ mod tiff;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::num::NonZeroU32;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use corpus::{CorpusRoot, Manifest};
 use dng_writer::{write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload};
@@ -34,43 +34,44 @@ use tiff::Order;
 
 struct Counting;
 
-// Thread-local, so only allocations made BY THE TEST THREAD between the two
-// switches count. A `const` thread-local needs no lazy initialisation, so
-// reading it never allocates.
+// Both the switch and the tally are thread-local, so only allocations made BY
+// THE TEST THREAD between the two switches count. The tally was once a global
+// atomic, and the file's tests run in parallel: another test counting at the
+// same moment added its allocations to this test's difference, so the Q2M
+// check (which expects 0) failed whenever its window overlapped a
+// Compression-7 check (about 10 header-parse allocations). irradiance spawns
+// no threads, so every allocation a decode makes is on the calling thread.
+// `const` thread-locals need no lazy initialisation, so touching them inside
+// the allocator never allocates (the `tests/develop_scratch_alloc.rs` pattern).
 thread_local! {
     static COUNTING: Cell<bool> = const { Cell::new(false) };
+    static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
 }
 
-fn counting() -> bool {
-    COUNTING.try_with(Cell::get).unwrap_or(false)
+fn record() {
+    if COUNTING.try_with(Cell::get).unwrap_or(false) {
+        let _ = ALLOCATIONS.try_with(|c| c.set(c.get() + 1));
+    }
 }
 
 fn set_counting(on: bool) {
     COUNTING.with(|c| c.set(on));
 }
 
-static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
-
 // The library's `forbid(unsafe_code)` binds the library crate, not this test
 // crate. `GlobalAlloc` is an unsafe trait; every method forwards to `System`
 // unchanged, which upholds its contract exactly as `System` does.
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if counting() {
-            ALLOCATIONS.fetch_add(1, Ordering::SeqCst);
-        }
+        record();
         unsafe { System.alloc(layout) }
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        if counting() {
-            ALLOCATIONS.fetch_add(1, Ordering::SeqCst);
-        }
+        record();
         unsafe { System.alloc_zeroed(layout) }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if counting() {
-            ALLOCATIONS.fetch_add(1, Ordering::SeqCst);
-        }
+        record();
         unsafe { System.realloc(ptr, layout, new_size) }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
@@ -83,11 +84,11 @@ static GLOBAL: Counting = Counting;
 
 /// Allocations made by `f` on this thread.
 fn count<R>(f: impl FnOnce() -> R) -> (usize, R) {
-    let before = ALLOCATIONS.load(Ordering::SeqCst);
+    ALLOCATIONS.with(|c| c.set(0));
     set_counting(true);
     let r = f();
     set_counting(false);
-    (ALLOCATIONS.load(Ordering::SeqCst) - before, r)
+    (ALLOCATIONS.with(Cell::get), r)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
