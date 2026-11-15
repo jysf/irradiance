@@ -32,7 +32,12 @@
 //!   destuffing and marker detection (Annex B), `DECODE`s a Huffman symbol
 //!   (Figure F.16), and `RECEIVE`+`EXTEND`s it to a signed difference
 //!   (Figure F.17 / §F.2.2.1). [`ScanReader::restart`] byte-aligns and consumes
-//!   an `RSTm` marker (`SPEC-037` calls it per restart interval).
+//!   an `RSTm` marker (`SPEC-037` calls it per restart interval). It buffers
+//!   up to 8 whole data bytes and decodes most codes through an 11-bit
+//!   lookahead table built with the [`HuffTable`] (`SPEC-070`, `DEC-065`); the
+//!   Annex F bit-at-a-time `DECODE` remains the path for long codes, the scan
+//!   end and every error, so values and errors are those of the plain
+//!   bit-at-a-time reader.
 //!
 //! # Panic policy
 //!
@@ -113,8 +118,8 @@ const MARKER_COM: u8 = 0xFE;
 const SAMPLING_H1_V1: u8 = 0x11;
 
 /// `2^n` for `n` in `0..=16`, without the shift/`pow` operators the crate root
-/// denies (`clippy::arithmetic_side_effects`). The bit reader needs `n <= 7`
-/// (a byte holds at most 8 unconsumed bits), `EXTEND` needs `n <= 15`, and the
+/// denies (`clippy::arithmetic_side_effects`). `EXTEND` and the lookahead
+/// table's extra-bits mask need `n <= 15`, and the
 /// Huffman over-subscription check needs `n <= 16`; the catch-all is never
 /// reached and returns `0` so the function has no panicking path at all
 /// (mirrors `plane::pow2`'s total-function shape).
@@ -244,6 +249,128 @@ pub(crate) struct HuffTable {
     valptr: [usize; 16],
     /// The symbol values in canonical order (the `HUFFVAL` list).
     huffval: Vec<u8>,
+    /// The 11-bit lookahead for codes of up to [`LUT_BITS`] bits (`DEC-065`
+    /// §2): indexed by the next [`LUT_BITS`] bits of the scan, an entry is the
+    /// code length in its high byte and the symbol (`SSSS`) in its low byte,
+    /// replicated over every index that starts with that code. `0` is "no
+    /// code of up to [`LUT_BITS`] bits starts these bits".
+    lookup: [u16; LUT_SIZE],
+    /// The same lookahead with the extra bits folded in, for every code
+    /// whose length plus extra bits fits in [`LUT_BITS`]: the total bits to
+    /// consume in the high half and the final signed difference in the low 16
+    /// bits, as [`fast_entry`] packs it. `0` is "no entry".
+    fast: [u32; LUT_SIZE],
+}
+
+/// The width of the Huffman lookahead (`DEC-065` §2). The probe measured 11
+/// and 12 bits within 2% of each other and 10, 13 and 14 slower; 11 keeps the
+/// two tables at 12 KiB.
+const LUT_BITS: u32 = 11;
+
+/// Entries in each lookahead table, `2^LUT_BITS`.
+const LUT_SIZE: usize = match 1usize.checked_shl(LUT_BITS) {
+    Some(n) => n,
+    None => 0,
+};
+
+/// The low [`LUT_BITS`] bits set: a lookahead index from the bit buffer.
+const LUT_MASK: u64 = match 1u64.checked_shl(LUT_BITS) {
+    Some(n) => n.wrapping_sub(1),
+    None => 0,
+};
+
+/// The offset that maps a difference (`-32767..=32768`; `-32768` cannot be
+/// decoded) onto `0..=65535`, the low 16 bits of a [`HuffTable::fast`] entry.
+const FAST_DIFF_BIAS: i32 = 32767;
+
+/// Pack a [`HuffTable::fast`] entry: `total` (`1..=LUT_BITS`, so never `0`)
+/// in the high half, `diff + FAST_DIFF_BIAS` in the low 16 bits.
+fn fast_entry(total: u32, diff: i32) -> u32 {
+    let biased = u32::try_from(diff.wrapping_add(FAST_DIFF_BIAS)).unwrap_or(0);
+    total.checked_shl(16).unwrap_or(0) | (biased & 0xFFFF)
+}
+
+/// The difference a [`fast_entry`] holds.
+fn fast_diff(entry: u32) -> i32 {
+    i32::try_from(entry & 0xFFFF)
+        .unwrap_or(0)
+        .wrapping_sub(FAST_DIFF_BIAS)
+}
+
+/// Build [`HuffTable::lookup`] and [`HuffTable::fast`] from the
+/// `MINCODE`/`MAXCODE`/`VALPTR`/`HUFFVAL` form (`DEC-065` §2).
+///
+/// A code of length `l <= LUT_BITS` fills the `2^(LUT_BITS − l)` indices that
+/// start with it. That entry is exactly what [`ScanReader::decode_symbol`]
+/// finds for those bits: canonical codes are prefix-free, so the code is the
+/// only one that starts the index, and its length is the first at which the
+/// bit-at-a-time search matches. An index no short code starts stays `0`.
+fn build_lookahead(
+    mincode: &[i32; 16],
+    maxcode: &[i32; 16],
+    valptr: &[usize; 16],
+    huffval: &[u8],
+) -> ([u16; LUT_SIZE], [u32; LUT_SIZE]) {
+    let mut lookup = [0u16; LUT_SIZE];
+    for l in 1..=LUT_BITS {
+        let i = usize::try_from(l.wrapping_sub(1)).unwrap_or(usize::MAX);
+        let (Some(&minc), Some(&maxc), Some(&vp)) = (mincode.get(i), maxcode.get(i), valptr.get(i))
+        else {
+            continue;
+        };
+        let shift = LUT_BITS.wrapping_sub(l);
+        let span = 1usize.checked_shl(shift).unwrap_or(0);
+        // `l` is at most 11, so the high byte holds it.
+        let high = u16::try_from(l).unwrap_or(0).checked_shl(8).unwrap_or(0);
+        // `maxc < 0` marks an empty length, and the range is then empty.
+        for code in minc..=maxc {
+            let symbol = usize::try_from(code.wrapping_sub(minc))
+                .ok()
+                .and_then(|offset| vp.checked_add(offset))
+                .and_then(|h| huffval.get(h));
+            let start = usize::try_from(code)
+                .ok()
+                .and_then(|c| c.checked_shl(shift));
+            // `build` checked `sum(BITS) == HUFFVAL.len()` and that every code
+            // fits its length, so both are present; a missing one leaves the
+            // entries empty and the slow path reports the table.
+            if let (Some(&symbol), Some(start)) = (symbol, start) {
+                if let Some(slots) = lookup.get_mut(start..start.saturating_add(span)) {
+                    slots.fill(high | u16::from(symbol));
+                }
+            }
+        }
+    }
+
+    let mut fast = [0u32; LUT_SIZE];
+    for (idx, (slot, &entry)) in fast.iter_mut().zip(lookup.iter()).enumerate() {
+        if entry == 0 {
+            continue;
+        }
+        let len = u32::from(entry.checked_shr(8).unwrap_or(0));
+        let ssss = u32::from(entry & 0xFF);
+        let (extra, diff) = match ssss {
+            0 => (0, 0),
+            16 => (0, 32768),
+            1..=15 => {
+                let total = len.saturating_add(ssss);
+                let index = u32::try_from(idx).unwrap_or(0);
+                // The `ssss` bits right after the code, from the index.
+                let v = index
+                    .checked_shr(LUT_BITS.saturating_sub(total))
+                    .unwrap_or(0)
+                    & pow2(ssss).wrapping_sub(1);
+                (ssss, extend(v, ssss))
+            }
+            // Above 16 is the slow path's `LjpegInvalidHuffmanTable`.
+            _ => continue,
+        };
+        let total = len.saturating_add(extra);
+        if total <= LUT_BITS {
+            *slot = fast_entry(total, diff);
+        }
+    }
+    (lookup, fast)
 }
 
 impl HuffTable {
@@ -309,11 +436,14 @@ impl HuffTable {
             code = code.checked_mul(2).ok_or(Error::LjpegInvalidHuffmanTable)?;
         }
 
+        let (lookup, fast) = build_lookahead(&mincode, &maxcode, &valptr, &huffval);
         Ok(HuffTable {
             mincode,
             maxcode,
             valptr,
             huffval,
+            lookup,
+            fast,
         })
     }
 }
@@ -650,17 +780,34 @@ fn parse_scan_header(data: &[u8], pos: &mut usize) -> Result<(u8, u8, Vec<u8>), 
 /// marker detection, Huffman `DECODE`, and `RECEIVE`+`EXTEND` to a signed
 /// difference.
 ///
-/// Mirrors `plane::BitReader` (checked arithmetic, `pow2`, [`Error::Truncated`]
-/// on EOF) and adds JPEG byte-stuffing: `0xFF 0x00` is a literal `0xFF` data
+/// Mirrors `plane::BitReader` (checked arithmetic, [`Error::Truncated`] on
+/// EOF) and adds JPEG byte-stuffing: `0xFF 0x00` is a literal `0xFF` data
 /// byte, and any other `0xFF xx` is a marker that ends the entropy segment.
+///
+/// **Buffered** (`SPEC-070`, `DEC-065` §1): [`ScanReader::fill`] keeps up to 8
+/// whole destuffed data bytes in a `u64` and **stops silently** at a marker,
+/// a final lone `0xFF` or EOF. It never fails: an error happens only when a
+/// bit is needed and none is buffered, and [`ScanReader::read_bit`] then
+/// returns [`ScanReader::fetch_byte`]'s error at that `byte_pos`, which is the
+/// point, position and error of a bit-at-a-time reader. Huffman codes decode
+/// through the 11-bit [`HuffTable`] lookahead when every bit they need is
+/// buffered, and otherwise through the bit-at-a-time path, having consumed
+/// nothing.
 pub(crate) struct ScanReader<'a> {
     data: &'a [u8],
-    /// Next byte to fetch from `data`.
+    /// The next source byte to fetch from `data`: just past the last byte
+    /// buffered. After a [`ScanReader::restart`] it is the next source byte a
+    /// bit-at-a-time reader would fetch.
     byte_pos: usize,
-    /// The current data byte (post-destuffing) being consumed.
-    bit_buffer: u32,
-    /// Bits still unconsumed in `bit_buffer`, from the MSB side (`0..=8`).
-    bits_left: u32,
+    /// Buffered data bits; the next one is bit `nbits − 1`. Bits above
+    /// `nbits` are already consumed and are masked off on every read.
+    acc: u64,
+    /// The count of valid bits in `acc` (`0..=64`).
+    nbits: u32,
+    /// One flag per buffered byte, the most recent in bit 0: set if that data
+    /// byte came from a stuffed `0xFF 0x00` pair (2 source bytes), so
+    /// `restart` can give back the right number of source bytes.
+    stuffed: u64,
     /// The `m` of the next expected `RSTm` marker (`0..=7`, cycling).
     expected_rst: u8,
 }
@@ -672,10 +819,94 @@ impl<'a> ScanReader<'a> {
         ScanReader {
             data: entropy,
             byte_pos: 0,
-            bit_buffer: 0,
-            bits_left: 0,
+            acc: 0,
+            nbits: 0,
+            stuffed: 0,
             expected_rst: 0,
         }
+    }
+
+    /// Buffer whole data bytes while 8 more bits fit (`nbits <= 56`), each
+    /// MSB-first below the bits already held. A byte other than `0xFF` is one
+    /// source byte; `0xFF 0x00` is a stuffed `0xFF` data byte from two. The
+    /// fill **stops silently**, leaving `byte_pos` on it, at EOF, at `0xFF`
+    /// followed by anything but `0x00` (a marker), and at a final lone `0xFF`:
+    /// exactly where [`ScanReader::fetch_byte`] would fail. So the buffer only
+    /// ever holds bytes `fetch_byte` would have returned.
+    #[inline]
+    fn fill(&mut self) {
+        // Eight source bytes with no `0xFF` among them are eight data bytes:
+        // take the whole bytes that fit at once. This stops exactly where the
+        // byte loop below would, with every stuffed flag clear.
+        let word = self
+            .data
+            .get(self.byte_pos..self.byte_pos.saturating_add(8))
+            .and_then(|chunk| <[u8; 8]>::try_from(chunk).ok())
+            .map(u64::from_be_bytes);
+        if let Some(word) = word {
+            // A zero byte of `!word` is an `0xFF` of `word` (the exact
+            // "has a zero byte" test: no false positives or negatives).
+            let inverted = !word;
+            let has_ff =
+                inverted.wrapping_sub(0x0101_0101_0101_0101) & !inverted & 0x8080_8080_8080_8080;
+            if has_ff == 0 {
+                let whole = 64u32.saturating_sub(self.nbits).checked_div(8).unwrap_or(0);
+                let bits = whole.saturating_mul(8);
+                self.acc = self.acc.checked_shl(bits).unwrap_or(0)
+                    | word.checked_shr(64u32.saturating_sub(bits)).unwrap_or(0);
+                self.nbits = self.nbits.saturating_add(bits);
+                self.stuffed = self.stuffed.checked_shl(whole).unwrap_or(0);
+                self.byte_pos = self
+                    .byte_pos
+                    .saturating_add(usize::try_from(whole).unwrap_or(0));
+                return;
+            }
+        }
+        while self.nbits <= 56 {
+            let Some(&b) = self.data.get(self.byte_pos) else {
+                break;
+            };
+            let stuffed = if b == 0xFF {
+                if self.data.get(self.byte_pos.saturating_add(1)) == Some(&0x00) {
+                    true
+                } else {
+                    break;
+                }
+            } else {
+                false
+            };
+            let size: usize = if stuffed { 2 } else { 1 };
+            let Some(next) = self.byte_pos.checked_add(size) else {
+                break;
+            };
+            self.acc = self.acc.checked_shl(8).unwrap_or(0) | u64::from(b);
+            self.nbits = self.nbits.saturating_add(8);
+            self.stuffed = self.stuffed.checked_shl(1).unwrap_or(0) | u64::from(stuffed);
+            self.byte_pos = next;
+        }
+    }
+
+    /// Consume and return the next `n` buffered bits, MSB-first. The caller
+    /// guarantees `1 <= n <= 32` and `n <= nbits`.
+    #[inline]
+    fn take(&mut self, n: u32) -> u32 {
+        let rest = self.nbits.wrapping_sub(n);
+        let mask = 1u64.checked_shl(n).unwrap_or(0).wrapping_sub(1);
+        let v = self.acc.checked_shr(rest).unwrap_or(0) & mask;
+        self.nbits = rest;
+        u32::try_from(v).unwrap_or(0)
+    }
+
+    /// The next [`LUT_BITS`] bits as a lookahead index, zero-padded on the
+    /// right when fewer are buffered. Consumes nothing.
+    #[inline]
+    fn peek_index(&self) -> usize {
+        let bits = if self.nbits >= LUT_BITS {
+            self.acc.checked_shr(self.nbits.wrapping_sub(LUT_BITS))
+        } else {
+            self.acc.checked_shl(LUT_BITS.wrapping_sub(self.nbits))
+        };
+        usize::try_from(bits.unwrap_or(0) & LUT_MASK).unwrap_or(0)
     }
 
     /// Fetch the next entropy **data** byte, applying `0xFF 0x00` destuffing.
@@ -720,24 +951,28 @@ impl<'a> ScanReader<'a> {
     }
 
     /// Read one bit, MSB-first.
+    ///
+    /// # Errors
+    ///
+    /// When no bit is buffered and none can be, [`ScanReader::fetch_byte`]'s
+    /// error at `byte_pos`: [`Error::LjpegUnexpectedMarker`] or
+    /// [`Error::Truncated`], as a bit-at-a-time reader would fail there.
     fn read_bit(&mut self) -> Result<u32, Error> {
-        if self.bits_left == 0 {
-            self.bit_buffer = u32::from(self.fetch_byte()?);
-            self.bits_left = 8;
+        if self.nbits == 0 {
+            self.fill();
+            if self.nbits == 0 {
+                // `fill` stops only where `fetch_byte` fails, so this returns
+                // today's error.
+                self.fetch_byte()?;
+                // Unreachable: had `fetch_byte` succeeded, `fill` would have
+                // buffered that byte. Kept so the path stays total.
+                return Err(Error::Truncated {
+                    at: self.byte_pos,
+                    len: 1,
+                });
+            }
         }
-        // The next unconsumed bit is bit `bits_left - 1` (MSB-first).
-        let shift = self.bits_left.checked_sub(1).ok_or(Error::Truncated {
-            at: self.byte_pos,
-            len: 1,
-        })?;
-        let bit = self
-            .bit_buffer
-            .checked_div(pow2(shift))
-            .unwrap_or(0)
-            .checked_rem(2)
-            .unwrap_or(0);
-        self.bits_left = shift;
-        Ok(bit)
+        Ok(self.take(1))
     }
 
     /// `RECEIVE(count)` (ITU-T T.81 Figure F.17): read `count` bits MSB-first
@@ -846,7 +1081,72 @@ impl<'a> ScanReader<'a> {
     ///
     /// A typed [`Error`] on any malformed table, code, or truncated scan; never
     /// a panic.
+    ///
+    /// The difference comes from the 11-bit lookahead when every bit it needs
+    /// is buffered ([`ScanReader::decode_buffered`]); otherwise from the
+    /// bit-at-a-time path, which then starts from the same bit as it would
+    /// have without the lookahead, so its value or error is unchanged.
+    #[inline(always)]
     pub(crate) fn decode_difference(&mut self, table: &HuffTable) -> Result<i32, Error> {
+        match self.decode_buffered(table) {
+            Some(diff) => Ok(diff),
+            None => self.decode_bit_at_a_time(table),
+        }
+    }
+
+    /// The lookahead decode (`DEC-065` §2): `Some(difference)` with the code
+    /// and its extra bits consumed, or `None` **having consumed nothing**.
+    /// Every entry it accepts is determined by real buffered bits only: the
+    /// guards keep a zero-padded peek from being trusted.
+    ///
+    /// 1. Top up the buffer when it holds fewer than 32 bits.
+    /// 2. A `fast` entry whose total is buffered: the code and its extra bits.
+    /// 3. A `lookup` entry whose code is buffered: `SSSS` 0 and 16 have no
+    ///    extra bits; `SSSS` 1–15 needs its extra bits buffered too.
+    /// 4. Anything else (a code longer than 11 bits, no code, `SSSS` above
+    ///    16, or bits not yet buffered at the scan end) is `None`.
+    #[inline(always)]
+    fn decode_buffered(&mut self, table: &HuffTable) -> Option<i32> {
+        if self.nbits < 32 {
+            self.fill();
+        }
+        let idx = self.peek_index();
+        let fast = table.fast.get(idx).copied()?;
+        let total = fast.checked_shr(16).unwrap_or(0);
+        if total != 0 && total <= self.nbits {
+            self.nbits = self.nbits.wrapping_sub(total);
+            return Some(fast_diff(fast));
+        }
+        let entry = table.lookup.get(idx).copied()?;
+        let len = u32::from(entry.checked_shr(8).unwrap_or(0));
+        if entry == 0 || len > self.nbits {
+            return None;
+        }
+        let after = self.nbits.wrapping_sub(len);
+        let ssss = u32::from(entry & 0xFF);
+        match ssss {
+            0 => {
+                self.nbits = after;
+                Some(0)
+            }
+            16 => {
+                self.nbits = after;
+                Some(32768)
+            }
+            1..=15 if ssss <= after => {
+                self.nbits = after;
+                let v = self.take(ssss);
+                Some(extend(v, ssss))
+            }
+            _ => None,
+        }
+    }
+
+    /// The bit-at-a-time decode: `DECODE` then `RECEIVE`+`EXTEND`, unchanged
+    /// from before the lookahead. Rare on real scans, so kept out of line.
+    #[cold]
+    #[inline(never)]
+    fn decode_bit_at_a_time(&mut self, table: &HuffTable) -> Result<i32, Error> {
         let ssss = self.decode_symbol(table)?;
         self.receive_and_extend(u32::from(ssss))
     }
@@ -860,8 +1160,20 @@ impl<'a> ScanReader<'a> {
     /// [`Error::LjpegUnexpectedMarker`] if the marker is absent or is not the
     /// next `RSTm` in the `D0..D7` cycle; [`Error::Truncated`] at EOF.
     pub(crate) fn restart(&mut self) -> Result<(), Error> {
-        // Byte-align: discard any unconsumed bits of the current byte.
-        self.bits_left = 0;
+        // Byte-align. The buffer holds the rest of the current byte
+        // (`nbits mod 8` bits), which is discarded, and `nbits / 8` whole bytes
+        // a bit-at-a-time reader would not have fetched yet. Give those back:
+        // move `byte_pos` over each, the most recent first, by its source size
+        // (2 for a stuffed `0xFF 0x00`).
+        let whole = self.nbits.checked_div(8).unwrap_or(0);
+        for i in 0..whole {
+            let was_stuffed = self.stuffed.checked_shr(i).unwrap_or(0) & 1 == 1;
+            let size: usize = if was_stuffed { 2 } else { 1 };
+            self.byte_pos = self.byte_pos.saturating_sub(size);
+        }
+        self.acc = 0;
+        self.nbits = 0;
+        self.stuffed = 0;
 
         let mut p = self.byte_pos;
         if !matches!(self.data.get(p), Some(&0xFF)) {
@@ -4162,7 +4474,7 @@ mod tests {
         match r {
             Ok(_) => "Ok".to_owned(),
             Err(e) => format!("{e:?}")
-                .split(|ch: char| ch == ' ' || ch == '{' || ch == '(')
+                .split([' ', '{', '('])
                 .next()
                 .unwrap_or("")
                 .to_owned(),
