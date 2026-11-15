@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-020                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-13
-shipped_at: null
+shipped_at: 2026-11-14
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -50,7 +50,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 65677483
+      estimated_usd: 48.00
+      recorded_at: 2026-11-14
+      notes: "Stage orchestration, measured from the orchestrator transcript (session 2b783e6b, claude-opus-5-5) from the user's 'Frame parallel unpack' message at 2026-11-14T04:19Z through this stage close: 266 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus list rates (input 616 + cache-creation 985,460 (1-hour) + cache-read 64,454,916 + output 236,491); no subagents. Covers framing STAGE-020, three design probes and DEC-063..065, six build/verify dispatches and reconciliations, three ships, the plane_units_alloc race fix (PR 243) and this close. Dominated by cache reads (98%). A FLOOR: the final messages after the measurement are not in it."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -143,13 +148,13 @@ depend on it.
 - [x] SPEC-068 (shipped on 2026-11-14) [M] — Plane units (DEC-063): every unit a full-width row band (bands inside uncompressed strips with whole-byte rows, else the whole strip; one tile row per unit for tiled planes; a whole Compression 7 strip), so a caller splits dst with split_at_mut and needs no unsafe; plane::units(sensor, file, max_band_rows) + unpack_unit_into; unpack_into iterates the same units through one kernel. Restart-interval units deferred (no held file has any).
 - [x] SPEC-069 (shipped on 2026-11-14) [S] — Faster single-threaded packed-bits unpack, profile-gated: the Q2M 14-bit unpack takes 238 ms for 47 MP; profile first, and if the per-sample bit loop dominates, add a byte-group fast path for 12/14-bit whole-byte rows; byte-identical on every held file and tier-A width; before/after from a committed release timing example. Depends on the units spec. **Shipped (DEC-064, PR 238 as 33f5deb):** whole byte groups (7 bytes to 4 samples for 14-bit, 3 to 2 for 12-bit) with the unchanged BitReader reading the tail; Q2M single-thread `unpack_into` 239.0 -> 9.7 ms (verify 233.4 -> 9.9), 8 units on 8 threads 31.2 -> 1.4 ms, byte-identical; true cost 17.9M / $13.50 against 20M.
 - [x] SPEC-070 (shipped on 2026-11-14) [M] — Faster single-stream Compression 7 decode, profile-gated: K-3 III Mono 704 ms and Typ 246 601 ms, both single scans with no restart markers, so units cannot split them; profile src/ljpeg.rs (Huffman decode, prediction), change only what the profile names; bit-exact against dnglab (SPEC-044's oracle) and every lossless-JPEG test; before/after timed. **Shipped (DEC-065, PR 241 as d27c50e):** a u64-buffered ScanReader whose fill stops silently at markers, 11-bit lookup and fast Huffman tables, and today's bit-at-a-time path as the cold fallback; K-3 III 692 -> 103 ms (verify 710 -> 105), Typ 246 591 -> 91 ms (verify 605 -> 90), Pixel 4a 324 -> 61 ms; samples and errors identical (verify corpus differential: 3,552 mutated units, 0 differences); true cost 31.6M / $22.25 against 30M.
-- [ ] (unframed) [XS] **PRIORITY** — SPEC-070 follow-up, promoted at ship: `tests/plane_units_alloc.rs` counts allocations on one global `AtomicUsize` while its tests run in parallel, so `q2m_units_allocate_nothing` can fail when `counter_counts` allocates inside its window (seen once in the design probe; the SPEC-070 verify saw it fail 4 of 4 parallel local runs with the corpus at the build head, against 0 of 3 at 8da45d7, while passing alone and serially; CI has no corpus, so only local `just test` goes red). Count per thread, or serialise the file's tests.
+- [~] (fix in PR 243) [XS] **PRIORITY** — SPEC-070 follow-up, promoted at ship: `tests/plane_units_alloc.rs` counts allocations on one global `AtomicUsize` while its tests run in parallel, so `q2m_units_allocate_nothing` can fail when `counter_counts` allocates inside its window (seen once in the design probe; the SPEC-070 verify saw it fail 4 of 4 parallel local runs with the corpus at the build head, against 0 of 3 at 8da45d7, while passing alone and serially; CI has no corpus, so only local `just test` goes red). Count per thread, or serialise the file's tests. **Fixed in PR 243** (per-thread tally, the `tests/develop_scratch_alloc.rs` pattern); its corpus-gated local run is pending a free machine.
 - [ ] (unframed) [XS] — SPEC-068 verify follow-up: pin the absolute Compression 7 allocation count per strip or tile in `tests/plane_units_alloc.rs` (about 10 from the `ljpeg` header parses), so a new allocation in the shared kernel is caught by the count, not only by the old-equals-new comparison and the source scan.
 - [ ] (unframed) [XS] — SPEC-069 follow-up: the `inject_chunk_extraction_fault` assert message in `tests/plane_oracle.rs` still describes the old BitReader needle; reword it to name the group kernel.
 - [ ] (unframed) [XS] — SPEC-070 follow-up: add a `just fuzz-ljpeg` recipe that creates `fuzz/corpus/ljpeg` first; the target's header command fails on a fresh checkout because that gitignored dir does not exist.
 - [ ] (unframed) [XS] — SPEC-069 follow-up: AGENTS.md section 6 lists no timing examples; add `just orient-timing` and `just unpack-timing` (release, corpus-gated, no CI gate).
 
-**Count:** 3 shipped / 4 active / 0 pending
+**Count:** 3 shipped / 0 active / 0 pending (all three specs shipped; the race fix is PR 243; the other four [XS] lines are carried to the PROJ-004 brief. SPEC-068 39.44M tok / $28.11; SPEC-069 17.87M / $13.50; SPEC-070 31.65M / $22.25)
 
 ## Design Notes
 
@@ -207,21 +212,78 @@ median of 5, a throwaway example not committed):**
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
+*Filled at stage close, 2026-11-14.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes, with two documented
+  narrowings.
+  - **Plane units** (SPEC-068, DEC-063): `plane::units` and `plane::unpack_unit_into`.
+    Every unit is a full-width row band, so a caller splits `dst` with `split_at_mut` in
+    safe Rust and assembles byte-identically in any order. On the Q2M, 8 units on 8
+    threads took 31 ms against 242 ms on one.
+  - **Packed 12/14-bit unpack** (SPEC-069, DEC-064): whole byte groups with the
+    unchanged `BitReader` for the tail. The Q2M single-thread unpack went from 239 ms to
+    9.7 ms, and 8 units from 31 ms to 1.4 ms.
+  - **Compression 7 decode** (SPEC-070, DEC-065): a buffered scan reader plus 11-bit
+    Huffman lookahead tables, with today's bit-at-a-time path as the cold fallback. The
+    K-3 III went from 692 to 103 ms, the Typ 246 from 591 to 91 ms, and the tiled Pixel 4a
+    from 324 to 61 ms. Samples and errors are identical.
+
+  **The narrowings.**
+  - The framing asked for "a rectangle of the plane plus the bytes it reads". A unit
+    became a full-width row band with a private source, because a sub-rectangle cannot be
+    handed to a thread safely and a tile-row unit reads several byte ranges (DEC-063).
+  - Compression 7 restart-interval units were framed but not built. No held file, and
+    neither of the requester's Compression 7 cameras, has a restart interval (DEC-063 §4).
+
+  **Every success criterion holds.** Every plane oracle (dnglab, layer-0, tier A) stayed
+  green unedited, apart from SPEC-069's one permitted injector retarget. irradiance
+  spawns no threads, and there is no new dependency.
+- **How many specs did it actually take?** Three, as planned.
+  - Sizes: M, S, M, all as estimated.
+  - Total spec cost: 88.96M tokens / $63.86 (SPEC-068 39.44M, SPEC-069 17.87M,
+    SPEC-070 31.65M).
+  - Orchestration: 65.68M / $48.00 (floor).
+- **How many outlines survived unchanged?** 2 of 3 (SPEC-069 and SPEC-070, both
+  profile-gated as framed). SPEC-068 changed at design: row bands instead of
+  rectangles, and no restart-interval units.
+- **What changed between starting and shipping?** The two "if the profile shows it"
+  speed-ups both turned out to be most of the stage's value. Each profile put about 90%
+  or more of the time in one bit-at-a-time loop, and the single-threaded decode is now
+  5–25× faster, so many callers need no units at all.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - **None codified.** No lesson reached its bar this stage.
+  - **Practice that worked three times:** a performance spec states an absolute target
+    on a fixed baseline commit, times it with a committed release example (no CI gate),
+    and makes byte identity, and for SPEC-070 error identity, the hard criterion. Each
+    verify reproduced the timing within a few percent.
+  - **Practice that worked:** for a kernel rewrite, the oracle is a verbatim test-local
+    copy of the old code, driven on synthetic inputs the corpus never produces (SPEC-069
+    AC3, SPEC-070 AC2/AC3). It proves "no change", which is the claim.
+- **Signals dispositioned at this close?** Every `disposition_at: stage-close` signal in
+  `watch` was walked.
+  - **Decided:** `slow-tier-b-tests-in-debug` (process-debt, N=2). A release-profile
+    tier-B lane is carried to the PROJ-004 brief as an [S] follow-up; the signal stays
+    `watch` until it lands.
+  - **Stay `watch`, applied, not violated:** `probe-the-hard-assumption-at-frame-time`
+    (N=1), `read-the-kernel-before-deciding-the-approach` (N=1).
+  - **Stay `watch`, residual risk unchanged:** `unexercised-sof3-paths-garble-silently`.
+    SPEC-070 kept the restart behaviour identical to the old reader, which proves no
+    change, not that the T.81 restart rule is right.
+  - **Stay `watch`, no new instance:** `a-fix-inherits-the-precondition-of-the-thing-it-fixes`
+    (N=2), `patent-check-named-algorithms-at-frame`,
+    `saturating-as-cast-masks-explicit-clamp-in-quantize-tests`,
+    `hostile-fixture-shadowed-by-an-earlier-guard`,
+    `closed-form-numeric-needs-extreme-magnitude-fixtures`,
+    `analytic-oracle-premise-must-survive-rounding` (each N=1), and the process-debt
+    `confirm-pr-head-advanced-before-treating-pushed-commit-as-merged`.
+  - **New, `watch`, N=1:**
+    - `parallel-tests-share-a-global-counter`: the `plane_units_alloc` race, fixed in
+      PR 243;
+    - `spec-must-carry-what-the-probe-number-depended-on`: SPEC-070's spec said
+      `#[inline]` where the probe's number needed `#[inline(always)]`.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - **Benign speed-only mutants are guarded only by timing** (SPEC-069 `full − 1`,
+    SPEC-070 `LUT_BITS` and the disabled fast path). That is by design for a
+    performance spec with no CI timing gate, so it is recorded here, not as a signal.
+  - **Handback floors ran low again** (SPEC-069 build +13%, verify +40%; SPEC-070 build
+    +23%, verify +10%). Re-summing at ship from the ended transcripts stays the rule.

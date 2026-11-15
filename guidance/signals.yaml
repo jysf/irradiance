@@ -870,7 +870,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-09-06
-    last_touched: 2026-11-09
+    last_touched: 2026-11-14
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: no instance (colour-develop/threading stage), still N=2, trigger unchanged. ══
@@ -918,6 +918,7 @@ signals:
       three review rounds. Related: [measurement-over-generalised] (one shape is
       not a boundary) and [named-tests-can-pass-vacuously].
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
+      ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
 
   - id: handback-sync-treats-hash-as-comment-in-unquoted-notes
     type: process-debt
@@ -1160,7 +1161,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-10-30
-    last_touched: 2026-11-09
+    last_touched: 2026-11-14
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: DEFERRED, still N=1 — APPLIED, not violated. ══
@@ -1195,6 +1196,7 @@ signals:
       plane are both in hand — probe that on both corpus files before speccing the
       interpolation.
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
+      ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch — APPLIED, not violated. The framing probe measured that every held file has whole-byte rows before the units were designed. ══
 
   # --- lesson: a named algorithm/dependency can be patent-encumbered ----------
   - id: patent-check-named-algorithms-at-frame
@@ -1205,7 +1207,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-01
-    last_touched: 2026-11-09
+    last_touched: 2026-11-14
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: no instance, still N=1. ══ No named/patented
@@ -1234,6 +1236,7 @@ signals:
       [[probe-the-hard-assumption-at-frame-time]] — same family (a load-bearing frame
       assumption left unprobed); this is its patent/licence axis.
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
+      ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
 
   # --- golden-path: a reusable bit-exact oracle harness --------------------------
   - id: reusable-bit-exact-oracle-harness
@@ -1302,7 +1305,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-02
-    last_touched: 2026-11-09
+    last_touched: 2026-11-14
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: no instance, still N=1. ══ The threading specs
@@ -1331,6 +1334,7 @@ signals:
       rule. Related: the `oracle-must-be-shown-red` discipline (a guard you cannot show
       load-bearing is the same shape as an oracle you cannot show red).
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
+      ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
 
   # --- lesson: a round-trip oracle is blind to a helper both halves share ------
   - id: shared-path-oracle-tautology
@@ -1471,7 +1475,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-06
-    last_touched: 2026-11-09
+    last_touched: 2026-11-14
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: untouched. ══ An ljpeg/SOF-3 decode risk, not in
@@ -1486,6 +1490,7 @@ signals:
       rather than a typed Unsupported error. Revisit at the hardening stage-close;
       drop once both paths either decode correctly (with an independent check) or
       reject typed. See docs/reviews/2026-11-06-proj-003-close-review-triage.md.
+      ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, residual risk unchanged. SPEC-070 rewrote the entropy reader under the restart path but kept its behaviour identical to the old reader (verbatim reference, synthetic restart streams); that proves no change, not that the T.81 restart rule is right, so the independent-oracle need stands. Subsampling is still rejected at parse (DEC-047). ══
 
   # --- lesson: read the kernel before deciding the approach -------------------
   - id: read-the-kernel-before-deciding-the-approach
@@ -1496,7 +1501,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-09
-    last_touched: 2026-11-09
+    last_touched: 2026-11-14
     raised_by: claude
     notes: |
       Capture, do NOT promote — N=1. Distinct from
@@ -1505,6 +1510,7 @@ signals:
       measure-before-build family. Falsifier is cheap: open the function the DEC will
       build on and read its actual traversal / emit before committing the approach.
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
+      ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch — APPLIED, not violated. SPEC-069 and SPEC-070 each profiled the real kernel (macOS sample) before the DEC named an approach. ══
 
   # --- process-debt: confirm a PR head advanced before treating a push as merged
   - id: confirm-pr-head-advanced-before-treating-pushed-commit-as-merged
@@ -1515,7 +1521,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-09
-    last_touched: 2026-11-09
+    last_touched: 2026-11-14
     raised_by: claude
     notes: |
       The branch mitigations are already practised: cut each new cycle's branch from
@@ -1523,6 +1529,7 @@ signals:
       by merging main in and taking the stage-backlog Count line. The NEW half is the
       PR-head-advance check before treating a pushed follow-up as merged. Not codified;
       watch whether the gh/PR-view lag recurs.
+      ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
 
   # --- lesson: a tolerant consumer cannot pin a structural property -----------
   - id: tolerant-oracle-cannot-pin-structure
@@ -1561,7 +1568,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-12
-    last_touched: 2026-11-12
+    last_touched: 2026-11-14
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Same family as [[tolerant-oracle-cannot-pin-structure]]
@@ -1570,6 +1577,7 @@ signals:
       each defensive check, delete it and ask which fixture would now pass; for each
       declared deviation, name the test that pins it in the handback.
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
+      ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
 
   - id: closed-form-numeric-needs-extreme-magnitude-fixtures
     type: lesson
@@ -1579,7 +1587,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-12
-    last_touched: 2026-11-12
+    last_touched: 2026-11-14
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Falsifier, cheap at design: for each numeric guard,
@@ -1588,6 +1596,7 @@ signals:
       vacuously on an all-zero plane until a 'the impulse survives' guard was added (same
       family as [[named-tests-can-pass-vacuously]]).
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
+      ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
 
   - id: analytic-oracle-premise-must-survive-rounding
     type: lesson
@@ -1597,7 +1606,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-13
-    last_touched: 2026-11-13
+    last_touched: 2026-11-14
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Falsifier, cheap at design: compute the oracle's
@@ -1607,6 +1616,7 @@ signals:
       [[closed-form-numeric-needs-extreme-magnitude-fixtures]] (both are "the premise was
       only checked at comfortable values").
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
+      ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
 
   # --- process-debt: whole-corpus tier-B tests are slow in the debug profile -----
   - id: slow-tier-b-tests-in-debug
@@ -1623,3 +1633,35 @@ signals:
       CI skips tier B, so this is local cost only. Candidate fix: a release-profile
       lane (a `just test-corpus` recipe running the tier-B binaries with --release),
       with `just test` keeping tier A plus a fast subset. Decide at the STAGE-020 close.
+      ══ STAGE-020 CLOSE, 2026-11-14: decided — carried to the PROJ-004 brief as an [S] follow-up (a release-profile tier-B lane, `just test-corpus`), status stays watch until it lands. No new slow test this stage, but every SPEC-069 and SPEC-070 build and verify paid the ~25 minute suite and ran it in the background. ══
+
+  - id: parallel-tests-share-a-global-counter
+    type: lesson
+    summary: "A test-harness measurement kept in process-global state (a counting allocator's AtomicUsize tally) is read by tests the harness runs in parallel, so one test's count includes another's work; keep every part of the measurement per thread, or serialise the file."
+    evidence: "N=1, STAGE-020 2026-11-14. tests/plane_units_alloc.rs kept its on/off switch thread-local but its tally global. q2m_units_allocate_nothing (expects 0) failed once in the SPEC-070 design probe and 4 of 4 parallel local runs at the SPEC-070 build head (verify), passing alone and serially; the other test's Compression 7 decode allocates about 10. CI never saw it (no corpus). Fixed in PR 243 by a per-thread tally, the pattern tests/develop_scratch_alloc.rs already used."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-14
+    last_touched: 2026-11-14
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote: N=1. Falsifier, cheap at review: for any test using a
+      global allocator or a static counter, ask whether another #[test] in the same
+      binary can run while it measures. tests/previews_alloc.rs has the same global
+      tally but one test, so it cannot race today; a second test there would.
+
+  - id: spec-must-carry-what-the-probe-number-depended-on
+    type: lesson
+    summary: "When a design probe's measured number depends on a code-generation detail (an inline attribute, a table width, a hot/cold split), the spec must state that detail, or the build can follow the spec and miss the probe's number."
+    evidence: "N=1, STAGE-020 2026-11-14. SPEC-070's probe measured 108 ms on the K-3 III with #[inline(always)] on the hot decode, but the spec said #[inline]. The build measured #[inline] at 118.7 ms and kept #[inline(always)] as a recorded deviation; the verify reproduced the gap (117.9 against 105) and accepted it. The target (150 ms) was met either way, so nothing failed, but the spec and the probe disagreed."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-14
+    last_touched: 2026-11-14
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote: N=1. Falsifier at design: diff the probe's final code
+      against the spec's code sketch and name every attribute, constant and split the
+      timing table depends on.
