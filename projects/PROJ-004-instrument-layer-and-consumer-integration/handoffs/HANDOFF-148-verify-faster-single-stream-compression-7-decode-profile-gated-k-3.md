@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-14
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-070
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 13278178               # REAL combined count — what cost-audit reads
+  estimated_usd: 9.39               # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 60
+  branch: claude/spec-070-verify-93c388
+  pr: https://github.com/jysf/irradiance/pull/241
+  completed_at: 2026-11-14               # YYYY-MM-DD
+  notes: "Floor, measured live from transcript 88aa37a9-5bcd-47ff-971d-609c1aede5e1.jsonl, deduplicated by message.id with the max output per message, at opus-5-5 rates with 1-hour cache writes; no subagents. Re-sum at ship. Approved at ff9137e with no code changes. Recorded finding: the known plane_units_alloc race (q2m_units_allocate_nothing) now fails 4 of 4 parallel local runs with the corpus at the build head, against 0 of 3 at 8da45d7; it passes alone and serially (the Q2M decode allocates 0), so it is the cross-thread counter race, not an allocation, but its backlog XS should be promoted."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -284,38 +284,143 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** the verify branch is `claude/spec-070-verify-93c388`, cut from `claude/spec-070-verify-base` (ff9137e plus the brief). It holds this handback and the SPEC-070 timeline's verify line, and no code. The PR under review is https://github.com/jysf/irradiance/pull/241. No superset PR was opened.
+- **Completed at:** 2026-11-14
+- **All acceptance criteria met?** Yes. AC7's `just test` met it with the known `plane_units_alloc` race recorded, not hidden; see the finding below.
+- **For `verify`:** ✅ **APPROVED at ff9137e** (the PR #241 head; the code is 916d89d), with no code changes.
+
+**Gates** (corpus set, 12/12 present, no SKIP line):
+
+- **`just test`:** 697 passed, 0 failed and 1 ignored over 37 binaries plus the doctests. That matches the build's count.
+  - The suite stopped at `plane_units_alloc`, where `q2m_units_allocate_nothing` failed: 399 allocations, a concurrent test's counted allocations landing in the Q2M window.
+  - I reran that binary alone and serially. The test passed alone, and 3 of 3 serial runs passed.
+  - I ran the nine binaries after it, and the doctests, with `--no-fail-fast`. All of them passed.
+- **The other gates:**
+  - lint-ci, lint-no-allow, lint-fuzz, fmt-check, validate, doc-check, deny, msrv, cost-audit and gate-audit are all exit 0.
+  - `decisions-audit --changed` is advisory, exit 0.
+- **Fuzz:**
+  - ljpeg (the header command, after `mkdir -p fuzz/corpus/ljpeg`): 2,440,507 runs in 61 s, clean.
+  - `just fuzz-plane 60`: 1,401,371 runs, clean.
+- **CI:** `gh pr checks 241` shows 44/44 pass on ff9137e.
+
+**Finding (recorded; not a SPEC-070 code defect): the `plane_units_alloc` race is now reproducible.**
+
+- **The counts.** `cargo test --test plane_units_alloc` with the corpus failed 3 of 3 at the build head (194, 237 and 200 allocations), and once more inside `just test`. It passed 3 of 3 at 8da45d7 (the same tests on the old reader).
+- **Why it is the race and not an allocation:**
+  - the binary passes serially, 3 of 3;
+  - the Q2M test passes alone;
+  - Q2M is uncompressed and never reaches `ljpeg`.
+
+  `ALLOCATIONS` is one global counter, and `units_and_unit_decode_allocate_nothing` counts its Compression 7 fixtures' expected Huffman-table allocations on another thread. My guess is that the debug-build cost of `build_lookahead` (two 2,048-entry tables per `HuffTable`) lengthens those counted windows enough to overlap Q2M's window every time.
+- **What it means.** Locally, `just test` with the corpus is now reliably red until the backlog XS lands. CI has no corpus, so it stays green.
+- **Recommendation:** promote that XS (count per thread, or serialise the binary) and do it before the next spec gated on `just test`. Fixing it was out of scope here.
+
+**The behavioural surface:**
+
+- **No existing test edited.** `git diff a97345f -- tests/` is empty, and 8da45d7's diff to `src/ljpeg.rs` has zero removed lines. The only test-module line that 916d89d changes is in the new `outcome` helper, added by 8da45d7.
+- **Every pin ran and passed.** `plane_md5_matches_the_pinned_raw_checksum` (all five `DECODABLE_COMPRESSED`), `ljpeg_decode_fault_turns_compression7_oracle_red` and its control, `units_assemble_in_any_order_on_held_files`, and the develop suites all ran with 12/12 corpus present and no SKIP.
+- **The needles hold.** `neighbour(out, slot, 2)` occurs exactly twice, and `the_tile_path_allocates_nothing` is green.
+- **Scope.** `fetch_byte`, `decode_symbol`, `receive`, `receive_and_extend`, `extend`, `pow2` (only its doc changed), `parse_headers` and every reconstruction function have no hunks. `decode_difference`'s old body moved verbatim into `#[cold] decode_bit_at_a_time`.
+- **The AC2 and AC3 counts reproduce exactly.**
+  - AC2: 42,031 cases (Ok 2,775; Truncated 22,103; LjpegUnexpectedMarker 16,086; LjpegInvalidHuffmanTable 1,067).
+  - AC3: 17,567 cases (Ok 4,155; Truncated 8,585; LjpegUnexpectedMarker 4,130; LjpegInvalidHuffmanTable 697).
+
+**The points to judge:**
+
+- **Consume nothing before the slow path: holds.**
+  - In `decode_buffered`, the only mutation before a `None` is `fill()`. That buffers only bytes `fetch_byte` would return, and stops exactly where it would fail.
+  - Every consuming branch (`fast`, and `lookup` with `SSSS` 0, 16, or 1–15 with `ssss <= after`) returns `Some`.
+  - The `1..=15` guard is in the match arm, so a short tail or an `SSSS` above 16 falls to `_ => None` untouched.
+  - `read_bit` errors only at `nbits == 0`, after the bit-at-a-time reader would have consumed the same bits, through `fetch_byte` at the same `byte_pos`.
+- **The 8-byte refill: correct.**
+  - It takes `whole = (64 − nbits) / 8` bytes, which is exactly what the byte loop takes from bytes with no `0xFF`. It takes none when fewer than 8 bits are free.
+  - It requires all 8 bytes to be present and `0xFF`-free (an exact has-zero-byte test on `!word`), so it never takes a byte the loop would refuse.
+  - It shifts the stuffed flags by `whole`, which clears the new flags.
+- **The `fast` encoding: sound.**
+  - `fast_entry` puts `total` (at least 1) in the high half, so no reachable entry is 0.
+  - `FAST_DIFF_BIAS` maps −32767..=+32768 onto 0..=65535 losslessly.
+  - In practice the only reachable `fast` differences are ±1,023 (`SSSS` ≤ 10, since `l ≥ 1`) and +32,768 (`SSSS` 16). That is why the downward off-by-one mutant is benign (below).
+- **`#[inline(always)]`: justified.** I re-measured it: plain `#[inline]` gives K-3 III 117.9, Typ 246 103.5 and Pixel 4a 72.5 ms, against 105.5 / 91.6 / 65.3 with `always`, about 12% slower. It has no semantic effect, and lint-ci and msrv (1.90) are green.
+- **AC3's `reference_reader_decode_into` is an independent old-behaviour reference.**
+  - It is a faithful copy of `decode_into` → `reconstruct` → dense `reconstruct_window` for Nf=1: the same check order, the same `count == 0` initial prediction, the same neighbour and predict calls, and `& 0xFFFF`. Only the reader differs.
+  - The two-component path needs no equivalent. Its reader use is the same per-call `decode_difference` and `restart`, with a table switch. The reader state does not depend on the table, so AC2 covers it, and the Pixel dnglab pins, `two_component_*` and my corpus differential exercise it too.
+- **The `junk` generator reaches it.** Junk bytes follow `flush_to_byte` and precede `RSTm`, so they are whole bytes still buffered at the restart. The give-back mutant (b03) and my stuffed-flag mutant (v12) are red on AC2 and AC3.
+- **The probe's corpus differential: I ran a local copy (not committed, and no corpus bytes copied into any tree).**
+  - It was a scratch archive with a97345f's `src/ljpeg.rs` linked as `ljpeg_old`, and a test-only hook in `plane.rs` that captured every strip or tile slice and its window during `unpack_into` on the five `DECODABLE_COMPRESSED` files.
+  - It compared the clean `decode_into` / `decode_window_into` (578 units), then 3,552 mutated copies (48 per strip and 6 per tile). The mutations were truncation, bit flips, an injected `0xFF`, an injected `RSTm` or other marker, a trailing lone `0xFF`, random-byte runs, deleted bytes and tail truncation, with 1 in 16 also hitting the headers.
+  - It compared the `Debug` of the whole `Result` and the whole destination buffer.
+  - **0 differences.** Outcomes: Ok 1,455; LjpegUnexpectedMarker 1,316; Truncated 764; LjpegInvalidHuffmanTable 16; LjpegMissingMarker 1.
+
+**Mutants** (tier A only: `cargo test --all-features --lib ljpeg::` on an archived copy with its own target dir and no corpus env, applied with perl, original restored and compared):
+
+| mutant | result |
+|---|---|
+| b01 `fast` consumes `total − 1` | red: AC2, AC3 + 19 more |
+| b02 `fill` takes `0xFF xx` as data | red: AC2, AC3, `malformed_inputs…` |
+| b03 `restart` gives back 1 for a stuffed byte | red: AC2, AC3 |
+| b04 `total <= nbits` dropped | red: AC2, AC3, `hostile_bitstreams…`, `malformed_inputs…`, `two_component_truncated…` |
+| b05 `SSSS` 16 as −32768 | red: AC2, AC3, `clipped_window_stops…` |
+| b06 `SSSS` 16 as 0 | red: AC2, AC3, `clipped_window_stops…` |
+| b07 `ssss <= after` dropped | red: AC2, AC3 |
+| b08 `read_bit` returns its own `Truncated` | red: AC2, AC3, `malformed_inputs…` |
+| b09 `LUT_BITS` 10 | green (benign, speed only) |
+| b10 fast path disabled | green (benign, speed only) |
+| v11 refill checks 7 of 8 bytes for `0xFF` | red: AC2, AC3, `clipped_window_matches…`, `full_window…`, `two_component_restart_is_pinned` |
+| v12 refill keeps the old stuffed flags (no shift) | red: AC2, AC3 |
+| v13 `fill` threshold `nbits <= 64` | red: AC2, AC3 + 10 more |
+| v14a `FAST_DIFF_BIAS` 32766 | **green, benign** |
+| v14b `FAST_DIFF_BIAS` 32768 | red: AC2 only |
+| v15 `build_lookahead` span − 1 | **green, benign** |
+| v16 `restart` does not clear the stuffed flags | **green, benign** |
+| v17 top-up threshold 32 → 0 | **green, benign (slower only)** |
+
+Why each green mutant is benign:
+
+- **v14a.** The bias is applied consistently, so any bias in 1,023..=32,767 round-trips every reachable `fast` difference (±1,023 and +32,768). 32,766 differs only for −32,767, which no `fast` entry can hold. v14b breaks +32,768 and is red.
+- **v15.** A missing table entry is "no entry", which takes the slow path having consumed nothing. Fewer entries cost speed only.
+- **v16.** This is an equivalent mutant. `acc` and `nbits` are cleared at the restart, so give-back reads only flags `i < nbits/8`, all for bytes buffered since the restart. The stale flags sit above them and are never read.
+- **v17.** The buffer then fills only in `read_bit` at `nbits == 0`. With 0 to 31 bits buffered, a code whose bits are not all there still takes the slow path, having consumed nothing. That path reads bit by bit, refills at 0 and decodes the same value, so no valid long code is misread. It is only slower.
+
+**Timing** (`ljpeg-timing` release binaries, Mac16,8 / Apple M4 Pro, median / min of 7 in ms, 8da45d7 against ff9137e, back to back, two rounds):
+
+| file | before (8da45d7) | after (ff9137e) |
+|---|---|---|
+| K-3 III (6304 × 4224) | 710.0 / 704.6; 714.5 / 711.2 | **105.0 / 104.0; 106.1 / 105.1** (target ≤ 150) |
+| Typ 246 (5984 × 4000) | 604.8 / 598.8; 615.0 / 607.0 | **90.3 / 90.0; 92.3 / 90.6** (target ≤ 140) |
+| Pixel 4a (4032 × 3024) | 335.8 / 331.6; 336.0 / 331.3 | 64.3 / 63.5; 64.5 / 63.9 |
+
+This reproduces the build's 692.1 → 103.2, 590.8 → 90.7 and 323.7 → 60.8 within about 3–6%. My before figures are a little higher, so the CHANGELOG's ~6.5× is honest, if anything conservative.
+
+**No allocation, no panics, scope.**
+- **No `unsafe`.** The tables are fixed arrays inside `HuffTable`: 12 KiB per table, the same allocation count.
+- **Lint-clean.** It uses `get`/`get_mut`, checked shifts and `try_from`, with no `as` or indexing (lint-ci green).
+- **No public item changed.**
+- **The CHANGELOG states the back-to-back before and after numbers.**
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 13,278,178 (a floor, measured while the session was live)
+- **Estimated USD:** 9.39
+- **Duration (minutes):** about 60
+- **Source of the number:** transcript `88aa37a9-5bcd-47ff-971d-609c1aede5e1.jsonl` (found by the scratchpad UUID). It is deduplicated by message.id with the max output per message, at opus-5-5 rates with 1-hour cache writes. There are no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none in the verify. I agree with the build's four deviations: the `fast` encoding, `build_lookahead` as a free function, the 8-byte refill included, and `#[inline(always)]`.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - **[XS, promote] fix the `plane_units_alloc` race** (count per thread, or serialise the binary). It now fails every parallel local run with the corpus at this head (4 of 4, against 0 of 3 before), so a local `just test` is red until it lands.
+  - **[XS] a `just fuzz-ljpeg` recipe** that creates `fuzz/corpus/ljpeg`. I agree: the header command needs the `mkdir`.
+  - **[XS] timing examples in AGENTS.md §6.** I agree.
+  - **[XS, optional] fix the `FAST_DIFF_BIAS` doc.** "−32767 round-trips" is true but vacuous, since no `fast` entry can hold it. It could say that the reachable `fast` differences are ±1,023 and +32,768.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Little. The brief called the alloc race a flake to rerun alone. At this head it is no longer a flake, so I had to show it was not an allocation: the serial runs, the run alone, and the pre-change baseline.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The handoff's suggested mutants include several that are equivalent by construction: span − 1, not clearing the flags on a restart, a top-up threshold of 0, and a downward bias. It would help to say up front that the lookahead tables are accelerators whose missing entries are always safe, so mutants that only remove entries or fills are expected to be benign.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would run `just test` with `--no-fail-fast` from the start, or run the alloc binary first. The race stopped the suite at binary 27 of 37, and I had to rerun the rest separately.
