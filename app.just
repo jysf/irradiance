@@ -376,6 +376,13 @@ orient-timing:
 unpack-timing:
     cargo run --release --all-features --example unpack-timing
 
+# Time the single-threaded Compression 7 (lossless-JPEG) decode, unpack_into,
+# on the held K-3 III Mono, M Typ 246 and Pixel 4a (SPEC-070, DEC-065 §4).
+# Release build: a debug timing means nothing. A measurement, not a gate;
+# prints a SKIP line per absent file.
+ljpeg-timing:
+    cargo run --release --all-features --example ljpeg-timing
+
 # The MSRV gate (rust-version = "1.90" in Cargo.toml).
 #
 # ⚠ The `~/.cargo/bin/` prefix is load-bearing — this is the THIRD instance of
