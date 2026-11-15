@@ -6,19 +6,19 @@
 task:
   id: SPEC-070
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 30000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-147
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 17015779
+      estimated_usd: 12.03
+      duration_minutes: 105
+      recorded_at: 2026-11-14
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (85 unique message.ids, all claude-opus-5-5, no subagents): input 180 + cache-creation 193,889 (1-hour) + cache-read 16,753,344 + output 68,366 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). The handback floor was 13,803,286 and $10.10."
+    - cycle: verify
+      handoff: HANDOFF-148
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 14633694
+      estimated_usd: 10.22
+      duration_minutes: 60
+      recorded_at: 2026-11-14
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (81 unique message.ids, all claude-opus-5-5, no subagents): input 168 + cache-creation 171,141 (1-hour) + cache-read 14,410,448 + output 51,937, same rates. APPROVED at ff9137e, no code changes. The handback floor was 13,278,178 and $9.39."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 31649473
+    estimated_usd: 22.25
+    session_count: 2
+shipped_at: 2026-11-14
 ---
 
 # SPEC-070: Faster Compression 7 decode: a buffered scan reader and an 11-bit Huffman lookahead
@@ -421,34 +442,34 @@ mutation by hand to the new code, shows the named test red, and reverts:
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Name the inlining in the design. The probe's speed depended on `#[inline(always)]`
+   on the hot decode, but the spec said `#[inline]`, which the build and the verify both
+   measured about 15% slower. Also, run the full suite with the corpus in parallel more
+   than once at design: the `plane_units_alloc` race showed once in the probe, and by
+   this head it fails every parallel local run.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No decision changes. DEC-065 held as written; the build's two deviations (a biased
+   `fast` encoding instead of an `as` cast, and `#[inline(always)]`) are recorded in the
+   handback, and the verify judged both. The `plane_units_alloc` race is promoted to the
+   top of the STAGE-020 follow-ups, because a local `just test` with the corpus is now
+   reliably red until it is fixed.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The race fix, as an XS before any more corpus-heavy work. Also a `just fuzz-ljpeg`
+   recipe that creates its corpus dir (XS). Prediction is now a larger share of the
+   decode, but any change there is profile-gated, and nobody has asked for it.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — none
+   *(The build met every criterion first time; the verify found no defect in the code.
+   Its one finding is the pre-existing test race.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — A K-3 III Mono Compression 7 plane decodes on one thread in 103 ms instead of
+   692 ms (verify: 710 to 105), and a Typ 246 in 91 ms instead of 591 (verify: 605 to
+   90), about 6.6x, with the tiled Pixels near 61 ms instead of 324. Samples and errors
+   are identical.
