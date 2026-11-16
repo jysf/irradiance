@@ -129,7 +129,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      # Mirrors `just test` (app.just). Tier B is ABSENT on a CI runner by
+      # Mirrors `just test-debug` (app.just), on purpose: `just test` runs the
+      # optimised `corpus` profile (DEC-066), while CI stays in debug, where
+      # tier A takes seconds and a second optimisation level stays under test.
+      # Tier B is ABSENT on a CI runner by
       # construction (DEC-003 — RAW files are never committed), so every
       # corpus test skips here. This step is what puts that in the CI log:
       # `eprintln!` inside a passing test is captured, so a skip announced

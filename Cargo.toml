@@ -114,3 +114,15 @@ toml = { version = "0.8", default-features = false, features = ["parse"] }
 # resolved graph is MIT/Apache-2.0/BSD-2-Clause/Unicode-3.0 only, confirmed by
 # `cargo deny check licenses` in a probe workspace. See DEC-023.
 ssimulacra2 = "0.5.1"
+
+# The profile `just test` runs every test under (SPEC-072, DEC-066). It inherits
+# `test` (which inherits `dev`), NOT `release`, on purpose: debug assertions and
+# overflow checks stay on, so every `debug_assert!`, `checked_*` contract and
+# arithmetic-overflow panic a test can reach still fires. Only the optimisation
+# level changes. Decode and develop outputs are bit-exact integer and IEEE
+# arithmetic that optimisation cannot reorder; the pinned digests confirm it.
+# The full corpus suite takes about 2.5 min here against about 37 min in
+# debug. `just test-debug` keeps the unoptimised run; CI stays on debug.
+[profile.corpus]
+inherits = "test"
+opt-level = 3
