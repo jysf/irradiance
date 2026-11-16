@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript  # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 5077732  # REAL combined count — what cost-audit reads
-  estimated_usd: 4.05  # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 6883272  # REAL combined count — what cost-audit reads
+  estimated_usd: 5.20  # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 45
   branch: claude/spec-071-build
   pr: https://github.com/jysf/irradiance/pull/247
   completed_at: 2026-11-16  # YYYY-MM-DD
-  notes: "FLOOR from transcript 630367db-95dd-47bc-92d2-dad2f9d75ae2.jsonl (37 unique message.ids, all claude-opus-5-5, no subagents), deduped by message.id with max output per message: input 76 + cache-creation 112,631 (1-hour) + cache-read 4,946,934 + output 18,091; opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Measured before the handback commit, so re-sum at ship."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (48 unique message.ids, all claude-opus-5-5, no subagents): input 98 + cache-creation 120,724 (1-hour) + cache-read 6,737,548 + output 24,902 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). The handback floor was 5,077,732 and $4.05."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  synced_at: 2026-11-16
 ---
 
 # HANDOFF-149: BUILD: STAGE-020 follow-ups, bundled (SPEC-071)
