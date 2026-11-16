@@ -148,8 +148,12 @@ held file present). It defined the profile on the command line with `--config` a
   `develop_scratch_alloc` went red under `test` and stayed green under `corpus`. A
   transient allocation that is actually used, such as a `collect` that is read
   afterwards, went red under both. So the `*_alloc` tests are authoritative only in
-  the debug lane. CI runs that lane, and so does `just test-debug`. Run
-  `just test-debug` after changing an allocation path.
+  the debug lane. **Resolved at the orchestrator's review of PR #250:** `just test`
+  gains a third command that re-runs the three `*_alloc` test binaries
+  (`develop_scratch_alloc`, `plane_units_alloc`, `previews_alloc`) in the debug
+  profile, so the default lane weakens no test. That includes the corpus-gated
+  `scratch_develop_allocates_nothing_on_q2m`, which CI never runs. CI runs them in
+  debug as before, and a new `*_alloc` file must be added to that command.
 - **`[profile.corpus]` sits above `[dependencies]` in `Cargo.toml`, not at the end.**
   `scripts/deny-red-proof.sh` appends a dev-dependency and requires
   `[dev-dependencies]` to be the last table. The build put the profile last, which

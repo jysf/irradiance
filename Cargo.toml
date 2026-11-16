@@ -87,8 +87,8 @@ test-fixtures = []
 # One thing optimisation DOES change: LLVM may delete a heap allocation whose
 # result is never used, so the zero-allocation tests (`*_alloc`) cannot see a
 # dead `vec!` here that the debug build counts (shown by mutation in the
-# SPEC-072 verify, HANDOFF-152). CI's debug test job, and `just test-debug`, are
-# the authority for those tests.
+# SPEC-072 verify, HANDOFF-152). So `just test` also re-runs the three
+# `*_alloc` test binaries in the debug profile, and CI's debug job runs them too.
 # The full corpus suite takes about 2.5 min here against about 37 min in
 # debug. `just test-debug` keeps the unoptimised run; CI stays on debug.
 # It sits ABOVE `[dependencies]`, not at the end of the file, because

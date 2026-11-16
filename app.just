@@ -45,13 +45,19 @@ build:
 # stay on, every test still runs (none deleted, filtered or ignored), and the
 # full corpus suite takes about 2.5 min instead of about 37 in debug. The
 # example and the tests share the profile, so the library compiles once. CI
-# runs the debug commands (`test-debug` below), not these. One caveat: at
-# opt-level 3 LLVM may delete an allocation whose result is unused, so the
-# zero-allocation tests (`*_alloc`) are only authoritative in debug; after
-# touching an allocation path, run `just test-debug` or rely on CI.
+# runs the debug commands (`test-debug` below), not these.
+#
+# The third command re-runs the three zero-allocation test binaries in the
+# DEBUG profile. At opt-level 3 LLVM may delete an allocation whose result is
+# unused, so under `corpus` those tests cannot see a dead `vec!` that a debug
+# build counts (shown by mutation in the SPEC-072 verify, HANDOFF-152). Running
+# them in debug here keeps `just test` from weakening them, including the
+# corpus-gated `scratch_develop_allocates_nothing_on_q2m`, which CI (no corpus)
+# never runs. Keep this list in step with every `tests/*_alloc.rs` file.
 test:
     cargo run --quiet --all-features --profile corpus --example corpus-status
     cargo test --all-features --profile corpus
+    cargo test --all-features --test develop_scratch_alloc --test plane_units_alloc --test previews_alloc
 
 # The same suite, unoptimised: the `dev`/`test` profile, exactly what `just
 # test` ran before SPEC-072 and what CI's test job runs. For the rare case an
