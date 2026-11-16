@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-16
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-072
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 2603595            # REAL combined count — what cost-audit reads
+  estimated_usd: 2.35              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 75
+  branch: claude/spec-072-build
+  pr: https://github.com/jysf/irradiance/pull/249
+  completed_at: 2026-11-16         # YYYY-MM-DD
+  notes: "FLOOR from transcript ea3ba583-3cb3-47ff-bed0-978b23ac4035.jsonl (23 unique message.ids, all claude-opus-5-5, no subagents), deduped by message.id with max output per message: input 48 + cache-creation 79,581 (1-hour) + cache-read 2,512,258 + output 11,708; opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Measured before the handback commit, so re-sum at ship."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -176,43 +176,74 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-072-build` → https://github.com/jysf/irradiance/pull/249
+  - 1332da7 is the build.
+  - The next commit is this handback plus the timeline build line.
+- **Completed at:** 2026-11-16
+- **All acceptance criteria met?** Yes. The machine is an Apple M4 Pro with the corpus set
+  and all 12 files present.
+  - **AC1:**
+    - `just test` and `just test-debug` both pass with 697 passed, 0 failed and 1 ignored
+      across 37 binaries.
+    - `-- --list` prints 771 lines (698 tests) under both profiles, and the diff between
+      them is empty.
+  - **AC2:** a throwaway test in a scratch copy of the repo, run once and deleted. Under
+    `--profile corpus`:
+    - `cfg!(debug_assertions)` is true;
+    - `black_box(u8::MAX) + 1` panics with "attempt to add with overflow", and
+      `catch_unwind` returns Err;
+    - `debug_assert!(false)` fires.
+
+    As a control, the same test under `--release` fails, with
+    `cfg!(debug_assertions) = false`.
+  - **AC3:** every dnglab checksum, develop MD5 and pin test, and every red-proof, is ok
+    under `just test`, with 0 SKIP lines.
+  - **AC4:**
+    - `just test` took 144.7 s wall after `touch src/lib.rs`, against the ≤ 5 min target.
+    - In a fresh worktree with no `target/` at all, the first `just test` took 159.1 s.
+    - `just test-debug` took 2290.3 s (38.2 min) on the same machine after a touch.
+    - The debug run overlapped for about a minute with the AC2 scratch compile, so its
+      time is a slight overestimate.
+  - **AC5:** `git diff origin/main -- .github/` touches comment lines only.
+  - **AC6:** all 10 gates are green: lint-ci, lint-no-allow, lint-fuzz, fmt-check,
+    validate, doc-check, deny, msrv, cost-audit and gate-audit.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 2,603,595. This is a floor, measured before the handback commit.
+- **Estimated USD:** 2.35
+- **Duration (minutes):** about 75, most of it the 38-minute debug run.
+- **Source of the number:** the transcript
+  (ea3ba583-3cb3-47ff-bed0-978b23ac4035.jsonl), deduped by message.id, priced at
+  opus-5-5 rates.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - The ci.yml comment keeps the original "Tier B is ABSENT…" sentence, prefixed by
+    three new lines. There is no `run:` change.
+  - Debug info is left as `test` sets it, so nothing was measured or lowered.
+  - A grep of AGENTS.md found no sentence quoting the debug suite's duration, so the §6
+    block and its prose history are the only places that now name the times.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - The signal `slow-tier-b-tests-in-debug` should be marked resolved at ship (not
+    edited here, per the spec).
+  - Handoff boilerplate that says to run the full suite in the background should quote
+    about 2.5 min from now on (DEC-066 Consequences).
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing material. The branch name `claude/spec-072-build` differs from the worktree's
+   local branch, so I pushed to the named remote branch.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The AC2 check went into a scratch copy of the repo with its own target dir, so
+   the throwaway file never touched the worktree. That was a choice, not a stated rule.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the debug lane first and do nothing that compiles while it runs, so its time
+   has no overlap with other work.
