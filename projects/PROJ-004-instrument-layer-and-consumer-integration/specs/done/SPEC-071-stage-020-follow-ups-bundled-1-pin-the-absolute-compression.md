@@ -6,19 +6,19 @@
 task:
   id: SPEC-071
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 12000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-149
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 6883272
+      estimated_usd: 5.20
+      duration_minutes: 45
+      recorded_at: 2026-11-16
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (48 unique message.ids, all claude-opus-5-5, no subagents): input 98 + cache-creation 120,724 (1-hour) + cache-read 6,737,548 + output 24,902 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). The handback floor was 5,077,732 and $4.05."
+    - cycle: verify
+      handoff: HANDOFF-151
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 4323610
+      estimated_usd: 3.45
+      duration_minutes: 60
+      recorded_at: 2026-11-16
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (35 unique message.ids, all claude-opus-5-5, no subagents): input 71 + cache-creation 84,884 (1-hour) + cache-read 4,218,861 + output 19,794, same rates. APPROVED at 9bb96de, no code changes. The handback floor was 3,350,892 and $2.72."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 11206882
+    estimated_usd: 8.65
+    session_count: 2
+shipped_at: 2026-11-16
 ---
 
 # SPEC-071: STAGE-020 follow-ups, bundled: a Compression 7 allocation pin, one assert message, `just fuzz-ljpeg`, and the timing recipes in AGENTS.md
@@ -229,34 +250,28 @@ pins today's count. The test-first evidence is AC1's red-proof.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Probe the explanation, not only the number. The design measured 10 allocations per
+   chunk but left the breakdown to the build. The build found the 10 is two header parses
+   per chunk (the shape binding, then the scan), not one, which is worth knowing before
+   anyone tries to reduce it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No. The build widened AC4 to every recipe and found three more missing from AGENTS.md
+   §6 (`doc-check`, `doc-check-red-proof`, `validate-red-proof`); the verify confirmed
+   all 35 recipes are now listed. Keeping §6 complete stays a review rule.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new one. Halving the Compression 7 header parses (parse once, bind and scan from
+   the same result) would cut the 10 to 5 per chunk, but nobody needs it and it is not
+   framed.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — none
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — none (test and tooling only). For maintainers: a new allocation in the Compression 7
+   decode is now caught by an absolute count (10 per strip or tile), `just fuzz-ljpeg`
+   works on a fresh checkout, and AGENTS.md §6 lists all 35 recipes.
