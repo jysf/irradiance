@@ -274,7 +274,12 @@ and `just doc-check-red-proof`; `SPEC-067` added `just orient-timing`,
 `SPEC-069` `just unpack-timing` and `SPEC-070` `just ljpeg-timing` (release-build
 measurements, not gates); `SPEC-071` added `just fuzz-ljpeg` (the SOF-3
 decoder's fuzz target, `SPEC-038`, which until then had no recipe) and listed
-all seven of these in the block, which had fallen behind `app.just`.
+all seven of these in the block, which had fallen behind `app.just`;
+`SPEC-072` moved `just test` onto the optimised `corpus` cargo profile
+(`test` plus opt-level 3, so assertions and overflow checks stay on; DEC-066),
+which runs the full corpus suite in about 2.5 minutes instead of about 37, and
+added `just test-debug` (the previous debug commands, which CI's test job
+mirrors).
 Every recipe's commands appear in the block below and nothing in
 the block is unrunnable: that correspondence is acceptance criterion 8, so a
 recipe that gains a command gains a line here in the same change.
@@ -290,7 +295,22 @@ cargo fetch
 # dev        — no dev server; this is a library. Watch-build instead:
 cargo build
 
-# test       — the whole suite (tier-B tests skip loudly when the corpus is absent)
+# test       — the whole suite under the `corpus` profile (SPEC-072, DEC-066):
+#              opt-level 3 with debug assertions and overflow checks kept on.
+#              Every test runs; with the corpus set it takes about 2.5 min.
+#              Opt-level 3 may delete an unused allocation, so the three
+#              zero-allocation test binaries (*_alloc) also run in DEBUG as
+#              the third command, so `just test` weakens nothing.
+#              corpus-status runs first, so a missing tier-B file prints a
+#              SKIP line (tier-B tests skip loudly when the corpus is absent)
+cargo run --quiet --all-features --profile corpus --example corpus-status
+cargo test --all-features --profile corpus
+cargo test --all-features --test develop_scratch_alloc --test plane_units_alloc --test previews_alloc
+
+# test-debug — the same suite, unoptimised (the dev/test profile): what
+#              `just test` ran before SPEC-072, and what CI's test job runs.
+#              About 37 min with the corpus set; run it in the background
+cargo run --quiet --all-features --example corpus-status
 cargo test --all-features
 
 # test one   — a single test by name

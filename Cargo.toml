@@ -78,6 +78,26 @@ irr = []
 # path. Carries no dependency.
 test-fixtures = []
 
+# The profile `just test` runs every test under (SPEC-072, DEC-066). It inherits
+# `test` (which inherits `dev`), NOT `release`, on purpose: debug assertions and
+# overflow checks stay on, so every `debug_assert!`, `checked_*` contract and
+# arithmetic-overflow panic a test can reach still fires. Decode and develop
+# outputs are bit-exact integer and IEEE arithmetic that optimisation cannot
+# reorder; the pinned digests confirm it.
+# One thing optimisation DOES change: LLVM may delete a heap allocation whose
+# result is never used, so the zero-allocation tests (`*_alloc`) cannot see a
+# dead `vec!` here that the debug build counts (shown by mutation in the
+# SPEC-072 verify, HANDOFF-152). So `just test` also re-runs the three
+# `*_alloc` test binaries in the debug profile, and CI's debug job runs them too.
+# The full corpus suite takes about 2.5 min here against about 37 min in
+# debug. `just test-debug` keeps the unoptimised run; CI stays on debug.
+# It sits ABOVE `[dependencies]`, not at the end of the file, because
+# `scripts/deny-red-proof.sh` appends to `[dev-dependencies]` and requires it
+# to be the last table.
+[profile.corpus]
+inherits = "test"
+opt-level = 3
+
 # Zero dependencies by design (SPIKE-001; this spec's handoff). Adding one
 # needs a DEC — see guidance/constraints.yaml `no-new-top-level-deps-without-decision`.
 [dependencies]

@@ -39,7 +39,32 @@ build:
 # signal in full test output instead of surfacing it, and this recipe's
 # contract is that `just test 2>&1 | grep SKIP` names any absent file with no
 # extra flags.
+#
+# Both commands run under the `corpus` cargo profile (Cargo.toml, SPEC-072,
+# DEC-066): `test` with opt-level 3, so debug assertions and overflow checks
+# stay on, every test still runs (none deleted, filtered or ignored), and the
+# full corpus suite takes about 2.5 min instead of about 37 in debug. The
+# example and the tests share the profile, so the library compiles once. CI
+# runs the debug commands (`test-debug` below), not these.
+#
+# The third command re-runs the three zero-allocation test binaries in the
+# DEBUG profile. At opt-level 3 LLVM may delete an allocation whose result is
+# unused, so under `corpus` those tests cannot see a dead `vec!` that a debug
+# build counts (shown by mutation in the SPEC-072 verify, HANDOFF-152). Running
+# them in debug here keeps `just test` from weakening them, including the
+# corpus-gated `scratch_develop_allocates_nothing_on_q2m`, which CI (no corpus)
+# never runs. Keep this list in step with every `tests/*_alloc.rs` file.
 test:
+    cargo run --quiet --all-features --profile corpus --example corpus-status
+    cargo test --all-features --profile corpus
+    cargo test --all-features --test develop_scratch_alloc --test plane_units_alloc --test previews_alloc
+
+# The same suite, unoptimised: the `dev`/`test` profile, exactly what `just
+# test` ran before SPEC-072 and what CI's test job runs. For the rare case an
+# unoptimised build matters, such as stepping through a test in a debugger.
+# With the corpus set it takes about 37 min; run it in the background. Same
+# corpus-status-first ordering, for the same reason as `test` above.
+test-debug:
     cargo run --quiet --all-features --example corpus-status
     cargo test --all-features
 
