@@ -6,19 +6,19 @@
 task:
   id: SPEC-072
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [punch-list]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 10000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-150
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 3906322
+      estimated_usd: 3.26
+      duration_minutes: 75
+      recorded_at: 2026-11-16
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (33 unique message.ids, all claude-opus-5-5, no subagents): input 70 + cache-creation 88,652 (1-hour) + cache-read 3,798,711 + output 18,889 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). The handback floor was 2,603,595. PR 249 was closed, superseded by the verify PR 250."
+    - cycle: verify
+      handoff: HANDOFF-152
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 7238268
+      estimated_usd: 5.36
+      duration_minutes: 50
+      recorded_at: 2026-11-16
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (52 unique message.ids, all claude-opus-5-5, no subagents): input 111 + cache-creation 111,308 (1-hour) + cache-read 7,098,979 + output 27,870, same rates. PUNCH LIST, both items fixed in superset PR 250 (merged as 431b3b1). The orchestrator added a follow-up commit to PR 250 (the debug allocation-test step in just test); that is orchestration cost, not in this figure. The handback floor was 5,607,703."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 11144590
+    estimated_usd: 8.62
+    session_count: 2
+shipped_at: 2026-11-16
 ---
 
 # SPEC-072: An optimised `corpus` test profile: `just test` runs every test in about 2.5 minutes, and `just test-debug` keeps the old run
@@ -213,34 +234,32 @@ identical test list, AC2's assertion check, and AC4's time.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Ask, at design, which tests measure the *compiler's* output rather than the code's.
+   The probe compared pass counts and pinned digests, which optimisation cannot change,
+   but the zero-allocation tests count heap calls, which LLVM may delete at opt-level 3.
+   The verify found it by mutation. Also: read the scripts that edit `Cargo.toml` before
+   adding a table to it (the licence red-proof needs `[dev-dependencies]` last).
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — DEC-066 was amended in PR 250: the `*_alloc` binaries are authoritative only in
+   debug, so `just test` re-runs them in debug as a third command, and a new `*_alloc`
+   file must be added there. The signal `slow-tier-b-tests-in-debug` is resolved by this
+   spec.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — An [XS] CI tweak: every PR push starts two CI runs (`push` and `pull_request`), and
+   the `push` run's macOS determinism job was cancelled twice after 15 minutes waiting
+   for a runner. Restricting `push` to `main` would halve macOS demand. Not framed.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
+   *(The verify caught both: the profile placement that broke the licence red-proof in
+   CI, and the zero-allocation tests going blind under opt-level 3.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — none for crate users (tooling only). For maintainers: a full local `just test` with
+   the corpus takes 178 s instead of about 37 min, with every test run and none
+   weakened (710 passed: 697 optimised plus the 13 allocation tests again in debug).
