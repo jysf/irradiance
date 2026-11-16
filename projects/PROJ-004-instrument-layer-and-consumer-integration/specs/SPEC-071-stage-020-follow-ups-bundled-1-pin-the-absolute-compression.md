@@ -6,7 +6,7 @@
 task:
   id: SPEC-071
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -36,9 +36,9 @@ handoff:
   created_at: null
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-063, DEC-064, DEC-016]
   constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  related_specs: [SPEC-068, SPEC-069, SPEC-070]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -52,7 +52,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-021's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "closes STAGE-020's four [XS] follow-ups so the release is cut from a clean tree"
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -67,7 +67,7 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
+  tokens_estimate: 12000000
   sessions: []
   totals:
     tokens_total: 0
@@ -75,74 +75,155 @@ cost:
     session_count: 0
 ---
 
-# SPEC-071: — STAGE-020 follow-ups, bundled: (1) pin the absolute Compression 7 allocation count per strip or tile in `tests/plane_units_alloc.rs` (about 10 from the `ljpeg` header parses, measured not assumed), so a new allocation in the shared kernel is caught by the count, not only by old-equals-new; (2) reword `inject_chunk_extraction_fault`'s stale assert message in `tests/plane_oracle.rs` to name the 14-bit group kernel (message only, no assertion change); (3) a `just fuzz-ljpeg` recipe that creates `fuzz/corpus/ljpeg` first, mirroring `fuzz-plane`; (4) AGENTS.md §6 lists the three timing examples (`orient-timing`, `unpack-timing`, `ljpeg-timing`: release, corpus-gated, no CI gate). No output change; every oracle green unedited.
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-071]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
+# SPEC-071: STAGE-020 follow-ups, bundled: a Compression 7 allocation pin, one assert message, `just fuzz-ljpeg`, and the timing recipes in AGENTS.md
 
 ## Context
 
-Why does this spec exist? What problem does it solve? Link to:
-- The parent `STAGE-021` and this spec's place in its backlog
-- The project `PROJ-004`
-- Any related discussions, issues, or prior decisions
+The first spec of STAGE-021. STAGE-020 left four [XS] follow-ups in the PROJ-004 brief.
+Each is small; they are bundled so they cost one build and one verify. None changes
+library behaviour.
 
 ## Goal
 
-1–2 sentences. Unambiguous. If you can't write the goal in two
-sentences, split the spec.
+Close all four, with every existing test, pin and oracle green and unedited except the one
+assert message (item 2).
+
+## Design
+
+### 1. An absolute Compression 7 allocation pin (`tests/plane_units_alloc.rs`)
+
+Today `units_and_unit_decode_allocate_nothing` checks Compression 7 fixtures only as "the
+units allocate exactly what `unpack_into` allocates". Both go through the same per-strip or
+per-tile kernel, so a new allocation in that kernel moves both counts and the check stays
+green.
+
+**The design probe measured the absolute count** at `4664773`, with a temporary print in
+that test (not committed). For both tier-A fixtures and every `max_band_rows` (1, 3,
+`u32::MAX`):
+
+| Fixture | Strips or tiles | Allocations (units) | Allocations (`unpack_into`) |
+|---|---|---|---|
+| `c7 multi-strip` (6×7, 12-bit, 4 strips of 2 rows) | 4 | 40 | 40 |
+| `c7 tiles` (21×13, 12-bit, 12 tiles of 8×4) | 12 | 120 | 120 |
+
+That is **exactly 10 allocations per strip or tile**, all from `ljpeg::parse_headers`'s
+Huffman-table parse.
+
+- **Add a named constant**, for example `const C7_ALLOCATIONS_PER_CHUNK: usize = 10;`,
+  with a comment stating where the 10 come from. Read `parse_headers` / `parse_dht` and
+  list the allocations: the `dc_tables` `Vec` and its growth, each `huffval` `Vec`,
+  `component_tables`, and the clones. Say that it was measured on these one-component
+  fixtures at `4664773`.
+- **Assert, for each compressed fixture,** `decode_allocs == C7_ALLOCATIONS_PER_CHUNK ×
+  chunk_count`, where `chunk_count` comes from the sensor's strip or tile count, not from
+  a literal. **Keep** the existing old-equals-new assertion beside it.
+- The allocation count depends on the header (DHT count, `Nf`). The pin is for these
+  fixtures; the comment says so. It does not pin held files.
+
+### 2. One assert message (`tests/plane_oracle.rs`)
+
+In `inject_chunk_extraction_fault`, the `assert_eq!` failure message still says
+"BitReader::read's chunk extraction", but since SPEC-069 the needle is the 14-bit group
+kernel's first two shifts (DEC-064 §2). Reword **only the message string**, for example:
+"(the 14-bit group kernel's first two shifts in unpack_bitstream, DEC-064)". The needle,
+the replacement, the count and every assertion stay as they are.
+
+### 3. `just fuzz-ljpeg` (`app.just`)
+
+A recipe mirroring `fuzz-plane` exactly:
+
+```text
+fuzz-ljpeg seconds="60":
+    mkdir -p fuzz/corpus/ljpeg
+    PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ljpeg \
+        fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time={{seconds}}
+```
+
+- Its comment names SPEC-038 (the target) and the same `+toolchain` trap.
+- `fuzz/fuzz_targets/ljpeg.rs`'s header may add one line pointing at the recipe. The
+  command already there stays.
+- **The SPEC-070 build found that** the header command fails on a fresh checkout, because
+  `fuzz/corpus/ljpeg` (gitignored) does not exist. The `mkdir -p` is the fix.
+
+### 4. AGENTS.md §6
+
+The §6 rule is that every recipe's commands appear in the block. Today four recipes are
+missing; add each, with a short comment in the block's style:
+- `orient-timing` (SPEC-067);
+- `unpack-timing` (SPEC-069);
+- `ljpeg-timing` (SPEC-070);
+- `fuzz-ljpeg` (this spec).
+
+For the three timing recipes the comment says: release build, corpus-gated (SKIP line
+and exit 0 when the file is absent), median of 7, no CI gate. Add a sentence to the
+section's prose history naming the SPEC that added each recipe.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- `tests/plane_units_alloc.rs` (all of it), `src/ljpeg.rs` (`parse_headers`, `parse_dht`).
+- `tests/plane_oracle.rs` (`inject_chunk_extraction_fault`).
+- `app.just` (the fuzz and timing recipes), `fuzz/fuzz_targets/ljpeg.rs` (header).
+- AGENTS.md §6.
+- Decisions: DEC-063 §2 (units allocate nothing new), DEC-064 §2, DEC-016.
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:** `tests/plane_units_alloc.rs`, `tests/plane_oracle.rs` (one string),
+  `app.just`, AGENTS.md, and optionally `fuzz/fuzz_targets/ljpeg.rs` (one comment line).
+- **No `src/` change, no public item, no CHANGELOG entry.** It is test and tooling only,
+  so `[Unreleased]` is not touched.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
+- [ ] **AC1. The pin bites.**
+  - `units_and_unit_decode_allocate_nothing` asserts the absolute count for both
+    compressed fixtures, and passes.
+  - Red-proof, on an archived copy of the tree: add one allocation per call in the
+    shared per-chunk kernel (for example a `std::hint::black_box(Vec::<u8>::with_capacity(1))`
+    in `plane::decode_unit`'s Compression 7 arm). The new absolute assertion goes red,
+    while the old-equals-new assertion alone would stay green. Show both.
+- [ ] **AC2. The message only.** `git diff` on `tests/plane_oracle.rs` touches one
+  string literal. `an_injected_unpacker_fault_turns_the_oracle_red` and its control stay
+  green.
+- [ ] **AC3. `just fuzz-ljpeg 60`** runs clean from a checkout with no
+  `fuzz/corpus/ljpeg` directory. Delete it first and show that it is created.
+- [ ] **AC4. AGENTS.md §6** lists every recipe in `app.just`. Show a list of
+  `app.just` recipe names against the block's comment headers, with none missing.
+- [ ] **AC5. No regression.** Every gate is green with the corpus env set:
+  - `just test`
+  - `lint-ci`
+  - `lint-no-allow`
+  - `lint-fuzz`
+  - `fmt-check`
+  - `validate`
+  - `doc-check`
+  - `deny`
+  - `msrv`
+  - `cost-audit`
+  - `gate-audit`
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+  No `src/` file differs from `main`.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
-
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+AC1's new assertion is the only test change, and it passes on today's code by design: it
+pins today's count. The test-first evidence is AC1's red-proof.
 
 ## Non-Goals
 
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
-
-- ...
+- Pinning allocation counts on held (tier-B) files.
+- Reducing the 10 allocations.
+- The test lane (SPEC-072).
+- Any `src/` change.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **Build this before SPEC-072.** Both edit AGENTS.md §6; SPEC-072 is cut after this
+  merges.
+- **The race fix (PR 243) made the tally per thread.** Keep it that way. The new
+  assertion reads the same `count()`.
+- **`just test` today takes about 37 min in debug.** Run it in the background. SPEC-072
+  is what makes it fast.
 
 ---
 

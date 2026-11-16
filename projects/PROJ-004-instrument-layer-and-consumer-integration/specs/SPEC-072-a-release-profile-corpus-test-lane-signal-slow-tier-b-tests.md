@@ -6,7 +6,7 @@
 task:
   id: SPEC-072
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -36,9 +36,9 @@ handoff:
   created_at: null
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-066]
   constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  related_specs: [SPEC-071]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -52,7 +52,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-021's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "a ~14x faster local full test run, so STAGE-021's release and every later cycle stop paying 37 minutes per suite"
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -67,7 +67,7 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
+  tokens_estimate: 10000000
   sessions: []
   totals:
     tokens_total: 0
@@ -75,74 +75,139 @@ cost:
     session_count: 0
 ---
 
-# SPEC-072: — A release-profile corpus test lane (signal `slow-tier-b-tests-in-debug`): the slowest tier-B binaries in debug are `orientation_tiles` 562 s, `develop` 422 s, `warp_alpha` 402 s, `warp` 217 s, `develop_options` 150 s and `plane_units` 142 s, and a full corpus run takes about 37 min. Design decides the shape (for example a `just test-corpus` recipe running the tier-B binaries with `--release`, and whether `just test` keeps tier A plus a fast tier-B subset). Hard rules: no test is deleted or weakened, every tier-B test still runs in some documented lane, CI (no corpus) is unchanged, and AGENTS.md §6 says which lane to run when.
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-072]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
+# SPEC-072: An optimised `corpus` test profile: `just test` runs every test in about 2.5 minutes, and `just test-debug` keeps the old run
 
 ## Context
 
-Why does this spec exist? What problem does it solve? Link to:
-- The parent `STAGE-021` and this spec's place in its backlog
-- The project `PROJ-004`
-- Any related discussions, issues, or prior decisions
+The second spec of STAGE-021. It resolves the signal `slow-tier-b-tests-in-debug`, which the
+STAGE-020 close decided as a release-profile lane. A local full corpus run takes about
+37 minutes in debug, and every build and verify cycle pays for it, often more than once.
 
 ## Goal
 
-1–2 sentences. Unambiguous. If you can't write the goal in two
-sentences, split the spec.
+Make `just test` run **every** test under an optimised cargo profile that keeps debug
+assertions and overflow checks, and keep the old debug run as `just test-debug`. CI does
+not change.
+
+- **The hard criteria:** the same set of tests runs and passes in both lanes, and none is
+  deleted, filtered, ignored or weakened.
+- **The target:** a full `just test` with the corpus takes ≤ 5 min wall on the build
+  machine, from about 37 min.
+
+## Design (DEC-066)
+
+### 1. Probe (main at `4664773`, 2026-11-16; Apple M4 Pro, corpus set)
+
+The design defined the profile with
+`--config profile.corpus.inherits="test" --config profile.corpus.opt-level=3` and ran
+`cargo test --all-features --profile corpus --no-fail-fast`.
+
+| Run | Wall | Binaries | Passed | Failed | Ignored |
+|---|---|---|---|---|---|
+| debug (from the PR 243 run, 553eeaf) | about 37 min | 37 | 697 | 0 | 1 |
+| `corpus` | 157 s | 37 | 697 | 0 | 1 |
+
+Per binary, debug → `corpus`:
+
+| Binary | Debug | `corpus` |
+|---|---|---|
+| `orientation_tiles` | 562 s | 30.2 s |
+| `develop` | 422 s | 23.4 s |
+| `warp_alpha` | 402 s | 17.6 s |
+| `warp` | 217 s | 11.9 s |
+| `develop_options` | 150 s | 7.7 s |
+
+- No test reads `cfg(debug_assertions)`, and no test is `#[should_panic]`.
+- Every pinned digest held, and the red-proof tests ran.
+
+### 2. The change
+
+- **`Cargo.toml`:** a `[profile.corpus]` section, `inherits = "test"`, `opt-level = 3`,
+  with a comment naming DEC-066 and saying why it inherits `test` and not `release`
+  (assertions and overflow checks stay on).
+- **`app.just`:**
+  - `test` runs
+    `cargo run --quiet --all-features --profile corpus --example corpus-status`, then
+    `cargo test --all-features --profile corpus`;
+  - a new `test-debug` recipe holds today's two commands unchanged;
+  - both recipes' comments explain the split.
+- **AGENTS.md §6:** the block's `test` lines show the new commands, a `test-debug` entry
+  holds the old ones, and the prose history names SPEC-072. Grep AGENTS.md for any
+  sentence quoting the debug suite's duration or saying to run it in the background, and
+  update it to the measured time.
+- **`.github/workflows/ci.yml`:** **comment only.** The step's "Mirrors `just test`"
+  becomes "Mirrors `just test-debug`", with one line on why CI stays in debug (tier A is
+  fast there, and it keeps a second optimisation level under test). No `run:` line
+  changes.
+- **`guidance/signals.yaml`** is not edited here. The ship marks
+  `slow-tier-b-tests-in-debug` resolved.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- `Cargo.toml`, `app.just` (`test` and its neighbours), `.github/workflows/ci.yml` (the
+  test job), AGENTS.md §6.
+- DEC-066; the signal `slow-tier-b-tests-in-debug`.
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:** `Cargo.toml`, `app.just`, AGENTS.md, `.github/workflows/ci.yml`
+  (comment only).
+- **No `src/` or `tests/` change, and no CHANGELOG entry** (no library behaviour
+  changes).
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] **AC1. Same tests, both lanes.** With the corpus set:
+  - `just test` and `just test-debug` both pass.
+  - `cargo test --all-features --profile corpus -- --list` and
+    `cargo test --all-features -- --list` print the same test names. Diff them, and show
+    the empty diff.
+  - Both runs report the same passed / failed / ignored totals.
+- [ ] **AC2. Assertions stay on in `corpus`.** A throwaway check, not committed, shows
+  `cfg!(debug_assertions)` is true in a test binary built with `--profile corpus`, and
+  that an arithmetic overflow panics there. For example, `std::panic::catch_unwind` around
+  `std::hint::black_box(u8::MAX) + 1` returns `Err`. `cfg(overflow_checks)` is not stable,
+  so test the behaviour. Use a scratch test file, run once and deleted. Show the output.
+- [ ] **AC3. The pins hold under `corpus`.** Every dnglab `raw_checksum` pin, every
+  develop MD5 pin, and the red-proof tests pass in `just test`, with no SKIP lines (all
+  12 corpus files present).
+- [ ] **AC4. The time (verify checks it; CI does not).** A full `just test` with the
+  corpus takes ≤ 5 min wall on the build machine, counting the profile's first build
+  after a `touch src/lib.rs`. Record it beside `just test-debug`'s time from the same
+  machine.
+- [ ] **AC5. CI unchanged.** `git diff` on `.github/workflows/ci.yml` touches comments
+  only. CI is green on the PR head with the same job set.
+- [ ] **AC6. No regression.** Every gate is green:
+  - `lint-ci`
+  - `lint-no-allow`
+  - `lint-fuzz`
+  - `fmt-check`
+  - `validate`
+  - `doc-check`
+  - `deny`
+  - `msrv` (named profiles are stable well before 1.90)
+  - `cost-audit`
+  - `gate-audit`
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
-
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+None. This spec changes how tests are run, not what they assert. The evidence is AC1's
+identical test list, AC2's assertion check, and AC4's time.
 
 ## Non-Goals
 
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
-
-- ...
+- Deleting, ignoring, filtering or speeding up any individual test.
+- Changing CI's commands.
+- `[profile.test]` or `[profile.release]` changes.
+- Any `src/` or `tests/` change.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **Cut this after SPEC-071 merges.** Both edit AGENTS.md §6.
+- **The `corpus` target dir is about 770 MB.** That is fine; it is gitignored under
+  `target/`.
+- **If you lower debug info** (for example `debug = "line-tables-only"`) to save build
+  time or disk, measure it and record why. It is not required.
 
 ---
 
