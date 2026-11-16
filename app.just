@@ -338,6 +338,17 @@ fuzz-opcode seconds="60":
     PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run opcode \
         fuzz/corpus/opcode fuzz/seeds/opcode -- -max_total_time={{seconds}}
 
+# Run the LJPEG fuzz target (SPEC-038, AGENTS.md §12 bar 2) — the SOF-3
+# lossless-JPEG decoder behind DNG Compression 7. Same `+toolchain` trap and
+# two-corpus-dirs reasoning as `just fuzz`/`just fuzz-plane` above. The
+# `mkdir -p` is load-bearing (SPEC-071): `fuzz/corpus/ljpeg` is gitignored, so
+# a fresh checkout has none, and the bare command in fuzz_targets/ljpeg.rs's
+# header failed there (found by the SPEC-070 build).
+fuzz-ljpeg seconds="60":
+    mkdir -p fuzz/corpus/ljpeg
+    PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ljpeg \
+        fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time={{seconds}}
+
 # Regenerate the committed fuzz seed corpus from tests/support/tiff.rs (`ifd`
 # target), examples/fuzz-seeds.rs's own plane/develop fixtures,
 # tests/opcode.rs's fuzz_seed_corpus() (`warp_opcode` target), and

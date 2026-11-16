@@ -269,6 +269,12 @@ graph — the second cargo graph the library's clippy never sees, DEC-011/DEC-02
 and `just lint-fuzz-red-proof` (its red-proof); `SPEC-023` added `just gate-audit`
 (the gate OVER the gates — scans the verdict-bearing `scripts/*.sh` for the
 mute-death shape) and `just gate-audit-red-proof` (its red-proof).
+`SPEC-016` added `just validate-red-proof`; `SPEC-056` added `just doc-check`
+and `just doc-check-red-proof`; `SPEC-067` added `just orient-timing`,
+`SPEC-069` `just unpack-timing` and `SPEC-070` `just ljpeg-timing` (release-build
+measurements, not gates); `SPEC-071` added `just fuzz-ljpeg` (the SOF-3
+decoder's fuzz target, `SPEC-038`, which until then had no recipe) and listed
+all seven of these in the block, which had fallen behind `app.just`.
 Every recipe's commands appear in the block below and nothing in
 the block is unrunnable: that correspondence is acceptance criterion 8, so a
 recipe that gains a command gains a line here in the same change.
@@ -313,6 +319,18 @@ cargo fmt --check
 #              fmt together; this is the formatting slice alone.
 cargo fmt --check
 
+# doc-check  — rustdoc with warnings denied, on the --all-features and
+#              --no-default-features surfaces (SPEC-056). Fix a failure by
+#              rewording, never by #[allow] or --document-private-items. CI
+#              runs it as the `docs` job.
+./scripts/doc-check.sh
+
+# doc-check-red-proof — proves `doc-check` bites (SPEC-056): the UNMUTATED
+#              copy passes, then one public doc comment linking a private item
+#              is rejected with rustdoc's private_intra_doc_links error naming
+#              it. Temp copy; working tree untouched.
+./scripts/doc-check-red-proof.sh
+
 # lint-red-proof — proves the panic-free lint policy actually rejects a
 #              violating function injected into a copy of src/lib.rs, with the
 #              UNMUTATED copy run first as a negative control (DEC-009)
@@ -326,6 +344,12 @@ cargo fmt --check
 #              STAGE-001 stays exempt. Runs in a temp copy; CI runs it beside
 #              the gate it proves.
 ./scripts/cost-audit-red-proof.sh
+
+# validate-red-proof — proves `just validate` PARSES front matter (SPEC-016):
+#              a grep-satisfiable, parse-broken fixture is rejected by name with
+#              the parser's own message, while the required-keys half still
+#              passes it. Temp copy.
+./scripts/validate-red-proof.sh
 
 # gate-audit  — the gate OVER the gates (SPEC-023). Scans the verdict-bearing
 #              scripts/*.sh for the mute-death shape: a swallowed verdict-oracle
@@ -398,7 +422,7 @@ cargo check --all-targets --all-features
 # build      — release artifact
 cargo build --release
 
-# licences   — the permissive-only gate (constraint no-copyleft-dependencies).
+# deny / deny-fuzz (licences) — the permissive-only gate (constraint no-copyleft-dependencies).
 #              TWO invocations, and BOTH are required: this repo has two cargo
 #              graphs and cargo-deny evaluates one manifest's graph per run.
 #              The first covers the library; it does not see a single crate
@@ -483,6 +507,15 @@ mkdir -p fuzz/corpus/opcode
 PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run opcode \
     fuzz/corpus/opcode fuzz/seeds/opcode -- -max_total_time=60
 
+# fuzz-ljpeg  — the SOF-3 lossless-JPEG decoder's fuzz target (SPEC-038;
+#              recipe SPEC-071), the Compression 7 surface. Same +toolchain
+#              trap and seed/corpus split as `fuzz` above; the mkdir matters,
+#              because fuzz/corpus/ljpeg is gitignored and absent on a fresh
+#              checkout.
+mkdir -p fuzz/corpus/ljpeg
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ljpeg \
+    fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=60
+
 # fuzz-seeds — regenerate the committed seed corpus from tests/support/tiff.rs
 #              (ifd target) and examples/fuzz-seeds.rs's own fixtures (plane,
 #              develop, warp_opcode and opcode targets)
@@ -497,6 +530,24 @@ cargo run --quiet --all-features --example fuzz-seeds
 #              reproduces with no diff.
 cargo run --quiet --all-features --example gen-tone-table
 git diff --exit-code -- src/tone_table.rs
+
+# orient-timing — the mono develop at each Orientation, warp-free and
+#              post-warp, on the held L1021223 (SPEC-067). Release build,
+#              corpus-gated (a SKIP line and exit 0 when the file is absent),
+#              median of 7, no CI gate.
+cargo run --release --all-features --example orient-timing
+
+# unpack-timing — the sensor-plane unpack of the held L1021223: unpack_into
+#              on one thread and 8 units on 8 scoped threads (SPEC-069).
+#              Release build, corpus-gated (a SKIP line and exit 0 when the
+#              file is absent), median of 7, no CI gate.
+cargo run --release --all-features --example unpack-timing
+
+# ljpeg-timing — the single-threaded Compression 7 decode on the held K-3 III
+#              Mono, M Typ 246 and Pixel 4a (SPEC-070). Release build,
+#              corpus-gated (a SKIP line per absent file, exit 0), median of 7,
+#              no CI gate.
+cargo run --release --all-features --example ljpeg-timing
 ```
 
 Oracle commands (run as **tools**, never linked) live in

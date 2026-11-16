@@ -20,6 +20,9 @@
 //! ⚠ Needs the same `+toolchain` handling as `plane`/`ifd` — see that file's
 //! header and `guidance/toolchain-brief.md`.
 //!
+//! `just fuzz-ljpeg [seconds]` runs this, creating `fuzz/corpus/ljpeg` first
+//! (gitignored, so absent on a fresh checkout — `SPEC-071`).
+//!
 //! ```text
 //! PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ljpeg \
 //!     fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=60
