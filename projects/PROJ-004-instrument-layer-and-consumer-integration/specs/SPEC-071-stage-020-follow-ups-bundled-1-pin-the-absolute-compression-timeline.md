@@ -7,4 +7,7 @@ Cycle prompts live in `prompts/SPEC-071-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **design** — completed 2026-11-16 (bundles the four STAGE-020 [XS] follow-ups; probe measured exactly 10 allocations per Compression 7 strip or tile on both tier-A fixtures (40 for 4 strips, 120 for 12 tiles); no src change; build before SPEC-072, which also edits AGENTS.md section 6; HANDOFF-149 build ready)
+- [ ] **build** — HANDOFF-149
+- [ ] **verify**
+- [ ] **ship**
