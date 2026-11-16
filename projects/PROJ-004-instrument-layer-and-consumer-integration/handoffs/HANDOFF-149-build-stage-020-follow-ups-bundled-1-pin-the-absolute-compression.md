@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-16
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-071
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed  # completed | blocked | rejected
+  agent: claude-opus-5-5  # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript  # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 5077732  # REAL combined count — what cost-audit reads
+  estimated_usd: 4.05  # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 45
+  branch: claude/spec-071-build
+  pr: https://github.com/jysf/irradiance/pull/247
+  completed_at: 2026-11-16  # YYYY-MM-DD
+  notes: "FLOOR from transcript 630367db-95dd-47bc-92d2-dad2f9d75ae2.jsonl (37 unique message.ids, all claude-opus-5-5, no subagents), deduped by message.id with max output per message: input 76 + cache-creation 112,631 (1-hour) + cache-read 4,946,934 + output 18,091; opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Measured before the handback commit, so re-sum at ship."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -151,68 +151,50 @@ If one of these seems necessary, stop and say so in the handback.
   - dedupe by `message.id`, taking the max output per message;
   - opus-5-5 rates.
 
-  Fill the `## Handback` section too.
-
-## Return Criteria — how to hand back
-
-**Completing this handoff means filling in the `handback:` front-matter block
-above AND the `## Handback` section below.** An unfilled handback is an
-incomplete cycle, and `just handback-sync` will tell the orchestrator so.
-
-On success:
-1. Fill the `handback:` front-matter — **including a real `tokens_total`**.
-2. Fill the `## Handback` section (the reflection is part of it, not optional).
-3. Set `handoff.status` → `completed` and `handback.status` → `completed`.
-4. Open a PR (build) or return your verdict (verify).
-
-If you cannot complete the task:
-1. Fill the `## Handback` section with what was done and what blocked you.
-2. Set `handoff.status` → `rejected`, `handback.status` → `blocked`.
-3. **Still report your token usage** — blocked work costs money too.
-4. Set the spec's `task.blocked: true` and add a question to
-   `/guidance/questions.yaml`.
-
----
-
-## Handback
-
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
+  Fill the `## Handback
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-071-build`, https://github.com/jysf/irradiance/pull/247. The build commit is 1dcf5c6; this handback follows it.
+- **Completed at:** 2026-11-16
+- **All acceptance criteria met?** Yes. The evidence is below and in the PR body.
+  - **AC1.** `C7_ALLOCATIONS_PER_CHUNK = 10` is asserted as `decode_allocs == 10 × chunk_count`, where the chunk count comes from the sensor's tile or strip offsets, for both compressed fixtures at every band height. The old-equals-new check stays beside it, and the tally stays per thread.
+    - **The 10 are** two `parse_headers` calls per chunk (`plane`'s DEC-047 shape binding, then `ljpeg::open_scan`) × 5 allocations each (the `dc_tables` growth, the `huffval` Vec, the `tds` Vec, `component_tables`, and the `HuffTable` clone).
+    - **Red-proof**, on an archived copy with its own target dir:
+      - a `black_box(Vec::with_capacity(1))` after the C7 strip arm's `parse_headers` gives `c7 multi-strip band 1 … left: 44 right: 40`, while the old assertion just above it passed (44 = 44);
+      - the tile-arm mutation alone gives `c7 tiles band 1 … left: 132 right: 120`;
+      - `main`'s test file against the same mutated tree gives 3 passed.
+  - **AC2.** Only the message literal changed. It names `unpack_groups14`, the function that holds the needle (`unpack_bitstream` calls it).
+  - **AC3.** With `fuzz/corpus/ljpeg` deleted, `just fuzz-ljpeg 60` created it and finished `Done 2659833 runs in 61 second(s)`, exit 0, with no crash.
+  - **AC4.** All 35 `app.just` recipe names (29 plain and 6 with `seconds`) match a §6 block comment header, and none is missing.
+  - **AC5.** With the corpus env set:
+    - `just test` ran 37 binaries: 697 passed, 0 failed, 1 ignored, with 0 SKIP lines.
+    - These are green: `fmt-check`, `lint-ci`, `lint-no-allow`, `lint-fuzz`, `validate`, `gate-audit`, `deny`, `deny-fuzz`, `doc-check`, `msrv` and `cost-audit`.
+    - `git diff origin/main -- src/` is empty.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 5,077,732. This is a floor, measured before the handback commit, so re-sum it at ship.
+- **Estimated USD:** 4.05
+- **Duration (minutes):** about 45
+- **Source of the number:** the transcript (630367db-95dd-47bc-92d2-dad2f9d75ae2.jsonl), deduped by message.id, priced at opus-5-5 rates.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - AC4 asks for every recipe, and the §6 block was also missing `doc-check` and `doc-check-red-proof` (SPEC-056) and `validate-red-proof` (SPEC-016), so they were added. The `licences` header became `deny / deny-fuzz (licences)` so both recipe names appear. The prose-history sentence names all seven.
+  - The assert message names `unpack_groups14` rather than the spec's example wording "in unpack_bitstream", because the needle lives in `unpack_groups14`.
+  - The branch was renamed from the worktree's `claude/spec-071-build-061422` to `claude/spec-071-build`, as the handoff names it.
+- **Follow-up work identified:** none required. One optional item: the §6 `test` entry shows only `cargo test --all-features`, while the recipe also runs the `corpus-status` example first. SPEC-072 rewrites that line anyway.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — The spec said four recipes were missing, but AC4's "every recipe" check found three more, plus the `licences` header naming neither `deny` recipe. The spec's allocation breakdown also did not say the header is parsed twice per chunk, which is the reason the count is 10 rather than 5.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would run the AC4 name-against-header comparison at design time, so the spec states the true missing set.

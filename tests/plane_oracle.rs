@@ -744,8 +744,9 @@ fn inject_chunk_extraction_fault(plane_rs: &Path) {
     let occurrences = src.matches(needle).count();
     assert_eq!(
         occurrences, 1,
-        "expected exactly one `{needle}` in src/plane.rs (BitReader::read's chunk \
-         extraction); found {occurrences} -- the injection point moved, update this test"
+        "expected exactly one `{needle}` in src/plane.rs (the first two shifts of \
+         unpack_groups14, the 14-bit group kernel, DEC-064); found {occurrences} -- the \
+         injection point moved, update this test"
     );
 
     let mutated = src.replacen(
