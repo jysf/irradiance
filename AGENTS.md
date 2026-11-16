@@ -298,6 +298,9 @@ cargo build
 # test       — the whole suite under the `corpus` profile (SPEC-072, DEC-066):
 #              opt-level 3 with debug assertions and overflow checks kept on.
 #              Every test runs; with the corpus set it takes about 2.5 min.
+#              Caveat: opt-level 3 may delete an unused allocation, so the
+#              zero-allocation tests (*_alloc) are authoritative only in
+#              debug (test-debug, CI) — run test-debug after an alloc change.
 #              corpus-status runs first, so a missing tier-B file prints a
 #              SKIP line (tier-B tests skip loudly when the corpus is absent)
 cargo run --quiet --all-features --profile corpus --example corpus-status

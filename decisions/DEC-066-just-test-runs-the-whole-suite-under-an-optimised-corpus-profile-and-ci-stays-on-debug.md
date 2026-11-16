@@ -140,3 +140,17 @@ held file present). It defined the profile on the command line with `--config` a
 - **The signal `slow-tier-b-tests-in-debug` is resolved** when SPEC-072 ships.
 - Handoff boilerplate that says "the full suite takes about 25 min; run it in the
   background" is out of date from then on. Future handoffs quote the new time.
+- **Amendment (SPEC-072 verify, HANDOFF-152, 2026-11-16).** "Only the optimisation
+  level changes" and "no test is weakened" hold for every assertion and pin, but not
+  for the allocation-counting tests. At opt-level 3, LLVM may delete a heap allocation
+  whose result is never used. The verify injected `drop(vec![0u16; 64])` into
+  `develop_with_scratch_into`. The three zero-allocation tests in
+  `develop_scratch_alloc` went red under `test` and stayed green under `corpus`. A
+  transient allocation that is actually used, such as a `collect` that is read
+  afterwards, went red under both. So the `*_alloc` tests are authoritative only in
+  the debug lane. CI runs that lane, and so does `just test-debug`. Run
+  `just test-debug` after changing an allocation path.
+- **`[profile.corpus]` sits above `[dependencies]` in `Cargo.toml`, not at the end.**
+  `scripts/deny-red-proof.sh` appends a dev-dependency and requires
+  `[dev-dependencies]` to be the last table. The build put the profile last, which
+  turned that CI job red on PR #249.

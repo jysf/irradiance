@@ -45,7 +45,10 @@ build:
 # stay on, every test still runs (none deleted, filtered or ignored), and the
 # full corpus suite takes about 2.5 min instead of about 37 in debug. The
 # example and the tests share the profile, so the library compiles once. CI
-# runs the debug commands (`test-debug` below), not these.
+# runs the debug commands (`test-debug` below), not these. One caveat: at
+# opt-level 3 LLVM may delete an allocation whose result is unused, so the
+# zero-allocation tests (`*_alloc`) are only authoritative in debug; after
+# touching an allocation path, run `just test-debug` or rely on CI.
 test:
     cargo run --quiet --all-features --profile corpus --example corpus-status
     cargo test --all-features --profile corpus
