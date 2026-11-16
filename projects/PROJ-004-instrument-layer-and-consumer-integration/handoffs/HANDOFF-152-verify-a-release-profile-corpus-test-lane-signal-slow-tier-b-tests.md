@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-16
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-072
@@ -46,18 +46,17 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
-                                   #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model)
+  verdict: punch-list              # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 5607703            # FLOOR at handback, 42 message.ids deduped, no subagents
+  estimated_usd: 4.22              # opus-5-5: in 89, out 19045, cache_read 5488650, 1-hour cache_write 99919
+  duration_minutes: 50
+  branch: claude/spec-072-verify-5b9684
+  pr: 250
+  completed_at: 2026-11-16
+  notes: "Punch list fixed by the verifier in PR 250, which supersets PR 249. (1) CI red on 249: the profile was appended after dev-dependencies and deny-red-proof.sh requires that table last; moved above dependencies. (2) Under opt-level 3 an unused vec allocation is elided, so the *_alloc zero-count tests pass vacuously for that shape; documented as debug-lane-authoritative in Cargo.toml, app.just, AGENTS.md and a DEC-066 amendment. Floor from transcript 1f696876-fbe0-4f33-9c9c-15b98d7be19e.jsonl; re-sum at ship."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -214,38 +213,66 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-072-verify-5b9684`, https://github.com/jysf/irradiance/pull/250 (supersets #249)
+- **Completed at:** 2026-11-16
+- **All acceptance criteria met?** After the fixes in #250, yes. On #249 as built, no: AC5 failed (CI red) and the "none weakened" goal does not hold for the allocation-counting tests.
+- **For `verify`:** ⚠ PUNCH LIST. Both items are fixed by the verifier in #250 at `3f2db30`, with the handback on top.
+
+**Punch list**
+1. **CI red on #249.** `rust / license policy red-proof — GPL dev-dep, both graphs` failed.
+   - `scripts/deny-red-proof.sh` requires `[dev-dependencies]` to be the last table in `Cargo.toml`, and the build appended `[profile.corpus]` after it.
+   - Reproduced locally on `1332da7`'s manifest. The build handback said CI was "not polled".
+   - **Fix:** the profile is moved above `[dependencies]`, with a comment saying why. `just deny-red-proof` is green.
+2. **The allocation-counting tests are weaker under `corpus`.** I injected `drop(vec![0u16; 64])` into `develop_with_scratch_into`.
+   - Under `test`, three `develop_scratch_alloc` tests go red. Under `corpus` they stay green (9/9).
+   - A used transient allocation (a `collect` read afterwards) goes red in both profiles.
+   - **Fix (docs only):** the `Cargo.toml` comment, the `app.just` test comment, AGENTS.md §6 and a DEC-066 amendment now say the `*_alloc` tests are authoritative in the debug lane (CI and `just test-debug`).
+
+**Reproduced** (M4 Pro, corpus set, 12/12 present)
+- **AC1:**
+  - Both lanes: 37 binaries, 697 passed, 0 failed, 1 ignored.
+  - `-- --list` is 771 lines (698 tests) in both profiles, and the diff is empty.
+- **AC2:** a throwaway test in a scratch copy, deleted afterwards.
+  - Under `corpus`: `debug_assertions = true`, u8 overflow panics, `debug_assert!` fires.
+  - Under `--release`: all three are false.
+  - No profile environment variable reaches a test process.
+- **AC3:** 0 SKIP lines, and every pin and red-proof is ok under `just test`.
+- **AC4:** `just test` took 139 s after `touch src/lib.rs`, on the fixed tree with nothing else running. `just test-debug` took 2261 s (37.7 min).
+- **AC5:** the `.github/` diff is comment lines only, with no `run:` change. The job set is the same as #247's (44 checks). It was red on #249 (item 1). #250's CI is the check.
+- **AC6:** all 10 gates are green on the fixed tree. `cargo publish --dry-run --allow-dirty` also passes; profiles do not reach dependents.
+
+**Points judged**
+- **opt-level 3 as the default:** safe for every assertion, pin and red-proof, with the one exception of the allocation-counting tests (item 2).
+  - Timing: `a_zero_width_tiled_plane_has_no_units` has a 5 s bound, but its `len() == 0` assertions catch the regression on their own. The other `Instant` uses only print.
+  - No test reads `cfg(debug_assertions)` or is `#[should_panic]`.
+  - The one `#[inline(never)]` (`ljpeg.rs`) is a performance hint, not a probe.
+  - There are no recursion-depth tests beyond the IFD depth guard, which is a constant limit.
+- **Red-proof tests:** the staged crates are built by a child `cargo build`, with `--release` (develop, develop_oracle, plane_validate, ifd_resource_guard, ljpeg_shape_binding, required_processing) or dev (previews). They build in their own `target/`, and the outer profile does not reach them, so `corpus` does not change what they prove.
+- **AGENTS.md:** `just test-debug` is exactly the old two commands. The only duration quotes are in the new §6 text, and they are accurate. `guidance/signals.yaml` keeps a historical "~25 minute" note, which the ship resolves.
+- **`Cargo.toml`:** the comment says why the profile inherits `test`. The publish dry run was checked.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 5,607,703 (a floor at handback time: 42 message.ids, no subagents)
+- **Estimated USD:** 4.22 (opus-5-5 list prices, 1-hour cache writes at 2x input)
+- **Duration (minutes):** about 50 (the debug suite ran in the background)
+- **Source of the number:** the transcript `1f696876-fbe0-4f33-9c9c-15b98d7be19e.jsonl`, deduped by message.id with the largest output taken per id
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none. DEC-066 gained an amendment bullet under Consequences: the alloc-test caveat and the profile placement.
+- **Deviations from spec:** none beyond the punch-list fixes. There is no `src/` or `tests/` change and no CI change.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - A possible guard against the item-1 shape: `deny-red-proof.sh` could insert into `[dev-dependencies]` wherever it sits instead of requiring it last. It is not needed now.
+  - The ship should check that #250's CI is green, then mark the signal `slow-tier-b-tests-in-debug` resolved.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing slowed me down. AC5 says "CI green on the PR head", but the build's handback read "CI is on the PR (not polled here)", and that is where the red was hiding.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The invariant that `[dev-dependencies]` is the last table (`deny-red-proof.sh`) is not recorded anywhere outside the script. Neither is the fact that LLVM may elide allocations, which limits what allocation-counting tests can prove in optimised builds.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would read `gh pr checks` first. It showed the red in seconds, before the 38-minute run started.
