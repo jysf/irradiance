@@ -50,14 +50,14 @@ handback:
   agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model)
   verdict: punch-list              # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 5607703            # FLOOR at handback, 42 message.ids deduped, no subagents
-  estimated_usd: 4.22              # opus-5-5: in 89, out 19045, cache_read 5488650, 1-hour cache_write 99919
+  tokens_total: 7238268            # FLOOR at handback, 42 message.ids deduped, no subagents
+  estimated_usd: 5.36              # opus-5-5: in 89, out 19045, cache_read 5488650, 1-hour cache_write 99919
   duration_minutes: 50
   branch: claude/spec-072-verify-5b9684
   pr: 250
   completed_at: 2026-11-16
-  notes: "Punch list fixed by the verifier in PR 250, which supersets PR 249. (1) CI red on 249: the profile was appended after dev-dependencies and deny-red-proof.sh requires that table last; moved above dependencies. (2) Under opt-level 3 an unused vec allocation is elided, so the *_alloc zero-count tests pass vacuously for that shape; documented as debug-lane-authoritative in Cargo.toml, app.just, AGENTS.md and a DEC-066 amendment. Floor from transcript 1f696876-fbe0-4f33-9c9c-15b98d7be19e.jsonl; re-sum at ship."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (52 unique message.ids, all claude-opus-5-5, no subagents): input 111 + cache-creation 111,308 (1-hour) + cache-read 7,098,979 + output 27,870, same rates. PUNCH LIST, both items fixed in superset PR 250 (merged as 431b3b1). The orchestrator added a follow-up commit to PR 250 (the debug allocation-test step in just test); that is orchestration cost, not in this figure. The handback floor was 5,607,703."
+  synced_at: 2026-11-16
 ---
 
 # HANDOFF-152: VERIFY: an optimised `corpus` test profile (SPEC-072)

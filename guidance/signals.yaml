@@ -1624,16 +1624,17 @@ signals:
     summary: "Tier-B tests that decode or develop every held file several times run in the debug profile under `just test` and now take about 10 minutes each, so every local full run (build, verify, each fix restart) pays for them."
     evidence: "N=2. (2) STAGE-020 2026-11-14: SPEC-068's units_assemble_in_any_order_on_held_files takes about 9.5 min in debug (11 files x 8 assemblies, band 1 on the 47 MP planes); the build reported each fuzz finding restarted a 25-minute suite, and the verify agreed it belongs in a release lane. (1) STAGE-019 2026-11-13: SPEC-067's 24-pin tests/orientation_tiles.rs takes about 10 min in debug; both its build and verify filed it as a follow-up."
     bar: "N=3 same-outcome"
-    status: watch
+    status: done
     disposition_at: stage-close
     first_flagged: 2026-11-14
-    last_touched: 2026-11-14
+    last_touched: 2026-11-16
     raised_by: claude
     notes: |
       CI skips tier B, so this is local cost only. Candidate fix: a release-profile
       lane (a `just test-corpus` recipe running the tier-B binaries with --release),
       with `just test` keeping tier A plus a fast subset. Decide at the STAGE-020 close.
       ══ STAGE-020 CLOSE, 2026-11-14: decided — carried to the PROJ-004 brief as an [S] follow-up (a release-profile tier-B lane, `just test-corpus`), status stays watch until it lands. No new slow test this stage, but every SPEC-069 and SPEC-070 build and verify paid the ~25 minute suite and ran it in the background. ══
+      ══ RESOLVED 2026-11-16 by SPEC-072 (DEC-066, PR 250): `just test` runs every test under an optimised `corpus` profile that keeps debug assertions and overflow checks, plus the three `*_alloc` binaries again in debug; a full corpus run takes 178 s instead of about 37 min, with 710 passed. `just test-debug` keeps the old run; CI is unchanged. ══
 
   - id: parallel-tests-share-a-global-counter
     type: lesson
