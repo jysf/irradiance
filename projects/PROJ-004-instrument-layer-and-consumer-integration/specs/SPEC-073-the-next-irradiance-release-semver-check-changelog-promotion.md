@@ -16,7 +16,7 @@ task:
   id: SPEC-073
   type: release                    # epic | story | task | bug | chore | release
   cycle: build  # frame | design | build | verify | ship
-  blocked: false
+  blocked: true
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
