@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let container = Container::parse(&bytes)?;
     let sensor = container.sensor()?;
 
-    // 2. Preflight BEFORE allocating: `validate` checks the strip layout and
+    // 2. Preflight BEFORE allocating: `validate` checks the strip or tile layout and
     //    your own pixel budget (here 100 MP; `usize::MAX` = no limit), so a
     //    forged width x height is a typed error, not an out-of-memory abort.
     let n = plane::validate(&sensor, container.byte_order(), &bytes, 100_000_000)?;
@@ -161,7 +161,7 @@ just lint-ci         # clippy AS CI SEES IT — run this before every push
 just deny            # permissive-only license gate
 just msrv            # compile against the pinned MSRV (1.90.0)
 just fuzz            # the ifd/container fuzz target (also: fuzz-plane,
-                     #   fuzz-develop, fuzz-warp, fuzz-opcode)
+                     #   fuzz-develop, fuzz-warp, fuzz-opcode, fuzz-ljpeg)
 ```
 
 Run a single test by name:
@@ -191,8 +191,8 @@ waves:
   through `plane::unpack_into` (`SPEC-043` routing, `SPEC-046` two-component
   decode, `SPEC-044` bit-exact against `dnglab` on both held files).
 
-Intentionally **not** implemented yet (by design, not omission): tiled planes,
-Bayer (CFA) planes inside lossless JPEG, compressions other than `1` and `7`,
+Intentionally **not** implemented yet (by design, not omission): lossless-JPEG
+component layouts other than `Nf = 1` and `Nf = 2`, compressions other than `1` and `7`,
 and the `ASCII`/signed DNG tag types. The long view — more vendor formats and beyond — is in
 [`docs/future-plans.md`](docs/future-plans.md); see [`projects/`](projects/)
 for active briefs.

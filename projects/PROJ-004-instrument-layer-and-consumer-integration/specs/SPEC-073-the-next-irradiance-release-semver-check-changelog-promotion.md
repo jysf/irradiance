@@ -164,36 +164,125 @@ publishes.
 ## Release Notes
 
 *Outward-facing — written for whoever USES this, not for contributors. Seeded at build
-with `just release-notes PROJ-004`, then edited. The GitHub release text for `v0.2.2` is
-this section.*
+with `just release-notes PROJ-004` (13 notes from 13 shipped specs; SPEC-057, SPEC-071
+and SPEC-072 answered `none` for crate users and stay absent), then edited against the
+CHANGELOG, SPEC ids dropped. The GitHub release text for `v0.2.2` is this section, down
+to the internal record.*
 
-**Headline (drafted at design; the build confirms the numbers):** irradiance 0.2.2
-lets you shape the develop and split the decode. It adds develop options (full active
-area, unrotated output, partial lens correction, caller-owned scratch and per-position
-black levels), embedded preview access, tiled sensor planes, and plane units you can
-decode on your own threads. The single-threaded decode is much faster: about 25× on
-packed 12/14-bit planes and about 6.5× on lossless-JPEG. All of it is
-backward-compatible with 0.2.x, still pure Rust with no runtime dependencies, and
-`DEVELOP_VERSION` stays `"4"`.
+**Headline:** irradiance 0.2.2 lets you shape the develop and split the decode. It adds
+develop options (full active area, unrotated output, partial lens correction,
+caller-owned scratch and per-position black levels), embedded preview access, tiled
+sensor planes, and plane units you can decode on your own threads. The single-threaded
+decode is much faster: about 25× on packed 12/14-bit planes and about 6.5× on
+lossless-JPEG. All of it is backward-compatible with 0.2.x, still pure Rust with no
+runtime dependencies, and `DEVELOP_VERSION` stays `"4"`.
 
-The build fills the groups from `just release-notes` and the CHANGELOG:
-- **New capability:** develop options; previews; tiled planes; plane units.
-- **Faster:** packed 12/14-bit unpack; Compression 7; Orientation 5–8 gather; the
-  develop allocation drop.
-- **Safer on untrusted input:** the new typed errors, each in one line.
+**New capability**
+- **Develop options.** `develop::develop_with_into` and `output_dimensions_with` take a
+  `DevelopOptions`:
+  - `framing: FullActiveArea` keeps every recorded photosite instead of the
+    `DefaultCrop`;
+  - `apply_orientation: false` leaves pixels in stored order;
+  - `warp_alpha` in `[0, 1]` applies part of the `WarpRectilinear` lens correction
+    (`1.0`, the default, is the full correction; `0.0` is none);
+  - `black_levels: PerPosition` honours a per-position `BlackLevel` pattern, for
+    converted (CFA-removed) cameras.
 
-**Breaking / action required:** none. This is a compatible 0.2.x release:
-`cargo update -p irradiance`. New `Error` variants and `Sensor` fields are on
+  Start from `DevelopOptions::default()`, which reproduces `develop_into` exactly.
+- **Caller-owned scratch, zero allocation.** `develop::scratch_len` reports the scratch
+  a mono develop needs. `develop_with_scratch_into` then develops with no heap
+  allocation at all, on success and on every error.
+- **Embedded previews.** `Container::previews()` iterates a DNG's embedded previews
+  (primary and alternate). Each item carries its dimensions, compression and bytes,
+  borrowed zero-copy from your input.
+- **Tiled sensor planes.** `plane::validate` and `plane::unpack_into` now read tiled
+  planes, both uncompressed and lossless-JPEG, including partial edge tiles. The Google
+  Pixel 4a, 3a and 7 Pro planes decode bit-exact against `dnglab`.
+- **Plane units.** `plane::units` splits a plane into independent full-width bands, and
+  `plane::unpack_unit_into` decodes one. Split your buffer with `split_at_mut` and decode
+  the bands on your own threads, in any order, with no `unsafe`. The assembled plane
+  equals `unpack_into` byte for byte. irradiance itself stays single-threaded.
+- **`WarpRect::lerp(alpha)`**: the partially applied warp, public for callers composing
+  the stages themselves.
+
+**Faster** (Apple M4 Pro, release builds, medians)
+- **Packed 12- and 14-bit planes unpack about 25× faster.** A Leica Q2 Monochrom
+  47 MP plane takes 9.7 ms instead of 239 ms on one thread, and 1.4 ms in 8 units on 8
+  threads.
+- **Lossless-JPEG (`Compression 7`) planes decode about 6.5× faster.**
+  - Pentax K-3 III Monochrome: 692 → 103 ms.
+  - Leica M Monochrom Typ 246: 591 → 91 ms.
+  - Pixel 4a: 324 → 61 ms.
+- **Mono develop at Orientations 5–8 is faster.** Warp-free, the develop is 2.5–3.5×
+  faster (for example O5 at 332 → 95 ms).
+- **`develop_into` allocates at most once.** On a Q2 Monochrom frame it makes 1
+  allocation of 189 MB, down from 6 totalling 284 MB, so peak working memory drops.
+  `opcode::parse_fix_bad_pixels_constant` and `parse_warp_rectilinear` no longer
+  allocate.
+
+Every output is byte-identical to 0.2.1: the `dnglab` raw checksums and every develop
+MD5 pin hold.
+
+**Safer on untrusted input**
+- **Tiled-plane errors.** `InvalidTileLayout`, `StripsAndTiles` and
+  `UnsupportedTileRowBits` refuse malformed or unsupported tile tables before any write.
+- **Preview errors.** `UnsupportedPreviewLayout` and `InvalidPreviewLayout` reject one
+  bad preview without stopping iteration over the rest.
+- **Develop-option errors.** These are refused before any write:
+  - `InvalidWarpAlpha`: an alpha that is NaN, infinite or outside `[0, 1]`;
+  - `UnsupportedWarpedFullActiveArea`: a full-area develop whose warp would sample
+    outside the image;
+  - `InvalidBlackLevelPattern`: a `BlackLevel` count that does not match its repeat
+    pattern;
+  - `DevelopScratchWrongLength`: a scratch slice of the wrong length.
+- **Plane-unit errors.** `PlaneUnitMismatch` refuses a unit from another sensor's
+  layout.
+
+**Breaking / action required:** none. This is a compatible 0.2.x release; run
+`cargo update -p irradiance`. The new `Error` variants and `Sensor` fields are on
 `#[non_exhaustive]` types, so existing `match` arms with a `_` and existing field reads
-keep compiling.
+keep compiling. One error message changed: `UnsupportedStripLayout` no longer says tiled
+planes are unsupported. Tiled planes that used to return an error now decode.
 
-**Known limitations:** carry forward the ones that still hold from 0.2.0 and 0.2.1:
-- no colour-accuracy claim (SPEC-035 is still blocked on the chart);
-- the colour develop does not run the `OpcodeList` stages;
-- a RATIONAL non-integral `BlackLevel` (Pixel 7 Pro) resolves to 0;
-- restart-interval units are not built.
+**Known limitations**
+- **No colour-accuracy claim yet.** The ColorChecker ΔE2000 measurement is still blocked
+  on capturing the chart. Treat colour as plausible, not calibrated.
+- **The colour develop does not run the `OpcodeList` stages** (`WarpRectilinear`,
+  `FixBadPixelsConstant`) that the monochrome develop runs. A file that requires them is
+  refused with a typed error. The develop options are mono-only.
+- **The Pixel DNGs decode but do not develop.** Their mandatory `OpcodeList2` GainMaps
+  are refused with `UnsupportedMandatoryOpcode`.
+- **A non-integral RATIONAL `BlackLevel` is read as malformed.** The Pixel 7 Pro carries
+  one. The field becomes `None`, it is listed in `Sensor::malformed_tags`, and the
+  develop uses a black level of 0.
+- **A Compression 7 strip is one plane unit.** Restart-interval units are not built, so
+  a single-scan lossless-JPEG file (the K-3 III, the Typ 246) cannot be split.
 
-The build confirms each against the code and drops any that no longer hold.
+### Internal release record (not part of the GitHub release text)
+
+- **Mechanical semver check:** `cargo-semver-checks 0.51.0`, v0.2.1 to the candidate.
+  - **Result:** 202 checks, 201 passed and 1 failed. The failure is
+    `enum_no_repr_variant_discriminant_changed` on `Error`: 37 variants' implicit
+    discriminants shifted because new variants were inserted mid-enum.
+  - **Accepted as a false positive by the user on 2026-11-16** ("Accept, resume 0.2.2").
+    `Error` has data variants, no `#[repr]` and is `#[non_exhaustive]`, so a downstream
+    `as isize` cast is rustc error E0605; a probe crate against the v0.2.1 tree proved
+    it. The same lint fires on the published v0.2.0 to v0.2.1 (22 variants). The other
+    201 checks pass, including removed items, signatures and struct fields.
+- **Workaround:** `--baseline-rev v0.2.1` crashes on this repo with `File name too long
+  (os error 63)`. The clone writes a `.tmp-…` file beside a handoff whose name is
+  already near the 255-byte limit. The check ran with `--baseline-root` on a
+  `git archive v0.2.1` of the crate files (`Cargo.toml`, `src`, `README.md`, the
+  licences, `tests`, `examples`), which is the same tag content. The same workaround
+  produced the 0.2.0 to 0.2.1 comparison.
+- **Candidate timings** (`439ecf7`'s tree, Apple M4 Pro, release, medians in ms; they
+  confirm the CHANGELOG's figures within a few percent):
+  - `just unpack-timing`: Q2M `unpack_into` on 1 thread 9.9; 8 units on 8 threads 1.6.
+  - `just ljpeg-timing`: K-3 III 104.4; Typ 246 92.0; Pixel 4a 62.4.
+  - `just orient-timing`, warp-free: O1 81, O5 105, O6 123, O7 161, O8 159.
+  - `just orient-timing`, post-warp: O1 611, O5 634, O8 668.
+- **Suggestion for future releases:** append new `Error` variants at the end of the
+  enum, so the lint stays quiet without a judgement call.
 
 ## Release cut is two-phase
 
@@ -204,34 +293,54 @@ The build confirms each against the code and drops any that no longer hold.
 
 ## Release Pre-Flight
 
-**Delivery shape: library plus a crates.io package (source crate, no binary).**
+**Delivery shape: library plus a crates.io package (source crate, no binary).** Filled
+2026-11-16 by the Phase-1 build (HANDOFF-153) on candidate `439ecf7`.
 - `[now]`: verified on the candidate in the build session.
 - `[cut]`: only checkable at Phase 2, verified by the user.
 - `N/A`: does not apply to a source crate.
 
-- [ ] **1. Version / tag integrity & build provenance** — part `[now]`, the rest `[cut]`.
-  - `[now]`:
+- [ ] **1. Version / tag integrity & build provenance** — part `[now]` (done), the rest
+  `[cut]`.
+  - `[now]` ✔:
     - `Cargo.toml` says `version = "0.2.2"`, and `cargo publish --dry-run` reports
-      `irradiance v0.2.2`;
-    - `git tag -l 'v0.2.2'` is empty, so there is no premature tag;
-    - the dry-run's packaged `.cargo_vcs_info.json` carries the candidate's `git.sha1`.
+      `Packaging irradiance v0.2.2` (19 files, 1.7 MiB, 355.2 KiB compressed);
+    - `git tag -l 'v0.2.2'` is empty, so there is no premature tag. The timing examples
+      stamp the candidate as `v0.2.1-51-g…`;
+    - the dry-run's packaged `.cargo_vcs_info.json` carries `git.sha1`
+      `439ecf72d0f61e62aac854a7e486eb1b4fa58a46`, the candidate commit;
+    - `license`, `description`, `keywords`, `categories`, `repository` and
+      `rust-version = "1.90"` are unchanged from 0.2.1. There is no explicit `readme` key:
+      cargo infers `README.md` (in `include`), and the packaged manifest carries
+      `readme = "README.md"`.
   - `[cut]`, on the merged prep commit:
     - `git tag -a v0.2.2 -m "irradiance 0.2.2"`;
     - `git tag --points-at HEAD` prints exactly `v0.2.2`;
     - after publishing, the `.crate`'s `.cargo_vcs_info.json` sha1 equals the tagged
       commit:
       `curl -sL https://static.crates.io/crates/irradiance/irradiance-0.2.2.crate | tar -xzO irradiance-0.2.2/.cargo_vcs_info.json`.
-- [ ] **2. Artifact trust on a clean host** — `N/A`: source crate, no signed binary.
+- [x] **2. Artifact trust on a clean host** — `N/A`: source crate, no signed binary.
 - [ ] **3. Distribution-channel trust** — `[cut]`.
-  - `[now]` proxy: `cargo publish --dry-run` builds the packaged crate in isolation, and
-    `just package-targets-check` shows no executable.
+  - `[now]` proxy ✔:
+    - `cargo publish --dry-run` packaged and compiled the crate in isolation and stopped
+      at "aborting upload due to dry run";
+    - the packaged `Cargo.toml` has no self dev-dependency (its only dev-dependencies
+      are `ssimulacra2` and `toml`);
+    - `just package-targets-check` passed: no executable in the default build or the
+      package, `--features irr` builds `irr` as its positive control, and its red case
+      is caught;
+    - `just deny` and `just deny-fuzz` both report `licenses ok`.
   - `[cut]`: on a host that never saw the source, `cargo new probe && cd probe && cargo
     add irradiance@0.2.2 && cargo build`. crates.io shows 0.2.2, and the docs.rs build
     is green.
-- [ ] **4. Data isolation** — `N/A`: a library with no I/O and no data store.
-- [ ] **5. Runtime smoke on a clean host** — `[now]` on the candidate, `[cut]` on the
-  published crate.
-  - `[now]`: `just test` is green with every corpus file present, and every pin holds.
+- [x] **4. Data isolation** — `N/A`: a library with no I/O and no data store.
+- [ ] **5. Runtime smoke on a clean host** — `[now]` on the candidate (done), `[cut]` on
+  the published crate.
+  - `[now]` ✔:
+    - `just test`, with `IRRADIANCE_CORPUS_DIR` set, prints "12/12 present — no tier-B
+      test will skip". It ran 40 binaries: 710 passed, 0 failed, 1 ignored, in 185 s.
+      Every `dnglab` checksum pin and every develop MD5 pin held;
+    - `cargo test --doc --all-features`: 4 passed;
+    - `just doc-check` is green.
   - `[cut]`: in the clean-host `probe` crate, parse one held DNG, then run
     `plane::validate`, `unpack_into` and `develop_into`, plus one new 0.2.2 call
     (`plane::units` or `develop_with_into` with `DevelopOptions::default()`). Each
@@ -241,6 +350,19 @@ The build confirms each against the code and drops any that no longer hold.
     0.2.1. It was exercised on 0.1.0 (DEC-028); `cargo yank --undo --version 0.2.2`
     reverses it.
   - **Git rollback** of the prep is a revert of the Phase-1 PR.
+
+**Gates on the candidate, all green:**
+- `just test` (above)
+- `lint-ci`
+- `lint-no-allow`
+- `lint-fuzz`
+- `fmt-check`
+- `validate`
+- `doc-check`
+- `deny`, plus `deny-fuzz`
+- `msrv` (1.90.0)
+- `cost-audit`
+- `gate-audit`
 
 ## Notes for the Implementer
 

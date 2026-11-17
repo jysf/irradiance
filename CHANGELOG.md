@@ -8,6 +8,14 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-16
+
+Develop options, embedded previews, tiled sensor planes, plane units and faster
+decodes (PROJ-004, STAGE-015 to STAGE-021). A compatible patch release over 0.2.1:
+no public item was removed or changed, every new field and variant is on a
+`#[non_exhaustive]` type, there is no new dependency or feature, and the MSRV stays
+1.90. Default outputs are unchanged, so `DEVELOP_VERSION` stays `"4"`.
+
 ### Added
 
 - **Plane units: decode the sensor plane in independent bands**

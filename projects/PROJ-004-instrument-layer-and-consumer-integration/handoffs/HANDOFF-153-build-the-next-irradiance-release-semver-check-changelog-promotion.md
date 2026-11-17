@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-16
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-073
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 10790137           # REAL combined count — what cost-audit reads
+  estimated_usd: 9.04              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 80
+  branch: claude/spec-073-build
+  pr: 253
+  completed_at: 2026-11-16         # YYYY-MM-DD
+  notes: "Blocked at step 1 on a cargo-semver-checks 0.51.0 report (enum_no_repr_variant_discriminant_changed on Error), which the user accepted as a false positive on 2026-11-16 (Accept, resume 0.2.2); then the full Phase-1 prep. Floor from transcript 34da6ff5-811a-4f41-afac-30c5186c9017.jsonl, 64 message.ids, no subagents, opus-5-5 with 1-hour cache writes, measured before the final commit; re-sum at ship." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -188,38 +188,59 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-073-build`, https://github.com/jysf/irradiance/pull/253. The PR is left unmerged for the cold verify.
+- **Completed at:** 2026-11-16
+- **All acceptance criteria met?** Yes, after one stop. The build first stopped at step 1, with commit `f1a2884` recording the block. The user answered "Accept, resume 0.2.2", and the build then completed every step.
+- **The semver check:**
+  - `cargo-semver-checks 0.51.0` ran 202 checks against v0.2.1: 201 passed and 1 failed.
+  - The failure is `enum_no_repr_variant_discriminant_changed` on `Error`: 37 variants' implicit discriminants shifted because new variants were inserted mid-enum.
+  - I showed it cannot be observed. `Error` has fields and no `#[repr]`, so a downstream `as isize` is rustc error E0605, which a probe crate against the v0.2.1 tree confirms. The same lint fires on the published v0.2.0 -> v0.2.1.
+  - The user accepted it as a false positive on 2026-11-16. The question `spec-073-semver-checks-flags-error-discriminants` is answered, and the spec's internal release record carries it.
+- **Workaround:** `--baseline-rev v0.2.1` crashes with `File name too long (os error 63)`. The clone writes a `.tmp-…` file beside a handoff whose name is already near the 255-byte limit. The check ran with `--baseline-root` on a `git archive v0.2.1` of the crate files.
+- **The prep:**
+  - `version = "0.2.2"`; no other manifest key changed.
+  - The CHANGELOG `[Unreleased]` is promoted to `## [0.2.2] - 2026-11-16`, with a short summary paragraph, and a fresh, empty `[Unreleased]` sits on top.
+  - The release notes are in the spec, seeded from `just release-notes PROJ-004` and edited against the CHANGELOG. Every known limitation was checked against the code.
+  - Four wording fixes:
+    - the README no longer lists tiled planes as unimplemented;
+    - the README `validate` comment says "strip or tile layout";
+    - the README fuzz list adds `fuzz-ljpeg`;
+    - the `src/lib.rs` crate doc no longer says compressed-plane decode is absent.
+- **The evidence, on candidate `439ecf7`:**
+  - `just test` with the corpus: 12/12 files present, 40 binaries, 710 passed, 0 failed, 1 ignored, 185 s.
+  - `cargo test --doc`: 4 passed.
+  - The timings confirm the CHANGELOG figures: unpack 9.9 ms on 1 thread and 1.6 ms in 8 units; ljpeg 104.4, 92.0 and 62.4 ms.
+  - `cargo publish --dry-run` packages v0.2.2: 19 files, `.cargo_vcs_info.json` sha1 `439ecf7…`, no self dev-dependency.
+  - `package-targets-check`, `deny` and `deny-fuzz` are green.
+- **Gates, all green:** `lint-ci`, `lint-no-allow`, `lint-fuzz`, `fmt-check`, `validate`, `doc-check`, `msrv`, `cost-audit`, `gate-audit`.
+- **No tag, no publish:** `git tag -l v0.2.2` is empty.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 10,790,137 (input 131, output 37,820, cache write 286,464, cache read 10,465,722). This is a floor, measured just before the final commit; the CI check after it is not counted.
+- **Estimated USD:** 9.04, at opus-5-5 rates per component, with cache writes priced as 1-hour.
+- **Duration (minutes):** about 80 in all. That covers both turns, including the tool install and the 3-minute test run.
+- **Source of the number:** the transcript `34da6ff5-811a-4f41-afac-30c5186c9017.jsonl`, deduped by `message.id` (64 ids, the largest output per id). There were no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none. The false-positive acceptance is the user's answer, recorded in `guidance/questions.yaml` and in the spec's internal release record.
 - **Deviations from spec:**
-  - [list]
+  - `--baseline-root` instead of `--baseline-rev`, for the reason above.
+  - The build stopped once, as instructed, before resuming.
+  - The PR head is a docs-only commit after the dry-run candidate `439ecf7`. Phase 2's runbook re-runs the dry-run on the merged commit anyway.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - Append new `Error` variants at the end of the enum, as a convention or a DEC, so the lint stays quiet.
+  - Add a `just semver-check` recipe that pins the `--baseline-root` workaround.
+  - Shorten handoff filenames: the longest ones break any tool that writes a `.tmp` sibling.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — "Stop on any reported breaking change" doesn't separate a breaking change from a tool finding that cannot be observed. It cost one round trip to the user, which was the right call under the rule as written.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-052 covers new `Error` variants only as "`#[non_exhaustive]`". It does not address variant order, the one thing the semver tool objects to.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the tool on the previous patch release (v0.2.0 -> v0.2.1) at design time, so a known false positive is decided before the build.

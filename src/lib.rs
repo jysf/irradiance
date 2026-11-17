@@ -105,9 +105,12 @@
 //! `threads <= 1` is the single-thread call, and any thread count is
 //! byte-identical to it. The colour 90° rotations (orientations 5–8) fall back
 //! to the single-thread develop (`DEC-044`).
+//! Later waves added the SOF-3 lossless-JPEG (`Compression 7`) plane decode
+//! (PROJ-003), and tiled planes, embedded previews, develop options and plane
+//! units (PROJ-004); the CHANGELOG records each.
 //! Still absent, by design:
 //! `ASCII` and the signed field types (no DNG tag PROJ-001 reads needs them
-//! yet), and any compressed-plane decode (PROJ-003).
+//! yet).
 
 #![forbid(unsafe_code)]
 #![deny(

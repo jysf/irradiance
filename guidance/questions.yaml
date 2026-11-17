@@ -74,3 +74,35 @@ questions:
       scans per restart-less frame, de-interleaved by component) so the oracle
       has something to check, or acquire a genuinely single-component
       Compression-7 held file. Decision needed before SPEC-044 build starts.
+
+  - id: spec-073-semver-checks-flags-error-discriminants
+    question: "cargo-semver-checks 0.51.0 reports one major-level failure for v0.2.1 -> main (enum_no_repr_variant_discriminant_changed on Error, 37 variants), which HANDOFF-153 says stops the 0.2.2 build; is it accepted as a false positive so 0.2.2 proceeds, or does the release become 0.3.0?"
+    priority: high
+    status: answered
+    raised_by: claude-opus-5-5
+    raised_at: 2026-11-16
+    assigned_to: human
+    notes: |
+      ANSWERED 2026-11-16 by the user: "Accept, resume 0.2.2". The lint is accepted
+      as a false positive (Error has data variants, no repr and is non_exhaustive, so
+      no dependent can cast it; 0.2.1 shipped the same pattern; the other 201 checks
+      pass). The 0.2.2 build resumed from the version bump. No DEC: the release
+      decision is recorded in SPEC-073's release notes record and HANDOFF-153.
+      ──
+      Found by the SPEC-073 build (HANDOFF-153), the first step, before any prep edit.
+      The tool's only failing check of 202: the implicit discriminants of 37 Error
+      variants shifted (e.g. MissingRowsPerStrip 19 -> 24) because new variants were
+      inserted mid-enum. Error has NO repr attribute, is non_exhaustive, and has
+      struct variants with fields, so a downstream `as isize` cast is a compile error
+      (E0605, "only if the enum type is unit-only or field-less") — proved with a
+      throwaway probe crate against the v0.2.1 tree. The discriminant is therefore
+      not observable by any dependent; only std::mem::discriminant sees it, and that
+      is opaque. The SAME lint fires on the already-published v0.2.0 -> v0.2.1 patch
+      (22 Error variants), so 0.2.1 shipped with this exact pattern. Every other
+      check (201) passes, including the removed-item, signature and field checks.
+      The build stopped as instructed: no version bump, no API change. Options:
+      (a) accept it as a false positive and resume the 0.2.2 build as designed;
+      (b) bump to 0.3.0. Full output in the session notes folder
+      (spec-073-semver-checks-*.log). Mechanics: --baseline-rev v0.2.1 fails with
+      "File name too long" (a .tmp suffix on a long handoff filename in the clone),
+      so the run used --baseline-root on a git-archive of the v0.2.1 crate files.
