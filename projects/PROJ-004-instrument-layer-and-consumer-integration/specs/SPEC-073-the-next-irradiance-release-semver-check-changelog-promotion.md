@@ -275,6 +275,12 @@ planes are unsupported. Tiled planes that used to return an error now decode.
   `git archive v0.2.1` of the crate files (`Cargo.toml`, `src`, `README.md`, the
   licences, `tests`, `examples`), which is the same tag content. The same workaround
   produced the 0.2.0 to 0.2.1 comparison.
+- **Candidate timings** (`439ecf7`'s tree, Apple M4 Pro, release, medians in ms; they
+  confirm the CHANGELOG's figures within a few percent):
+  - `just unpack-timing`: Q2M `unpack_into` on 1 thread 9.9; 8 units on 8 threads 1.6.
+  - `just ljpeg-timing`: K-3 III 104.4; Typ 246 92.0; Pixel 4a 62.4.
+  - `just orient-timing`, warp-free: O1 81, O5 105, O6 123, O7 161, O8 159.
+  - `just orient-timing`, post-warp: O1 611, O5 634, O8 668.
 - **Suggestion for future releases:** append new `Error` variants at the end of the
   enum, so the lint stays quiet without a judgement call.
 
@@ -287,34 +293,54 @@ planes are unsupported. Tiled planes that used to return an error now decode.
 
 ## Release Pre-Flight
 
-**Delivery shape: library plus a crates.io package (source crate, no binary).**
+**Delivery shape: library plus a crates.io package (source crate, no binary).** Filled
+2026-11-16 by the Phase-1 build (HANDOFF-153) on candidate `439ecf7`.
 - `[now]`: verified on the candidate in the build session.
 - `[cut]`: only checkable at Phase 2, verified by the user.
 - `N/A`: does not apply to a source crate.
 
-- [ ] **1. Version / tag integrity & build provenance** — part `[now]`, the rest `[cut]`.
-  - `[now]`:
+- [ ] **1. Version / tag integrity & build provenance** — part `[now]` (done), the rest
+  `[cut]`.
+  - `[now]` ✔:
     - `Cargo.toml` says `version = "0.2.2"`, and `cargo publish --dry-run` reports
-      `irradiance v0.2.2`;
-    - `git tag -l 'v0.2.2'` is empty, so there is no premature tag;
-    - the dry-run's packaged `.cargo_vcs_info.json` carries the candidate's `git.sha1`.
+      `Packaging irradiance v0.2.2` (19 files, 1.7 MiB, 355.2 KiB compressed);
+    - `git tag -l 'v0.2.2'` is empty, so there is no premature tag. The timing examples
+      stamp the candidate as `v0.2.1-51-g…`;
+    - the dry-run's packaged `.cargo_vcs_info.json` carries `git.sha1`
+      `439ecf72d0f61e62aac854a7e486eb1b4fa58a46`, the candidate commit;
+    - `license`, `description`, `keywords`, `categories`, `repository` and
+      `rust-version = "1.90"` are unchanged from 0.2.1. There is no explicit `readme` key:
+      cargo infers `README.md` (in `include`), and the packaged manifest carries
+      `readme = "README.md"`.
   - `[cut]`, on the merged prep commit:
     - `git tag -a v0.2.2 -m "irradiance 0.2.2"`;
     - `git tag --points-at HEAD` prints exactly `v0.2.2`;
     - after publishing, the `.crate`'s `.cargo_vcs_info.json` sha1 equals the tagged
       commit:
       `curl -sL https://static.crates.io/crates/irradiance/irradiance-0.2.2.crate | tar -xzO irradiance-0.2.2/.cargo_vcs_info.json`.
-- [ ] **2. Artifact trust on a clean host** — `N/A`: source crate, no signed binary.
+- [x] **2. Artifact trust on a clean host** — `N/A`: source crate, no signed binary.
 - [ ] **3. Distribution-channel trust** — `[cut]`.
-  - `[now]` proxy: `cargo publish --dry-run` builds the packaged crate in isolation, and
-    `just package-targets-check` shows no executable.
+  - `[now]` proxy ✔:
+    - `cargo publish --dry-run` packaged and compiled the crate in isolation and stopped
+      at "aborting upload due to dry run";
+    - the packaged `Cargo.toml` has no self dev-dependency (its only dev-dependencies
+      are `ssimulacra2` and `toml`);
+    - `just package-targets-check` passed: no executable in the default build or the
+      package, `--features irr` builds `irr` as its positive control, and its red case
+      is caught;
+    - `just deny` and `just deny-fuzz` both report `licenses ok`.
   - `[cut]`: on a host that never saw the source, `cargo new probe && cd probe && cargo
     add irradiance@0.2.2 && cargo build`. crates.io shows 0.2.2, and the docs.rs build
     is green.
-- [ ] **4. Data isolation** — `N/A`: a library with no I/O and no data store.
-- [ ] **5. Runtime smoke on a clean host** — `[now]` on the candidate, `[cut]` on the
-  published crate.
-  - `[now]`: `just test` is green with every corpus file present, and every pin holds.
+- [x] **4. Data isolation** — `N/A`: a library with no I/O and no data store.
+- [ ] **5. Runtime smoke on a clean host** — `[now]` on the candidate (done), `[cut]` on
+  the published crate.
+  - `[now]` ✔:
+    - `just test`, with `IRRADIANCE_CORPUS_DIR` set, prints "12/12 present — no tier-B
+      test will skip". It ran 40 binaries: 710 passed, 0 failed, 1 ignored, in 185 s.
+      Every `dnglab` checksum pin and every develop MD5 pin held;
+    - `cargo test --doc --all-features`: 4 passed;
+    - `just doc-check` is green.
   - `[cut]`: in the clean-host `probe` crate, parse one held DNG, then run
     `plane::validate`, `unpack_into` and `develop_into`, plus one new 0.2.2 call
     (`plane::units` or `develop_with_into` with `DevelopOptions::default()`). Each
@@ -324,6 +350,19 @@ planes are unsupported. Tiled planes that used to return an error now decode.
     0.2.1. It was exercised on 0.1.0 (DEC-028); `cargo yank --undo --version 0.2.2`
     reverses it.
   - **Git rollback** of the prep is a revert of the Phase-1 PR.
+
+**Gates on the candidate, all green:**
+- `just test` (above)
+- `lint-ci`
+- `lint-no-allow`
+- `lint-fuzz`
+- `fmt-check`
+- `validate`
+- `doc-check`
+- `deny`, plus `deny-fuzz`
+- `msrv` (1.90.0)
+- `cost-audit`
+- `gate-audit`
 
 ## Notes for the Implementer
 
