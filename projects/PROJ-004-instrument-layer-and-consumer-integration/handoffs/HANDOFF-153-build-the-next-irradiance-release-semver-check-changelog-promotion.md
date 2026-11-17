@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-16
-  status: rejected                 # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-073
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: blocked                  # completed | blocked | rejected
+  status: completed                # completed | blocked | rejected
   agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 4574961            # REAL combined count — what cost-audit reads
-  estimated_usd: 3.77              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: 30
+  tokens_total: 10790137           # REAL combined count — what cost-audit reads
+  estimated_usd: 9.04              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 80
   branch: claude/spec-073-build
-  pr: null
+  pr: 253
   completed_at: 2026-11-16         # YYYY-MM-DD
-  notes: "BLOCKED at step 1. cargo-semver-checks 0.51.0, v0.2.1 to main: 201 of 202 checks pass, one major-level failure, enum_no_repr_variant_discriminant_changed on Error (37 variants renumbered by mid-enum inserts). Shown unobservable downstream (Error has fields and no repr, so an as-cast is E0605) and the same lint fires on the shipped v0.2.0 to v0.2.1. No prep done, no version or API change. Floor from transcript 34da6ff5-811a-4f41-afac-30c5186c9017.jsonl, 31 message.ids, no subagents, opus-5-5 with 1-hour cache writes; re-sum at ship." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  notes: "Blocked at step 1 on a cargo-semver-checks 0.51.0 report (enum_no_repr_variant_discriminant_changed on Error), which the user accepted as a false positive on 2026-11-16 (Accept, resume 0.2.2); then the full Phase-1 prep. Floor from transcript 34da6ff5-811a-4f41-afac-30c5186c9017.jsonl, 64 message.ids, no subagents, opus-5-5 with 1-hour cache writes, measured before the final commit; re-sum at ship." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -188,45 +188,59 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-073-build`, a local commit with this bookkeeping only. Not pushed and no PR, because the build stopped at step 1.
-- **Completed at:** 2026-11-16 (blocked)
-- **All acceptance criteria met?** No. The handoff's first deliverable says any reported breaking change stops the build, and one was reported. Nothing past step 1 was started: no version bump, no CHANGELOG, no release notes, no README edit.
-- **The result:**
-  - `cargo-semver-checks 0.51.0`, installed with `cargo install cargo-semver-checks --locked`.
-  - `--baseline-rev v0.2.1` cannot run on this repo. The clone writes a `.tmp-…` file beside a handoff whose name is already near the 255-byte limit and fails with `File name too long (os error 63)`. The run used `--baseline-root` on a `git archive v0.2.1` of the crate files instead (`Cargo.toml`, `src`, `README.md`, the licences, `tests`, `examples`). That is the same tag content.
-  - The run checked 202: 201 passed, 1 failed, 0 warned, 58 skipped. The summary says "semver requires new major version: 1 major and 0 minor checks failed".
-  - The failing check is `enum_no_repr_variant_discriminant_changed` on `Error`. The implicit discriminants of 37 variants shifted, from `MissingRowsPerStrip 19 -> 24` through `LjpegUnsupportedSampling 55 -> 65`, because new variants were inserted mid-enum.
-- **Why I think it is a false positive (for the user to judge):**
-  - `Error` has no `#[repr]`, is `#[non_exhaustive]`, and has struct variants with fields. rustc rejects `e as isize` on it with E0605 ("only if the enum type is unit-only or field-less"). I proved that with a throwaway probe crate against the v0.2.1 tree, so no dependent can observe the number. `std::mem::discriminant` is opaque.
-  - The same lint fires on the already-published v0.2.0 -> v0.2.1 patch (22 `Error` variants), so 0.2.1 shipped with this exact pattern.
-  - Every other check passes, including removed items, signatures, struct fields and trait impls.
-- **The decision for the user:** accept it as a false positive and resume the 0.2.2 build as designed, or release as 0.3.0. Raised as `guidance/questions.yaml` `spec-073-semver-checks-flags-error-discriminants`, and the spec is set to `blocked: true`. Both tool outputs are in the session notes folder (`spec-073-semver-checks-v0.2.1-to-main.log`, `spec-073-semver-checks-v0.2.0-to-v0.2.1.log`).
+- **Branch / PR:** `claude/spec-073-build`, https://github.com/jysf/irradiance/pull/253. The PR is left unmerged for the cold verify.
+- **Completed at:** 2026-11-16
+- **All acceptance criteria met?** Yes, after one stop. The build first stopped at step 1, with commit `f1a2884` recording the block. The user answered "Accept, resume 0.2.2", and the build then completed every step.
+- **The semver check:**
+  - `cargo-semver-checks 0.51.0` ran 202 checks against v0.2.1: 201 passed and 1 failed.
+  - The failure is `enum_no_repr_variant_discriminant_changed` on `Error`: 37 variants' implicit discriminants shifted because new variants were inserted mid-enum.
+  - I showed it cannot be observed. `Error` has fields and no `#[repr]`, so a downstream `as isize` is rustc error E0605, which a probe crate against the v0.2.1 tree confirms. The same lint fires on the published v0.2.0 -> v0.2.1.
+  - The user accepted it as a false positive on 2026-11-16. The question `spec-073-semver-checks-flags-error-discriminants` is answered, and the spec's internal release record carries it.
+- **Workaround:** `--baseline-rev v0.2.1` crashes with `File name too long (os error 63)`. The clone writes a `.tmp-…` file beside a handoff whose name is already near the 255-byte limit. The check ran with `--baseline-root` on a `git archive v0.2.1` of the crate files.
+- **The prep:**
+  - `version = "0.2.2"`; no other manifest key changed.
+  - The CHANGELOG `[Unreleased]` is promoted to `## [0.2.2] - 2026-11-16`, with a short summary paragraph, and a fresh, empty `[Unreleased]` sits on top.
+  - The release notes are in the spec, seeded from `just release-notes PROJ-004` and edited against the CHANGELOG. Every known limitation was checked against the code.
+  - Four wording fixes:
+    - the README no longer lists tiled planes as unimplemented;
+    - the README `validate` comment says "strip or tile layout";
+    - the README fuzz list adds `fuzz-ljpeg`;
+    - the `src/lib.rs` crate doc no longer says compressed-plane decode is absent.
+- **The evidence, on candidate `439ecf7`:**
+  - `just test` with the corpus: 12/12 files present, 40 binaries, 710 passed, 0 failed, 1 ignored, 185 s.
+  - `cargo test --doc`: 4 passed.
+  - The timings confirm the CHANGELOG figures: unpack 9.9 ms on 1 thread and 1.6 ms in 8 units; ljpeg 104.4, 92.0 and 62.4 ms.
+  - `cargo publish --dry-run` packages v0.2.2: 19 files, `.cargo_vcs_info.json` sha1 `439ecf7…`, no self dev-dependency.
+  - `package-targets-check`, `deny` and `deny-fuzz` are green.
+- **Gates, all green:** `lint-ci`, `lint-no-allow`, `lint-fuzz`, `fmt-check`, `validate`, `doc-check`, `msrv`, `cost-audit`, `gate-audit`.
+- **No tag, no publish:** `git tag -l v0.2.2` is empty.
 
 ### Cost self-report
 
-- **Tokens (total):** 4,574,961 (input 61, output 13,182, cache write 121,653, cache read 4,440,065). This is a floor re-summed at handback.
-- **Estimated USD:** 3.77, at opus-5-5 rates per component, with cache writes priced as 1-hour.
-- **Duration (minutes):** about 30, most of it the tool's compile.
-- **Source of the number:** the transcript `34da6ff5-811a-4f41-afac-30c5186c9017.jsonl`, deduped by `message.id` (31 ids, the largest output per id). There were no subagents.
+- **Tokens (total):** 10,790,137 (input 131, output 37,820, cache write 286,464, cache read 10,465,722). This is a floor, measured just before the final commit; the CI check after it is not counted.
+- **Estimated USD:** 9.04, at opus-5-5 rates per component, with cache writes priced as 1-hour.
+- **Duration (minutes):** about 80 in all. That covers both turns, including the tool install and the 3-minute test run.
+- **Source of the number:** the transcript `34da6ff5-811a-4f41-afac-30c5186c9017.jsonl`, deduped by `message.id` (64 ids, the largest output per id). There were no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:** none.
+- **New decisions emitted:** none. The false-positive acceptance is the user's answer, recorded in `guidance/questions.yaml` and in the spec's internal release record.
 - **Deviations from spec:**
-  - `--baseline-root` instead of `--baseline-rev`, for the filename-length reason above.
-  - The build stopped at step 1, as the handoff requires.
+  - `--baseline-root` instead of `--baseline-rev`, for the reason above.
+  - The build stopped once, as instructed, before resuming.
+  - The PR head is a docs-only commit after the dry-run candidate `439ecf7`. Phase 2's runbook re-runs the dry-run on the merged commit anyway.
 - **Follow-up work identified:**
-  - If the user accepts the false positive, a resumed build can record this run as the semver evidence and carry on from step 2.
-  - Future releases could avoid the noise by appending new `Error` variants at the end of the enum. That would be a convention, or a DEC, not a code change here.
-  - A `semver-checks` recipe could pin the `--baseline-root` workaround.
+  - Append new `Error` variants at the end of the enum, as a convention or a DEC, so the lint stays quiet.
+  - Add a `just semver-check` recipe that pins the `--baseline-root` workaround.
+  - Shorten handoff filenames: the longest ones break any tool that writes a `.tmp` sibling.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — The handoff does not separate a breaking change from a tool finding that cannot be observed. The rule as written is "any reported" change, so I stopped, as instructed.
+   — "Stop on any reported breaking change" doesn't separate a breaking change from a tool finding that cannot be observed. It cost one round trip to the user, which was the right call under the rule as written.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — The design's audit and DEC-052 cover new variants only as "`Error` is `#[non_exhaustive]`". Neither anticipated the discriminant lint, which also fired on 0.2.1.
+   — DEC-052 covers new `Error` variants only as "`#[non_exhaustive]`". It does not address variant order, the one thing the semver tool objects to.
 
 3. **If you did this task again, what would you do differently?**
-   — Run the tool on the previous patch release (v0.2.0 -> v0.2.1) at design time, so a known false positive is either pre-accepted or decided before the build.
+   — Run the tool on the previous patch release (v0.2.0 -> v0.2.1) at design time, so a known false positive is decided before the build.
