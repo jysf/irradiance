@@ -15,10 +15,10 @@
 task:
   id: SPEC-073
   type: release                    # epic | story | task | bug | chore | release
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
-  complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
+  complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
@@ -35,14 +35,14 @@ handoff:
   created_at: null
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-052, DEC-028, DEC-006, DEC-066]
   constraints: []                  # [constraint-id-1, constraint-id-2]
   related_specs: [SPEC-042, SPEC-056]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 depends_on: [SPEC-071, SPEC-072]
 
-value_link: null
+value_link: "gets STAGE-018..020's develop options, previews, tiled planes, plane units and decode speed-ups to crates.io as a compatible 0.2.2"
 
 # Metered cycles (build/verify) require a real tokens_total on a shipped
 # release — same rule as any spec. See AGENTS.md §4 and docs/cost-tracking.md.
@@ -51,7 +51,7 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
+  tokens_estimate: 10000000
   sessions: []
   totals:
     tokens_total: 0
@@ -63,9 +63,6 @@ cost:
 
 ## Context
 
-> **OUTLINE — `cycle: frame`.** Designed after SPEC-071 and SPEC-072 ship, so the
-> release is cut from a tree that has them.
-
 The third and last spec of STAGE-021. 0.2.1 (2026-11-11) predates all of STAGE-019 and
 STAGE-020: develop options, warp alpha, caller scratch, per-position black levels, the
 tiled orientation gather, plane units, and the packed and Compression 7 speed-ups, plus
@@ -76,102 +73,195 @@ and runs `cargo publish`; this spec ends prep-complete.
 
 ## Release Scope
 
-- **Version / tag:** the exact tag you will cut, in this app's scheme
-  (`spec.version.scheme` in `.repo-context.yaml`; default `calver` →
-  `vYYYY.MM.PATCH`). Run `just next-version` for the suggested next tag. This is
-  the *app* version — NOT the top-level `VERSION` file (that's template
-  provenance). See `docs/versioning.md`.
-- **What's included:** the shipped specs / patches in this release
-- **Delivery shapes:** which of {binary · package · service · library} this
-  release produces — this decides which pre-flight categories below apply, and
-  which version scheme fits (semver for a library/public API; calver otherwise).
+### Decided for 0.2.2 (design, 2026-11-16; the user chose the version)
+
+- **Version / tag:** `0.2.2`, semver (`spec.version.scheme: semver` is already set). Tag
+  `v0.2.2`. A **patch** bump over the live `0.2.1`, because everything since is
+  backward-compatible. Cargo treats `0.2.z` releases as compatible, so anyone on
+  `irradiance = "0.2"` receives it with `cargo update`, and dependents need no
+  requirement change.
+- **Why compatible: the design's public-API audit** (`git diff v0.2.1 origin/main` at
+  `59f8b1a`):
+  - **No public item was removed or had its signature changed.** No `pub` declaration
+    appears on a removed line.
+  - **Every new public field is on a `#[non_exhaustive]` type:**
+    - `Sensor` gains `tile_width`, `tile_length`, `tile_offsets` and
+      `tile_byte_counts`;
+    - `Error` gains new variants;
+    - the new types (`DevelopOptions`, `plane::Unit`, the preview types) are themselves
+      `#[non_exhaustive]`.
+  - **Nothing else a caller compiles against changed.** There is no new dependency and
+    no new feature; the MSRV stays `rust-version = "1.90"`; and the only `Cargo.toml`
+    change is the dev-only `[profile.corpus]`, which profiles ignore for dependents.
+  - **Default outputs are unchanged.** `DEVELOP_VERSION` stays `"4"`, and every develop
+    and decode pin held through STAGE-018 to STAGE-021.
+  - **Behaviour changes are compatible.**
+    - Tiled planes now decode where they used to return a typed `Unsupported` error.
+    - `develop_into` allocates at most once.
+    - The two `opcode::parse_*` functions no longer allocate.
+    - Two decodes are faster.
+    - One error message changed (`UnsupportedStripLayout`).
+- **A mechanical check is added at build (the user approved the download):** install
+  `cargo-semver-checks` (`cargo install cargo-semver-checks --locked`) and run
+  `cargo semver-checks check-release --baseline-rev v0.2.1` (or `--baseline-version
+  0.2.1` against the published crate). **Any reported breaking change stops the build.**
+  The release then needs the user's decision (0.3.0, or a fix), not a workaround.
+- **What's included** (on `main` since `0.2.1`): STAGE-018 (embedded previews),
+  STAGE-019 (develop options, warp alpha, caller scratch, per-position black levels,
+  tiled orientation), STAGE-020 (plane units, the packed and Compression 7 speed-ups),
+  tiled sensor planes (SPEC-058), and STAGE-021's test and tooling work (no library
+  change).
+- **Delivery shape:** library plus a crates.io **package**. There is no binary (`irr` is
+  feature-gated out, SPEC-055), so the binary and service pre-flight categories are
+  `N/A`.
+
+## Build work (Phase 1 — reversible prep, the implementer's cycle)
+
+Everything here lands as one CI-gated PR, and it is fully revertible. The tag and publish
+are Phase 2 below, and the user does them.
+
+1. **The semver check** (above). Record the tool's version and its full output.
+2. **Version:** `Cargo.toml` `version = "0.2.2"`. Confirm `license`, `description`,
+   `keywords`, `categories`, `repository`, `readme` and `rust-version` are unchanged and
+   publish-ready.
+3. **CHANGELOG** (DEC-006):
+   - Promote `[Unreleased]` to `## [0.2.2] - <date>`, keeping every entry.
+   - Put a fresh, empty `## [Unreleased]` on top.
+   - Leave the compare links as they are, or update them if the file has them.
+4. **Release notes:** run `just release-notes PROJ-004`, then edit the result into the
+   `## Release Notes` section below, keeping the drafted headline and grouping. Specs
+   whose reflection answered `none` stay absent.
+5. **README:** check that the crate-level docs and README examples still compile and
+   describe 0.2.x accurately, using `cargo test --doc` and `just doc-check`. Fix wording
+   only if it is now wrong, for example a claim that tiled planes are unsupported.
+6. **Tier-B evidence run on the candidate SHA**, with `IRRADIANCE_CORPUS_DIR` set:
+   - `just test`, which now takes about 3 min. Record that every held file was present
+     and every pin held.
+   - The three timing examples (`just orient-timing`, `just unpack-timing`,
+     `just ljpeg-timing`), recorded for the release notes' numbers.
+7. **Package guards:** `just package-targets-check` (no executable in the package),
+   `just deny` and `just deny-fuzz`, and `cargo publish --dry-run`. All must be clean.
+   The packaged manifest must not contain the self dev-dependency.
+8. **Fill the Release Pre-Flight below,** marking each item `[now]`, `[cut]` or `N/A`.
+   Then run every gate:
+   - `just test`
+   - `lint-ci`
+   - `lint-no-allow`
+   - `lint-fuzz`
+   - `fmt-check`
+   - `validate`
+   - `doc-check`
+   - `deny`
+   - `msrv`
+   - `cost-audit`
+   - `gate-audit`
+
+**Phase 2** is human-gated, after Phase 1 merges, and **not in the build cycle**: tag
+`v0.2.2` on the release commit, run `cargo publish`, and verify the published crate on a
+clean host. The spec ships **prep-complete, cut-deferred**. The implementer never tags or
+publishes.
 
 ## Release Notes
 
-*Outward-facing — written for whoever USES this, not for contributors. Distinct
-from the CHANGELOG (the record of what changed) and from the Reflection below
-(internal learning).*
+*Outward-facing — written for whoever USES this, not for contributors. Seeded at build
+with `just release-notes PROJ-004`, then edited. The GitHub release text for `v0.2.2` is
+this section.*
 
-**Seed it, don't write it from scratch:** run `just release-notes` — it assembles
-each shipped spec's outward outcome (Reflection Q5). Then edit: lead with the
-headline, group related items, drop the SPEC ids. Specs that answered `none` have
-no user-visible outcome and are correctly absent — do not back-fill them.
+**Headline (drafted at design; the build confirms the numbers):** irradiance 0.2.2
+lets you shape the develop and split the decode. It adds develop options (full active
+area, unrotated output, partial lens correction, caller-owned scratch and per-position
+black levels), embedded preview access, tiled sensor planes, and plane units you can
+decode on your own threads. The single-threaded decode is much faster: about 25× on
+packed 12/14-bit planes and about 6.5× on lossless-JPEG. All of it is
+backward-compatible with 0.2.x, still pure Rust with no runtime dependencies, and
+`DEVELOP_VERSION` stays `"4"`.
 
-**Headline:** <the single thing a user most gains from this release>
+The build fills the groups from `just release-notes` and the CHANGELOG:
+- **New capability:** develop options; previews; tiled planes; plane units.
+- **Faster:** packed 12/14-bit unpack; Compression 7; Orientation 5–8 gather; the
+  develop allocation drop.
+- **Safer on untrusted input:** the new typed errors, each in one line.
 
-- <capability — before → after, with the confirming number if one exists>
-- <...>
+**Breaking / action required:** none. This is a compatible 0.2.x release:
+`cargo update -p irradiance`. New `Error` variants and `Sensor` fields are on
+`#[non_exhaustive]` types, so existing `match` arms with a `_` and existing field reads
+keep compiling.
 
-**Breaking / action required:** <none | what broke and what the user must do>
+**Known limitations:** carry forward the ones that still hold from 0.2.0 and 0.2.1:
+- no colour-accuracy claim (SPEC-035 is still blocked on the chart);
+- the colour develop does not run the `OpcodeList` stages;
+- a RATIONAL non-integral `BlackLevel` (Pixel 7 Pro) resolves to 0;
+- restart-interval units are not built.
+
+The build confirms each against the code and drops any that no longer hold.
 
 ## Release cut is two-phase
 
-A release session **cannot finish in one pass** — the irreversible tag/publish is
-gated by a human/coordinator. Structure it so the reversible work lands first:
-- **Phase 1 — reversible prep (CI-gated PR):** CHANGELOG entry, version bump
-  (`just next-version`), stage-backlog tick. Fully revertable — land it as a
-  normal PR.
-- **Phase 2 — irreversible cut (human/coordinator-gated):** create the tag and
-  publish to each channel, only after Phase 1 merges. The spec ships
-  **"prep-complete, cut-deferred."**
+- **Phase 1 — reversible prep (this spec's build PR):** semver check, version bump,
+  CHANGELOG, release notes, evidence, pre-flight.
+- **Phase 2 — irreversible cut (the user):** the tag and the publish, after Phase 1
+  merges. The spec ships **"prep-complete, cut-deferred."**
 
 ## Release Pre-Flight
 
-**A behavioral checklist — each item asks "does the released thing actually work
-on a real host," not "is the shape right."** The categories are generic and
-portable (DEC-006); **fill in the tool-specific command for each under your
-stack** (the template ships the slot, the instance fills the truth — same
-principle as the toolchain brief).
+**Delivery shape: library plus a crates.io package (source crate, no binary).**
+- `[now]`: verified on the candidate in the build session.
+- `[cut]`: only checkable at Phase 2, verified by the user.
+- `N/A`: does not apply to a source crate.
 
-Mark each item's verification **timing**, because most can only be checked *after*
-the cut: **`[now]`** = verified this session, evidence attached; **`[cut]`** = can
-only be verified at Phase 2 (a clean-host install, a published-channel check,
-notarization propagation) → **deferred, verified by whoever runs the cut** — record
-it honestly as deferred, don't tick it as done in-session. Mark categories that
-don't apply to this release's delivery shape as `N/A` with one word why.
-
-- [ ] **1. Version / tag integrity & build provenance** — exactly one release tag points
-      at the release commit; the version baked into the artifact matches the tag;
-      no stale or duplicate tag on the same commit. **And the shipped artifact
-      reports its own build provenance** (version + commit SHA) that matches the
-      release commit — `just build-info` is the stamp; it must be injected into
-      the build (DEC-008, `docs/versioning.md`). A user should be able to trace
-      exactly what they're running back to source.
-      - Command / evidence: <REPLACE — e.g. `git tag --points-at HEAD` and
-        `<app> --version` reports the `just build-info` ref>
-- [ ] **2. Artifact trust on a clean host** — a freshly-downloaded artifact is
-      trusted by a machine that didn't build it (code-signing / notarization /
-      OS quarantine — Gatekeeper, SmartScreen). "Does a stranger's machine run
-      it without a scary prompt or a block?"
-      - Command / evidence: <REPLACE — download the release asset on a second
-        machine and run it>
-- [ ] **3. Distribution-channel trust** — a *new* user can install cleanly
-      through each published channel (package-manager tap/registry trust gates,
-      first-install auth). "Install it the way a stranger would, on a machine
-      that never saw the source."
-      - Command / evidence: <REPLACE — e.g. `brew install …` on a clean host>
-- [ ] **4. Data isolation** — a dev / test / CI build can never read or migrate
-      **production** data. Confirm the prod data path is unreachable from a
-      non-prod binary.
-      - Command / evidence: <REPLACE — run the built binary with the dev env and
-        assert it cannot resolve the prod DSN>
-- [ ] **5. Runtime smoke on a clean host** — the *shipped* artifact runs (not
-      just builds) on a fresh install: it starts, answers, and its headline
-      capability works end-to-end.
-      - Command / evidence: <REPLACE — the one command that proves it works>
-- [ ] **6. Rollback / uninstall** — there is a known, tested way to withdraw or
-      downgrade the release. Exercise it at least once.
-      - Command / evidence: <REPLACE — e.g. `brew uninstall …` / re-tag prior>
-
-If a real release surfaces a category this list doesn't cover, record it in
-`guidance/signals.yaml` (`type: process-debt`) so a close can grow the generic
-categories (DEC-006 keeps them category-level, not command-level).
+- [ ] **1. Version / tag integrity & build provenance** — part `[now]`, the rest `[cut]`.
+  - `[now]`:
+    - `Cargo.toml` says `version = "0.2.2"`, and `cargo publish --dry-run` reports
+      `irradiance v0.2.2`;
+    - `git tag -l 'v0.2.2'` is empty, so there is no premature tag;
+    - the dry-run's packaged `.cargo_vcs_info.json` carries the candidate's `git.sha1`.
+  - `[cut]`, on the merged prep commit:
+    - `git tag -a v0.2.2 -m "irradiance 0.2.2"`;
+    - `git tag --points-at HEAD` prints exactly `v0.2.2`;
+    - after publishing, the `.crate`'s `.cargo_vcs_info.json` sha1 equals the tagged
+      commit:
+      `curl -sL https://static.crates.io/crates/irradiance/irradiance-0.2.2.crate | tar -xzO irradiance-0.2.2/.cargo_vcs_info.json`.
+- [ ] **2. Artifact trust on a clean host** — `N/A`: source crate, no signed binary.
+- [ ] **3. Distribution-channel trust** — `[cut]`.
+  - `[now]` proxy: `cargo publish --dry-run` builds the packaged crate in isolation, and
+    `just package-targets-check` shows no executable.
+  - `[cut]`: on a host that never saw the source, `cargo new probe && cd probe && cargo
+    add irradiance@0.2.2 && cargo build`. crates.io shows 0.2.2, and the docs.rs build
+    is green.
+- [ ] **4. Data isolation** — `N/A`: a library with no I/O and no data store.
+- [ ] **5. Runtime smoke on a clean host** — `[now]` on the candidate, `[cut]` on the
+  published crate.
+  - `[now]`: `just test` is green with every corpus file present, and every pin holds.
+  - `[cut]`: in the clean-host `probe` crate, parse one held DNG, then run
+    `plane::validate`, `unpack_into` and `develop_into`, plus one new 0.2.2 call
+    (`plane::units` or `develop_with_into` with `DevelopOptions::default()`). Each
+    returns `Ok` with the expected dimensions.
+- [ ] **6. Rollback / uninstall** — `[cut]`.
+  - **Withdraw:** `cargo yank --version 0.2.2`. Dependents on `"0.2"` fall back to
+    0.2.1. It was exercised on 0.1.0 (DEC-028); `cargo yank --undo --version 0.2.2`
+    reverses it.
+  - **Git rollback** of the prep is a revert of the Phase-1 PR.
 
 ## Notes for the Implementer
 
-Gotchas specific to *this* release — a channel that's slow to propagate, a
-signing cert that expires, an env var the release runner needs. Keep short — the
-full context graph lives in the handoff file.
+**Phase 2 runbook (the user, after the Phase-1 PR merges):**
+1. `git checkout main && git pull`. The tree is clean, and HEAD is the merged prep
+   commit.
+2. Run `cargo publish --dry-run` on that exact commit, clean, without `--allow-dirty`.
+3. `git tag -a v0.2.2 -m "irradiance 0.2.2"`, then `git push origin v0.2.2`.
+4. `cargo publish`, with the user's crates.io token.
+5. The `[cut]` halves of pre-flight items 1, 3 and 5.
+6. Optional: a GitHub release on `v0.2.2` with the `## Release Notes` text.
+7. Append the one-line `## Cut Record` below.
+
+**Gotchas:**
+- **The self dev-dependency** (`irradiance = { path = "." … }`) is path-only, so
+  `cargo package` strips it. The dry-run confirms it.
+- **`cargo semver-checks` needs a rustdoc JSON build of both versions.** It builds
+  them in its own target dir and takes a few minutes. Run it with nothing else heavy
+  on the machine.
+- **Never commit the corpus,** or timing output beyond the numbers in the notes and
+  the handback.
 
 ## Cut Record
 
