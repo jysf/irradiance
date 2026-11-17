@@ -78,11 +78,17 @@ questions:
   - id: spec-073-semver-checks-flags-error-discriminants
     question: "cargo-semver-checks 0.51.0 reports one major-level failure for v0.2.1 -> main (enum_no_repr_variant_discriminant_changed on Error, 37 variants), which HANDOFF-153 says stops the 0.2.2 build; is it accepted as a false positive so 0.2.2 proceeds, or does the release become 0.3.0?"
     priority: high
-    status: open
+    status: answered
     raised_by: claude-opus-5-5
     raised_at: 2026-11-16
     assigned_to: human
     notes: |
+      ANSWERED 2026-11-16 by the user: "Accept, resume 0.2.2". The lint is accepted
+      as a false positive (Error has data variants, no repr and is non_exhaustive, so
+      no dependent can cast it; 0.2.1 shipped the same pattern; the other 201 checks
+      pass). The 0.2.2 build resumed from the version bump. No DEC: the release
+      decision is recorded in SPEC-073's release notes record and HANDOFF-153.
+      ──
       Found by the SPEC-073 build (HANDOFF-153), the first step, before any prep edit.
       The tool's only failing check of 202: the implicit discriminants of 37 Error
       variants shifted (e.g. MissingRowsPerStrip 19 -> 24) because new variants were
