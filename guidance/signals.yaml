@@ -1713,7 +1713,7 @@ signals:
     summary: "Every push to a PR branch starts two full CI runs (push and pull_request), doubling macOS runner demand; the push run's macOS determinism job was cancelled twice after 15 minutes without a runner while the pull_request run of the same commit passed."
     evidence: "N=2, STAGE-021 2026-11-16: PR 248 and PR 250, both on the push-event run; main's run after each merge passed."
     bar: null
-    status: watch
+    status: done
     disposition_at: project-close
     first_flagged: 2026-11-18
     last_touched: 2026-11-18
@@ -1721,3 +1721,24 @@ signals:
     notes: |
       Candidate fix: restrict the push trigger to main (pull_request still covers PR
       heads). Carried to the PROJ-004 brief as an [XS] follow-up.
+      ══ RESOLVED 2026-11-18, PR 256: push now runs only on main. #256's own branch push
+      started only a pull_request run, and its merge started one push run on main. The
+      macOS cancellations continued after this fix with "not acquired by Runner of type
+      hosted", so runner capacity, not the duplicate run, was their cause; that is
+      tracked as `macos-arm64-runner-unavailable`. ══
+  - id: macos-arm64-runner-unavailable
+    type: process-debt
+    summary: "GitHub's hosted macOS arm64 runners were unavailable: the determinism macOS leg was cancelled after about 15 minutes without a runner on every run on 2026-11-18, turning CI red with no test having run."
+    evidence: "N=3, 2026-11-18: main 8189855 and 9c3349e, PR 256's pull_request run; annotation 'The job was not acquired by Runner of type hosted even after multiple attempts' plus GitHub's notice of macOS arm64 capacity constraints."
+    bar: null
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-11-18
+    last_touched: 2026-11-18
+    raised_by: claude
+    notes: |
+      Mitigated: the macOS determinism leg is `continue-on-error`, so a missing runner
+      no longer fails CI; the ubuntu leg still gates. Cost of the mitigation: a real arm64
+      divergence would show as a failed but non-blocking leg, so read that leg's result
+      on any PR touching a kernel or a committed determinism hash. Revisit if capacity
+      returns (make it blocking again) or if arm64 evidence goes missing for a release.
