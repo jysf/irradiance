@@ -51,14 +51,14 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 10790137           # REAL combined count — what cost-audit reads
-  estimated_usd: 9.04              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  tokens_total: 12473090           # REAL combined count — what cost-audit reads
+  estimated_usd: 10.14              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 80
   branch: claude/spec-073-build
   pr: 253
   completed_at: 2026-11-16         # YYYY-MM-DD
-  notes: "Blocked at step 1 on a cargo-semver-checks 0.51.0 report (enum_no_repr_variant_discriminant_changed on Error), which the user accepted as a false positive on 2026-11-16 (Accept, resume 0.2.2); then the full Phase-1 prep. Floor from transcript 34da6ff5-811a-4f41-afac-30c5186c9017.jsonl, 64 message.ids, no subagents, opus-5-5 with 1-hour cache writes, measured before the final commit; re-sum at ship." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (72 unique message.ids, all claude-opus-5-5, no subagents): input 147 + cache-creation 294,340 (1-hour) + cache-read 12,133,511 + output 45,092 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Covers both build turns, the stop at the semver check and the resume. The handback floor was 10,790,137 and $9.04. No verify cycle ran: the user merged PR 253 after the build and cut the release." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  synced_at: 2026-11-18
 ---
 
 # HANDOFF-153: BUILD: the irradiance 0.2.2 release prep (SPEC-073, Phase 1)
