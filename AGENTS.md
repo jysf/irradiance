@@ -279,7 +279,9 @@ all seven of these in the block, which had fallen behind `app.just`;
 (`test` plus opt-level 3, so assertions and overflow checks stay on; DEC-066),
 which runs the full corpus suite in about 2.5 minutes instead of about 37, and
 added `just test-debug` (the previous debug commands, which CI's test job
-mirrors).
+mirrors); `SPEC-074` added `just name-length-check` (a CI gate: no tracked path
+component over 150 bytes, DEC-067) and `just semver-check` (the release semver
+check against the crates.io baseline; not a gate).
 Every recipe's commands appear in the block below and nothing in
 the block is unrunnable: that correspondence is acceptance criterion 8, so a
 recipe that gains a command gains a line here in the same change.
@@ -385,6 +387,12 @@ cargo fmt --check
 #              COMMENT is NOT flagged, isolation restores green. Temp copy;
 #              working tree untouched.
 ./scripts/gate-audit-red-proof.sh
+
+# name-length-check — no tracked path component over 150 bytes (SPEC-074,
+#              DEC-067). Names each offender. Tools that copy the tree add a
+#              suffix to each name, and a 235-byte handoff name crashed
+#              `cargo semver-checks`' baseline clone. Runs in CI's cost-data job.
+./scripts/name-length-check.sh
 
 # lint-no-allow  — closes what the red-proof structurally cannot see: an
 #              #[allow] of a policy lint BENEATH the crate root. `-F` is
@@ -568,6 +576,13 @@ cargo run --release --all-features --example unpack-timing
 #              corpus-gated (a SKIP line per absent file, exit 0), median of 7,
 #              no CI gate.
 cargo run --release --all-features --example ljpeg-timing
+
+# semver-check — the release semver check (SPEC-074, DEC-067) against the
+#              crates.io baseline, the latest published version. Not
+#              `--baseline-rev`: a git baseline clones the whole repo, and tags
+#              cut before SPEC-074 hold names that crash that clone. Needs
+#              cargo-semver-checks installed. Not a CI gate.
+cargo semver-checks
 ```
 
 Oracle commands (run as **tools**, never linked) live in
