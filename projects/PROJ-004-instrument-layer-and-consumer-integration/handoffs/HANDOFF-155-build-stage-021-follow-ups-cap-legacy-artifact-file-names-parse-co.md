@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-18
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-074
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 11423772           # REAL combined count — what cost-audit reads
+  estimated_usd: 7.99              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 15
+  branch: claude/spec-074-build
+  pr: https://github.com/jysf/irradiance/pull/259
+  completed_at: 2026-11-18         # YYYY-MM-DD
+  notes: "Transcript e4d08c12-5435-4d9a-a32a-c561d7ebd7d4.jsonl, 76 message.ids deduped (max output each), no subagents: input 160, output 36,858, cache read 11,242,140, cache write 144,614 (all 1-hour). Opus 5.5 at $5 in / $25 out, reads x0.10, 1-hour writes x2.0. Summed before the handback commit, so a floor; re-sum at ship."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -179,38 +179,66 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-074-build`, https://github.com/jysf/irradiance/pull/259
+- **Completed at:** 2026-11-18
+- **Commits:** `74021de` (Part B), `c37a3b2` (the renames only), `9f3a724` (gate, recipes, CI step, AGENTS.md), then this handback commit.
+- **All acceptance criteria met?** Yes, with one caveat on AC2's `id-audit` (below).
+  - **AC1:**
+    - 384 artifact files scanned, 0 slugs over 60.
+    - 74 spec+timeline pairs, 0 slug mismatches.
+    - All 83 new slugs match the real `slugify` (0 mismatches).
+    - `git log --follow` on the renamed HANDOFF-064 shows `c37a3b2` and then `4afc018` (PR 37).
+  - **AC2:**
+    - `git grep -F` finds 0 hits for each of the 83 old names.
+    - No history quote had to be kept: the crash path quoted in SPEC-073, HANDOFF-153, SPEC-074 and DEC-067 is abbreviated with `…`, so it never matches a full old name.
+    - `validate`, `decisions-index --check` (67) and `cost-audit` are green.
+    - `just id-audit` is red, but it was already red on main. It scans all local worktrees (92) and refs (448), and stale worktrees still hold the old names: DEC-028 and older HANDOFF slug renames are already there. The renamed IDs add entries of the kind the script's own header says "still reports, until that branch is merged or deleted". It is not a CI gate.
+  - **AC3:**
+    - `cargo semver-checks --baseline-rev HEAD` gets past `Cloning HEAD`: 202 pass, 58 skip.
+    - `just semver-check` against crates.io 0.2.2: 202 pass, 58 skip.
+  - **AC4** (scratch clone, control first):
+    - Green on the renamed tree and with a tracked 150-byte name.
+    - Red, naming it, on a 151-byte name.
+    - Red on the 13 names over 150 bytes before the renames.
+    - The step is in CI's `cost-data` job.
+  - **AC5:** the pin is 5 and green. The red-proofs ran on `git archive` copies, each with its own target dir:
+    - the double-parse plane.rs gives 40 against 20;
+    - one extra allocation per chunk gives 24 against 20.
+  - **AC6:**
+    - Every plane and Compression 7 oracle is green and unedited, with 12/12 corpus files present.
+    - `ljpeg-timing` medians: K-3 III 107.3, M Typ 246 93.7, Pixel 4a 61.1 ms. SPEC-073 recorded 104.4 / 92.0 / 62.4, so there is no measurable change.
+  - **AC7:**
+    - `just test`: 710 passed, 0 failed, 1 ignored, 40 binaries, 2 min 59 s.
+    - Green: `lint-ci`, `lint-no-allow`, `lint-fuzz`, `fmt-check`, `validate`, `doc-check`, `deny`, `msrv`, `cost-audit`, `gate-audit` (now 12 scripts, including the new one), `gate-audit-red-proof` and `name-length-check`.
+    - CI on the PR head: see the PR checks.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 11,423,772 (a floor, summed before this commit)
+- **Estimated USD:** 7.99
+- **Duration (minutes):** about 15 of agent wall time, plus background test runs
+- **Source of the number:** the transcript `e4d08c12-5435-4d9a-a32a-c561d7ebd7d4.jsonl`:
+  - 76 `message.id`s, deduped, taking the max output for each;
+  - no subagents;
+  - opus-5-5 rates, with 1-hour cache writes.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none (DEC-067 was written at design).
 - **Deviations from spec:**
-  - [list]
+  - The pin's assertion message in `tests/plane_units_alloc.rs` said "the two header parses per chunk"; it now says one. This is the pin's own failure text, next to the permitted constant and comment edit.
+  - `open_scan` keeps its name with a new signature `(data, entropy_at)`, because `tests/plane_tiles.rs` uses `fn open_scan` as the end anchor of its no-allocation source scan. The two new functions sit before it, so they are inside that scan.
+  - `name-length-check` gets no separate red-proof script, since the spec lists one script. The red-proof is recorded here and in the PR body.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - `id-audit` cannot pass on a machine with many stale worktrees. A `--this-checkout`/`--refs-only` mode, or pruning merged worktrees, would make it usable as AC evidence. This is template-side, so it is not filed here.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — AC2 lists `id-audit` "(if it exists)" as a pass condition. It exists, but it reads every local worktree and ref, so it was red before this spec and cannot be green after a rename until old worktrees go away.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Yes: `tests/plane_tiles.rs` anchors a source scan on `fn open_scan`, so renaming or moving that function would break an unrelated test. Also, `gate-audit` requires a new gate to assert its count in shell, not only in an embedded program.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would give each red-proof copy its own `CARGO_TARGET_DIR` from the start. A shared one reused a stale build and showed the wrong count (40 instead of 24) on the second red-proof until I re-ran it.
