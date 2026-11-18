@@ -870,7 +870,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-09-06
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: no instance (colour-develop/threading stage), still N=2, trigger unchanged. ══
@@ -919,6 +919,7 @@ signals:
       not a boundary) and [named-tests-can-pass-vacuously].
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
 
   - id: handback-sync-treats-hash-as-comment-in-unquoted-notes
     type: process-debt
@@ -1161,7 +1162,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-10-30
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: DEFERRED, still N=1 — APPLIED, not violated. ══
@@ -1197,6 +1198,7 @@ signals:
       interpolation.
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch — APPLIED, not violated. The framing probe measured that every held file has whole-byte rows before the units were designed. ══
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
 
   # --- lesson: a named algorithm/dependency can be patent-encumbered ----------
   - id: patent-check-named-algorithms-at-frame
@@ -1207,7 +1209,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-01
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: no instance, still N=1. ══ No named/patented
@@ -1237,6 +1239,7 @@ signals:
       assumption left unprobed); this is its patent/licence axis.
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
 
   # --- golden-path: a reusable bit-exact oracle harness --------------------------
   - id: reusable-bit-exact-oracle-harness
@@ -1305,7 +1308,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-02
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: no instance, still N=1. ══ The threading specs
@@ -1335,6 +1338,7 @@ signals:
       load-bearing is the same shape as an oracle you cannot show red).
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
 
   # --- lesson: a round-trip oracle is blind to a helper both halves share ------
   - id: shared-path-oracle-tautology
@@ -1475,7 +1479,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-06
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: untouched. ══ An ljpeg/SOF-3 decode risk, not in
@@ -1491,6 +1495,7 @@ signals:
       drop once both paths either decode correctly (with an independent check) or
       reject typed. See docs/reviews/2026-11-06-proj-003-close-review-triage.md.
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, residual risk unchanged. SPEC-070 rewrote the entropy reader under the restart path but kept its behaviour identical to the old reader (verbatim reference, synthetic restart streams); that proves no change, not that the T.81 restart rule is right, so the independent-oracle need stands. Subsampling is still rejected at parse (DEC-047). ══
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, residual risk unchanged (no ljpeg change this stage; 0.2.2 ships the decoder as SPEC-070 left it). ══
 
   # --- lesson: read the kernel before deciding the approach -------------------
   - id: read-the-kernel-before-deciding-the-approach
@@ -1501,7 +1506,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-09
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       Capture, do NOT promote — N=1. Distinct from
@@ -1511,6 +1516,7 @@ signals:
       build on and read its actual traversal / emit before committing the approach.
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch — APPLIED, not violated. SPEC-069 and SPEC-070 each profiled the real kernel (macOS sample) before the DEC named an approach. ══
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
 
   # --- process-debt: confirm a PR head advanced before treating a push as merged
   - id: confirm-pr-head-advanced-before-treating-pushed-commit-as-merged
@@ -1521,7 +1527,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-09
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       The branch mitigations are already practised: cut each new cycle's branch from
@@ -1530,6 +1536,7 @@ signals:
       PR-head-advance check before treating a pushed follow-up as merged. Not codified;
       watch whether the gh/PR-view lag recurs.
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
 
   # --- lesson: a tolerant consumer cannot pin a structural property -----------
   - id: tolerant-oracle-cannot-pin-structure
@@ -1568,7 +1575,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-12
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Same family as [[tolerant-oracle-cannot-pin-structure]]
@@ -1578,6 +1585,7 @@ signals:
       declared deviation, name the test that pins it in the handback.
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
 
   - id: closed-form-numeric-needs-extreme-magnitude-fixtures
     type: lesson
@@ -1587,7 +1595,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-12
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Falsifier, cheap at design: for each numeric guard,
@@ -1597,6 +1605,7 @@ signals:
       family as [[named-tests-can-pass-vacuously]]).
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
 
   - id: analytic-oracle-premise-must-survive-rounding
     type: lesson
@@ -1606,7 +1615,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-13
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Falsifier, cheap at design: compute the oracle's
@@ -1617,6 +1626,7 @@ signals:
       only checked at comfortable values").
       ══ STAGE-019 CLOSE, 2026-11-13: walked, stays watch, no new instance. ══
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
 
   # --- process-debt: whole-corpus tier-B tests are slow in the debug profile -----
   - id: slow-tier-b-tests-in-debug
@@ -1644,13 +1654,14 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-14
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Falsifier, cheap at review: for any test using a
       global allocator or a static counter, ask whether another #[test] in the same
       binary can run while it measures. tests/previews_alloc.rs has the same global
       tally but one test, so it cannot race today; a second test there would.
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch at N=1. The race was fixed in PR 243 before this stage; SPEC-071 pinned the absolute Compression 7 count on the per-thread tally with no recurrence. ══
 
   - id: spec-must-carry-what-the-probe-number-depended-on
     type: lesson
@@ -1660,9 +1671,53 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-14
-    last_touched: 2026-11-14
+    last_touched: 2026-11-18
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Falsifier at design: diff the probe's final code
       against the spec's code sketch and name every attribute, constant and split the
       timing table depends on.
+      ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch at N=1. Related but not the same outcome: SPEC-072's probe measured pass counts and digests, which optimisation cannot change, and missed that the allocation counters measure the compiler; recorded as its own signal (a-faster-test-lane-can-blind-tests-that-measure-the-compiler). ══
+
+  - id: a-faster-test-lane-can-blind-tests-that-measure-the-compiler
+    type: lesson
+    summary: "Changing how tests are built (optimisation level, profile) can silently weaken tests that measure what the compiler emits (allocation counts, inlining, stack use), even when every pass count and pinned digest is unchanged; list those tests at design and keep them in a lane where they still bite."
+    evidence: "N=1, STAGE-021 2026-11-16. SPEC-072 moved just test to an opt-level 3 profile. The design probe compared 697/0/1 and every pin, all identical. The verify (HANDOFF-152) injected an unused vec into the scratch develop path: the three zero-allocation tests went red in debug and stayed green under the new profile, because LLVM deletes an unused allocation. Fixed in PR 250 by re-running the three *_alloc binaries in debug inside just test (710 passed)."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-18
+    last_touched: 2026-11-18
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote: N=1. Falsifier at design: grep the tests for global
+      allocators, black_box, inline attributes and timing bounds before changing a
+      build profile, and red-proof each such test under the new profile.
+
+  - id: generated-artifact-filenames-near-the-path-limit
+    type: process-debt
+    summary: "Spec and handoff filenames generated from long titles approach the 255-byte filename limit, so tools that add a suffix or copy the tree (cargo semver-checks' baseline checkout) fail with 'File name too long'."
+    evidence: "N=1, STAGE-021 2026-11-16. SPEC-073's build ran cargo semver-checks --baseline-rev v0.2.1, which clones the repo and crashed on one handoff filename; the build worked around it with --baseline-root on a git archive of the tag."
+    bar: null
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-11-18
+    last_touched: 2026-11-18
+    raised_by: claude
+    notes: |
+      Candidate fix: cap the slug new-spec and new-handoff derive from a title (for
+      example 60 characters). Carried to the PROJ-004 brief as an [XS] follow-up.
+
+  - id: push-and-pull-request-both-trigger-ci
+    type: process-debt
+    summary: "Every push to a PR branch starts two full CI runs (push and pull_request), doubling macOS runner demand; the push run's macOS determinism job was cancelled twice after 15 minutes without a runner while the pull_request run of the same commit passed."
+    evidence: "N=2, STAGE-021 2026-11-16: PR 248 and PR 250, both on the push-event run; main's run after each merge passed."
+    bar: null
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-11-18
+    last_touched: 2026-11-18
+    raised_by: claude
+    notes: |
+      Candidate fix: restrict the push trigger to main (pull_request still covers PR
+      heads). Carried to the PROJ-004 brief as an [XS] follow-up.

@@ -15,12 +15,12 @@
 task:
   id: SPEC-073
   type: release                    # epic | story | task | bug | chore | release
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
 
 project:
@@ -52,11 +52,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 10000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-153
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 12473090
+      estimated_usd: 10.14
+      duration_minutes: 80
+      recorded_at: 2026-11-18
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (72 unique message.ids, all claude-opus-5-5, no subagents): input 147 + cache-creation 294,340 (1-hour) + cache-read 12,133,511 + output 45,092 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Covers both build turns, the stop at the semver check and the resume. The handback floor was 10,790,137 and $9.04. The user merged PR 253 after the build and cut the release; the verify ran afterwards (HANDOFF-154)."
+    - cycle: verify
+      handoff: HANDOFF-154
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 7627360
+      estimated_usd: 5.70
+      duration_minutes: 35
+      recorded_at: 2026-11-18
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (58 unique message.ids, all claude-opus-5-5, no subagents): input 117 + cache-creation 117,734 (1-hour) + cache-read 7,478,065 + output 31,444, opus-5-5 rates. Post-release verify, APPROVED at 46b6fc2. The handback floor was 6,654,906 and $5.00. Transcribed by hand at ship because handback-sync does not read specs/done/."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 20100450
+    estimated_usd: 15.84
+    session_count: 2
+shipped_at: 2026-11-18
 ---
 
 # SPEC-073: The next irradiance release: semver check, CHANGELOG promotion, prep-complete for the user to tag and publish
@@ -374,47 +395,52 @@ planes are unsupported. Tiled planes that used to return an error now decode.
 4. `cargo publish`, with the user's crates.io token.
 5. The `[cut]` halves of pre-flight items 1, 3 and 5.
 6. Optional: a GitHub release on `v0.2.2` with the `## Release Notes` text.
-7. Append the one-line `## Cut Record` below.
+7. Append the one-line `## Cut Record
 
-**Gotchas:**
-- **The self dev-dependency** (`irradiance = { path = "." … }`) is path-only, so
-  `cargo package` strips it. The dry-run confirms it.
-- **`cargo semver-checks` needs a rustdoc JSON build of both versions.** It builds
-  them in its own target dir and takes a few minutes. Run it with nothing else heavy
-  on the machine.
-- **Never commit the corpus,** or timing output beyond the numbers in the notes and
-  the handback.
-
-## Cut Record
-
-*One line, appended after Phase 2 by whoever runs the cut.* The user-facing
-outcome now live, plus the upgrade/clean-install check that confirms the
-publish landed — the one line a review or work-log would quote. E.g.
-*"v0.4.0→v0.5.0 `brew upgrade` clean; MCP-install now first-class; prod DB
-opened, 189 entries intact."* If the release is pure infra with no user-facing
-change, say so — a real, greppable outcome, not a blank.
+v0.2.1 → **v0.2.2 published 2026-11-17** (crates.io, by the user): tag `v0.2.2` points at
+`46b6fc2` and the published crate's `.cargo_vcs_info.json` carries the same sha; docs.rs
+page live. Clean-host smoke on 2026-11-18 from the registry (`cargo add irradiance@=0.2.2`
+in a fresh project): K-3 III Mono, Q2 Monochrom and Pixel 4a parse, validate and unpack;
+`plane::units` assembled band by band equals `unpack_into` on all three (1, 11 and 12
+units); `develop_into` and `develop_with_into(DevelopOptions::default())` agree exactly on
+both mono files (6192×4128, 8368×5584). Develop options, plane units, previews, tiled
+planes and the faster decodes are now on crates.io as a compatible 0.2.x release.
 
 ---
 
 ## Reflection
 
-*Appended during **ship**. Four questions, short answers.*
+*Appended during **ship**.*
 
-1. **What would I do differently next release?**
-   — <answer>
+1. **What would I do differently next time?**
+   — Run `cargo semver-checks` at design, not only at build. The design's manual audit was
+   right in substance, but the tool's one finding (the `Error` discriminant renumbering,
+   a false positive for a data-carrying `#[non_exhaustive]` enum) stopped the build and
+   needed a round-trip to the user. Seen at design, it would have been decided there.
 
-2. **Does any template, constraint, or decision need updating?** (e.g. a new
-   pre-flight category to add to this template)
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`. See `docs/signals.md`.>
+2. **Does any template, constraint, or decision need updating?**
+   — Two process notes. **(a)** `cargo semver-checks --baseline-rev` crashes on this repo
+   with "File name too long": one handoff filename is near the 255-byte limit once the
+   tool adds its suffix. The build worked around it with `--baseline-root` on a
+   `git archive` of the tag. Long generated spec and handoff filenames are worth capping.
+   **(b)** The release went from build to the user's cut before its cold verify. A
+   post-release verify (HANDOFF-154) then approved what was published: the crate matches
+   the tag, the semver flag cannot be observed downstream, and the notes are accurate.
+   For a release, run the verify before the cut.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — [XS] cap generated spec and handoff filename length (the semver-checks crash).
+   [XS] run CI's `push` trigger only on `main` (macOS determinism runner starvation,
+   seen twice). Neither is framed.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(A release-phase `escaped` defect means a pre-flight category above was
-   missing or skipped — grow the checklist.)*
+4. **Where was the worst defect caught?**
+   — build
+   *(Stale README and crate-doc claims, for example tiled planes listed as unsupported
+   and compressed planes said to be absent, were found and fixed in the prep. The
+   semver flag was judged a false positive by the user.)*
+
+5. **What can a user do now that they couldn't before?**
+   — A crates.io user on `irradiance = "0.2"` gets develop options, embedded previews,
+   tiled planes and plane units with `cargo update`, plus decodes about 25× faster on
+   packed 12/14-bit planes and about 6.5× faster on lossless-JPEG, with no code change
+   (0.2.1 → 0.2.2, published 2026-11-17).
