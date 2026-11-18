@@ -1687,17 +1687,20 @@ fn decode_unit(
             // a 6×4 band) would decode to a silently mis-strided plane. The
             // frame's effective width is `samples_per_line × components` (the
             // `Nf=2` column interleave is `2·X` wide — SPEC-046); it must equal
-            // the sensor width, and its `lines` this strip's row count. The
-            // extra header parse is tens of bytes.
-            let (frame, _tables, _entropy_at) = crate::ljpeg::parse_headers(strip)?;
+            // the sensor width, and its `lines` this strip's row count.
+            //
+            // The header is parsed ONCE (SPEC-074): the decode below starts
+            // from this parse, so errors are identical to `decode_into`'s by
+            // construction -- the same parse on the same bytes runs first, the
+            // shape check second, and the scan starts at the same offset.
+            let (frame, tables, entropy_at) = crate::ljpeg::parse_headers(strip)?;
             check_strip_shape(&frame, sensor.width, span.rows)?;
 
             // Every malformed / truncated strip returns a typed `Error`, never
             // a panic (inherited from SPEC-037/038). The scan completes on
             // sample count; a missing trailing EOI is not an error (`DEC-050`
             // §4).
-            crate::ljpeg::decode_into(strip, band)?;
-            Ok(())
+            crate::ljpeg::decode_parsed_into(strip, &frame, &tables, entropy_at, band)
         }
         (UnitSource::TileRow { tile_row }, Plan::Tiles { grid, .. }, _) => {
             decode_tile_row(sensor, grid, kind, byte_order, file, tile_row, unit, band)
@@ -1821,8 +1824,10 @@ fn decode_tile_row(
                 // for tiles): an equal-area transpose would otherwise decode to
                 // a silently mis-strided tile. Real edge tiles are coded at
                 // full tile size (SPEC-058 probe), so a clipped-size edge frame
-                // is refused here too.
-                let (frame, _tables, _entropy_at) = crate::ljpeg::parse_headers(tile)?;
+                // is refused here too. The decode below reuses this one parse
+                // (SPEC-074), so the shape check still runs before any sample
+                // is decoded and errors are unchanged.
+                let (frame, tables, entropy_at) = crate::ljpeg::parse_headers(tile)?;
                 check_strip_shape(&frame, grid.tile_width, grid.tile_length)?;
                 let window = crate::ljpeg::Window {
                     stride: width,
@@ -1831,7 +1836,9 @@ fn decode_tile_row(
                     visible_width: span.visible_width,
                     visible_height: span.visible_height,
                 };
-                crate::ljpeg::decode_window_into(tile, band, window)?;
+                crate::ljpeg::decode_parsed_window_into(
+                    tile, &frame, &tables, entropy_at, band, window,
+                )?;
             }
         }
     }

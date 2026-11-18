@@ -17,25 +17,27 @@
 //! that check alone cannot see a new allocation in the kernel; the absolute
 //! pin [`C7_ALLOCATIONS_PER_CHUNK`] (`SPEC-071`) can.
 
-/// Allocations per Compression-7 strip or tile on this file's tier-A fixtures
-/// (`SPEC-071`): measured as exactly 10 at `4664773`, on both compressed
-/// fixtures and every band height (4 strips allocate 40, 12 tiles 120).
+/// Allocations per Compression-7 strip or tile on this file's tier-A fixtures:
+/// exactly 5 since `SPEC-074`, on both compressed fixtures and every band
+/// height (4 strips allocate 20, 12 tiles 60). `SPEC-071` first pinned it at
+/// 10, when every chunk parsed its header twice.
 ///
 /// They are all header-parse allocations. Each strip or tile parses its SOF-3
-/// header TWICE: once in `plane` to bind the frame's shape to the strip or
-/// tile (`DEC-047`), and once inside `ljpeg::decode_into` /
-/// `decode_window_into` (`open_scan`). Each `ljpeg::parse_headers` call on
-/// these one-table, one-component (`Nf = 1`) headers allocates five times:
+/// header ONCE: in `plane`, to bind the frame's shape to the strip or tile
+/// (`DEC-047`), and the decode then starts from that parse
+/// (`ljpeg::decode_parsed_into` / `decode_parsed_window_into`). One
+/// `ljpeg::parse_headers` call on these one-table, one-component (`Nf = 1`)
+/// headers allocates five times:
 /// 1. the `dc_tables` `Vec`'s first push (its growth from empty);
 /// 2. the table's `huffval` `Vec` in `parse_dht`;
 /// 3. the scan header's `tds` `Vec` in `parse_scan_header`;
 /// 4. `component_tables`, `Vec::with_capacity(Ns)`;
 /// 5. the `HuffTable` clone pushed into it (its `huffval` is a `Vec`).
 ///
-/// So 2 × 5 = 10. The count depends on the header (more DHT tables, or
+/// So 1 × 5 = 5. The count depends on the header (more DHT tables, or
 /// `Nf = 2`, allocate more), so this pins these fixtures only, not held
 /// (tier-B) files.
-const C7_ALLOCATIONS_PER_CHUNK: usize = 10;
+const C7_ALLOCATIONS_PER_CHUNK: usize = 5;
 
 #[path = "support/corpus.rs"]
 mod corpus;
@@ -329,7 +331,7 @@ fn units_and_unit_decode_allocate_nothing() {
                     decode_allocs,
                     C7_ALLOCATIONS_PER_CHUNK * chunk_count,
                     "{label} band {rows}: {chunk_count} strips or tiles should allocate \
-                     {C7_ALLOCATIONS_PER_CHUNK} each (the two header parses per chunk)"
+                     {C7_ALLOCATIONS_PER_CHUNK} each (the one header parse per chunk)"
                 );
             } else {
                 assert_eq!(
