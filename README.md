@@ -39,22 +39,26 @@ It is deliberately a **library, not an application**
 - **Edition 2021**, MSRV `1.90` (the measured floor; the true floor is lower
   but unmeasured — see [`Cargo.toml`](Cargo.toml)).
 
-> **Status:** early (0.2.x, on crates.io). Uncompressed **monochrome** and
-> **Bayer** DNG develop work end to end, and monochrome DNG `Compression 7`
-> (lossless-JPEG, SOF-3) planes decode bit-exact through the public
-> `plane::unpack_into` — single- and two-component frames (`SPEC-043`/`046`/`044`).
-> Size the plane buffer with `plane::validate` first: it checks the layout and
-> your own pixel budget before you allocate. See
-> [tested DNG modes](#tested-dng-modes) and [Scope](#scope-and-roadmap).
+> **Status:** early (0.2.2, on crates.io). Uncompressed **monochrome** and
+> **Bayer** DNG develop work end to end. Sensor planes stored as strips or
+> **tiles**, uncompressed or `Compression 7` (lossless-JPEG, SOF-3), decode
+> bit-exact through the public `plane::unpack_into`, and can be split into
+> independent row bands for your own threads. 0.2.2 adds develop options
+> (framing, orientation, partial lens correction, per-position black levels),
+> an allocation-free develop with caller-owned scratch, and zero-copy access to
+> embedded previews. Size the plane buffer with `plane::validate` first: it
+> checks the layout and your own pixel budget before you allocate. See
+> [tested DNG modes](#tested-dng-modes), [`CHANGELOG.md`](CHANGELOG.md) and
+> [Scope](#scope-and-roadmap).
 
 ## The pipeline
 
 | Module | Responsibility |
 |---|---|
-| [`ifd`](src/ifd.rs) | TIFF/IFD container reader; locates the sensor IFD and reads its tags into a `Sensor`. |
-| [`plane`](src/plane.rs) | Unpacks the raw sensor plane into a `u16` buffer (two-path unpacker selected by bit depth). |
-| [`develop`](src/develop.rs) | Plane → image: bad-pixel fix, black/white levels normalization, `WarpRectilinear`, then `DefaultCrop` → `Orientation`. Output stays scene-linear. |
-| [`opcode`](src/opcode.rs) | `OpcodeList` byte-stream parser (DNG 1.7.0.0 Chapter 7): `FixBadPixelsConstant`, `WarpRectilinear`. |
+| [`ifd`](src/ifd.rs) | TIFF/IFD container reader; locates the sensor IFD and reads its tags into a `Sensor`; iterates embedded previews as zero-copy slices (`Container::previews`). |
+| [`plane`](src/plane.rs) | Unpacks the raw sensor plane (strips or tiles; uncompressed or lossless-JPEG) into a `u16` buffer, whole (`unpack_into`) or band by band (`units` + `unpack_unit_into`). |
+| [`develop`](src/develop.rs) | Plane → image: bad-pixel fix, black/white levels normalization, `WarpRectilinear`, then `DefaultCrop` → `Orientation`. Output stays scene-linear. `DevelopOptions` and caller-owned scratch via `develop_with_into` / `develop_with_scratch_into`. |
+| [`opcode`](src/opcode.rs) | `OpcodeList` byte-stream parser (DNG 1.7.0.0 Chapter 7): `FixBadPixelsConstant`, `WarpRectilinear`; the required-processing check every develop entry runs first. |
 | [`warp`](src/warp.rs) | The `WarpRectilinear` geometric resampler. |
 | [`demosaic`](src/demosaic.rs) | Bayer (RGGB family) → camera-space linear RGB, Hamilton-Adams directional kernel. |
 | [`color`](src/color.rs) | Camera RGB → linear sRGB via the DNG colour matrices (dual-illuminant interpolation); `develop_color_into` runs levels → demosaic → colour in one call. |
@@ -122,6 +126,80 @@ The colour path applies `ActiveArea` → `DefaultCrop` → `Orientation` (the
 masked border is dropped) but not yet the `OpcodeList` stages (`WarpRectilinear`,
 `FixBadPixelsConstant`) that `develop_into` runs.
 
+### Develop options (monochrome)
+
+`develop_with_into` and `output_dimensions_with` take a `DevelopOptions`. It is
+`#[non_exhaustive]`, so start from the default and assign fields; the default
+reproduces `develop_into` exactly.
+
+```rust
+use irradiance::develop::{self, BlackLevels, DevelopOptions, Framing};
+
+let mut options = DevelopOptions::default();
+options.framing = Framing::FullActiveArea;   // every recorded photosite, not DefaultCrop
+options.apply_orientation = false;           // stored pixel order
+options.warp_alpha = 0.5;                    // half the WarpRectilinear correction (0.0..=1.0)
+options.black_levels = BlackLevels::PerPosition;
+
+let (w, h) = develop::output_dimensions_with(&sensor, &options)?;
+let mut image = vec![0u16; w as usize * h as usize];
+develop::develop_with_into(&sensor, &raw, &mut image, &options)?;
+```
+
+To develop with **no heap allocation at all**, ask for the scratch size and pass
+the buffer yourself (reuse it across frames):
+
+```rust
+let mut scratch = vec![0u16; develop::scratch_len(&sensor, &options)?];
+develop::develop_with_scratch_into(&sensor, &raw, &mut image, &mut scratch, &options)?;
+```
+
+### Decoding the plane in parallel
+
+irradiance stays single-threaded and dependency-free, but `plane::units` splits
+the plane into full-width row bands that decode independently. Each band is a
+contiguous run of the plane, so `split_at_mut` hands each thread its own slice
+with no `unsafe`, and the result equals `unpack_into` byte for byte:
+
+```rust
+use std::num::NonZeroU32;
+use irradiance::plane::{units, unpack_unit_into};
+
+let order = container.byte_order();
+let mut plane = vec![0u16; n];
+std::thread::scope(|scope| -> Result<(), irradiance::Error> {
+    let mut rest: &mut [u16] = &mut plane;
+    let mut workers = Vec::new();
+    for unit in units(&sensor, &bytes, NonZeroU32::new(512).unwrap())? {
+        let len = unit.samples(sensor.width).expect("the band fits usize");
+        let (band, tail) = rest.split_at_mut(len);
+        rest = tail;
+        let (sensor, bytes) = (&sensor, &bytes);
+        workers.push(scope.spawn(move || unpack_unit_into(sensor, order, bytes, &unit, band)));
+    }
+    for worker in workers {
+        worker.join().expect("a worker panicked")?;
+    }
+    Ok(())
+})?;
+```
+
+A single-scan `Compression 7` strip is one unit, so it does not split.
+
+### Embedded previews
+
+`Container::previews()` yields each embedded preview's metadata and its bytes as
+a slice borrowed from your input — never copied, never decoded:
+
+```rust
+for preview in container.previews() {
+    let preview = preview?; // one bad preview is an Err; iteration continues
+    println!("{:?} {}x{} {:?}, {} bytes",
+        preview.kind, preview.width, preview.height,
+        preview.compression, preview.bytes.len());
+}
+```
+
 ## Tested DNG modes
 
 What the public `plane::validate` → `plane::unpack_into` route accepts today,
@@ -162,7 +240,11 @@ just deny            # permissive-only license gate
 just msrv            # compile against the pinned MSRV (1.90.0)
 just fuzz            # the ifd/container fuzz target (also: fuzz-plane,
                      #   fuzz-develop, fuzz-warp, fuzz-opcode, fuzz-ljpeg)
+just doc-check       # cargo doc with warnings denied
 ```
+
+Timing examples (release build, need the Tier-B corpus): `just unpack-timing`,
+`just ljpeg-timing`, `just orient-timing`.
 
 Run a single test by name:
 
@@ -180,9 +262,9 @@ directory of sample files to enable them.
 `irradiance` is developed as a series of **projects** (waves of work). The
 waves:
 
-- **`PROJ-001` — monochrome DNG develop**: read, unpack, normalize levels,
-  apply the DNG geometry/opcode pipeline, and sRGB-encode a monochrome DNG end
-  to end.
+- **`PROJ-001` — monochrome DNG develop** *(shipped)*: read, unpack, normalize
+  levels, apply the DNG geometry/opcode pipeline, and sRGB-encode a monochrome
+  DNG end to end.
 - **`PROJ-002` — Bayer colour develop** *(in progress)*: demosaic and the
   camera→sRGB colour transform are shipped and released (0.2.x); ColorChecker
   ΔE validation (SPEC-035) is pending the chart capture.
@@ -190,10 +272,18 @@ waves:
   lossless-JPEG (SOF-3) decoder, fuzzed, and bound to DNG `Compression 7`
   through `plane::unpack_into` (`SPEC-043` routing, `SPEC-046` two-component
   decode, `SPEC-044` bit-exact against `dnglab` on both held files).
+- **`PROJ-004` — instrument layer and consumer integration** *(in progress)*: a
+  read-only, zero-I/O, caller-allocated surface beyond the developed image, for
+  real consumers. Shipped in 0.2.2: tiled planes, embedded previews, develop
+  options, caller-owned scratch, plane units, and faster packed and
+  lossless-JPEG decodes. Still ahead: applying `OpcodeList2` `GainMap`s (so the
+  tiled Pixel DNGs develop instead of refusing), a clean-room DNG writer, and
+  optical-black instruments.
 
 Intentionally **not** implemented yet (by design, not omission): lossless-JPEG
 component layouts other than `Nf = 1` and `Nf = 2`, compressions other than `1` and `7`,
-and the `ASCII`/signed DNG tag types. The long view — more vendor formats and beyond — is in
+`GainMap` and other mandatory opcodes the develop does not apply (refused with a
+typed error, never silently skipped), and the `ASCII`/signed DNG tag types. The long view — more vendor formats and beyond — is in
 [`docs/future-plans.md`](docs/future-plans.md); see [`projects/`](projects/)
 for active briefs.
 
