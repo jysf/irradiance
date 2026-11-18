@@ -32,6 +32,11 @@ leg's `uname -m` so the arch is pinned, not assumed. The constants were recorded
 macOS arm64; the x86_64 leg passing on the same constants is the cross-arch
 evidence.
 
+Since 2026-11-18 the macOS leg is non-blocking (`continue-on-error`): GitHub's
+hosted macOS arm64 runners were often unavailable, and the job was cancelled without
+running. The constants were recorded on arm64, so the x86_64 leg still gates on
+them; read the macOS leg's own result on any change to a kernel or a constant.
+
 The oracle is shown red (`DEC-009`, control first): `determinism_red_proof` checks
 each unperturbed fixture reproduces its constants, then flips the least-significant
 bit of one interior sample and requires all three hashes to move. At build, three
