@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-18
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-073
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 6654906            # REAL combined count — what cost-audit reads
+  estimated_usd: 5.00              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 35
+  branch: claude/spec-073-verify-a92262
+  pr: 253                          # verdict commented on the build PR; no fix PR was needed
+  completed_at: 2026-11-18         # YYYY-MM-DD
+  notes: "APPROVED at 46b6fc2, post-release. FLOOR: measured live from transcript 1d5d6cf5-f9df-4a9f-ae14-d6372cb7907f.jsonl, deduped by message.id, max output per message, no subagents, opus-5-5 at 5/25 per MTok with 1-hour cache writes; re-sum at ship. duration_minutes is an estimate."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -215,38 +215,164 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-073-verify-a92262` (this handback and the timeline's
+  verify line); the verdict is commented on https://github.com/jysf/irradiance/pull/253.
+  No doc-fix PR was needed.
+- **Completed at:** 2026-11-18
+- **All acceptance criteria met?** yes
+- **For `verify`:** ✅ **APPROVED at `46b6fc291adceefe89e5c34b9cd5ed60396ef5ed`**
+  (post-release: `v0.2.2` and crates.io 0.2.2 both point at this commit).
+
+**1. The published crate is what was merged.**
+- `git rev-parse v0.2.2^{commit}` = `46b6fc2…` = the #253 merge commit.
+- Downloaded `irradiance-0.2.2.crate` from static.crates.io. Its sha256
+  `c425980f…01e7` equals the registry API checksum; published 2026-11-17T06:16Z,
+  not yanked.
+- `.cargo_vcs_info.json` carries `sha1: 46b6fc291adceefe89e5c34b9cd5ed60396ef5ed`,
+  `path_in_vcs: ""`.
+- File list (19 files) is identical to `cargo package --list` at `46b6fc2`, with an
+  empty diff. Every shipped source file (`src/**`, README, both licences,
+  `Cargo.toml.orig`) is byte-identical to `git show 46b6fc2:<path>`. There are no
+  corpus bytes, tests, examples or process files.
+- Packaged `Cargo.toml`: `[[bin]] irr` keeps `required-features = ["irr"]` (DEC-048).
+  `src/bin/irr.rs` ships by design so the manifest stays self-consistent, but a
+  default build or `cargo install` makes no `irr` executable. The dev-dependencies
+  are only `ssimulacra2` and `toml`: the self dev-dependency is stripped.
+  `[profile.corpus]` is in the manifest, and profiles are ignored for dependents.
+
+**2. The semver decision.** I re-ran the check myself:
+`cargo-semver-checks 0.51.0`,
+`check-release --baseline-root <git archive v0.2.1>`.
+- Result: 202 checks, 201 pass, 1 fail, 58 skip.
+- The only failure is `enum_no_repr_variant_discriminant_changed` on `Error`, with 37
+  variants shifted. This matches the build's log.
+- Not observable downstream. I built a throwaway probe crate, not committed, on
+  `irradiance = "=0.2.2"` resolved from the registry.
+  - `Error::NoSensorIfd as i32` (a unit variant) fails with rustc
+    `error[E0605]: non-primitive cast: irradiance::Error as i32`.
+  - `core::mem::discriminant` only gives an opaque `Eq`/`Hash` value.
+  - `Error` derives only `Debug`, which prints the variant name. There is no
+    `PartialOrd`/`Ord`/`Hash` whose behaviour depends on the order.
+- So the flag is a false positive, as the user judged. No yank is warranted.
+
+**3. The CHANGELOG.**
+- The `[Unreleased]` body at `7cf03f2` (186 lines) is in `[0.2.2] - 2026-11-16`
+  verbatim. `diff` shows only the added five-line summary paragraph.
+- The new `[Unreleased]` is empty.
+- The summary paragraph's claims hold:
+  - `v0.2.1..46b6fc2` changes `Cargo.toml` only in the version and a
+    `[profile.corpus]`, with no dependency or feature;
+  - `rust-version = "1.90"`;
+  - `DEVELOP_VERSION` is `"4"`.
+- I spot-checked more than five claims against `src/`, and all are present:
+  - `develop_with_into`, `output_dimensions_with`;
+  - `DevelopOptions` (`#[non_exhaustive]`) with `framing`, `apply_orientation`,
+    `warp_alpha` and `black_levels`;
+  - `scratch_len`, `develop_with_scratch_into`;
+  - `Container::previews`;
+  - `plane::units`, `unpack_unit_into`;
+  - `WarpRect::lerp`;
+  - all ten new error variants named in the notes;
+  - the new `UnsupportedStripLayout` message (v0.2.1 said "tiled planes are
+    unsupported"; 0.2.2 doesn't).
+- The CHANGELOG date of 2026-11-16 is the prep date. The upload was 2026-11-17
+  06:16 UTC, which is still 2026-11-16 in US time zones. Not an issue.
+
+**4. The release notes in the spec.**
+- The headline numbers match the CHANGELOG:
+  - 239.0 → 9.7 ms (24.6×, "about 25×");
+  - 8 units in 1.4 ms;
+  - 692 → 103, 591 → 91 and 324 → 61 ms. That is 6.7×, 6.5× and 5.3×, so
+    "about 6.5×" is the middle file;
+  - warp-free O5–O8 at 2.5–3.5×, for example O5 332 → 95;
+  - 1 allocation of 189 MB against 6 totalling 284 MB.
+- The build's candidate timings in the internal record agree within a few percent.
+- "Breaking / action required: none" is true:
+  - the only semver flag is unobservable (above);
+  - `Sensor` and `DevelopOptions` are `#[non_exhaustive]`;
+  - there is no removed item.
+- Every Known limitation still holds in the code:
+  - `color.rs` says "No opcode is applied on this path" and calls
+    `check_required_processing(…, DevelopPath::Colour)`;
+  - unknown mandatory opcodes give `UnsupportedMandatoryOpcode`, and nothing
+    applies `OpcodeList2`, so the Pixel GainMaps are refused;
+  - a non-integral RATIONAL is the malformed-value path in `ifd.rs`;
+  - `plane.rs`: "a Compression-7 strip … one unit each".
+- No GitHub release exists for `v0.2.2`, nor for v0.2.0 or v0.2.1. The spec makes it
+  optional (Phase 2, step 6), and it is the user's to create. I did not touch it.
+
+**5. The README and crate docs.**
+- The Tested-modes table lists uncompressed and Compression 7 tiles as ✔ supported.
+- The `validate` comment says "strip or tile layout".
+- The `just fuzz` list includes `fuzz-ljpeg`.
+- The crate doc no longer says compressed planes are absent, and names PROJ-003 and
+  PROJ-004.
+- The new "not implemented" line (LJPEG layouts other than `Nf = 1`/`2`) matches
+  `ljpeg.rs`.
+- The README's install line `irradiance = "0.2"` resolves to 0.2.2.
+- I grepped `README.md` and `src/*.rs` docs for stale claims ("not yet",
+  "unsupported", tiles refused, "will add", old versions). I found one, and it
+  predates this release: `develop_into`'s doc says "The tone-curve stage SPEC-019
+  will add after this one is, for now, a no-op". The tone layer shipped long ago as
+  the separate `tone` module.
+  - It has been unchanged since `0ec3f55` and is also in v0.2.1.
+  - It is not a wrong capability claim, since `develop_into`'s output IS final.
+  - It is listed below as a follow-up, not a punch-list item.
+
+**6. Gates** on this worktree, which is `46b6fc2` plus this handoff (no source
+change), with `IRRADIANCE_CORPUS_DIR` set:
+
+| Gate | Result |
+|---|---|
+| `just test` | green: corpus 12/12 present, 40 binaries, 710 passed, 0 failed, 1 ignored, doctests 4; 184 s |
+| `just lint-ci` | green (pinned clippy 0.1.98) |
+| `just fmt-check` | green |
+| `just doc-check` | green: 2 surfaces, 0 rustdoc warnings |
+| `just deny` | green (`licenses ok`; the usual unmatched-allowance notes only) |
+| `just msrv` | green (1.90.0) |
+| `cargo publish --dry-run` | green: packages and verifies irradiance v0.2.2, warns that "crate irradiance@0.2.2 already exists on crates.io index" (expected), aborts upload |
+
+- CI on #253: 44 checks pass. The `CI` runs on `46b6fc2` concluded `success`.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 6,654,906, a floor measured live.
+- **Estimated USD:** $5.00 (opus-5-5: $5/$25 per MTok, cache reads ×0.10, 1-hour
+  writes ×2.0).
+- **Duration (minutes):** about 35 (estimate).
+- **Source of the number:** the transcript
+  `1d5d6cf5-f9df-4a9f-ae14-d6372cb7907f.jsonl`, found by the scratchpad UUID.
+  It was deduped by `message.id` with the max `output_tokens` per message. There
+  are no subagents. Re-sum at ship.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - The `--baseline-root` archive was a full `git archive v0.2.1`, not the
+    crate-files subset. Extraction hit no long-filename error, and the result is
+    identical (201/202, same 37 variants).
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - [XS, docs] Reword `develop_into`'s stale "tone-curve stage SPEC-019 will add …"
+    sentence in `src/develop.rs`. It predates 0.2.2, and the fix lands in the next
+    release's docs.
+  - [user, optional] Create the `v0.2.2` GitHub release from the spec's Release
+    Notes, down to the internal record. No release objects exist for any 0.2.x tag.
+  - The build's suggestion stands: append new `Error` variants at the end of the enum
+    so the semver lint stays quiet.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little. Check 1 says "no `irr` binary target". The packaged manifest does
+   declare `[[bin]] irr`, gated behind a feature (DEC-048). "No default-built `irr`"
+   would be the precise wording.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Whether a GitHub release is expected post-cut. The spec marks it optional, but
+   the release notes call themselves "the GitHub release text", and none exists.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the gates strictly after `just test`, not alongside it. They contend for the
+   cargo build lock, so running them together saved nothing and blurred the 184 s test
+   timing.
