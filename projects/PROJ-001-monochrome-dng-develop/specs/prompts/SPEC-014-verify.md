@@ -12,11 +12,11 @@ Cycle: verify. You are the reviewer for SPEC-014. You did not build it — revie
 
 Read first, in this order:
   1. AGENTS.md — §15's verify rules (checks 1-12) and §16's three codified lessons.
-  2. projects/PROJ-001-monochrome-dng-develop/handoffs/HANDOFF-033-verify-level-normalization-activearea-to-defaultcrop-and-orientation.md
+  2. projects/PROJ-001-monochrome-dng-develop/handoffs/HANDOFF-033-verify-level-normalization-activearea-to-defaultcrop-and-orientatio.md
      — your contract. It carries the orchestrator's reconciliation table
      (reproduce it, do not inherit it), seven checks it did NOT make, and your
      return criteria.
-  3. projects/PROJ-001-monochrome-dng-develop/specs/SPEC-014-level-normalization-activearea-to-defaultcrop-and-orientation.md
+  3. projects/PROJ-001-monochrome-dng-develop/specs/SPEC-014-level-normalization-activearea-to-defaultcrop-and-orientatio.md
      — read `## Implementation Context` in full. The blind-spot section is the spec.
   4. projects/PROJ-001-monochrome-dng-develop/handoffs/HANDOFF-032-build-... — the build's own handback.
   5. guidance/constraints.yaml, guidance/toolchain-brief.md.

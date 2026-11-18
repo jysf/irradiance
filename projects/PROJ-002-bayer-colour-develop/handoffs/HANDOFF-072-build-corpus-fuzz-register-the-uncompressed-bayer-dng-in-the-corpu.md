@@ -62,7 +62,7 @@ do not move.
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
 - **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-006-cfa-sensor-model-and-bit-exact-mosaic-plane.md`
-- **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-027-corpus-fuzz-register-the-uncompressed-bayer-dng-in-the-corpus-manifest-and-extend-the-fuzz-corpus-panic-free-on-cfa-input.md`
+- **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-027-corpus-fuzz-register-the-uncompressed-bayer-dng-in-the-corpu.md`
   — Acceptance Criteria + Failing Tests are the contract.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — the `+toolchain` traps,
   `just lint-ci` for CI's clippy, the five-lint panic policy, the corpus env var.

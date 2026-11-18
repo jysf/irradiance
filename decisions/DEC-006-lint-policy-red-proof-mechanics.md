@@ -123,4 +123,4 @@ drift this decision's "Negative" consequence predicts.
 
 - Related specs: SPEC-001
 - Related constraints: `oracle-must-be-shown-red`, `no-panics-on-untrusted-input`
-- Handoff: `projects/PROJ-001-monochrome-dng-develop/handoffs/HANDOFF-001-build-crate-scaffold-cargo-toml-measured-msrv-panic-free-lints-rust-ci.md`
+- Handoff: `projects/PROJ-001-monochrome-dng-develop/handoffs/HANDOFF-001-build-crate-scaffold-cargo-toml-measured-msrv-panic-free-lints-rus.md`

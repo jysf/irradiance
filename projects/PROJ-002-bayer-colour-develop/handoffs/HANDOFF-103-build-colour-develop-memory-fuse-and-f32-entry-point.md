@@ -72,7 +72,7 @@ list tight, but don't omit anything necessary.
 ### Primary
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-performance.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-pe.md`
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-049-colour-develop-memory-fuse-and-f32-entry-point.md` — the Acceptance Criteria, Failing Tests and Notes are the contract.
 - **Decision:** `./decisions/DEC-042-fuse-the-colour-develop-passes-and-add-an-f32-entry-point.md` — the fused two-pass structure, the normalise-on-read tradeoff, and the f32 quantise-first rule.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — this repo's test

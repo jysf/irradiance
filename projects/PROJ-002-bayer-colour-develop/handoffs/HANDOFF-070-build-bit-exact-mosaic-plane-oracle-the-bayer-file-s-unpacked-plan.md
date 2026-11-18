@@ -69,7 +69,7 @@ byte-aligned unpack path. STAGE-006's capstone; test-only, no `src/` change.
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
 - **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-006-cfa-sensor-model-and-bit-exact-mosaic-plane.md`
-- **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-025-bit-exact-mosaic-plane-oracle-the-bayer-file-s-unpacked-plane-md5-equals-dnglab-analyze-raw-checksum-with-its-red-proof.md`
+- **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-025-bit-exact-mosaic-plane-oracle-the-bayer-file-s-unpacked-plan.md`
   — Acceptance Criteria + Failing Tests are the contract.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — the `+toolchain` traps,
   `just lint-ci` for CI's clippy, the five-lint panic policy, the corpus env var.

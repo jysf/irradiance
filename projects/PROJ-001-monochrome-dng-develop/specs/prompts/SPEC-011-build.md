@@ -5,7 +5,7 @@ outside every -D warnings gate** (STAGE-005, PROJ-001). Delegated via **HANDOFF-
 
 Read first, in order:
 1. This prompt.
-2. `projects/PROJ-001-monochrome-dng-develop/handoffs/HANDOFF-060-build-lint-the-fuzz-crate-the-second-cargo-graph-sits-outside-every-d-warnings-gate.md`.
+2. `projects/PROJ-001-monochrome-dng-develop/handoffs/HANDOFF-060-build-lint-the-fuzz-crate-the-second-cargo-graph-sits-outside-ever.md`.
 3. The spec (SPEC-011) — Inputs (file map), AC1–AC5, Notes (key facts).
 4. `guidance/toolchain-brief.md`.
 

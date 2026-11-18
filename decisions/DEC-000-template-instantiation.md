@@ -334,4 +334,4 @@ and the gap between those is exactly where process records rot.
   [`docs/harvests/instances.md`](../docs/harvests/instances.md)
 - This repo's own licence rationale: [`docs/provenance-ledger.md`](../docs/provenance-ledger.md)
 - The exploration this defers framing to:
-  [`spikes/SPIKE-001-…`](../spikes/SPIKE-001-can-we-decode-a-leica-q2-monochrom-dng-bit-exact-and-does-the-oracle-discriminate.md)
+  [`spikes/SPIKE-001-…`](../spikes/SPIKE-001-can-we-decode-a-leica-q2-monochrom-dng-bit-exact-and-does-th.md)

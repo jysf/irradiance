@@ -72,7 +72,7 @@ list tight, but don't omit anything necessary.
 
 ### Primary
 
-- **Spec:** `./projects/PROJ-001-monochrome-dng-develop/specs/SPEC-011-lint-the-fuzz-crate-the-second-cargo-graph-sits-outside-every-d-warnings-gate.md`
+- **Spec:** `./projects/PROJ-001-monochrome-dng-develop/specs/SPEC-011-lint-the-fuzz-crate-the-second-cargo-graph-sits-outside-ever.md`
   — read it whole: **Inputs** is the recipe/file map, **AC1–AC5** the contract,
   **Notes** the key facts (the fuzz crate is already clean; the red-proof fault
   must be a default-clippy violation; clippy pinning).

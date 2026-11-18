@@ -68,7 +68,7 @@ sink (`DEC-043`). The verifier did not write the code.
 ### Primary
 
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-050-colour-develop-crop-to-active-area-and-geometry-parity.md` — Acceptance + Failing Tests are the contract.
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-performance.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-pe.md`
 - **Decision:** `./decisions/DEC-043-crop-the-colour-path-to-full-geometry-parity-with-develop-into.md` — the sink-side crop/orient scatter.
 - **Build handoff:** `./projects/PROJ-002-bayer-colour-develop/handoffs/HANDOFF-105-build-colour-develop-crop-to-active-area-and-geometry-parity.md` (on the PR branch).
 - **Toolchain brief:** `./guidance/toolchain-brief.md`.

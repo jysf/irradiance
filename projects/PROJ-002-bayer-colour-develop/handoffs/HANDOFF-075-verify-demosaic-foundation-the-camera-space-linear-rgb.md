@@ -78,7 +78,7 @@ early), confirming bit-exactness, a genuinely-red oracle, and spec compliance.
 ### Primary
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-007-demosaic-clean-room-malvar-he-cutler-mosaic-to-camera-linear-rgb.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-007-demosaic-clean-room-malvar-he-cutler-mosaic-to-camera-linear.md`
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-030-demosaic-foundation-the-camera-space-linear-rgb.md`
 - **Build handoff:** `./projects/PROJ-002-bayer-colour-develop/handoffs/HANDOFF-074-build-demosaic-foundation-the-camera-space-linear-rgb.md`
 - **Toolchain brief:** `./guidance/toolchain-brief.md`

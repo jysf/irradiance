@@ -27,7 +27,7 @@ deciders: [claude]
 
 affected_scope:
   - "**/Cargo.toml"
-  - "projects/PROJ-001-monochrome-dng-develop/stages/STAGE-004-crustyimg-integration-raw-develop-feature-and-metadata-truthfulness.md"
+  - "projects/PROJ-001-monochrome-dng-develop/stages/STAGE-004-crustyimg-integration-raw-develop-feature-and-metadata-truth.md"
 
 tags:
   - release
@@ -155,7 +155,7 @@ consumer; the downstream reader is the whole reason it exists.
 
 - Related specs: — (release bookkeeping, not a spec; STAGE-004 is the consumer)
 - Related decisions: reverses the publish line in
-  `STAGE-004-crustyimg-integration-raw-develop-feature-and-metadata-truthfulness.md`
+  `STAGE-004-crustyimg-integration-raw-develop-feature-and-metadata-truth.md`
   (`value_contribution.explicitly_does_not`, amended to cite this DEC). Builds on
   DEC-002 (output determinism "pinned within a `develop_version`" — this is that
   version string, surfaced as `DEVELOP_VERSION`).

@@ -73,7 +73,7 @@ The receiving agent MUST read these before starting work.
 
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-053-compression-seven-decoded-frame-shape-binding.md` — all of it, especially `## Design` and `## Failing Tests`.
 - **Decision:** `./decisions/DEC-047-bind-the-decoded-sof3-frame-shape-to-the-strip.md` — the rule, the two variants, the rejected alternative, and why `DEVELOP_VERSION` does not move.
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-010-downstream-consumer-api-validate-before-allocate-error-kinds-determinism-0-2-0.md` (re-planned by DEC-045).
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-010-downstream-consumer-api-validate-before-allocate-error-kinds.md` (re-planned by DEC-045).
 - **Triage:** `./docs/reviews/2026-11-09-pre-0.2.0-code-review-triage.md` (finding #2).
 - **Code:** `src/plane.rs` (`unpack_jpeg` l.487, the per-strip loop + `decode_into` call l.582), `src/ljpeg.rs` (`parse_headers` l.341, `parse_frame_header` l.436 with the `_hv` read at l.470, `Frame` l.200, the area checks l.993/l.1182), `src/lib.rs` (`Error` l.217), `tests/support/tiff.rs` (`lj92_strip`, `compression7_dng_with_strip`, `compression7_entries`), `fuzz/fuzz_targets/ljpeg.rs`.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — test framework, lint quirks, the `+toolchain` fuzz trap (DEC-004 rule 5).

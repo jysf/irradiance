@@ -71,7 +71,7 @@ list tight, but don't omit anything necessary.
 ### Primary
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-performance.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-pe.md`
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-048-demosaic-interior-fast-path.md` — the Acceptance Criteria, Failing Tests and Notes are the contract.
 - **Decision:** `./decisions/DEC-041-demosaic-interior-fast-path-and-the-stage-012-perf-discipline.md` — the fast-path structure, why the border stays reflecting, and the bit-identical + measured discipline.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — this repo's test

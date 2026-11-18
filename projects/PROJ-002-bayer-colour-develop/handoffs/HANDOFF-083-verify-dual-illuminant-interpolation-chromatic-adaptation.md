@@ -68,7 +68,7 @@ The orchestrator ships after the verdict (this session does **not** ship).
 ### Primary
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-008-colour-transform-white-balance-colour-matrix-display-encode-colorchecker-de.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-008-colour-transform-white-balance-colour-matrix-display-encode.md`
 - **Spec (the contract):** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-034-dual-illuminant-interpolation-chromatic-adaptation.md`
 - **Build handoff:** `./projects/PROJ-002-bayer-colour-develop/handoffs/HANDOFF-082-build-dual-illuminant-interpolation-chromatic-adaptation.md`
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — `just test` (NOT `--all-features`);

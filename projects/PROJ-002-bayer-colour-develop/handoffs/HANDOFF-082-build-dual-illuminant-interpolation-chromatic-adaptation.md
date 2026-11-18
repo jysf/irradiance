@@ -72,7 +72,7 @@ list tight, but don't omit anything necessary.
 ### Primary
 
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-034-dual-illuminant-interpolation-chromatic-adaptation.md` — **read the whole thing**; `## Design` is the exact algorithm (NeutralToXY iteration, McCamy CCT, the illuminant table, the matrix lerp, the fallback), `## Failing Tests` is the contract.
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-008-colour-transform-white-balance-colour-matrix-display-encode-colorchecker-de.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-008-colour-transform-white-balance-colour-matrix-display-encode.md`
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — `just test` (NOT `just test
   --all-features`); the Tier-A oracle needs no corpus.
 - **Code to read/extend (reuse, don't rebuild):**

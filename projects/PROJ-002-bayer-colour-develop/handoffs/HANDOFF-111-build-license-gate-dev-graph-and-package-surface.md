@@ -72,7 +72,7 @@ The receiving agent MUST read these before starting work.
 
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-055-license-gate-dev-graph-and-package-surface.md` — all of it, especially `## Design` and `## Failing Tests`.
 - **Decision:** `./decisions/DEC-048-license-gate-over-the-dev-graph-and-gate-the-irr-binary.md` — the mechanism, the two dead-end probes, and the `irr` disposition rationale.
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-010-downstream-consumer-api-validate-before-allocate-error-kinds-determinism-0-2-0.md` (re-planned by DEC-045).
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-010-downstream-consumer-api-validate-before-allocate-error-kinds.md` (re-planned by DEC-045).
 - **Triage:** `./docs/reviews/2026-11-09-pre-0.2.0-code-review-triage.md` (findings #4, #6).
 - **Files:** `deny.toml`, `Cargo.toml` (the `[[bin]] irr` + `[features]`), `.github/workflows/ci.yml` (l.142 `cargo-deny-action@v2`, and the red-proof steps l.33/58/76 as the pattern), `app.just` (`deny` l.89, `deny-fuzz` l.106), `scripts/lint-red-proof.sh` + `gate-audit-red-proof.sh` (the red-proof template), `docs/license-policy.md`, `tests/demosaic_oracle.rs` (l.824 `CARGO_BIN_EXE_irr`).
 - **Toolchain brief:** `./guidance/toolchain-brief.md` (DEC-004 rule 5).

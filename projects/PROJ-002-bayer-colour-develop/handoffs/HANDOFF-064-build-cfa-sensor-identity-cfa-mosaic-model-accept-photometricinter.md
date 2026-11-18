@@ -72,7 +72,7 @@ list tight, but don't omit anything necessary.
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
 - **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-006-cfa-sensor-model-and-bit-exact-mosaic-plane.md`
-- **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-024-cfa-sensor-identity-cfa-mosaic-model-accept-photometricinterpretation-32803-parse-cfapattern-cfarepeatpatterndim-cfaplanecolor-cfalayout-into-a-new-sensor-field-mono-stays-none-mono-path-unchanged-regression-guard.md`
+- **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-024-cfa-sensor-identity-cfa-mosaic-model-accept-photometricinter.md`
   — read it in full; the Acceptance Criteria and the 7 Failing Tests are the contract.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — the `+toolchain` traps,
   `just lint-ci` for CI's clippy, the five-lint panic policy, the corpus env var.

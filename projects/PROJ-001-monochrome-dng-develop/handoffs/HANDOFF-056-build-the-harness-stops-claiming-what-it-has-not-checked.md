@@ -78,7 +78,7 @@ list tight, but don't omit anything necessary.
   it reads front matter with line-oriented `awk`/`grep`/`sed` and NEVER parses;
   it also scopes to **specs + patches + spikes only** (26 artifacts) — not
   `handoffs/` or `decisions/`.
-- **The live falsifier in the repo:** `projects/PROJ-001-monochrome-dng-develop/handoffs/HANDOFF-039-verify-orchestration-cost-is-documented-at-stage-close-and-nothing-checks-it.md`
+- **The live falsifier in the repo:** `projects/PROJ-001-monochrome-dng-develop/handoffs/HANDOFF-039-verify-orchestration-cost-is-documented-at-stage-close-and-nothing.md`
   — its front matter does not parse (`did not find expected key …` ~line 49).
   It is outside today's `validate` scope, which is exactly why it slipped
   through. **Fix its front matter as part of this spec** so the new gate ships
@@ -86,7 +86,7 @@ list tight, but don't omit anything necessary.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — pinned vs local clippy
   (`lint-ci` not `lint`), the `+toolchain` PATH trap, zsh `$pipestatus`, the
   `just` gate recipes. Read it (DEC-004 rule 5).
-- **Stage:** `./projects/PROJ-001-monochrome-dng-develop/stages/STAGE-005-harden-the-harness-the-gates-the-oracle-s-parser-and-the-second-cargo-graph.md`
+- **Stage:** `./projects/PROJ-001-monochrome-dng-develop/stages/STAGE-005-harden-the-harness-the-gates-the-oracle-s-parser-and-the-sec.md`
 
 ### Decisions that apply
 

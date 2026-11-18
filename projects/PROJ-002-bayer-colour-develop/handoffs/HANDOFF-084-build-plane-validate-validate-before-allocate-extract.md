@@ -77,7 +77,7 @@ list tight, but don't omit anything necessary.
 ### Primary
 
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-039-plane-validate-validate-before-allocate-extract.md` — read all of it.
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-010-downstream-consumer-api-validate-before-allocate-error-kinds-determinism-0-2-0.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-010-downstream-consumer-api-validate-before-allocate-error-kinds.md`
 - **Requirement:** `./feedback/2026-11-02-pyirradiance-requests.md` (item 1)
 - **Code:** `src/plane.rs` (`unpack_into`), `src/ifd.rs` (`Sensor`, `MAX_TAG_VALUES`), `tests/support/tiff.rs`, `tests/plane_oracle.rs`, `fuzz/fuzz_targets/plane.rs`, `examples/fuzz-seeds.rs`
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — this repo's test
