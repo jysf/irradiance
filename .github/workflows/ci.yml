@@ -9,8 +9,15 @@ name: CI
 # outside the repo and is never committed. Nothing below implies the decoder
 # is bit-exact; that claim is scoped to `docs/conformance-matrix.md`, not to
 # a green badge here.
+# `push` runs only on `main`; a PR branch is covered by its `pull_request` run.
+# With both triggers unfiltered, every push to a PR branch started two full
+# runs, and the second macOS determinism job waited for a runner until it was
+# cancelled (PRs 248, 250, 255; signal `push-and-pull-request-both-trigger-ci`).
+# A tag push no longer starts a run either; the tagged commit already ran on
+# `main` when its PR merged.
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
