@@ -6,19 +6,19 @@
 task:
   id: SPEC-076
   type: chore  # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S  # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 9000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-158
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 9294458
+      estimated_usd: 6.67
+      duration_minutes: 25
+      recorded_at: 2026-11-19
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (63 unique message.ids, all claude-opus-5-5, no subagents): input 133 + cache-creation 123,246 (1-hour) + cache-read 9,136,363 + output 34,716 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Covers the build, its background gate and mutant runs, the CI wait and the handback commit. The handback floor was 6,316,433 and $4.78."
+    - cycle: verify
+      handoff: HANDOFF-160
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 6482112
+      estimated_usd: 5.12
+      duration_minutes: 30
+      recorded_at: 2026-11-19
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (47 unique message.ids, all claude-opus-5-5, no subagents): input 93 + cache-creation 108,154 (1-hour) + cache-read 6,339,103 + output 34,762, opus-5-5 rates. PUNCH LIST, tests only: two of seven verifier mutants survived (an allocation on the applier's own parse error, and a helper call hidden in a trailing comment), pinned in d79dc50 and carried into PR 264 by fast-forward. The handback floor was 5,498,418."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 15776570
+    estimated_usd: 11.79
+    session_count: 2
+shipped_at: 2026-11-19
 ---
 
 # SPEC-076: STAGE-019 verify test hardenings
@@ -194,34 +215,36 @@ fixes.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Name the path each mutant must reach, not just the mutant. The spec's H2 row was a
+   truncated list, which the required-processing check refuses before the applier's own
+   parse ever runs, so an allocation on that parse survived the build. H5 said "skip
+   comment lines", which a trailing comment on the same line beats. The verify found both,
+   and both were pinned before merge. The spec also put the ramp fixture in the wrong
+   file. The bundle cost about 15.8M tokens against a 9M estimate: two cold sessions each
+   ran a dozen mutant copies with their own target dirs, which is the price of this kind
+   of spec.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No DEC. Lesson for tests-only specs: give each mutant the code path it must reach and
+   a check that the red comes from the target assertion (read the panic message). Both
+   cold sessions independently hit a mutant that went red for the wrong reason or never
+   reached its path.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None required. Optional `[XS]`: a narrow-spread warp fixture large enough for H3's
+   guard to run on both AC5 cases; the verify judged the k = 0 guard sufficient, because
+   whether the warp pass runs does not depend on pixel values.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
+   *(Test gaps only: two of the verifier's seven mutants survived the build's suite.
+   Pinned in d79dc50 and carried into PR 264 before merge. No source change.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — none. Tests only: five STAGE-019 regressions (unsorted median, an allocating
+   opcode-error path, a skipped warp, a scratch write before a refusal, a gather that stops
+   using the traversal helper) now fail the suite, where before they passed it or were
+   caught only by an unrelated test.

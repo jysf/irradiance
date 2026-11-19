@@ -1742,3 +1742,17 @@ signals:
       divergence would show as a failed but non-blocking leg, so read that leg's result
       on any PR touching a kernel or a committed determinism hash. Revisit if capacity
       returns (make it blocking again) or if arm64 evidence goes missing for a release.
+  - id: every-rule-clause-maps-to-a-reachable-test
+    type: lesson
+    summary: "At design, map every DEC rule clause (each malformed class, each entry point, each numeric path) to a named test, and say which code path that test must reach. A cold verify otherwise finds mutants the build's suite cannot see."
+    evidence: "N=2, STAGE-023 2026-11-19. SPEC-075's verify found four surviving mutants (f32 general-path origin, per-sample white, MaskedAreas bottom past height and left equal to right): DEC-068 clauses with no test in the failing-test list. SPEC-076's verify found two (an allocation on the applier's own parse error, unreachable because the spec's truncated row is refused earlier; a helper call hidden in a trailing comment). All were test gaps only, pinned before merge."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-19
+    last_touched: 2026-11-19
+    raised_by: claude
+    notes: |
+      Sibling discipline for builders and verifiers: read each mutant's panic message,
+      because both STAGE-023 builds hit a mutant that went red for the wrong reason or
+      never reached its path. Codify as a spec-template checklist line at N=3.

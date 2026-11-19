@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-023                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-18
-shipped_at: null
+shipped_at: 2026-11-19
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -49,7 +49,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 22710566
+      estimated_usd: 16.00
+      recorded_at: 2026-11-19
+      notes: "Stage orchestration, measured from the orchestrator transcript (session 2b783e6b, claude-opus-5-5) from the user's 'Black-level fixes' message at 2026-11-19T03:51Z through this close: 125 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus list rates (input 292 + cache-creation 252,589 (1-hour) + cache-read 22,366,174 + output 91,511); no subagents. Covers framing STAGE-023, the black-level design probe, DEC-068, both specs, the 17-red fixture decision, two build and two verify dispatches, two verify-base fast-forwards, the SPEC-075 ship and this ship and close. A FLOOR: the final messages after the measurement are not in it."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -99,9 +104,9 @@ five `[XS]` test-strength gaps the STAGE-019 verifies named.
 ## Spec Backlog
 
 - [x] SPEC-075 (shipped on 2026-11-19) [M] — Black-level fixes and MaskedAreas (DEC-068): round a non-integral RATIONAL `BlackLevel` to nearest and keep the exact values in `Sensor::black_levels_exact`; the colour normalizer indexes `BlackLevelRepeatDim` with the DEC-061 §3 rule and refuses a count mismatch with `InvalidBlackLevelPattern`; `Sensor::masked_areas` passes through `MaskedAreas` (interpretation class, 16-rectangle cap); `DEVELOP_VERSION` 5.
-- [ ] SPEC-076 (design) [S] — STAGE-019 verify test hardenings: an unsorted-neighbour median fixture, a develop-level malformed `OpcodeList1` alloc row, a true "warp ran" guard, the scratch sentinel in `develop_err`, and the traversal-helper argument scan. Tests only, each with a mutant shown red.
+- [x] SPEC-076 (shipped on 2026-11-19) [S] — STAGE-019 verify test hardenings: an unsorted-neighbour median fixture, a develop-level malformed `OpcodeList1` alloc row, a true "warp ran" guard, the scratch sentinel in `develop_err`, and the traversal-helper argument scan. Tests only, each with a mutant shown red.
 
-**Count:** 1 shipped / 1 active / 0 pending
+**Count:** 2 shipped / 0 active / 0 pending
 
 **Designed 2026-11-19:** the probe on 4c5dd2c read all 11 held DNGs. Only the Pixel 7 Pro has a non-integral black (`262172/256` and so on, all rounding to 1024), and no file has a `[1, 2]`/`[2, 1]` pattern, more than one `WhiteLevel` value, or `MaskedAreas`. The test writer's `extra_tags` builds every fixture with no writer change. The user chose rounding over a fractional develop.
 
@@ -122,21 +127,32 @@ five `[XS]` test-strength gaps the STAGE-019 verifies named.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes, every success criterion.
+  The Pixel 7 Pro reads `black_level == Some(1024)` with its four rationals in
+  `black_levels_exact`. Colour `[1, 2]`, `[2, 1]` and `[4, 4]` patterns develop as their
+  `[2, 2]` expansion, and a count mismatch is refused on all four colour entry points.
+  `Sensor::masked_areas` reads verbatim and costs a malformed tag only. Each STAGE-019
+  hardening catches its mutant. Every held file is byte-identical, and `DEVELOP_VERSION`
+  is 5. SPEC-075 in PR 262, SPEC-076 in PR 264.
+- **How many specs did it actually take?** 2, as planned.
+- **How many outlines survived unchanged?** n/a (not framed with `just frame-stage`).
+- **Cost.** SPEC-075 33.41M tokens / $23.86 (estimate 22M); SPEC-076 15.78M / $11.79
+  (estimate 9M); orchestration 22.71M / $16.00 (floor). About $51.65 for the stage.
+- **What changed between starting and shipping?** DEC-068's count rule refused the shape
+  17 legacy colour fixtures used (4 blacks, no repeat dim), so they gained a `[2, 2]`
+  repeat dim with no assertion changed. Both verifies came back as tests-only punch
+  lists (four and two surviving mutants), and both fixes were fast-forwarded into the
+  build PR before merge, so no cherry-pick was needed at ship.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - Probe `tests/` as well as the corpus when a DEC tightens a rule: grep for fixtures
+    the new rule refuses, and grep for version pins instead of listing files.
+  - Give every mutant copy its own `CARGO_TARGET_DIR` and read its panic message. Both
+    builds and one verify hit a false green or a wrong-reason red.
+- **Signals dispositioned at this close?** No lesson signal is owned by this stage. New
+  `watch` signal `every-rule-clause-maps-to-a-reachable-test` (N=2, bar N=3).
+  `macos-arm64-runner-unavailable` stays watch.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - The rule-clause-to-test mapping, recorded as the watch signal above.
+  - Carried, unframed `[XS]`: a non-integral RATIONAL `BlackLevel` above `i32::MAX`
+    stays malformed instead of rounding; an optional larger warp fixture so H3's guard
+    runs on both AC5 cases.
