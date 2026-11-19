@@ -909,6 +909,105 @@ pub fn apply_fix_bad_pixels_constant(
     Ok(replaced)
 }
 
+/// Apply every `GainMap` in `opcode_list_2` to an `ActiveArea`-sized,
+/// level-normalised stage-2 image, in place (`SPEC-059`, `DEC-069` §4), and
+/// return how many `GainMap`s the list held.
+///
+/// `stage2` is `height` rows of `width` samples, row-major, already black-
+/// subtracted and white-scaled to `[0, 65535]`: exactly the image the develop
+/// paths apply the maps to, at the DNG stage-2 position (after levels, before
+/// `WarpRectilinear`, demosaic, `DefaultCrop` and `Orientation`). Coordinates
+/// are relative to the image's own top-left (the `ActiveArea` origin).
+///
+/// # The rule (`DEC-069` §2)
+///
+/// For each `GainMap`, in list order:
+///
+/// - **Area.** `Top ≥ Bottom` or `Left ≥ Right` is the whole image; otherwise
+///   the area is intersected with the image, and an area wholly outside it
+///   touches nothing.
+/// - **Pitch.** Only samples with `(r − Top) mod RowPitch = 0` and
+///   `(c − Left) mod ColPitch = 0` are touched (`Top`/`Left` before the
+///   intersection; `0` for the whole-image case).
+/// - **Plane.** Only `Plane = 0` applies (this image has one plane), with map
+///   plane `min(Plane, MapPlanes − 1)`.
+/// - **Gain**, bilinear at the pixel centre in `f64`:
+///   `fr = ((r + 0.5) / H − MapOriginV) / MapSpacingV` (and `fc` likewise),
+///   each index clamped at the grid edge, rows interpolated first.
+/// - **Apply.** `v' = ⌊clamp(v / 65535 · g, 0, 1) · 65535 + 0.5⌋`, so each
+///   map clips at white and rounds back to `u16` before the next one.
+///
+/// Optional `GainMap`s apply too, and every `GainMap` counts in the returned
+/// total, including one that touches no sample. Other opcodes in the list are
+/// ignored.
+///
+/// # Required processing — the caller validates
+///
+/// A stage primitive like [`apply_fix_bad_pixels_constant`] (`DEC-053`): it
+/// takes no [`crate::ifd::Sensor`], so it does not run
+/// [`crate::opcode::check_required_processing`]. A caller composing its own
+/// pipeline asks that first.
+///
+/// Allocates nothing. Nothing is written unless every check passes.
+///
+/// # Errors
+///
+/// - [`Error::GainMapImageWrongLength`] if `stage2` does not hold exactly
+///   `width * height` samples.
+/// - [`Error::Truncated`] for broken list framing.
+/// - [`Error::MalformedOpcodeParams`] `{ id: 9, .. }` for any malformed
+///   `GainMap` (`DEC-069` §3: a block whose length disagrees with its grid, a
+///   zero pitch, point count, `Planes` or `MapPlanes`, a spacing that is not
+///   finite and positive, a non-finite origin or gain).
+/// - [`Error::TooManyGainMaps`] for more than 16 `GainMap`s.
+pub fn apply_gain_maps(
+    stage2: &mut [u16],
+    width: u32,
+    height: u32,
+    opcode_list_2: &[u8],
+) -> Result<usize, Error> {
+    let expected =
+        u64::from(width)
+            .checked_mul(u64::from(height))
+            .ok_or(Error::GainMapImageWrongLength {
+                expected: u64::MAX,
+                actual: stage2.len(),
+            })?;
+    if u64::try_from(stage2.len()).ok() != Some(expected) {
+        return Err(Error::GainMapImageWrongLength {
+            expected,
+            actual: stage2.len(),
+        });
+    }
+    let gains = crate::opcode::GainMaps::from_list(opcode_list_2, width, height)?;
+    if gains.is_empty() {
+        return Ok(0);
+    }
+    // `width > 0` here: an empty image has nothing to visit, and `chunks_exact`
+    // needs a non-zero size.
+    let row_len = usize::try_from(width).unwrap_or(usize::MAX).max(1);
+    for (r, row) in (0u32..).zip(stage2.chunks_exact_mut(row_len)) {
+        for (c, v) in (0u32..).zip(row.iter_mut()) {
+            *v = gains.apply(r, c, *v);
+        }
+    }
+    Ok(gains.len())
+}
+
+/// `sensor.opcode_list_2`'s `GainMap`s for an `active_width ×
+/// active_height` stage 2 (`SPEC-059`), shared by both develop paths; none
+/// when the list is absent.
+pub(crate) fn resolve_gain_maps(
+    sensor: &Sensor,
+    active_width: u32,
+    active_height: u32,
+) -> Result<crate::opcode::GainMaps<'_>, Error> {
+    match &sensor.opcode_list_2 {
+        Some(bytes) => crate::opcode::GainMaps::from_list(bytes, active_width, active_height),
+        None => Ok(crate::opcode::GainMaps::none(active_width, active_height)),
+    }
+}
+
 /// The output tile edge for the transposed gathers (`DEC-062` §2): 64×64 `u16`
 /// is 8 KiB of output per tile with 64 source rows in flight, comfortably L1
 /// on small cores. Measured within 5% of 128 on the M4 Pro; not tuned per
@@ -963,26 +1062,69 @@ fn for_each_out_pixel(
 fn crop_orient_normalize_for(
     sensor: &Sensor,
     geometry: &Geometry,
-    blacks: Blacks<'_>,
-    white: u32,
+    levels: &StageTwo<'_>,
     src: &[u16],
     dst: &mut [u16],
 ) {
-    // Branch once, outside the loops: `Uniform` monomorphises to today's loop
-    // with a constant black (`SPEC-066` §4).
-    match blacks {
-        Blacks::Uniform(black) => {
-            crop_orient_normalize_into(sensor, geometry, |_, _| black, white, src, dst);
+    // Branch once, outside the loops: `Uniform` with no `GainMap`
+    // monomorphises to today's loop with a constant black (`SPEC-066` §4,
+    // `SPEC-059`).
+    let white = levels.white;
+    let gains = &levels.gains;
+    let (left, top) = (geometry.active_left, geometry.active_top);
+    match (levels.blacks, gains.is_empty()) {
+        (Blacks::Uniform(black), true) => {
+            let level = |s, _, _| normalize(s, black, white);
+            crop_orient_normalize_into(sensor, geometry, level, src, dst);
         }
-        pattern @ Blacks::Pattern { .. } => {
-            let black_at = |x, y| pattern.at(x, y);
-            crop_orient_normalize_into(sensor, geometry, black_at, white, src, dst);
+        (pattern @ Blacks::Pattern { .. }, true) => {
+            let level = |s, x, y| normalize(s, pattern.at(x, y), white);
+            crop_orient_normalize_into(sensor, geometry, level, src, dst);
+        }
+        (Blacks::Uniform(black), false) => {
+            let level = |s, x, y| gained(gains, (left, top), x, y, normalize(s, black, white));
+            crop_orient_normalize_into(sensor, geometry, level, src, dst);
+        }
+        (pattern @ Blacks::Pattern { .. }, false) => {
+            let level = |s, x, y| {
+                let v = normalize(s, pattern.at(x, y), white);
+                gained(gains, (left, top), x, y, v)
+            };
+            crop_orient_normalize_into(sensor, geometry, level, src, dst);
         }
     }
 }
 
-/// The loop [`crop_orient_normalize_for`] runs; `black_at(raw_x, raw_y)` is
-/// each photosite's black, read on the raw plane's own coordinates.
+/// Stage 2 for one develop: each photosite's black, the white, and
+/// `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069` §1), resolved once by
+/// [`develop_core`].
+struct StageTwo<'a> {
+    blacks: Blacks<'a>,
+    white: u32,
+    gains: crate::opcode::GainMaps<'a>,
+}
+
+/// `v` with `gains` applied at raw photosite `(raw_x, raw_y)`: stage-2
+/// coordinates are relative to the `ActiveArea` origin `(left, top)`
+/// (`DEC-069` §1). The passes read only inside `ActiveArea`, so the
+/// subtraction never underflows; the fallback leaves `v` unchanged.
+#[inline]
+fn gained(
+    gains: &crate::opcode::GainMaps<'_>,
+    (left, top): (u32, u32),
+    raw_x: u32,
+    raw_y: u32,
+    v: u16,
+) -> u16 {
+    match (raw_y.checked_sub(top), raw_x.checked_sub(left)) {
+        (Some(r), Some(c)) => gains.apply(r, c, v),
+        _ => v,
+    }
+}
+
+/// The loop [`crop_orient_normalize_for`] runs; `level(sample, raw_x, raw_y)`
+/// is the photosite's stage-2 value (levels, then any `GainMap`), read on the
+/// raw plane's own coordinates.
 ///
 /// It visits the output through [`for_each_out_pixel`]: in 64×64 tiles for
 /// Orientations 5–8, whose source reads run down a column, so each tile's 64
@@ -991,8 +1133,7 @@ fn crop_orient_normalize_for(
 fn crop_orient_normalize_into(
     sensor: &Sensor,
     geometry: &Geometry,
-    black_at: impl Fn(u32, u32) -> u32,
-    white: u32,
+    level: impl Fn(u16, u32, u32) -> u16,
     src: &[u16],
     dst: &mut [u16],
 ) {
@@ -1043,7 +1184,7 @@ fn crop_orient_normalize_into(
                 .and_then(|v| usize::try_from(v).ok())
                 .unwrap_or(usize::MAX);
             if let Some(slot) = dst.get_mut(out_index) {
-                *slot = normalize(sample, black_at(raw_x, raw_y), white);
+                *slot = level(sample, raw_x, raw_y);
             }
         },
     );
@@ -1061,30 +1202,44 @@ fn crop_orient_normalize_into(
 fn normalize_active_area_for(
     sensor: &Sensor,
     geometry: &Geometry,
-    blacks: Blacks<'_>,
-    white: u32,
+    levels: &StageTwo<'_>,
     src: &[u16],
     dst_active: &mut [u16],
 ) {
-    match blacks {
-        Blacks::Uniform(black) => {
-            normalize_active_area_into(sensor, geometry, |_, _| black, white, src, dst_active);
+    let white = levels.white;
+    let gains = &levels.gains;
+    let (left, top) = (geometry.active_left, geometry.active_top);
+    match (levels.blacks, gains.is_empty()) {
+        (Blacks::Uniform(black), true) => {
+            let level = |s, _, _| normalize(s, black, white);
+            normalize_active_area_into(sensor, geometry, level, src, dst_active);
         }
-        pattern @ Blacks::Pattern { .. } => {
-            let black_at = |x, y| pattern.at(x, y);
-            normalize_active_area_into(sensor, geometry, black_at, white, src, dst_active);
+        (pattern @ Blacks::Pattern { .. }, true) => {
+            let level = |s, x, y| normalize(s, pattern.at(x, y), white);
+            normalize_active_area_into(sensor, geometry, level, src, dst_active);
+        }
+        (Blacks::Uniform(black), false) => {
+            let level = |s, x, y| gained(gains, (left, top), x, y, normalize(s, black, white));
+            normalize_active_area_into(sensor, geometry, level, src, dst_active);
+        }
+        (pattern @ Blacks::Pattern { .. }, false) => {
+            let level = |s, x, y| {
+                let v = normalize(s, pattern.at(x, y), white);
+                gained(gains, (left, top), x, y, v)
+            };
+            normalize_active_area_into(sensor, geometry, level, src, dst_active);
         }
     }
 }
 
 /// The loop [`normalize_active_area_for`] runs. The black is taken here, on raw
 /// coordinates, BEFORE the warp resamples: black subtraction is per
-/// photosite and does not commute with interpolation (`DEC-061` §4).
+/// photosite and does not commute with interpolation (`DEC-061` §4). So is
+/// the `GainMap`, at stage 2 (`DEC-069` §1).
 fn normalize_active_area_into(
     sensor: &Sensor,
     geometry: &Geometry,
-    black_at: impl Fn(u32, u32) -> u32,
-    white: u32,
+    level: impl Fn(u16, u32, u32) -> u16,
     src: &[u16],
     dst_active: &mut [u16],
 ) {
@@ -1108,7 +1263,7 @@ fn normalize_active_area_into(
                 .and_then(|v| usize::try_from(v).ok())
                 .unwrap_or(usize::MAX);
             if let Some(slot) = dst_active.get_mut(active_index) {
-                *slot = normalize(sample, black_at(raw_x, raw_y), white);
+                *slot = level(sample, raw_x, raw_y);
             }
         }
     }
@@ -1233,10 +1388,16 @@ fn crop_and_orient_from_active_into(
 ///
 /// - [`Error::UnsupportedRequiredOpcode`] (checked first, `SPEC-054`) if any
 ///   opcode list carries a mandatory opcode this path does not apply — anything
-///   in `OpcodeList2`, or anything beyond the first `FixBadPixelsConstant` in
-///   `OpcodeList1` and the first `WarpRectilinear` in `OpcodeList3`; or
-///   [`Error::UnsupportedMandatoryOpcode`] for an unrecognized mandatory ID in
-///   any list.
+///   but a `GainMap` in `OpcodeList2`, or anything beyond the first
+///   `FixBadPixelsConstant` in `OpcodeList1` and the first `WarpRectilinear` in
+///   `OpcodeList3`; or [`Error::UnsupportedMandatoryOpcode`] for an
+///   unrecognized mandatory ID in any list.
+/// - [`Error::MalformedOpcodeParams`] `{ id: 9, .. }` or
+///   [`Error::TooManyGainMaps`] for `OpcodeList2`'s `GainMap`s (`SPEC-059`,
+///   `DEC-069` §3), after the levels and before the `dst` length. Every
+///   `GainMap` in `OpcodeList2` is applied at stage 2 (see
+///   [`apply_gain_maps`] for the rule): after levels, before
+///   `WarpRectilinear`, `DefaultCrop` and `Orientation`.
 /// - [`Error::SourcePlaneWrongLength`] / [`Error::DevelopBufferWrongLength`]
 ///   if `src`/`dst` do not hold exactly the length required.
 /// - [`Error::InvalidActiveArea`] if `ActiveArea` is empty, inverted, or
@@ -1431,9 +1592,9 @@ fn needed_scratch(
 /// Everything the passes read, resolved and validated by [`develop_core`].
 struct Plan<'a> {
     geometry: Geometry,
-    /// Each photosite's black (`SPEC-066`).
-    blacks: Blacks<'a>,
-    white: u32,
+    /// Each photosite's black (`SPEC-066`), the white and `OpcodeList2`'s
+    /// `GainMap`s (`SPEC-059`).
+    levels: StageTwo<'a>,
     out_width: u32,
     out_height: u32,
     /// `OpcodeList1`'s first `FixBadPixelsConstant` constant.
@@ -1446,7 +1607,8 @@ struct Plan<'a> {
 /// unchanged from before `SPEC-065` except for the new step 9:
 ///
 /// 0. `warp_alpha`; 1. required processing; 2. `src` length;
-/// 3. geometry, then options; 4. levels; 5. `dst` length;
+/// 3. geometry, then options; 4. levels, then `OpcodeList2`'s `GainMap`s
+///    (`SPEC-059`); 5. `dst` length;
 /// 6. under `FullActiveArea`, `OpcodeList3` and the bounds rule;
 /// 7. `OpcodeList1`; 8. under `StandardCrop`, `OpcodeList3`;
 /// 9. the scratch length (refused, or allocated); 10. the passes.
@@ -1492,6 +1654,9 @@ fn develop_core(
     // Step 4: levels, under `options.black_levels` (`DEC-061` §4: the pattern
     // check sits exactly where the levels check always was).
     let (blacks, white) = resolve_levels_with(sensor, options)?;
+    // Step 4b (`SPEC-059`, `DEC-069` §3): `OpcodeList2`'s `GainMap`s, parsed
+    // and validated before any write or scratch use.
+    let gains = resolve_gain_maps(sensor, geometry.active_width, geometry.active_height)?;
     let (out_width, out_height) = oriented_dimensions(
         geometry.orientation,
         geometry.crop_width,
@@ -1558,8 +1723,11 @@ fn develop_core(
 
     let plan = Plan {
         geometry,
-        blacks,
-        white,
+        levels: StageTwo {
+            blacks,
+            white,
+            gains,
+        },
         out_width,
         out_height,
         fix_bad_pixels,
@@ -1670,7 +1838,7 @@ fn run_passes(
     scratch: &mut [u16],
 ) -> Result<(), Error> {
     let geometry = &plan.geometry;
-    let (blacks, white) = (plan.blacks, plan.white);
+    let levels = &plan.levels;
     let active_len = u64::from(geometry.active_width)
         .checked_mul(u64::from(geometry.active_height))
         .and_then(|v| usize::try_from(v).ok())
@@ -1681,15 +1849,15 @@ fn run_passes(
 
     match (plan.fix_bad_pixels, &plan.warp) {
         (None, None) => {
-            crop_orient_normalize_for(sensor, geometry, blacks, white, src, dst);
+            crop_orient_normalize_for(sensor, geometry, levels, src, dst);
         }
         (Some(constant), None) => {
             copy_and_fix_bad_pixels(sensor, geometry, constant, src, scratch)?;
-            crop_orient_normalize_for(sensor, geometry, blacks, white, scratch, dst);
+            crop_orient_normalize_for(sensor, geometry, levels, scratch, dst);
         }
         (None, Some(warp)) => {
             let (normalized, warped) = split_scratch(scratch, active_len)?;
-            normalize_active_area_for(sensor, geometry, blacks, white, src, normalized);
+            normalize_active_area_for(sensor, geometry, levels, src, normalized);
             crate::warp::apply_warp_into(
                 warp,
                 geometry.active_width,
@@ -1708,7 +1876,7 @@ fn run_passes(
         (Some(constant), Some(warp)) => {
             let (plane, normalized) = split_scratch(scratch, src.len())?;
             copy_and_fix_bad_pixels(sensor, geometry, constant, src, plane)?;
-            normalize_active_area_for(sensor, geometry, blacks, white, plane, normalized);
+            normalize_active_area_for(sensor, geometry, levels, plane, normalized);
             // The plane copy is dead now; its first A samples take the warp.
             let (warped, _) = split_scratch(plane, active_len)?;
             crate::warp::apply_warp_into(

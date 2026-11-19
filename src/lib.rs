@@ -161,7 +161,11 @@ use core::fmt;
 ///
 /// `"5"`: SPEC-075 (`DEC-068` §4) rounds a fractional `BlackLevel` instead of
 /// taking black 0, and the colour develop indexes `BlackLevelRepeatDim`.
-pub const DEVELOP_VERSION: &str = "5";
+///
+/// `"6"`: SPEC-059 (`DEC-069` §5) applies every `OpcodeList2` `GainMap` on
+/// both develop paths, so a file whose `GainMap`s are all optional, developed
+/// before with them skipped, now develops with them applied.
+pub const DEVELOP_VERSION: &str = "6";
 
 /// libFuzzer entry for the SOF-3 lossless-JPEG decoder (`ljpeg::decode_into`,
 /// one- or two-component — `SPEC-046`) — `SPEC-038`, `DEC-036`.
@@ -722,6 +726,23 @@ pub enum Error {
         declared_size: u32,
     },
 
+    /// `SPEC-059`, `DEC-069` §3. An `OpcodeList2` holds more `GainMap`s than
+    /// the 16 a develop keeps in its fixed-capacity array (the mono scratch
+    /// develop allocates nothing, `DEC-060`). Reported before any write.
+    TooManyGainMaps {
+        /// How many `GainMap`s the list holds.
+        count: u32,
+    },
+
+    /// `SPEC-059`. [`develop::apply_gain_maps`]'s `stage2` image does not hold
+    /// exactly `width * height` samples.
+    GainMapImageWrongLength {
+        /// `width * height`, the required length.
+        expected: u64,
+        /// `stage2.len()` as given.
+        actual: usize,
+    },
+
     /// `SPEC-018`. An opcode ID this reader does not recognize, with its
     /// `Flags` bit 0 (optional) NOT set — DNG 1.7.0.0's Opcode List
     /// Processing chapter: an optional-and-unknown opcode may be skipped,
@@ -735,13 +756,14 @@ pub enum Error {
 
     /// `SPEC-054`, `DEC-049`. A **mandatory** opcode (DNG `Flags` bit 0 unset)
     /// that this reader recognizes but the requested develop path will not
-    /// apply. The path's applied set is small: the monochrome
-    /// [`develop::develop_into`] applies the first `FixBadPixelsConstant` in
-    /// `OpcodeList1` and the first `WarpRectilinear` in `OpcodeList3`; the
+    /// apply. The path's applied set is small: both paths apply every
+    /// `GainMap` in `OpcodeList2` (`SPEC-059`, `DEC-069`); the monochrome
+    /// [`develop::develop_into`] also applies the first `FixBadPixelsConstant`
+    /// in `OpcodeList1` and the first `WarpRectilinear` in `OpcodeList3`; the
     /// colour path ([`color::develop_color_into`] and its variants) applies
-    /// none; nothing applies `OpcodeList2`. Any other mandatory opcode — one in
-    /// `OpcodeList2`, any on the colour path, a recognized opcode in a list its
-    /// applier does not read, or a second instance beyond the one applied —
+    /// nothing else. Any other mandatory opcode — any other in `OpcodeList2`, a
+    /// recognized opcode in a list its applier does not read (a `GainMap` in
+    /// list 1 or 3 included), or a second instance beyond the one applied —
     /// would otherwise be silently skipped, producing a plausible-looking but
     /// wrongly processed image. Optional opcodes are never this error.
     UnsupportedRequiredOpcode {
@@ -1355,6 +1377,18 @@ impl fmt::Display for Error {
                     "opcode {id}: declared parameter size {declared_size} does not match its own layout"
                 )
             }
+            Error::TooManyGainMaps { count } => {
+                write!(
+                    f,
+                    "OpcodeList2 holds {count} GainMap opcodes; at most 16 are supported"
+                )
+            }
+            Error::GainMapImageWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "gain-map stage-2 image holds {actual} sample(s), expected {expected}"
+                )
+            }
             Error::UnsupportedMandatoryOpcode { id } => {
                 write!(
                     f,
@@ -1587,6 +1621,7 @@ impl Error {
             | Error::WarpSourceWrongLength { .. }
             | Error::WarpDestWrongLength { .. }
             | Error::FixBadPixelsPlaneWrongLength { .. }
+            | Error::GainMapImageWrongLength { .. }
             | Error::OutputBufferWrongLength { .. }
             | Error::DemosaicSourceWrongLength { .. }
             | Error::RgbBufferWrongLength { .. }
@@ -1626,6 +1661,7 @@ impl Error {
             | Error::CyclicIfd { .. }
             | Error::IfdDepthExceeded { .. }
             | Error::TooManyIfds { .. }
+            | Error::TooManyGainMaps { .. }
             | Error::IfdTableBytesExceedFile { .. }
             | Error::UnexpectedFieldType { .. }
             | Error::ValueOverflow { .. }

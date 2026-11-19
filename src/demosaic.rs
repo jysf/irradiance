@@ -238,7 +238,8 @@ impl BayerPhase {
 /// saturating/checked operations whose inputs are provably far from `i32`'s
 /// range at 16-bit sample depth.
 pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
-    // The colour path applies no opcode, so refuse a file whose declared
+    // The colour path applies only `OpcodeList2`'s `GainMap`s, at stage 2,
+    // before this primitive's input (`SPEC-059`); refuse a file whose declared
     // processing it would skip, before anything else (`SPEC-056`, `DEC-053`).
     crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Colour)?;
     let cfa = sensor

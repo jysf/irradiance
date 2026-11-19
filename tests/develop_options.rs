@@ -305,8 +305,8 @@ fn default_options_are_standard_crop_and_oriented() {
 #[test]
 fn develop_into_output_is_unchanged_on_held_files() {
     assert_eq!(
-        DEVELOP_VERSION, "5",
-        "SPEC-063 does not bump DEVELOP_VERSION; DEC-068 bumps it to 5"
+        DEVELOP_VERSION, "6",
+        "SPEC-063 does not bump DEVELOP_VERSION; DEC-069 bumps it to 6"
     );
 
     for (path, width, height, pinned) in PINNED {

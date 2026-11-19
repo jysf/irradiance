@@ -92,6 +92,29 @@
 //! for the Implementer`), provenance class 1 for the opcode identity/marker
 //! semantics, and this build's own algorithm (not read from any
 //! implementation) for the kernel — see `docs/provenance-ledger.md`.
+//!
+//! # `GainMap` (OpcodeID 9) — `SPEC-059`, `DEC-069`
+//!
+//! ```text
+//! Params := Top, Left, Bottom, Right, Plane, Planes, RowPitch, ColPitch,
+//!           MapPointsV, MapPointsH : u32be,
+//!           MapSpacingV, MapSpacingH, MapOriginV, MapOriginH : f64be,
+//!           MapPlanes : u32be,
+//!           Gain : f32be [MapPointsV][MapPointsH][MapPlanes]
+//! ```
+//!
+//! 76 header bytes, then the gain grid, row-major with the map planes
+//! innermost. The parsed view (`GainMapView`) borrows the parameter bytes
+//! and copies no gain grid. Every malformed class `DEC-069` §3 names is
+//! [`Error::MalformedOpcodeParams`] before any use. The sampling rule lives on
+//! `GainMaps::apply`, the one implementation both develop paths and
+//! [`crate::develop::apply_gain_maps`] call (`DEC-069` §4).
+//!
+//! Layout and operation are class 1 (the DNG specification). Five points the
+//! specification leaves implicit (pixel-centre sampling, index clamping, the
+//! clip at 1, the empty area meaning the whole image, the pitch phase anchored
+//! at the area's top-left) were settled by reading Adobe DNG SDK 1.7.1, class
+//! 4, with no code copied; see `docs/provenance-ledger.md`.
 
 use crate::ifd::{Sensor, TAG_OPCODE_LIST_1, TAG_OPCODE_LIST_2, TAG_OPCODE_LIST_3};
 use crate::Error;
@@ -135,6 +158,45 @@ pub enum Opcode {
         /// DNG's Bayer-phase convention (0-3); meaningless and unread on a
         /// monochrome plane (`## Non-Goals`).
         bayer_phase: u32,
+    },
+    /// DNG 1.7.0.0 Chapter 7, `OpcodeID` 9 — `SPEC-059`, `DEC-069`. A
+    /// per-area, per-pitch gain from a bilinearly interpolated grid; the
+    /// develop paths apply every one in `OpcodeList2` (module docs,
+    /// "`GainMap`"). The fields are the parameter block's, in order.
+    GainMap {
+        /// Area top, in stage-2 (`ActiveArea`) rows.
+        top: u32,
+        /// Area left, in stage-2 columns.
+        left: u32,
+        /// Area bottom (exclusive).
+        bottom: u32,
+        /// Area right (exclusive).
+        right: u32,
+        /// The first image plane the map applies to.
+        plane: u32,
+        /// How many image planes it applies to.
+        planes: u32,
+        /// Apply to every `row_pitch`-th row from `top`.
+        row_pitch: u32,
+        /// Apply to every `col_pitch`-th column from `left`.
+        col_pitch: u32,
+        /// Grid rows.
+        points_v: u32,
+        /// Grid columns.
+        points_h: u32,
+        /// Grid row spacing, in units of the image height.
+        spacing_v: f64,
+        /// Grid column spacing, in units of the image width.
+        spacing_h: f64,
+        /// Grid origin, in units of the image height.
+        origin_v: f64,
+        /// Grid origin, in units of the image width.
+        origin_h: f64,
+        /// Gain planes per grid point.
+        map_planes: u32,
+        /// `points_v · points_h · map_planes` gains, row-major, map planes
+        /// innermost, as the file stores them.
+        gains: Vec<f32>,
     },
     /// An opcode ID this module does not parse into its own variant —
     /// genuinely unknown. Only ever produced when `flags` bit 0 (optional)
@@ -353,6 +415,320 @@ fn parse_fix_bad_pixels_constant_params(params: &[u8], id: u32) -> Result<(u32, 
     Ok((constant, bayer_phase))
 }
 
+/// `OpcodeID` 9, DNG 1.7.0.0 Chapter 7 — `SPEC-059`.
+const OPCODE_ID_GAIN_MAP: u32 = 9;
+
+/// The `GainMap` parameter header: ten `u32`, four `f64`, one `u32`.
+const GAIN_MAP_HEADER_LEN: usize = 76;
+
+/// The most `GainMap`s one list may hold (`DEC-069` §3). The develop paths
+/// keep their maps in a fixed array this long, so the mono scratch develop
+/// allocates nothing (`DEC-060`).
+pub(crate) const MAX_GAIN_MAPS: usize = 16;
+
+/// A parsed `GainMap`, borrowing its parameter bytes (`SPEC-059`): the
+/// header fields are decoded, the gain grid is read in place by
+/// [`GainMapView::entry`]. Every field is validated by
+/// [`parse_gain_map_params`] (`DEC-069` §3).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GainMapView<'a> {
+    pub(crate) top: u32,
+    pub(crate) left: u32,
+    pub(crate) bottom: u32,
+    pub(crate) right: u32,
+    pub(crate) plane: u32,
+    pub(crate) planes: u32,
+    pub(crate) row_pitch: u32,
+    pub(crate) col_pitch: u32,
+    pub(crate) points_v: u32,
+    pub(crate) points_h: u32,
+    pub(crate) spacing_v: f64,
+    pub(crate) spacing_h: f64,
+    pub(crate) origin_v: f64,
+    pub(crate) origin_h: f64,
+    pub(crate) map_planes: u32,
+    /// The whole parameter block; gains start at [`GAIN_MAP_HEADER_LEN`].
+    params: &'a [u8],
+}
+
+impl GainMapView<'_> {
+    /// The gain at grid row `i`, column `j`, map plane `p`: the `f32` at
+    /// `76 + 4·((i·points_h + j)·map_planes + p)`. `None` for an index outside
+    /// the grid.
+    pub(crate) fn entry(&self, i: u32, j: u32, p: u32) -> Option<f32> {
+        if i >= self.points_v || j >= self.points_h || p >= self.map_planes {
+            return None;
+        }
+        let index = u64::from(i)
+            .checked_mul(u64::from(self.points_h))?
+            .checked_add(u64::from(j))?
+            .checked_mul(u64::from(self.map_planes))?
+            .checked_add(u64::from(p))?
+            .checked_mul(4)?
+            .checked_add(GAIN_MAP_HEADER_LEN as u64)?;
+        let at = usize::try_from(index).ok()?;
+        read_f32_be(self.params, at).ok()
+    }
+}
+
+/// Read a big-endian `f32` (DNG `FLOAT`) at `at`, bounds-checked.
+fn read_f32_be(bytes: &[u8], at: usize) -> Result<f32, Error> {
+    read_u32_be(bytes, at).map(f32::from_bits)
+}
+
+/// Parse `GainMap`'s parameter block (already sliced to its own `DataSize`)
+/// into a borrowed [`GainMapView`], checking every `DEC-069` §3 class first:
+/// the exact length `76 + 4·MapPointsV·MapPointsH·MapPlanes` (checked
+/// arithmetic), non-zero pitches, point counts, `Planes` and `MapPlanes`,
+/// finite positive spacings, finite origins and finite gains. Any failure is
+/// [`Error::MalformedOpcodeParams`].
+pub(crate) fn parse_gain_map_params(params: &[u8], id: u32) -> Result<GainMapView<'_>, Error> {
+    let malformed = || Error::MalformedOpcodeParams {
+        id,
+        declared_size: u32::try_from(params.len()).unwrap_or(u32::MAX),
+    };
+    let u = |at: usize| read_u32_be(params, at).map_err(|_| malformed());
+    let f = |at: usize| read_f64_be(params, at).map_err(|_| malformed());
+
+    let points_v = u(32)?;
+    let points_h = u(36)?;
+    let map_planes = u(72)?;
+    let required = u64::from(points_v)
+        .checked_mul(u64::from(points_h))
+        .and_then(|n| n.checked_mul(u64::from(map_planes)))
+        .and_then(|n| n.checked_mul(4))
+        .and_then(|n| n.checked_add(GAIN_MAP_HEADER_LEN as u64))
+        .ok_or_else(malformed)?;
+    if u64::try_from(params.len()).unwrap_or(u64::MAX) != required {
+        return Err(malformed());
+    }
+
+    let view = GainMapView {
+        top: u(0)?,
+        left: u(4)?,
+        bottom: u(8)?,
+        right: u(12)?,
+        plane: u(16)?,
+        planes: u(20)?,
+        row_pitch: u(24)?,
+        col_pitch: u(28)?,
+        points_v,
+        points_h,
+        spacing_v: f(40)?,
+        spacing_h: f(48)?,
+        origin_v: f(56)?,
+        origin_h: f(64)?,
+        map_planes,
+        params,
+    };
+    let positive = |s: f64| s.is_finite() && s > 0.0;
+    if view.row_pitch == 0
+        || view.col_pitch == 0
+        || points_v == 0
+        || points_h == 0
+        || view.planes == 0
+        || map_planes == 0
+        || !positive(view.spacing_v)
+        || !positive(view.spacing_h)
+        || !view.origin_v.is_finite()
+        || !view.origin_h.is_finite()
+    {
+        return Err(malformed());
+    }
+    // Every gain is finite. The length check above makes the grid exactly
+    // the bytes after the header, a whole number of `f32`s.
+    let grid = params.get(GAIN_MAP_HEADER_LEN..).ok_or_else(malformed)?;
+    let (gains, _rest) = grid.as_chunks::<4>();
+    if gains
+        .iter()
+        .any(|bytes| !f32::from_be_bytes(*bytes).is_finite())
+    {
+        return Err(malformed());
+    }
+    Ok(view)
+}
+
+/// One `GainMap`, prepared for the per-sample apply: the area already
+/// resolved against the stage-2 bounds (`DEC-069` §2).
+#[derive(Debug, Clone, Copy)]
+struct PreparedMap<'a> {
+    view: GainMapView<'a>,
+    /// The touched rows `[row_start, row_end)` and columns
+    /// `[col_start, col_end)`, intersected with the image. Empty when the map
+    /// applies to no sample (outside the image, or `Plane > 0`).
+    row_start: u32,
+    row_end: u32,
+    col_start: u32,
+    col_end: u32,
+    /// The pitch phase anchor: the area's `Top`/`Left` before the
+    /// intersection, or `(0, 0)` for an empty area (the whole image).
+    anchor_row: u32,
+    anchor_col: u32,
+}
+
+/// The `GainMap`s of one `OpcodeList2`, in list order, for an `H × W`
+/// stage-2 (`ActiveArea`-sized) image — `SPEC-059`, `DEC-069` §4.
+///
+/// Up to [`MAX_GAIN_MAPS`] views in a fixed array: building one allocates
+/// nothing. [`GainMaps::apply`] is the one implementation of `DEC-069` §2;
+/// both develop paths and [`crate::develop::apply_gain_maps`] call it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct GainMaps<'a> {
+    maps: [Option<PreparedMap<'a>>; MAX_GAIN_MAPS],
+    count: usize,
+    height: u32,
+    width: u32,
+}
+
+impl<'a> GainMaps<'a> {
+    /// No maps: every sample passes through unchanged.
+    pub(crate) fn none(width: u32, height: u32) -> GainMaps<'a> {
+        GainMaps {
+            maps: [None; MAX_GAIN_MAPS],
+            count: 0,
+            height,
+            width,
+        }
+    }
+
+    /// Every `GainMap` in `list` (an `OpcodeList` byte stream), for a
+    /// `width × height` stage-2 image. Other opcodes are framed and skipped:
+    /// whether they may be skipped is [`check_required_processing`]'s
+    /// question, not this one's.
+    ///
+    /// Every `GainMap`'s parameters are validated, optional or not. More than
+    /// [`MAX_GAIN_MAPS`] is [`Error::TooManyGainMaps`] with the list's full
+    /// count, reported after the whole list is read (so a malformed map
+    /// anywhere is reported first).
+    pub(crate) fn from_list(list: &'a [u8], width: u32, height: u32) -> Result<Self, Error> {
+        let mut maps = GainMaps::none(width, height);
+        let count = read_u32_be(list, 0)?;
+        let mut pos: usize = 4;
+        let mut found: u32 = 0;
+        for _ in 0..count {
+            let RawOpcode { id, params, .. } = read_raw_opcode(list, &mut pos)?;
+            if id != OPCODE_ID_GAIN_MAP {
+                continue;
+            }
+            let view = parse_gain_map_params(params, id)?;
+            if let Some(slot) = maps.maps.get_mut(maps.count) {
+                *slot = Some(prepare(view, width, height));
+                maps.count = maps.count.saturating_add(1);
+            }
+            found = found.saturating_add(1);
+        }
+        if usize::try_from(found).unwrap_or(usize::MAX) > MAX_GAIN_MAPS {
+            return Err(Error::TooManyGainMaps { count: found });
+        }
+        Ok(maps)
+    }
+
+    /// How many `GainMap`s the list held (every one counts as applied,
+    /// `DEC-069` §2, including one that touches no sample).
+    pub(crate) fn len(&self) -> usize {
+        self.count
+    }
+
+    /// `true` when the list held no `GainMap`.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    /// Apply every map that touches stage-2 sample `(r, c)` to its normalised
+    /// value `v`, in list order, rounding to `u16` after each (`DEC-069` §2).
+    /// Computed in `f64`; allocates nothing.
+    #[inline]
+    pub(crate) fn apply(&self, r: u32, c: u32, v: u16) -> u16 {
+        let mut value = v;
+        for map in self.maps.iter().flatten() {
+            if r < map.row_start || r >= map.row_end || c < map.col_start || c >= map.col_end {
+                continue;
+            }
+            let on_row = r
+                .checked_sub(map.anchor_row)
+                .and_then(|d| d.checked_rem(map.view.row_pitch))
+                == Some(0);
+            let on_col = c
+                .checked_sub(map.anchor_col)
+                .and_then(|d| d.checked_rem(map.view.col_pitch))
+                == Some(0);
+            if !on_row || !on_col {
+                continue;
+            }
+            let g = gain_at(&map.view, r, c, self.height, self.width);
+            // `v' = ⌊clamp(v / 65535 · g, 0, 1) · 65535 + 0.5⌋`: clipped at
+            // white, rounded half up. In `[0, 65535]`, so the cast is exact.
+            let scaled = (f64::from(value) / 65535.0 * g).clamp(0.0, 1.0);
+            value = (scaled * 65535.0 + 0.5).floor() as u16;
+        }
+        value
+    }
+}
+
+/// Resolve `view`'s area against a `width × height` image (`DEC-069` §2): an
+/// empty area (`Top ≥ Bottom` or `Left ≥ Right`) is the whole image, phase
+/// anchored at `(0, 0)`; otherwise the area intersected with the image,
+/// phase anchored at its own `Top`/`Left`. `Plane > 0` touches nothing.
+fn prepare(view: GainMapView<'_>, width: u32, height: u32) -> PreparedMap<'_> {
+    let empty_area = view.top >= view.bottom || view.left >= view.right;
+    let (row_start, row_end, col_start, col_end, anchor_row, anchor_col) = if empty_area {
+        (0, height, 0, width, 0, 0)
+    } else {
+        (
+            view.top,
+            view.bottom.min(height),
+            view.left,
+            view.right.min(width),
+            view.top,
+            view.left,
+        )
+    };
+    // Every develop path here has one plane, plane 0.
+    let row_end = if view.plane == 0 { row_end } else { 0 };
+    PreparedMap {
+        view,
+        row_start,
+        row_end,
+        col_start,
+        col_end,
+        anchor_row,
+        anchor_col,
+    }
+}
+
+/// The bilinear gain of `view` at stage-2 sample `(r, c)` of an `h × w`
+/// image (`DEC-069` §2): sampled at the pixel centre, each index clamped at
+/// the grid edge, rows interpolated first, then columns, in `f64`. The map
+/// plane is `min(Plane, MapPlanes − 1)`.
+fn gain_at(view: &GainMapView<'_>, r: u32, c: u32, h: u32, w: u32) -> f64 {
+    let fr = ((f64::from(r) + 0.5) / f64::from(h) - view.origin_v) / view.spacing_v;
+    let fc = ((f64::from(c) + 0.5) / f64::from(w) - view.origin_h) / view.spacing_h;
+    let (i0, i1, tr) = grid_axis(fr, view.points_v);
+    let (j0, j1, tc) = grid_axis(fc, view.points_h);
+    let p = view.plane.min(view.map_planes.saturating_sub(1));
+    // A validated grid has every one of these; 1.0 keeps this total.
+    let g = |i, j| f64::from(view.entry(i, j, p).unwrap_or(1.0));
+    let left = g(i0, j0) * (1.0 - tr) + g(i1, j0) * tr;
+    let right = g(i0, j1) * (1.0 - tr) + g(i1, j1) * tr;
+    left * (1.0 - tc) + right * tc
+}
+
+/// One grid axis: `f ≤ 0` takes index 0 and `f ≥ points − 1` the last, each
+/// with fraction 0; otherwise `⌊f⌋`, `⌊f⌋ + 1` and the fraction `f − ⌊f⌋`.
+fn grid_axis(f: f64, points: u32) -> (u32, u32, f64) {
+    let last = points.saturating_sub(1);
+    if f.is_nan() || f <= 0.0 {
+        return (0, 0, 0.0);
+    }
+    if f >= f64::from(last) {
+        return (last, last, 0.0);
+    }
+    let floor = f.floor();
+    // `0 ≤ floor < last ≤ u32::MAX`, so the cast is exact.
+    let i = floor as u32;
+    (i, i.saturating_add(1).min(last), f - floor)
+}
+
 /// One opcode's framing, its parameter block sliced but not interpreted.
 struct RawOpcode<'a> {
     id: u32,
@@ -439,6 +815,29 @@ pub fn parse_opcode_list(bytes: &[u8]) -> Result<Vec<Opcode>, Error> {
                     bayer_phase,
                 });
             }
+            OPCODE_ID_GAIN_MAP => {
+                let view = parse_gain_map_params(params, id)?;
+                let grid = params.get(GAIN_MAP_HEADER_LEN..).unwrap_or(&[]);
+                let (chunks, _rest) = grid.as_chunks::<4>();
+                opcodes.push(Opcode::GainMap {
+                    top: view.top,
+                    left: view.left,
+                    bottom: view.bottom,
+                    right: view.right,
+                    plane: view.plane,
+                    planes: view.planes,
+                    row_pitch: view.row_pitch,
+                    col_pitch: view.col_pitch,
+                    points_v: view.points_v,
+                    points_h: view.points_h,
+                    spacing_v: view.spacing_v,
+                    spacing_h: view.spacing_h,
+                    origin_v: view.origin_v,
+                    origin_h: view.origin_h,
+                    map_planes: view.map_planes,
+                    gains: chunks.iter().map(|b| f32::from_be_bytes(*b)).collect(),
+                });
+            }
             other => {
                 if flags & FLAG_OPTIONAL != 0 {
                     opcodes.push(Opcode::Unknown {
@@ -461,7 +860,12 @@ pub fn parse_opcode_list(bytes: &[u8]) -> Result<Vec<Opcode>, Error> {
 /// is validated by the parse and then dropped: no lookup returns it.
 enum Recognised {
     WarpRectilinear(WarpRect),
-    FixBadPixelsConstant { constant: u32 },
+    FixBadPixelsConstant {
+        constant: u32,
+    },
+    /// Parsed and validated, then dropped: the develop paths read `GainMap`s
+    /// from `OpcodeList2` through [`GainMaps`], never through these lookups.
+    GainMap,
 }
 
 /// Walk an `OpcodeList` byte stream with no allocation (`SPEC-065`,
@@ -492,6 +896,11 @@ fn first_recognised<T>(
             OPCODE_ID_FIX_BAD_PIXELS_CONSTANT => {
                 let (constant, _bayer_phase) = parse_fix_bad_pixels_constant_params(params, id)?;
                 Recognised::FixBadPixelsConstant { constant }
+            }
+            OPCODE_ID_GAIN_MAP => {
+                // Validated like every recognised opcode; no lookup returns it.
+                parse_gain_map_params(params, id)?;
+                Recognised::GainMap
             }
             other => {
                 if flags & FLAG_OPTIONAL != 0 {
@@ -526,7 +935,7 @@ fn first_recognised<T>(
 pub fn parse_warp_rectilinear(bytes: &[u8]) -> Result<Option<WarpRect>, Error> {
     first_recognised(bytes, |op| match op {
         Recognised::WarpRectilinear(warp) => Some(warp),
-        Recognised::FixBadPixelsConstant { .. } => None,
+        Recognised::FixBadPixelsConstant { .. } | Recognised::GainMap => None,
     })
 }
 
@@ -549,7 +958,7 @@ pub fn parse_warp_rectilinear(bytes: &[u8]) -> Result<Option<WarpRect>, Error> {
 pub fn parse_fix_bad_pixels_constant(bytes: &[u8]) -> Result<Option<u32>, Error> {
     first_recognised(bytes, |op| match op {
         Recognised::FixBadPixelsConstant { constant } => Some(constant),
-        Recognised::WarpRectilinear(_) => None,
+        Recognised::WarpRectilinear(_) | Recognised::GainMap => None,
     })
 }
 
@@ -566,28 +975,46 @@ pub fn parse_fix_bad_pixels_constant(bytes: &[u8]) -> Result<Option<u32>, Error>
 #[non_exhaustive]
 pub enum DevelopPath {
     /// The monochrome path, [`crate::develop::develop_into`]. It applies the
-    /// first `FixBadPixelsConstant` in `OpcodeList1` and the first
-    /// `WarpRectilinear` in `OpcodeList3`, and nothing from `OpcodeList2`.
+    /// first `FixBadPixelsConstant` in `OpcodeList1`, **every** `GainMap` in
+    /// `OpcodeList2` (`SPEC-059`, `DEC-069`) and the first `WarpRectilinear`
+    /// in `OpcodeList3`.
     Mono,
     /// The colour path: [`crate::color::develop_color_into`] and its `f32` /
     /// threaded variants, and the colour stage primitives
     /// ([`crate::demosaic::demosaic_into`],
     /// [`crate::demosaic::demosaic_into_threaded`],
-    /// [`crate::color::to_srgb_linear_into`]). It applies no opcode at all, so
-    /// any mandatory opcode in any list is refused.
+    /// [`crate::color::to_srgb_linear_into`]). It applies **every** `GainMap`
+    /// in `OpcodeList2` (`SPEC-059`, `DEC-069`) and nothing else, so any other
+    /// mandatory opcode in any list is refused. The colour develop entries
+    /// apply the maps themselves; the colour stage primitives take a plane
+    /// that is already past stage 2, so a composer applies them first with
+    /// [`crate::develop::apply_gain_maps`].
     Colour,
 }
 
+/// Which instances of an opcode a path applies from one list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Applied {
+    /// Nothing from this list.
+    Nothing,
+    /// The first opcode with this ID, whatever its own flags (the mono
+    /// appliers resolve lists 1 and 3 with a first-instance lookup).
+    First(u32),
+    /// Every opcode with this ID (`GainMap` in list 2, `DEC-069` §2: a file
+    /// carries one map per Bayer phase).
+    Every(u32),
+}
+
 impl DevelopPath {
-    /// The opcode ID this path applies from `OpcodeList{list}` — its FIRST
-    /// instance only, because the mono appliers resolve the list with
-    /// `find_map` — or `None` when the path applies nothing from that list.
-    /// Nothing applies `OpcodeList2`.
-    fn applied_id(self, list: u8) -> Option<u32> {
+    /// What this path applies from `OpcodeList{list}`: the first
+    /// `FixBadPixelsConstant` in list 1 and the first `WarpRectilinear` in
+    /// list 3 (mono only), and every `GainMap` in list 2 (both paths).
+    fn applied(self, list: u8) -> Applied {
         match (self, list) {
-            (DevelopPath::Mono, 1) => Some(OPCODE_ID_FIX_BAD_PIXELS_CONSTANT),
-            (DevelopPath::Mono, 3) => Some(OPCODE_ID_WARP_RECTILINEAR),
-            _ => None,
+            (DevelopPath::Mono, 1) => Applied::First(OPCODE_ID_FIX_BAD_PIXELS_CONSTANT),
+            (DevelopPath::Mono, 3) => Applied::First(OPCODE_ID_WARP_RECTILINEAR),
+            (_, 2) => Applied::Every(OPCODE_ID_GAIN_MAP),
+            _ => Applied::Nothing,
         }
     }
 }
@@ -603,10 +1030,11 @@ impl DevelopPath {
 /// [`crate::color::to_srgb_linear_into`]) already calls this. A **composer**
 /// needs it when building a pipeline from the opcode appliers, which take no
 /// `Sensor` and so cannot check for themselves:
-/// [`crate::warp::apply_warp_into`] (`OpcodeList3`) and
-/// [`crate::develop::apply_fix_bad_pixels_constant`] (`OpcodeList1`). Call it
-/// with the path whose opcodes your composition applies; if you apply neither
-/// opcode, ask with [`DevelopPath::Colour`].
+/// [`crate::warp::apply_warp_into`] (`OpcodeList3`),
+/// [`crate::develop::apply_fix_bad_pixels_constant`] (`OpcodeList1`) and
+/// [`crate::develop::apply_gain_maps`] (`OpcodeList2`). Call it with the path
+/// whose opcodes your composition applies; if you apply only the `GainMap`s,
+/// ask with [`DevelopPath::Colour`].
 ///
 /// Lists are checked in order 1, 2, 3. For each list:
 ///
@@ -614,8 +1042,10 @@ impl DevelopPath {
 ///    [`Sensor::malformed_tags`], `DEC-012`), the check refuses: the library
 ///    cannot show that a list it cannot read holds no mandatory opcode.
 /// 2. Otherwise every **mandatory** opcode in it (`Flags` bit 0 unset) must be
-///    exactly the instance `path` applies (the first opcode with that path's
-///    ID in that list). Optional opcodes are always skippable.
+///    one `path` applies: the first `FixBadPixelsConstant` in list 1 and the
+///    first `WarpRectilinear` in list 3 on the mono path, and every `GainMap`
+///    in list 2 on both paths (`SPEC-059`, `DEC-069`). Optional opcodes are
+///    always skippable.
 ///
 /// Reads only the sensor's fields; allocates nothing and never panics on a
 /// hostile `Sensor`.
@@ -654,11 +1084,13 @@ pub fn check_required_processing(sensor: &Sensor, path: DevelopPath) -> Result<(
 /// see list position or a second instance, so it cannot answer the question.
 ///
 /// Rule, per opcode in list `n`: `Flags` bit 0 set (optional) → skippable.
-/// Unset (mandatory) → it must be exactly the instance `path` applies (the
-/// first opcode with [`DevelopPath::applied_id`]'s ID in that list, whatever
-/// that first instance's own flags); otherwise:
+/// Unset (mandatory) → it must be an instance `path` applies
+/// ([`DevelopPath::applied`]: the first opcode with that ID in the list,
+/// whatever that first instance's own flags, or every `GainMap` in list 2);
+/// otherwise:
 ///
-/// - a recognized opcode ID (`WarpRectilinear`, `FixBadPixelsConstant`) →
+/// - a recognized opcode ID (`WarpRectilinear`, `FixBadPixelsConstant`,
+///   `GainMap`) →
 ///   [`Error::UnsupportedRequiredOpcode`] `{ list: n, id }`;
 /// - an unrecognized ID → [`Error::UnsupportedMandatoryOpcode`] `{ id }`, the
 ///   same error [`parse_opcode_list`] has always given for it.
@@ -681,15 +1113,15 @@ pub(crate) fn check_lists(
             return Err(Error::UnreadableOpcodeList { list });
         }
         if let Some(bytes) = bytes {
-            check_list(bytes, list, path.applied_id(list))?;
+            check_list(bytes, list, path.applied(list))?;
         }
     }
     Ok(())
 }
 
-/// One list of [`check_lists`]: `applied_id` is the ID whose
-/// first instance this path applies from this list, if any.
-fn check_list(bytes: &[u8], list: u8, applied_id: Option<u32>) -> Result<(), Error> {
+/// One list of [`check_lists`]: `applied` is what this path applies from
+/// this list.
+fn check_list(bytes: &[u8], list: u8, applied: Applied) -> Result<(), Error> {
     let count = read_u32_be(bytes, 0)?;
     let mut pos: usize = 4;
     let mut applied_seen = false;
@@ -697,18 +1129,25 @@ fn check_list(bytes: &[u8], list: u8, applied_id: Option<u32>) -> Result<(), Err
     for _ in 0..count {
         let RawOpcode { id, flags, .. } = read_raw_opcode(bytes, &mut pos)?;
 
-        // The applier consumes the first instance of its ID, optional or not;
-        // every later instance is not applied.
-        let is_applied = applied_id == Some(id) && !applied_seen;
-        if applied_id == Some(id) {
-            applied_seen = true;
-        }
+        let is_applied = match applied {
+            Applied::Nothing => false,
+            // The applier consumes the first instance of its ID, optional or
+            // not; every later instance is not applied.
+            Applied::First(applied_id) => {
+                let first = applied_id == id && !applied_seen;
+                if applied_id == id {
+                    applied_seen = true;
+                }
+                first
+            }
+            Applied::Every(applied_id) => applied_id == id,
+        };
 
         if is_applied || flags & FLAG_OPTIONAL != 0 {
             continue;
         }
         return Err(match id {
-            OPCODE_ID_WARP_RECTILINEAR | OPCODE_ID_FIX_BAD_PIXELS_CONSTANT => {
+            OPCODE_ID_WARP_RECTILINEAR | OPCODE_ID_FIX_BAD_PIXELS_CONSTANT | OPCODE_ID_GAIN_MAP => {
                 Error::UnsupportedRequiredOpcode { list, id }
             }
             other => Error::UnsupportedMandatoryOpcode { id: other },
@@ -924,6 +1363,72 @@ mod tests {
     fn no_fix_bad_pixels_constant_opcode_is_none_not_an_error() {
         let bytes = opcode_list(&[raw_opcode(999, 0x0104_0000, 1, &[])]);
         assert_eq!(parse_fix_bad_pixels_constant(&bytes).expect("parses"), None);
+    }
+
+    // ── GainMap (SPEC-059, DEC-069) ─────────────────────────────────────────
+
+    /// A `GainMap` block with `points_v × points_h × map_planes` gains, gain
+    /// `k` (in file order) being `k as f32 + 0.5`.
+    fn gain_map_block(points_v: u32, points_h: u32, map_planes: u32) -> Vec<u8> {
+        let mut p = Vec::new();
+        for v in [0u32, 0, 4, 4, 0, 1, 1, 1, points_v, points_h] {
+            p.extend_from_slice(&v.to_be_bytes());
+        }
+        for v in [0.5f64, 0.25, 0.0, 0.0] {
+            p.extend_from_slice(&v.to_be_bytes());
+        }
+        p.extend_from_slice(&map_planes.to_be_bytes());
+        for k in 0..points_v * points_h * map_planes {
+            p.extend_from_slice(&(k as f32 + 0.5).to_be_bytes());
+        }
+        p
+    }
+
+    #[test]
+    fn gain_map_entry_reads_every_written_gain_in_place() {
+        let params = gain_map_block(3, 5, 2);
+        let view = parse_gain_map_params(&params, OPCODE_ID_GAIN_MAP).expect("valid");
+        assert_eq!((view.points_v, view.points_h, view.map_planes), (3, 5, 2));
+        assert_eq!((view.spacing_v, view.spacing_h), (0.5, 0.25));
+        let mut k = 0u32;
+        for i in 0..3 {
+            for j in 0..5 {
+                for p in 0..2 {
+                    assert_eq!(view.entry(i, j, p), Some(k as f32 + 0.5), "({i}, {j}, {p})");
+                    k += 1;
+                }
+            }
+        }
+        assert_eq!(view.entry(3, 0, 0), None);
+        assert_eq!(view.entry(0, 5, 0), None);
+        assert_eq!(view.entry(0, 0, 2), None);
+    }
+
+    #[test]
+    fn grid_axis_clamps_at_both_edges_and_splits_between() {
+        assert_eq!(grid_axis(-0.25, 4), (0, 0, 0.0));
+        assert_eq!(grid_axis(0.0, 4), (0, 0, 0.0));
+        assert_eq!(grid_axis(1.25, 4), (1, 2, 0.25));
+        assert_eq!(grid_axis(3.0, 4), (3, 3, 0.0));
+        assert_eq!(grid_axis(9.5, 4), (3, 3, 0.0));
+        assert_eq!(grid_axis(0.5, 1), (0, 0, 0.0));
+        assert_eq!(grid_axis(f64::INFINITY, 2), (1, 1, 0.0));
+    }
+
+    #[test]
+    fn gain_maps_from_list_counts_past_the_cap_and_skips_other_opcodes() {
+        let one = raw_opcode(OPCODE_ID_GAIN_MAP, 0, 0, &gain_map_block(1, 1, 1));
+        let mut ops = vec![warp(MANDATORY), raw_opcode(999, 0, 1, &[9])];
+        ops.extend(std::iter::repeat_n(one, 16));
+        let sixteen = opcode_list(&ops);
+        let maps = GainMaps::from_list(&sixteen, 4, 4).expect("sixteen");
+        assert_eq!(maps.len(), 16);
+        ops.push(ops[2].clone());
+        let err = GainMaps::from_list(&opcode_list(&ops), 4, 4).unwrap_err();
+        assert!(
+            matches!(err, Error::TooManyGainMaps { count: 17 }),
+            "{err:?}"
+        );
     }
 
     // ── check_required_processing (SPEC-054, DEC-049) ───────────────────────
