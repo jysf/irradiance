@@ -26,7 +26,9 @@ mod corpus;
 mod tiff;
 
 use corpus::{CorpusFile, CorpusRoot, Manifest};
-use irradiance::ifd::{ActiveArea, Cfa, Container, Sensor, TAG_PHOTOMETRIC};
+use irradiance::ifd::{
+    ActiveArea, Cfa, Container, Rational, Sensor, TAG_BLACK_LEVEL, TAG_PHOTOMETRIC,
+};
 use irradiance::Error;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -328,6 +330,43 @@ fn orientation_is_per_frame() {
         "same body, different frames — Orientation must be read from the \
          file every time, not hardcoded"
     );
+}
+
+/// `SPEC-075` AC8 (`DEC-068` §1): the two held RATIONAL `BlackLevel`s. The
+/// Pixel 7 Pro's is fractional (`262172/256` and so on) and rounds to 1024
+/// instead of reading as malformed; the Canon's divides exactly and now also
+/// keeps its four rationals as written.
+#[test]
+fn rational_black_levels_read_rounded_and_exact() {
+    let (manifest, root) = manifest_pairs();
+    let pixel = "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng";
+    match sensor_of(&manifest, &root, pixel) {
+        Some(s) => {
+            assert_eq!(s.black_level, Some(1024), "{pixel}: BlackLevel");
+            assert_eq!(s.black_levels, vec![1024; 4], "{pixel}");
+            assert_eq!(
+                s.black_levels_exact,
+                [262_172, 262_224, 262_223, 262_178]
+                    .map(|num| Rational { num, den: 256 })
+                    .to_vec(),
+                "{pixel}: exact values"
+            );
+            assert!(
+                !s.malformed_tags.contains(&TAG_BLACK_LEVEL),
+                "{pixel}: {:?}",
+                s.malformed_tags
+            );
+        }
+        None => eprintln!("SKIP rational_black_levels_read_rounded_and_exact: {pixel} absent"),
+    }
+    let canon = "CANON-EOS-5D-MARK-III/5G4A9394.DNG";
+    match sensor_of(&manifest, &root, canon) {
+        Some(s) => {
+            assert_eq!(s.black_levels, vec![2047, 2047, 2047, 2048], "{canon}");
+            assert_eq!(s.black_levels_exact.len(), 4, "{canon}: exact values");
+        }
+        None => eprintln!("SKIP rational_black_levels_read_rounded_and_exact: {canon} absent"),
+    }
 }
 
 /// An absent optional tag must read as `None`, never silently as a

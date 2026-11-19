@@ -623,17 +623,7 @@ fn resolve_levels_with<'a>(
         return Ok((Blacks::Uniform(black), white));
     }
     let white = resolve_white(sensor);
-    let [rows, cols] = sensor.black_level_repeat_dim.unwrap_or([1, 1]);
-    let fits = rows >= 1
-        && cols >= 1
-        && rows.checked_mul(cols).and_then(|n| usize::try_from(n).ok()) == Some(values.len());
-    if !fits {
-        return Err(Error::InvalidBlackLevelPattern {
-            repeat_rows: rows,
-            repeat_cols: cols,
-            count: values.len(),
-        });
-    }
+    let [rows, cols] = black_pattern_dims(sensor)?;
     if let Some(&black_level) = values.iter().find(|&&v| v >= white) {
         return Err(Error::InvalidLevels {
             black_level,
@@ -660,6 +650,31 @@ fn resolve_levels_with<'a>(
         },
         white,
     ))
+}
+
+/// `BlackLevelRepeatDim` as `[rows, cols]`, checked against `BlackLevel`'s
+/// count (`DEC-061` §3), for a non-empty `sensor.black_levels`. The DNG default
+/// `[1, 1]` stands in for an absent or malformed repeat dim. Anything but
+/// `rows, cols ≥ 1` with `rows × cols == black_levels.len()` (checked
+/// arithmetic) is [`Error::InvalidBlackLevelPattern`].
+///
+/// Shared by the mono `PerPosition` resolve ([`resolve_levels_with`]) and the
+/// colour normalizer (`SPEC-075`, `DEC-068` §2), so both paths refuse the same
+/// patterns. Callers handle an empty `black_levels` first.
+pub(crate) fn black_pattern_dims(sensor: &Sensor) -> Result<[u32; 2], Error> {
+    let count = sensor.black_levels.len();
+    let [rows, cols] = sensor.black_level_repeat_dim.unwrap_or([1, 1]);
+    let fits = rows >= 1
+        && cols >= 1
+        && rows.checked_mul(cols).and_then(|n| usize::try_from(n).ok()) == Some(count);
+    if !fits {
+        return Err(Error::InvalidBlackLevelPattern {
+            repeat_rows: rows,
+            repeat_cols: cols,
+            count,
+        });
+    }
+    Ok([rows, cols])
 }
 
 /// `WhiteLevel`, or its DNG default `2^BitsPerSample - 1` when absent
@@ -1749,6 +1764,7 @@ mod tests {
             white_level: Some(16383),
             black_level_repeat_dim: None,
             active_area: None,
+            masked_areas: vec![],
             default_crop_origin: None,
             default_crop_size: None,
             orientation: None,
@@ -1766,6 +1782,7 @@ mod tests {
             calibration_illuminant_1: None,
             calibration_illuminant_2: None,
             black_levels: vec![],
+            black_levels_exact: vec![],
             white_levels: vec![],
             malformed_tags: vec![],
         }
