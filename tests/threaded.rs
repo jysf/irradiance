@@ -59,6 +59,7 @@ fn sensor(width: u32, height: u32, pattern: &[u8]) -> Sensor {
         // Distinct per-slot blacks + a white below some samples, so the level
         // slot and the clamp both matter.
         built.black_levels = vec![100, 140, 160, 220];
+        built.black_level_repeat_dim = Some([2, 2]);
         built.white_levels = vec![4000];
         built
     }

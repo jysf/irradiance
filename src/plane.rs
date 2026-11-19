@@ -2013,6 +2013,7 @@ mod tests {
             white_level: None,
             black_level_repeat_dim: None,
             active_area: None,
+            masked_areas: vec![],
             default_crop_origin: None,
             default_crop_size: None,
             orientation: None,
@@ -2029,6 +2030,7 @@ mod tests {
             calibration_illuminant_1: None,
             calibration_illuminant_2: None,
             black_levels: vec![],
+            black_levels_exact: vec![],
             white_levels: vec![],
             malformed_tags: vec![],
         }

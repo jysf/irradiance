@@ -134,6 +134,13 @@ pub const TAG_DEFAULT_CROP_ORIGIN: u16 = 50719;
 pub const TAG_DEFAULT_CROP_SIZE: u16 = 50720;
 /// DNG 1.7 §Chapter 4: `ActiveArea`.
 pub const TAG_ACTIVE_AREA: u16 = 50829;
+/// DNG 1.7 §Chapter 4: `MaskedAreas` — the masked (optical-black) rectangles,
+/// four SHORT or LONG values each (`SPEC-075`, `DEC-068` §3).
+pub const TAG_MASKED_AREAS: u16 = 50830;
+/// The most `MaskedAreas` rectangles [`Container::sensor`] reads (`DEC-068`
+/// §3). Real layouts use one to four; the cap bounds what a hostile file can
+/// make the read allocate. A tag with more is malformed.
+pub const MAX_MASKED_AREAS: usize = 16;
 /// DNG 1.7 §Chapter 6: `OpcodeList1` — applied to the raw plane.
 pub const TAG_OPCODE_LIST_1: u16 = 51008;
 /// DNG 1.7 §Chapter 6: `OpcodeList2`.
@@ -534,7 +541,8 @@ impl Compression {
 
 /// DNG `ActiveArea` (tag 50829, DNG 1.7 §Chapter 4): the rectangle of valid
 /// pixels within the full sensor image, in the tag's own (top, left, bottom,
-/// right) order.
+/// right) order. Also the type of each [`Sensor::masked_areas`] rectangle,
+/// which `MaskedAreas` writes in the same order (`DEC-068` §3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ActiveArea {
     /// Top edge, in raw pixel rows.
@@ -669,6 +677,21 @@ impl Cfa {
     }
 }
 
+/// A non-negative [`Rational`] rounded to the nearest integer, an exact half
+/// rounding up: `(2·num + den) / (2·den)` in `u64` (`SPEC-075`, `DEC-068` §1).
+/// `None` for a zero or negative denominator, a negative numerator, or a
+/// result past `u32::MAX`. A `RATIONAL` read through
+/// [`Container::rationals`] is never negative, so in practice `None` means a
+/// zero denominator.
+pub(crate) fn round_rational(value: Rational) -> Option<u32> {
+    let num = u64::try_from(value.num).ok()?;
+    let den = u64::try_from(value.den).ok().filter(|&d| d != 0)?;
+    let twice_num = num.checked_mul(2)?;
+    let twice_den = den.checked_mul(2)?;
+    let nearest = twice_num.checked_add(den)?.checked_div(twice_den)?;
+    u32::try_from(nearest).ok()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The sensor summary
 // ─────────────────────────────────────────────────────────────────────────────
@@ -730,6 +753,10 @@ pub struct Sensor {
     /// there, never `Some(ActiveArea { top: 0, .. })` (acceptance criterion
     /// 3).
     pub active_area: Option<ActiveArea>,
+    /// DNG `MaskedAreas` (tag 50830): masked (optical-black) rectangles in raw-plane
+    /// coordinates, verbatim and in file order (DEC-068 §3). Empty when absent or
+    /// malformed. irradiance does not interpret or use them.
+    pub masked_areas: Vec<ActiveArea>,
     /// DNG `DefaultCropOrigin`, when present.
     pub default_crop_origin: Option<DefaultCropOrigin>,
     /// DNG `DefaultCropSize`, when present.
@@ -813,7 +840,17 @@ pub struct Sensor {
     /// absent. `black_level` above keeps the first-value scalar the monochrome
     /// oracle and `develop` use; this is additive (`SPEC-026`), for the
     /// per-channel colour path STAGE-008 will consume.
+    ///
+    /// When the tag is `RATIONAL`, each value is rounded to the nearest integer,
+    /// an exact half rounding up (`DEC-068` §1): the Pixel 7 Pro's
+    /// `262172/256` (1024.109375) is 1024 here. `black_levels_exact` holds the
+    /// fractions as written. `black_level` is always this array's first value.
     pub black_levels: Vec<u32>,
+    /// DNG `BlackLevel` exactly as written, when the tag is `RATIONAL` (DEC-068 §1).
+    /// `black_level` / `black_levels` hold these rounded to nearest. Empty when the
+    /// tag is SHORT or LONG (then `black_levels` is already exact), absent, or
+    /// malformed.
+    pub black_levels_exact: Vec<Rational>,
     /// DNG `WhiteLevel` (tag 50717) as the full per-channel array (`[15000]`
     /// Canon, `[3808]` Nikon). Empty when absent; `white_level` above stays the
     /// first-value scalar.
@@ -869,6 +906,7 @@ impl Sensor {
             white_level: None,
             black_level_repeat_dim: None,
             active_area: None,
+            masked_areas: Vec::new(),
             default_crop_origin: None,
             default_crop_size: None,
             orientation: None,
@@ -885,6 +923,7 @@ impl Sensor {
             calibration_illuminant_1: None,
             calibration_illuminant_2: None,
             black_levels: Vec::new(),
+            black_levels_exact: Vec::new(),
             white_levels: Vec::new(),
             malformed_tags: Vec::new(),
         }
@@ -1571,6 +1610,104 @@ impl<'a> Container<'a> {
         Ok(Some(out))
     }
 
+    /// `BlackLevel`'s values as `(rounded, exact)` (`SPEC-075`, `DEC-068` §1).
+    ///
+    /// SHORT and LONG read through [`Container::uints`], exact already, so
+    /// `exact` is empty. A `RATIONAL` reads through [`Container::rationals`]
+    /// and each value is rounded to nearest by [`round_rational`]; `exact`
+    /// keeps the values as written. A zero denominator is
+    /// [`Error::MalformedRationalValue`], so the caller costs the whole tag.
+    ///
+    /// The one fallback: a `RATIONAL` whose numerator or denominator exceeds
+    /// `i32::MAX` cannot be held as a [`Rational`]. It takes the integral
+    /// [`Container::uints`] read this tag had before `DEC-068`, so such a file
+    /// reads exactly as it did, with `exact` empty.
+    fn black_level_values(&self, entry: &Entry) -> Result<(Vec<u32>, Vec<Rational>), Error> {
+        if entry.field_type != TYPE_RATIONAL {
+            return Ok((self.uints(entry)?, Vec::new()));
+        }
+        let exact = match self.rationals(entry) {
+            Ok(exact) => exact,
+            Err(Error::RationalValueOutOfRange { .. }) => {
+                return Ok((self.uints(entry)?, Vec::new()));
+            }
+            Err(other) => return Err(other),
+        };
+        let mut rounded = Vec::with_capacity(exact.len());
+        for value in &exact {
+            let Some(nearest) = round_rational(*value) else {
+                return Err(Error::MalformedRationalValue {
+                    tag: entry.tag,
+                    numerator: u32::try_from(value.num).unwrap_or_default(),
+                    denominator: u32::try_from(value.den).unwrap_or_default(),
+                });
+            };
+            rounded.push(nearest);
+        }
+        Ok((rounded, exact))
+    }
+
+    /// `MaskedAreas` from `ifd`, verbatim and in file order (`SPEC-075`,
+    /// `DEC-068` §3). Interpretation-class (`DEC-012`): absent is empty and
+    /// not recorded; a malformed tag is empty and pushes
+    /// [`TAG_MASKED_AREAS`] to `malformed` once. Malformed is a type other
+    /// than SHORT or LONG, a count of 0 or not a multiple of 4, more than
+    /// [`MAX_MASKED_AREAS`] rectangles, an empty rectangle (`top ≥ bottom` or
+    /// `left ≥ right`), or one reaching past `width` or `height`. Never
+    /// fails the read.
+    ///
+    /// The count is checked against the cap **before** any allocation, so the
+    /// read allocates at most `4 × MAX_MASKED_AREAS` values.
+    fn masked_areas(
+        &self,
+        ifd: &Ifd,
+        width: u32,
+        height: u32,
+        malformed: &mut Vec<u16>,
+    ) -> Vec<ActiveArea> {
+        let Some(entry) = ifd.entry(TAG_MASKED_AREAS) else {
+            return Vec::new();
+        };
+        match self.read_masked_areas(entry, width, height) {
+            Some(areas) => areas,
+            None => {
+                malformed.push(TAG_MASKED_AREAS);
+                Vec::new()
+            }
+        }
+    }
+
+    /// [`Container::masked_areas`]' read of a present entry: `None` when the
+    /// tag is malformed in any of the ways listed there.
+    fn read_masked_areas(&self, entry: &Entry, width: u32, height: u32) -> Option<Vec<ActiveArea>> {
+        if !matches!(entry.field_type, TYPE_SHORT | TYPE_LONG) {
+            return None;
+        }
+        let count = usize::try_from(entry.count).ok()?;
+        let max_values = MAX_MASKED_AREAS.checked_mul(4)?;
+        if count == 0 || count.checked_rem(4)? != 0 || count > max_values {
+            return None;
+        }
+        let values = self.uints(entry).ok()?;
+        let (rectangles, rest) = values.as_chunks::<4>();
+        if !rest.is_empty() {
+            return None;
+        }
+        let mut areas = Vec::with_capacity(rectangles.len());
+        for &[top, left, bottom, right] in rectangles {
+            if top >= bottom || left >= right || bottom > height || right > width {
+                return None;
+            }
+            areas.push(ActiveArea {
+                top,
+                left,
+                bottom,
+                right,
+            });
+        }
+        Some(areas)
+    }
+
     /// A CFA byte-index tag (`CFAPattern`, `CFAPlaneColor`) as its raw DNG
     /// colour-index bytes, or `None` when absent (`SPEC-024`).
     ///
@@ -2034,12 +2171,20 @@ impl<'a> Container<'a> {
             malformed.push(TAG_ORIENTATION);
         }
 
-        // Interpretation: BlackLevel, WhiteLevel.
-        let black_level = Self::cost_the_field(
-            self.scalar(ifd, TAG_BLACK_LEVEL),
-            TAG_BLACK_LEVEL,
-            &mut malformed,
-        );
+        // Interpretation: BlackLevel, WhiteLevel. BlackLevel is read once,
+        // through `black_level_values` (`SPEC-075`, `DEC-068` §1), and the
+        // scalar is the first value of that same read, so `black_level` and
+        // `black_levels` cannot disagree. A malformed tag is costed once here
+        // and leaves all three fields at their absent values.
+        let black_read = match ifd.entry(TAG_BLACK_LEVEL) {
+            None => Ok(None),
+            Some(entry) => self.black_level_values(entry).map(Some),
+        };
+        let (black_level, black_levels, black_levels_exact) =
+            match Self::cost_the_field(black_read, TAG_BLACK_LEVEL, &mut malformed) {
+                Some((rounded, exact)) => (rounded.first().copied(), rounded, exact),
+                None => (None, Vec::new(), Vec::new()),
+            };
         let white_level = Self::cost_the_field(
             self.scalar(ifd, TAG_WHITE_LEVEL),
             TAG_WHITE_LEVEL,
@@ -2149,23 +2294,30 @@ impl<'a> Container<'a> {
         let calibration_illuminant_2 =
             self.ifd0_scalar(TAG_CALIBRATION_ILLUMINANT_2, &mut malformed);
 
-        // Interpretation: the FULL per-channel BlackLevel/WhiteLevel arrays,
-        // from THIS sensor IFD (the levels are `[SubIFD]`, measured). Read via
-        // the existing integral `values()` path — a RATIONAL `BlackLevel`
-        // (Canon, `524032/256 = 2047`) reads exactly through `uints`. The
-        // scalar `black_level`/`white_level` above already cost the field if
-        // the tag is malformed; `unwrap_or_default` here keeps this additive
-        // read from costing it a SECOND time (and from failing the file),
-        // yielding an empty array for a malformed or absent tag.
-        let black_levels = self.values(ifd, TAG_BLACK_LEVEL).unwrap_or_default();
+        // Interpretation: the FULL per-channel WhiteLevel array, from THIS
+        // sensor IFD (the levels are `[SubIFD]`, measured). The scalar
+        // `white_level` above already costs the field if the tag is
+        // malformed; `unwrap_or_default` here keeps this additive read from
+        // costing it a SECOND time (and from failing the file), yielding an
+        // empty array for a malformed or absent tag. The BlackLevel array was
+        // read above with its scalar.
         let white_levels = self.values(ifd, TAG_WHITE_LEVEL).unwrap_or_default();
+
+        // Structural: ImageWidth, ImageLength — "what exists" is the plane's
+        // dimensions. Read here, after Photometric as before, because
+        // `MaskedAreas` is checked against them.
+        let width = self.required_scalar(ifd, TAG_IMAGE_WIDTH)?;
+        let height = self.required_scalar(ifd, TAG_IMAGE_LENGTH)?;
+
+        // Interpretation: MaskedAreas (`SPEC-075`, `DEC-068` §3), passed
+        // through verbatim. A malformed tag costs this field alone.
+        let masked_areas = self.masked_areas(ifd, width, height, &mut malformed);
 
         Ok(Sensor {
             ifd_index,
-            // Structural: ImageWidth, ImageLength, BitsPerSample — "what
-            // exists" is the plane's dimensions.
-            width: self.required_scalar(ifd, TAG_IMAGE_WIDTH)?,
-            height: self.required_scalar(ifd, TAG_IMAGE_LENGTH)?,
+            // Structural: ImageWidth, ImageLength (read above), BitsPerSample.
+            width,
+            height,
             bits_per_sample: self.required_scalar(ifd, TAG_BITS_PER_SAMPLE)?,
             // Structural: SamplesPerPixel — part of the identifying trio.
             //
@@ -2205,6 +2357,7 @@ impl<'a> Container<'a> {
             white_level,
             black_level_repeat_dim,
             active_area,
+            masked_areas,
             default_crop_origin,
             default_crop_size,
             orientation,
@@ -2225,6 +2378,7 @@ impl<'a> Container<'a> {
             calibration_illuminant_1,
             calibration_illuminant_2,
             black_levels,
+            black_levels_exact,
             white_levels,
             malformed_tags: malformed,
         })

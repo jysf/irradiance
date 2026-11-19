@@ -588,6 +588,7 @@ fn develop_color_composes_normalize_demosaic_matrix() {
     sensor.as_shot_neutral = Some(asn_half_one_half());
     // Per-channel black (2×2 positions R,G,G,B) and a scalar white.
     sensor.black_levels = vec![100, 100, 100, 200];
+    sensor.black_level_repeat_dim = Some([2, 2]);
     sensor.white_levels = vec![4000];
 
     #[rustfmt::skip]
@@ -663,6 +664,7 @@ fn fused_fixture(width: u32, height: u32, pattern: &[u8]) -> Sensor {
     sensor.forward_matrix_1 = Some(forward_matrix_d50());
     sensor.as_shot_neutral = Some(asn_half_one_half());
     sensor.black_levels = vec![100, 140, 160, 220]; // distinct per-2×2-slot black
+    sensor.black_level_repeat_dim = Some([2, 2]);
     sensor.white_levels = vec![4000]; // scalar white (below some mosaic values)
     sensor
 }
@@ -1203,6 +1205,7 @@ fn grey_origin_sensor(pattern: &[u8], sensor_origin: Option<(u32, u32)>) -> Sens
     s.forward_matrix_1 = Some(forward_matrix_d50());
     s.as_shot_neutral = Some(nikon_asn());
     s.black_levels = SLOT_BLACK.to_vec();
+    s.black_level_repeat_dim = Some([2, 2]);
     s.white_level = Some(GREY_WHITE);
     s.active_area = sensor_origin.map(|(top, left)| ActiveArea {
         top,

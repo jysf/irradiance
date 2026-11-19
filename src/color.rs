@@ -116,7 +116,9 @@
 use crate::demosaic::{
     develop_color_fused, develop_rows_banded, is_supported_bayer, run_row_bands,
 };
-use crate::develop::{oriented_dimensions, output_coords_from_crop, resolve_geometry};
+use crate::develop::{
+    black_pattern_dims, oriented_dimensions, output_coords_from_crop, resolve_geometry,
+};
 use crate::ifd::{active_area_origin, Rational, Sensor};
 use crate::Error;
 
@@ -296,6 +298,8 @@ pub fn to_srgb_linear_into(
 ///   [`Error::UnsupportedOrientation`] for a geometry
 ///   [`crate::develop::develop_into`] would also reject.
 /// - [`Error::RgbBufferWrongLength`] if `dst.len() != out_w·out_h·3`.
+/// - [`Error::InvalidBlackLevelPattern`] if `BlackLevel` has a count other than
+///   `BlackLevelRepeatDim`'s rows × columns (`DEC-068` §2), before any write.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] for a
 ///   non-CFA plane or an unsupported mosaic, or [`Error::MissingColorCalibration`]
 ///   if the colour matrix cannot be built — in that order (CFA before matrix).
@@ -304,13 +308,31 @@ pub fn to_srgb_linear_into(
 pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
     check_colour_required_processing(sensor)?;
     let (expected_src, output) = check_color_buffers(sensor, src.len(), dst.len())?;
+    // The black pattern resolves before any allocation or write (`DEC-068`
+    // §2), and the match on its two shapes runs once, here, not per pixel.
+    match make_normalizer(sensor, src)? {
+        Normalizer::Slots(normalize) => {
+            develop_color_u16_with(sensor, expected_src, output, &normalize, dst)
+        }
+        Normalizer::Pattern(normalize) => {
+            develop_color_u16_with(sensor, expected_src, output, &normalize, dst)
+        }
+    }
+}
 
+/// [`develop_color_into`]'s body for one resolved normalizer.
+fn develop_color_u16_with<N: Fn(u32, u32) -> u16>(
+    sensor: &Sensor,
+    expected_src: usize,
+    output: CropScatter,
+    normalize: &N,
+    dst: &mut [u16],
+) -> Result<(), Error> {
     // The one remaining scratch buffer: the `width·height` green plane.
     let mut green = vec![0u16; expected_src];
-    let normalize = make_normalizer(sensor, src);
     let (dst_triples, _remainder) = dst.as_chunks_mut::<3>();
 
-    develop_color_fused(sensor, &mut green, &normalize, || {
+    develop_color_fused(sensor, &mut green, normalize, || {
         let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] =
             build_camera_to_srgb_linear(sensor)?;
         let mut scatter = output;
@@ -364,6 +386,8 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
 ///   [`Error::UnsupportedOrientation`] for a geometry
 ///   [`crate::develop::develop_into`] would also reject.
 /// - [`Error::RgbBufferWrongLength`] if `dst.len() != out_w·out_h·3`.
+/// - [`Error::InvalidBlackLevelPattern`] if `BlackLevel` has a count other than
+///   `BlackLevelRepeatDim`'s rows × columns (`DEC-068` §2), before any write.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] /
 ///   [`Error::MissingColorCalibration`], in that order (CFA before matrix).
 ///
@@ -371,12 +395,30 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
 pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> Result<(), Error> {
     check_colour_required_processing(sensor)?;
     let (expected_src, output) = check_color_buffers(sensor, src.len(), dst.len())?;
+    // As in `develop_color_into`: resolve the black pattern once, before any
+    // write (`DEC-068` §2).
+    match make_normalizer(sensor, src)? {
+        Normalizer::Slots(normalize) => {
+            develop_color_f32_with(sensor, expected_src, output, &normalize, dst)
+        }
+        Normalizer::Pattern(normalize) => {
+            develop_color_f32_with(sensor, expected_src, output, &normalize, dst)
+        }
+    }
+}
 
+/// [`develop_color_f32_into`]'s body for one resolved normalizer.
+fn develop_color_f32_with<N: Fn(u32, u32) -> u16>(
+    sensor: &Sensor,
+    expected_src: usize,
+    output: CropScatter,
+    normalize: &N,
+    dst: &mut [f32],
+) -> Result<(), Error> {
     let mut green = vec![0u16; expected_src];
-    let normalize = make_normalizer(sensor, src);
     let (dst_triples, _remainder) = dst.as_chunks_mut::<3>();
 
-    develop_color_fused(sensor, &mut green, &normalize, || {
+    develop_color_fused(sensor, &mut green, normalize, || {
         let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] =
             build_camera_to_srgb_linear(sensor)?;
         let mut scatter = output;
@@ -587,7 +629,32 @@ where
     T: Send,
     S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]) + Sync,
 {
-    let normalize = make_normalizer(sensor, src);
+    // Resolved once, before any band runs or `dst` is touched (`DEC-068` §2):
+    // a refused pattern returns here, from the calling thread.
+    match make_normalizer(sensor, src)? {
+        Normalizer::Slots(normalize) => {
+            develop_color_bands_with(sensor, &normalize, dst, threads, plan, store)
+        }
+        Normalizer::Pattern(normalize) => {
+            develop_color_bands_with(sensor, &normalize, dst, threads, plan, store)
+        }
+    }
+}
+
+/// [`develop_color_bands`]' body for one resolved normalizer.
+fn develop_color_bands_with<T, S, N>(
+    sensor: &Sensor,
+    normalize: &N,
+    dst: &mut [T],
+    threads: usize,
+    plan: &ColourBandPlan,
+    store: S,
+) -> Result<(), Error>
+where
+    T: Send,
+    S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]) + Sync,
+    N: Fn(u32, u32) -> u16 + Sync,
+{
     let (triples, _remainder) = dst.as_chunks_mut::<3>();
     run_row_bands(
         triples,
@@ -611,7 +678,7 @@ where
             );
             let first = oy0.saturating_mul(plan.out_width);
             let mut scatter = CropScatter::new(sensor)?;
-            develop_rows_banded(sensor, rows, &normalize, |pixel, r, g, b| {
+            develop_rows_banded(sensor, rows, normalize, |pixel, r, g, b| {
                 let Some(slot) = scatter.slot_of(pixel) else {
                     return;
                 };
@@ -1210,23 +1277,154 @@ fn quantize(value: f64) -> u16 {
     (clamped + 0.5).floor() as u16
 }
 
-/// Build the per-cell level-normalize map the fused develop path
-/// ([`develop_color_fused`]) fills its rolling row cache from (`SPEC-049`,
-/// `DEC-042`). Given a mosaic cell `(col, row)` — already reflected into range by
-/// the demosaic logic — it returns the per-channel level-normalized value for
-/// that cell: `[black, white] → [0, 65535]` by the `black_levels` /
-/// `white_levels` entry for the cell's 2×2 position (scalar `black_level` /
-/// `white_level`, then `0` / `2^bits-1`, as the fallback), clamped per `DEC-018`.
+/// The colour path's level-normalize map, in one of its two shapes
+/// (`SPEC-075`, `DEC-068` §2). [`make_normalizer`] resolves it once per develop;
+/// each entry point then matches on it once and runs a body generic over the
+/// closure, so no per-pixel branch picks the shape (the mono path's `Blacks`
+/// does the same).
+enum Normalizer<S, P> {
+    /// `BlackLevelRepeatDim` rows and columns each 1 or 2, or no per-position
+    /// black: the four-slot table ([`slot_normalizer`]). Every held file.
+    Slots(S),
+    /// A larger pattern: a per-photosite lookup ([`pattern_normalizer`]).
+    Pattern(P),
+}
+
+/// A black pattern too large for the four-slot table (`DEC-068` §2): `values`
+/// is `rows × cols` long (checked by [`black_pattern_dims`]), and `(top, left)`
+/// is the `ActiveArea` origin it repeats from (`DEC-040`).
+#[derive(Clone, Copy)]
+struct BlackPattern<'a> {
+    values: &'a [u32],
+    rows: u32,
+    cols: u32,
+    top: u32,
+    left: u32,
+}
+
+impl BlackPattern<'_> {
+    /// The black at raw `(x, y)`, `values[pattern_index(..)]`. The fallback 0
+    /// is unreachable: the index is `< rows × cols == values.len()`.
+    fn at(&self, x: u32, y: u32) -> u32 {
+        pattern_index(x, y, (self.top, self.left), [self.rows, self.cols])
+            .and_then(|i| self.values.get(i))
+            .copied()
+            .unwrap_or(0)
+    }
+}
+
+/// The `BlackLevel` index of pattern cell `(row, col)` for a `[rows, cols]`
+/// repeat (`DEC-061` §3): `(row mod rows) × cols + (col mod cols)`. `None`
+/// only for a zero dimension, which [`black_pattern_dims`] refuses first.
+fn pattern_cell(row: u32, col: u32, [rows, cols]: [u32; 2]) -> Option<usize> {
+    let r = row.checked_rem(rows)?;
+    let c = col.checked_rem(cols)?;
+    let index = r.checked_mul(cols)?.checked_add(c)?;
+    usize::try_from(index).ok()
+}
+
+/// The `BlackLevel` index of the photosite at raw `(x, y)`, for a `[rows, cols]`
+/// pattern repeating from the `ActiveArea` origin `(top, left)` (`DEC-061` §3,
+/// `DEC-068` §2): [`pattern_cell`] of `(y − top) mod rows`, `(x − left) mod
+/// cols`. The offsets are taken mod the repeat in `i64` with a Euclidean
+/// remainder, so a photosite above or left of the origin (a reflected border
+/// read) still lands on its true cell.
+fn pattern_index(x: u32, y: u32, (top, left): (u32, u32), dims: [u32; 2]) -> Option<usize> {
+    let [rows, cols] = dims;
+    let row = i64::from(y)
+        .checked_sub(i64::from(top))?
+        .checked_rem_euclid(i64::from(rows))?;
+    let col = i64::from(x)
+        .checked_sub(i64::from(left))?
+        .checked_rem_euclid(i64::from(cols))?;
+    pattern_cell(u32::try_from(row).ok()?, u32::try_from(col).ok()?, dims)
+}
+
+/// Resolve the colour develop's levels once and build its normalizer
+/// (`SPEC-049`, `DEC-042`; the black rule is `SPEC-075`, `DEC-068` §2).
 ///
-/// This is the per-photosite map the pre-fuse `normalize_mosaic` applied once
-/// over a whole scratch plane. The fuse calls it **once per row** as that row
-/// enters the rolling cache (not a full scratch plane, and not re-run per
-/// neighbour read), so each sample is normalised exactly once. The four slot
-/// `(black, white)` pairs are resolved **once** here; the returned closure then
-/// does no per-read division to find its slot. For a cell at `(col, row)` the
-/// value equals the pre-fuse `normalize_mosaic`'s output at plane index
-/// `row·width + col` — same slot, same [`normalize_sample`] — so the fused render
-/// stays byte-identical.
+/// - **White**, for every photosite (`DEC-061` §3): the first `white_levels`
+///   value, else `white_level`, else `2^BitsPerSample − 1`.
+/// - **Black:** `[R, C]` is `BlackLevelRepeatDim`, or `[1, 1]`. An empty
+///   `black_levels` gives every photosite `black_level`, else 0. Otherwise
+///   `black_levels.len()` must be `R × C`, or this is
+///   [`Error::InvalidBlackLevelPattern`] (the check is
+///   [`black_pattern_dims`], shared with the mono path). The black at raw
+///   `(x, y)` is `black_levels[((y − top) mod R) × C + ((x − left) mod C)]`
+///   from the `ActiveArea` origin.
+///
+/// When `R` and `C` are each 1 or 2, every photosite's black depends only on
+/// the parity of its offset from the origin, so the four `(row_odd, col_odd)`
+/// slots are filled from that rule and [`slot_normalizer`] runs, the fused
+/// path's existing closure. A larger pattern takes [`pattern_normalizer`].
+///
+/// Returns before anything is written, so every colour entry point refuses a
+/// bad pattern with `dst` untouched.
+fn make_normalizer<'a>(
+    sensor: &'a Sensor,
+    src: &'a [u16],
+) -> Result<
+    Normalizer<impl Fn(u32, u32) -> u16 + Sync + 'a, impl Fn(u32, u32) -> u16 + Sync + 'a>,
+    Error,
+> {
+    let white_default = max_value_for_bits(sensor.bits_per_sample).unwrap_or(u32::from(u16::MAX));
+    let white = sensor
+        .white_levels
+        .first()
+        .copied()
+        .or(sensor.white_level)
+        .unwrap_or(white_default);
+    let values = sensor.black_levels.as_slice();
+    if values.is_empty() {
+        let black = sensor.black_level.unwrap_or(0);
+        return Ok(Normalizer::Slots(slot_normalizer(
+            sensor,
+            src,
+            [(black, white); 4],
+        )));
+    }
+    let dims = black_pattern_dims(sensor)?;
+    let [rows, cols] = dims;
+    if rows <= 2 && cols <= 2 {
+        // Slot order is `(row_odd, col_odd)` = (0,0), (0,1), (1,0), (1,1).
+        const PARITIES: [(u32, u32); 4] = [(0, 0), (0, 1), (1, 0), (1, 1)];
+        let mut levels = [(0u32, white); 4];
+        for (slot, (row_odd, col_odd)) in levels.iter_mut().zip(PARITIES) {
+            let black = pattern_cell(row_odd, col_odd, dims)
+                .and_then(|i| values.get(i))
+                .copied()
+                .unwrap_or(0);
+            *slot = (black, white);
+        }
+        return Ok(Normalizer::Slots(slot_normalizer(sensor, src, levels)));
+    }
+    let (top, left) = active_area_origin(sensor);
+    Ok(Normalizer::Pattern(pattern_normalizer(
+        sensor,
+        src,
+        BlackPattern {
+            values,
+            rows,
+            cols,
+            top,
+            left,
+        },
+        white,
+    )))
+}
+
+/// The per-cell level-normalize map the fused develop path
+/// ([`develop_color_fused`]) fills its rolling row cache from, for a black
+/// pattern that fits the four 2×2 slots ([`make_normalizer`]). Given a mosaic
+/// cell `(col, row)` — already reflected into range by the demosaic logic — it
+/// returns the level-normalized value for that cell: `[black, white] → [0,
+/// 65535]` by the cell's slot in `levels`, clamped per `DEC-018`.
+///
+/// The fuse calls it **once per row** as that row enters the rolling cache (not
+/// a full scratch plane, and not re-run per neighbour read), so each sample is
+/// normalised exactly once. The four slot `(black, white)` pairs were resolved
+/// once by [`make_normalizer`]; this closure does no per-read division to find
+/// its slot.
 ///
 /// The 2×2 slot is taken **relative to the `ActiveArea` origin** (`DEC-040`): in
 /// DNG the per-slot level pattern starts at the active area, not the plane's
@@ -1237,22 +1435,15 @@ fn quantize(value: f64) -> u16 {
 /// subtraction is still the true parity); for an even origin — the whole existing
 /// corpus — it reduces to `row & 1`, so the goldens are unchanged. The demosaic
 /// uses the same origin for the CFA phase.
-fn make_normalizer<'a>(sensor: &'a Sensor, src: &'a [u16]) -> impl Fn(u32, u32) -> u16 + 'a {
+fn slot_normalizer<'a>(
+    sensor: &'a Sensor,
+    src: &'a [u16],
+    levels: [(u32, u32); 4],
+) -> impl Fn(u32, u32) -> u16 + Sync + 'a {
     let width = usize::try_from(sensor.width).unwrap_or(0);
     let (active_top, active_left) = active_area_origin(sensor);
     let active_top = usize::try_from(active_top).unwrap_or(0);
     let active_left = usize::try_from(active_left).unwrap_or(0);
-    let white_default = max_value_for_bits(sensor.bits_per_sample).unwrap_or(u32::from(u16::MAX));
-
-    // Resolve the four 2×2-slot `(black, white)` pairs once; `level_at` depends
-    // only on the slot, not the pixel, so this is the same value the pre-fuse
-    // per-pixel `level_at` would have returned at each slot.
-    let mut levels = [(0u32, u32::from(u16::MAX)); 4];
-    for (pos, slot) in levels.iter_mut().enumerate() {
-        let black = level_at(&sensor.black_levels, pos, sensor.black_level, 0);
-        let white = level_at(&sensor.white_levels, pos, sensor.white_level, white_default);
-        *slot = (black, white);
-    }
 
     move |x: u32, y: u32| -> u16 {
         let col = usize::try_from(x).unwrap_or(0);
@@ -1272,13 +1463,23 @@ fn make_normalizer<'a>(sensor: &'a Sensor, src: &'a [u16]) -> impl Fn(u32, u32) 
     }
 }
 
-/// The level for a 2×2 position: the per-channel array entry at `pos` (falling
-/// back to the array's last entry when `pos` is past a shorter array — e.g. a
-/// single-value `WhiteLevel`), else the `scalar` fallback, else `default`.
-fn level_at(levels: &[u32], pos: usize, scalar: Option<u32>, default: u32) -> u32 {
-    match levels.get(pos).or_else(|| levels.last()) {
-        Some(&v) => v,
-        None => scalar.unwrap_or(default),
+/// [`slot_normalizer`] for a black pattern larger than 2×2 (`DEC-068` §2): the
+/// black is looked up per photosite through [`BlackPattern::at`], with no
+/// allocation, and white is the one per-sample value.
+fn pattern_normalizer<'a>(
+    sensor: &'a Sensor,
+    src: &'a [u16],
+    pattern: BlackPattern<'a>,
+    white: u32,
+) -> impl Fn(u32, u32) -> u16 + Sync + 'a {
+    let width = usize::try_from(sensor.width).unwrap_or(0);
+    move |x: u32, y: u32| -> u16 {
+        let col = usize::try_from(x).unwrap_or(0);
+        let row = usize::try_from(y).unwrap_or(0);
+        let black = pattern.at(x, y);
+        let index = row.checked_mul(width).and_then(|rb| rb.checked_add(col));
+        let sample = index.and_then(|i| src.get(i)).copied().unwrap_or(0);
+        normalize_sample(sample, black, white)
     }
 }
 
@@ -1537,6 +1738,7 @@ mod tests {
             white_level: None,
             black_level_repeat_dim: None,
             active_area: None,
+            masked_areas: vec![],
             default_crop_origin: None,
             default_crop_size: None,
             orientation: None,
@@ -1553,6 +1755,7 @@ mod tests {
             calibration_illuminant_1: None,
             calibration_illuminant_2: None,
             black_levels: vec![],
+            black_levels_exact: vec![],
             white_levels: vec![],
             malformed_tags: vec![],
         }
@@ -1612,6 +1815,95 @@ mod tests {
         let a = SRGB_FROM_XYZ_D65;
         let b = BRADFORD_D50_TO_D65;
         assert_eq!(reference_mat_mul(a, b), mat_mul(a, b));
+    }
+
+    /// `SPEC-075` AC5: the general path's per-photosite index, against a table
+    /// written out by hand, for a `[3, 2]` pattern (3 rows, 2 columns) from
+    /// the odd origin top 1, left 3. A 3-by-2 pattern has no 2×2 form, so only
+    /// the general path can serve it.
+    #[test]
+    fn general_black_pattern_index_matches_hand_table() {
+        // Row y has pattern row (y − 1) mod 3 = 2, 0, 1, 2, 0, 1; column x has
+        // pattern column (x − 3) mod 2 = 1, 0, 1, 0. Index = row × 2 + col.
+        #[rustfmt::skip]
+        const TABLE: [[usize; 4]; 6] = [
+            [5, 4, 5, 4],
+            [1, 0, 1, 0],
+            [3, 2, 3, 2],
+            [5, 4, 5, 4],
+            [1, 0, 1, 0],
+            [3, 2, 3, 2],
+        ];
+        for (y, row) in TABLE.iter().enumerate() {
+            for (x, &want) in row.iter().enumerate() {
+                let got = pattern_index(x as u32, y as u32, (1, 3), [3, 2]);
+                assert_eq!(got, Some(want), "(x {x}, y {y})");
+            }
+        }
+
+        // The same through `make_normalizer`: a [3, 2] pattern takes the
+        // general path, and each photosite gets its value's black. Each sample
+        // is its own black + 1000, so with white 65535 the output is
+        // 1000 × 65535 / (65535 − black), rounded half up: a wrong black shows.
+        let mut sensor = color_sensor(ColorMeta {
+            forward_matrix_1: None,
+            color_matrix_1: None,
+            as_shot_neutral: None,
+        });
+        sensor.width = 4;
+        sensor.height = 6;
+        sensor.white_level = Some(65_535);
+        sensor.black_levels = vec![100, 200, 300, 400, 500, 600];
+        sensor.black_level = Some(100);
+        sensor.black_level_repeat_dim = Some([3, 2]);
+        sensor.active_area = Some(crate::ifd::ActiveArea {
+            top: 1,
+            left: 3,
+            bottom: 6,
+            right: 4,
+        });
+        let blacks = [100u16, 200, 300, 400, 500, 600];
+        let mut src = vec![0u16; 24];
+        for (y, row) in TABLE.iter().enumerate() {
+            for (x, &i) in row.iter().enumerate() {
+                src[y * 4 + x] = blacks[i] + 1000;
+            }
+        }
+        let Ok(Normalizer::Pattern(normalize)) = make_normalizer(&sensor, &src) else {
+            panic!("a [3, 2] pattern must take the general path");
+        };
+        for (y, row) in TABLE.iter().enumerate() {
+            for (x, &i) in row.iter().enumerate() {
+                let range = 65_535 - u64::from(blacks[i]);
+                let want = (1000 * 65_535 + range / 2) / range;
+                let got = normalize(x as u32, y as u32);
+                assert_eq!(u64::from(got), want, "(x {x}, y {y})");
+            }
+        }
+    }
+
+    /// The 2×2 fast path fills its slots from the same rule: `[1, 2]` and
+    /// `[2, 1]` are each one slot away from what the pre-`SPEC-075` slot
+    /// lookup gave (`DEC-068` §2).
+    #[test]
+    fn small_patterns_take_the_slot_path() {
+        let mut sensor = color_sensor(ColorMeta {
+            forward_matrix_1: None,
+            color_matrix_1: None,
+            as_shot_neutral: None,
+        });
+        sensor.black_levels = vec![7, 9];
+        for repeat in [[1, 2], [2, 1], [1, 1], [2, 2]] {
+            sensor.black_level_repeat_dim = Some(repeat);
+            let result = make_normalizer(&sensor, &[]);
+            match repeat {
+                [1, 1] | [2, 2] => assert!(
+                    matches!(result, Err(Error::InvalidBlackLevelPattern { .. })),
+                    "{repeat:?} with 2 values"
+                ),
+                _ => assert!(matches!(result, Ok(Normalizer::Slots(_))), "{repeat:?}"),
+            }
+        }
     }
 
     #[test]
