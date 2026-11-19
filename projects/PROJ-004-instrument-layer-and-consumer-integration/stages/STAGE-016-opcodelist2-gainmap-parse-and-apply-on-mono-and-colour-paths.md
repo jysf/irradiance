@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-016                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -75,16 +75,20 @@ SM-G960F carries four **optional**, degenerate 1x1 maps. All four were measured
   fixtures (STAGE-013) with known grids are checked bit-exact against an
   independent transcription of the spec's interpolation. A red-proof shows the
   oracle catching a perturbed grid, wrong pitch, or off-by-one area.
-- **Real files.** The Pixel files develop `Ok` with GainMap applied. They are
-  cross-checked against Adobe `dng_validate`'s render, run as a black-box binary;
-  dnglab applies no opcodes. The tolerance is pre-registered before measuring.
-- **The trivial case.** The Samsung's optional 1x1 maps apply as a constant gain
-  and stay consistent with the analytic oracle.
+- **Real files.** The Pixel files develop `Ok` with GainMap applied, on both paths.
+  The `GainMap` step is cross-checked against Adobe `dng_validate`'s stage 2 (SDK 1.7.1,
+  built locally, DEC-069 §6), run as a black-box binary; dnglab applies no opcodes. The
+  tolerances are pre-registered in SPEC-060 (gain step ±1 code with at least 99.9% exact;
+  end to end ≤ 8 codes, explained by a max-black normalisation difference).
+- **The trivial case.** A 1x1 map (the Samsung's shape) applies as a constant gain,
+  covered by SPEC-059's analytic oracle. The Samsung file itself is not in the held
+  corpus.
 - **No collateral change.** Files without a GainMap develop byte-identically.
-  `DEVELOP_VERSION` is bumped only if a previously-`Ok` develop changes (e.g. the
-  Samsung, whose optional maps were skipped before).
-- **Fuzz.** Hostile GainMap parameters are typed errors: a giant grid, zero pitch,
-  or an area outside the plane.
+  `DEVELOP_VERSION` goes to 6, because optional GainMaps, skipped before, now apply
+  (DEC-069 §5).
+- **Fuzz.** Hostile GainMap parameters are typed errors: a block that disagrees with its
+  grid, zero pitch or points, and non-finite or non-positive spacing. An area outside the
+  image is intersected, as the SDK does, not refused (DEC-069 §2).
 
 ## Scope
 
@@ -104,8 +108,8 @@ SM-G960F carries four **optional**, degenerate 1x1 maps. All four were measured
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-059 (frame) [M] GainMap parse + apply on mono and colour paths with the analytic oracle and red-proof (writer fixtures), required-processing wiring, fuzz, provenance
-- [ ] SPEC-060 (frame) [S] Real-file GainMap evidence: Pixel files develop, cross-checked against dng_validate within a pre-registered tolerance; Samsung optional-map case; DEVELOP_VERSION decision
+- [ ] SPEC-059 (design) [M] GainMap parse + apply on mono and colour paths (DEC-069), every `OpcodeList2` GainMap accepted by required processing, public `apply_gain_maps`, the analytic oracle and red-proofs on writer fixtures, fuzz, provenance, `DEVELOP_VERSION` 6
+- [ ] SPEC-060 (design) [S] Real-file GainMap evidence: the three Pixels develop on every entry and are pinned; the GainMap step cross-checked against `dng_validate` stage 2 within pre-registered tolerances (env-gated, local SDK); a reproducible SDK recipe
 
 **Count:** 0 shipped / 2 active / 0 pending
 
@@ -120,6 +124,22 @@ Measured layout (Pixel 4a):
 
 The GainMaps are mandatory (Flags = 0), so after STAGE-015 these files are refused
 until this stage ships.
+
+**Design probe, 2026-11-19 (DEC-069).**
+- All three Pixels carry four mandatory 30x40 maps spanning the image (pitch 2, gains
+  1.005 to 3.43). Their only other opcode is an optional `WarpRectilinear`, which the
+  colour path skips.
+- With `OpcodeList2` disabled in a scratch copy, they develop `Ok` in colour and mono.
+  `GainMap` is their only blocker.
+- Adobe DNG SDK 1.7.1's `dng_validate` was built locally. Its `-2` output is stage 2
+  after `OpcodeList2`.
+- A prototype of DEC-069 §2, run on the SDK's own pre-gain stage 2, matched its
+  post-gain stage 2 within ±1 code, with 99.97% exact on all three files.
+- **The SDK normalises differently:** by `white − max black`, where we use `white −
+  black` per position. That is 0 to 5 codes before gain. It is pre-existing and not
+  changed here; carried as a follow-up.
+
+Build SPEC-059 first. SPEC-060 depends on it.
 
 ## Dependencies
 
