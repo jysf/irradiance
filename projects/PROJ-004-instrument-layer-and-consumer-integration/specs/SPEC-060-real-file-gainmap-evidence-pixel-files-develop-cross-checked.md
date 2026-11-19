@@ -6,7 +6,7 @@
 task:
   id: SPEC-060
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -36,9 +36,9 @@ handoff:
   created_at: null
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-069, DEC-068, DEC-003, DEC-009]  # [DEC-NNN, DEC-MMM]
   constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  related_specs: [SPEC-059, SPEC-058]  # [SPEC-NNN]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -52,7 +52,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-016's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "Evidence that the Pixel GainMap develop matches Adobe dng_validate within pre-registered tolerances."
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -67,7 +67,7 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
+  tokens_estimate: 12000000
   sessions: []
   totals:
     tokens_total: 0
@@ -75,74 +75,146 @@ cost:
     session_count: 0
 ---
 
-# SPEC-060: Real-file GainMap evidence: Pixel files develop, cross-checked against dng_validate within a pre-registered tolerance; Samsung optional-map case; DEVELOP_VERSION decision
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-060]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
+# SPEC-060: Real-file GainMap evidence: Pixel files develop, cross-checked against dng_validate
 
 ## Context
 
-Why does this spec exist? What problem does it solve? Link to:
-- The parent `STAGE-016` and this spec's place in its backlog
-- The project `PROJ-004`
-- Any related discussions, issues, or prior decisions
+STAGE-016 (PROJ-004). SPEC-059 builds `GainMap` by DEC-069 §2 and proves it on writer
+fixtures. This spec proves it on the three held Pixel DNGs (3a, 4a and 7 Pro). Each
+carries four mandatory 30×40 `GainMap`s.
+
+The reference is Adobe DNG SDK 1.7.1's `dng_validate`, built locally (DEC-069 §6).
+`dng_validate -2` writes the stage-2 image **after** `OpcodeList2`.
+
+The design probe has already measured the two comparisons this spec turns into tests
+(DEC-069 §Context):
+- **The gain step alone**, on the SDK's own pre-gain stage 2: within ±1 code, with 99.97%
+  of samples exact.
+- **End to end**, against our own normalisation: within 7 codes. The gap is explained by
+  the SDK scaling by `white − max black` where we scale by `white − black` per position,
+  a pre-existing difference that is not changed here.
 
 ## Goal
 
-1–2 sentences. Unambiguous. If you can't write the goal in two
-sentences, split the spec.
+Show that the Pixel files develop `Ok` on every develop entry, pin their output, and
+cross-check the `GainMap` step against `dng_validate` within pre-registered tolerances.
+The cross-check runs only where a local SDK output directory is supplied.
+
+## Design
+
+1. **A reproducible SDK recipe** (`scripts/sdk-stage2.sh`). It is committed, but no SDK
+   bytes are.
+   - **Inputs:** a `dng_validate` path, a corpus root and an output directory, all
+     outside the repo.
+   - **For each Pixel file,** it writes:
+     - `<CAMERA>-post.tif`, from `dng_validate -2` on the real file;
+     - `<CAMERA>-pre.tif`, from `dng_validate -2` on a scratch copy with the `OpcodeList2`
+       tag number (51009) rewritten to an unused private tag (51010), so the SDK skips
+       the list.
+   - **Integrity:** the script refuses if the tag pattern isn't found exactly once, and
+     writes the copies only inside the output directory.
+   - **Docs:** document the SDK build in a comment, or in `docs/` if longer: the download
+     URL and sha256 from DEC-069 §6, no XMP, JPEG XL stubbed, and Homebrew's libjxl.
+2. **A minimal TIFF reader in test support.** It reads `dng_validate`'s uncompressed,
+   single-sample, 16-bit, stripped output in either byte order. Anything else is refused
+   loudly.
+3. **The tier-B develop tests** (`tests/gain_map_corpus.rs`, using the existing corpus
+   skip machinery). For each Pixel:
+   - `develop_into`, `develop_with_into` (`StandardCrop` and `FullActiveArea`, with
+     `BlackLevels::PerPosition`) and all four colour entry points return `Ok`.
+   - Output dimensions match `output_dimensions` and `output_dimensions_with`.
+   - The threaded colour output equals the single-thread output.
+   - **Pins:** pin a hash of each mono and colour output, following the existing pin
+     style (`tests/develop_options.rs` or `tests/determinism.rs`, whichever already pins
+     develop output).
+   - **Reaches the step:** assert the `GainMap` is actually applied by comparing with
+     the same develop on a sensor with `opcode_list_2 = None`. The outputs must differ,
+     and the corner-to-centre mean ratio of a channel must move toward 1. That makes it a
+     behavioural check, not just `Ok`.
+4. **The SDK cross-check.** It runs only when `IRRADIANCE_SDK_STAGE2_DIR` is set, and
+   prints a visible SKIP line otherwise, in the corpus-status style. The tolerances are
+   **pre-registered here**:
+   - **Gain step (the gate).** `apply_gain_maps` on `<CAMERA>-pre.tif` with the file's
+     own `OpcodeList2` must equal `<CAMERA>-post.tif` with **max |Δ| ≤ 1** and **at least
+     99.9% of samples exact**, on all three files.
+   - **End to end (recorded, with a bound).** Mono `develop_with_into` with
+     `FullActiveArea`, `apply_orientation: false`, `BlackLevels::PerPosition` and
+     `warp_alpha: 0.0`, compared with `<CAMERA>-post.tif`, must have **max |Δ| ≤ 8**.
+     The bound comes from:
+     - the gap before any gain: up to 5 codes of max-black normalisation, plus 1 for
+       rounding;
+     - times a gain of up to 3.43;
+     - limited by the measured 7 on the Pixel 4a, 6 on the 3a and 4 on the 7 Pro.
+
+     Also record the histogram in the handback.
+   - **Root cause pinned.** Mono `FullActiveArea` with no gain (the sensor with
+     `opcode_list_2 = None`), compared with `<CAMERA>-pre.tif`, must have **max |Δ| ≤ 5**,
+     with every difference ≥ 0 on the 4a and 3a. That shows the end-to-end gap is the
+     normalisation, not the gain. The design probe measured max 5 on the 4a, 5 on the 3a
+     (both all ≥ 0) and 2 on the 7 Pro. The 7 Pro's differences are mostly negative,
+     because its rounded black sits below the SDK's fractional one (DEC-068).
+5. **Evidence.** Run the recipe and the cross-check locally. Paste each file's numbers
+   into the handback: max |Δ|, the fraction exact, and the histogram for each of the
+   three comparisons.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- DEC-069 (§2, §6, §Context's table). SPEC-059's `apply_gain_maps` and develop wiring.
+- **The SDK build** at `~/PSeven/experiments/crustimg_redo_plus/tools/dng_sdk/`. It is
+  local and never committed; its build script is in `build/`.
+- **The corpus** (`IRRADIANCE_CORPUS_DIR`), with the Pixel paths from
+  `tests/metadata_oracle.rs`.
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **New:** `scripts/sdk-stage2.sh`, `tests/gain_map_corpus.rs`, and the test-support TIFF
+  reader.
+- **Modified:** the corpus pin file(s) (new pins only), `AGENTS.md` §6 (one line on the
+  optional SDK cross-check and its env var), and `docs/provenance-ledger.md` (the
+  real-file evidence appended to SPEC-059's row).
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] **AC1.** All three Pixels develop `Ok` on every mono and colour entry listed in
+  Design §3, with the right dimensions, and threaded colour equals single-thread.
+- [ ] **AC2.** On each file, the `GainMap` changes the output against `opcode_list_2 =
+  None`, and moves the corner-to-centre ratio toward 1 (the test names the channel and
+  the windows).
+- [ ] **AC3.** Each Pixel output is pinned, and no other pin changes.
+- [ ] **AC4.** With `IRRADIANCE_SDK_STAGE2_DIR` set, the gain-step gate holds on all
+  three files: max |Δ| ≤ 1 and at least 99.9% exact. Unset, it prints SKIP and passes.
+- [ ] **AC5.** The end-to-end bound (≤ 8) and the root-cause check (≤ 5, signed as
+  stated) hold, with the numbers in the handback.
+- [ ] **AC6.** A red-proof, control first: a mutant `apply_gain_maps` that samples at
+  pixel corners (drops the `+ 0.5`) fails AC4's gate on at least one file. Record the
+  max |Δ| and the fraction exact it reaches.
+- [ ] **AC7.** The `just test` gates, `lint-ci`, `fmt-check`, `validate`, `doc-check`,
+  `cost-audit`, `gate-audit` and `name-length-check` pass, and CI is green. CI has no
+  SDK, so AC4 and AC5 skip there visibly.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
-
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+- `tests/gain_map_corpus.rs`: AC1 to AC5. They are tier-B, and the SDK part is gated by
+  an env var.
 
 ## Non-Goals
 
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
-
-- ...
+- **Fixing the max-black normalisation.** It is a carried follow-up, and this spec's
+  root-cause check documents it.
+- **Running the SDK in CI,** vendoring it, or committing its outputs.
+- **The Samsung SM-G960F.** It is not in the held corpus, and its 1×1 unit maps are
+  covered analytically by SPEC-059's AC2.
+- **A colour comparison with the SDK's stage 3.** The SDK applies the optional warp and
+  its own demosaic there, so it would not isolate the `GainMap`.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- **Generating the inputs.** `dng_validate` takes about a second per file. The pre-gain
+  copies are 24 MB each, so keep them outside the repo.
+- **The probe's own numbers** (DEC-069 §Context) are the expected results. If a measured
+  number lands outside a pre-registered bound, stop and report it. Don't widen the bound.
+- **Plain-prose commit bodies**, with no code tokens. Never `git add Cargo.lock`, and
+  never commit corpus or SDK bytes.
 
 ---
 
