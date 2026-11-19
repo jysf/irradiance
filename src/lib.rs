@@ -158,7 +158,10 @@ use core::fmt;
 /// the one signal a lockfile cannot carry. Bump it (`"2"`, `"3"`, …) in the
 /// same change that alters develop output; leave it alone for changes that
 /// cannot (docs, tests, refactors that are bit-identical). See `DEC-028`.
-pub const DEVELOP_VERSION: &str = "4";
+///
+/// `"5"`: SPEC-075 (`DEC-068` §4) rounds a fractional `BlackLevel` instead of
+/// taking black 0, and the colour develop indexes `BlackLevelRepeatDim`.
+pub const DEVELOP_VERSION: &str = "5";
 
 /// libFuzzer entry for the SOF-3 lossless-JPEG decoder (`ljpeg::decode_into`,
 /// one- or two-component — `SPEC-046`) — `SPEC-038`, `DEC-036`.
@@ -660,7 +663,9 @@ pub enum Error {
     /// [`develop::BlackLevels::PerPosition`], `BlackLevel` does not hold
     /// exactly `BlackLevelRepeatDim`'s `rows × cols` values (or a dimension
     /// is 0, or the product overflows). Checked only when the option uses
-    /// the pattern.
+    /// the pattern. Since `SPEC-075` (`DEC-068` §2) the colour develop
+    /// entry points in [`color`] check it too, whenever `BlackLevel` is
+    /// non-empty.
     InvalidBlackLevelPattern {
         /// `BlackLevelRepeatDim`'s rows (1 if absent or malformed).
         repeat_rows: u32,

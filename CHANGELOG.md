@@ -8,7 +8,42 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Added
+
+- **`Sensor::black_levels_exact` and `Sensor::masked_areas`** (SPEC-075, STAGE-023,
+  PROJ-004, DEC-068). `black_levels_exact` holds a `RATIONAL` `BlackLevel` exactly as
+  written, as `Rational`s in file order, and is empty for SHORT or LONG. `masked_areas`
+  passes DNG `MaskedAreas` (tag 50830, new `ifd::TAG_MASKED_AREAS`) through verbatim, as
+  `ActiveArea` rectangles in file order. It is interpretation-class: a tag of the wrong
+  type, a count that is 0 or not a multiple of 4, more than 16 rectangles, an empty
+  rectangle or one past the plane leaves it empty and lists 50830 in `malformed_tags`.
+  irradiance does not use it. This is monorail-000 / onyx request 5.
+
+### Fixed
+
+- **A fractional `BlackLevel` rounds to the nearest integer instead of becoming 0**
+  (SPEC-075, DEC-068 §1). A non-integral `RATIONAL` value was costed as malformed, so
+  every path took black 0. Each value now rounds to nearest, an exact half up: the
+  Pixel 7 Pro's `262172/256` (1024.109375) reads as 1024. A zero denominator is still
+  malformed. Integral rationals (the Canon's `524032/256`) and SHORT or LONG values read
+  as before.
+- **The colour develop indexes `BlackLevel` by `BlackLevelRepeatDim`** (SPEC-075,
+  DEC-068 §2, DEC-061 §3). It took a fixed 2×2 slot and fell back to the last value; it
+  now applies `BlackLevel[((y − top) mod R) × C + ((x − left) mod C)]` from the
+  `ActiveArea` origin, so `[1, 2]`, `[2, 1]` and larger patterns develop correctly.
+  White is the first `WhiteLevel` value for every photosite. Every held file's output is
+  byte-identical.
+
 ### Changed
+
+- **The colour develop refuses a `BlackLevel` whose count disagrees with
+  `BlackLevelRepeatDim`** (SPEC-075, DEC-068 §2). All four colour entry points return
+  `Error::InvalidBlackLevelPattern` before writing to `dst`, as the mono `PerPosition`
+  develop already did. An absent repeat dim means `[1, 1]`; an empty `BlackLevel` still
+  develops with black 0.
+- **`DEVELOP_VERSION` is `"5"`** (SPEC-075, DEC-068 §4). Output changes for a file with a
+  fractional black, and for a colour file with a `[1, 2]`, `[2, 1]` or larger black
+  pattern. No held file is one of those.
 
 - **Compression 7 strips and tiles parse their lossless-JPEG header once, not twice**
   (SPEC-074, STAGE-022, PROJ-004). The header parsed to bind the frame's shape to its
