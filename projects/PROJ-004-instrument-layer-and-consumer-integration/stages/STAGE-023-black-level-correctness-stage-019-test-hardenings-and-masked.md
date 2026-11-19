@@ -98,10 +98,10 @@ five `[XS]` test-strength gaps the STAGE-019 verifies named.
 
 ## Spec Backlog
 
-- [ ] SPEC-075 (design) [M] — Black-level fixes and MaskedAreas (DEC-068): round a non-integral RATIONAL `BlackLevel` to nearest and keep the exact values in `Sensor::black_levels_exact`; the colour normalizer indexes `BlackLevelRepeatDim` with the DEC-061 §3 rule and refuses a count mismatch with `InvalidBlackLevelPattern`; `Sensor::masked_areas` passes through `MaskedAreas` (interpretation class, 16-rectangle cap); `DEVELOP_VERSION` 5.
+- [x] SPEC-075 (shipped on 2026-11-19) [M] — Black-level fixes and MaskedAreas (DEC-068): round a non-integral RATIONAL `BlackLevel` to nearest and keep the exact values in `Sensor::black_levels_exact`; the colour normalizer indexes `BlackLevelRepeatDim` with the DEC-061 §3 rule and refuses a count mismatch with `InvalidBlackLevelPattern`; `Sensor::masked_areas` passes through `MaskedAreas` (interpretation class, 16-rectangle cap); `DEVELOP_VERSION` 5.
 - [ ] SPEC-076 (design) [S] — STAGE-019 verify test hardenings: an unsorted-neighbour median fixture, a develop-level malformed `OpcodeList1` alloc row, a true "warp ran" guard, the scratch sentinel in `develop_err`, and the traversal-helper argument scan. Tests only, each with a mutant shown red.
 
-**Count:** 0 shipped / 0 active / 2 pending
+**Count:** 1 shipped / 1 active / 0 pending
 
 **Designed 2026-11-19:** the probe on 4c5dd2c read all 11 held DNGs. Only the Pixel 7 Pro has a non-integral black (`262172/256` and so on, all rounding to 1024), and no file has a `[1, 2]`/`[2, 1]` pattern, more than one `WhiteLevel` value, or `MaskedAreas`. The test writer's `extra_tags` builds every fixture with no writer change. The user chose rounding over a fractional develop.
 
