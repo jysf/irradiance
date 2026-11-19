@@ -76,7 +76,7 @@ The receiving agent MUST read these before starting work.
 ### Primary
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-007-demosaic-clean-room-malvar-he-cutler-mosaic-to-camera-linear-rgb.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-007-demosaic-clean-room-malvar-he-cutler-mosaic-to-camera-linear.md`
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-030-demosaic-foundation-the-camera-space-linear-rgb.md`
   — its Design / Inputs / Outputs / Acceptance Criteria / Failing Tests / Notes
   are load-bearing; the four RGGB bilinear cases and the exact arithmetic

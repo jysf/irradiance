@@ -71,7 +71,7 @@ list tight, but don't omit anything necessary.
 ### Primary
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-007-demosaic-clean-room-malvar-he-cutler-mosaic-to-camera-linear-rgb.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-007-demosaic-clean-room-malvar-he-cutler-mosaic-to-camera-linear.md`
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-032-cfa-demosaic-fuzz-panic-free-hardening-on.md`
 - **Toolchain brief:** `./guidance/toolchain-brief.md` + AGENTS.md §5 — the
   `cargo +nightly` / `+toolchain` trap (the rustup shim must be FIRST on PATH).

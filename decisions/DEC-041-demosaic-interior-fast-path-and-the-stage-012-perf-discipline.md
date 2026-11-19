@@ -27,7 +27,7 @@ deciders: [jysf, claude]
 affected_scope:
   - src/demosaic.rs
   - projects/PROJ-002-bayer-colour-develop/specs/SPEC-048-demosaic-interior-fast-path.md
-  - projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-performance.md
+  - projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-pe.md
   - docs/provenance-ledger.md
 
 tags:

@@ -74,7 +74,7 @@ The receiving agent MUST read these before starting work.
 ### Primary
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-performance.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-pe.md`
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-051-opt-in-row-band-demosaic-threading.md` — Acceptance Criteria, Failing Tests and Notes are the contract.
 - **Decision:** `./decisions/DEC-044-opt-in-output-row-band-threading-for-the-demosaic-hot-loop.md` — **this is the design.** Output-row-band scope threading; work backwards from each output band to its source rows; the non-transposing/transposing colour split; the memory + determinism + safety rules.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — test framework, lint quirks, runtime globals. Read it (DEC-004 rule 5).

@@ -223,6 +223,23 @@ gate-audit:
 gate-audit-red-proof:
     ./scripts/gate-audit-red-proof.sh
 
+# SPEC-074 / DEC-067: fail when any TRACKED path component is longer than 150
+# bytes, naming each one. Tools that copy the tree write a temporary file beside
+# each file (the file name plus about 45 bytes for `cargo semver-checks`'
+# baseline clone), and names over about 210 bytes broke that clone. 150 leaves
+# room and is above the longest DEC name (130). CI runs it in the cost-data job.
+name-length-check:
+    ./scripts/name-length-check.sh
+
+# SPEC-074 / DEC-067: the release semver check, against the crates.io baseline
+# (the latest published irradiance), NOT a git baseline. `--baseline-rev` clones
+# the whole repo, `projects/` included, and every tag cut before SPEC-074
+# (v0.2.2 included) still holds names long enough to crash that clone ("File
+# name too long"). The published crate packages no `projects/`. Not a CI gate:
+# docs/rust-ecosystem-and-semver-decisions.md §2.4 keeps that open.
+semver-check:
+    cargo semver-checks
+
 # Close the #[allow] escape hatch on the LIBRARY (SPEC-006).
 #
 # `just lint-red-proof` pins the crate-root #![deny(...)] policy; it cannot see

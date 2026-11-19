@@ -1799,17 +1799,8 @@ pub(crate) fn reconstruct_two_component_window(
 /// ([`Error::LjpegPlaneWrongLength`]), or reconstruction — never a panic on
 /// malformed input.
 pub(crate) fn decode_into(data: &[u8], out: &mut [u16]) -> Result<Frame, Error> {
-    let (frame, tables, mut reader) = open_scan(data)?;
-    if frame.components == 2 {
-        reconstruct_two_component(&frame, &tables, &mut reader, out)?;
-    } else {
-        // `Nf=1`: the single-component path, byte-for-byte unchanged. `tables`
-        // holds exactly one entry for a well-formed single-component header.
-        let table = tables
-            .first()
-            .ok_or(Error::LjpegMissingMarker { marker: MARKER_DHT })?;
-        reconstruct(&frame, table, &mut reader, out)?;
-    }
+    let (frame, tables, entropy_at) = parse_headers(data)?;
+    decode_parsed_into(data, &frame, &tables, entropy_at, out)?;
     Ok(frame)
 }
 
@@ -1832,30 +1823,87 @@ pub(crate) fn decode_window_into(
     out: &mut [u16],
     win: Window,
 ) -> Result<Frame, Error> {
-    let (frame, tables, mut reader) = open_scan(data)?;
+    let (frame, tables, entropy_at) = parse_headers(data)?;
+    decode_parsed_window_into(data, &frame, &tables, entropy_at, out, win)?;
+    Ok(frame)
+}
+
+/// The back half of [`decode_into`]: reconstruct `data`'s scan into `out`
+/// from a header the caller ALREADY parsed with [`parse_headers`] on the same
+/// `data` (`SPEC-074`). `frame`, `tables` and `entropy_at` are that call's
+/// result, unchanged.
+///
+/// `plane` parses each Compression-7 strip's header once, binds its shape
+/// (`DEC-047`), then decodes through here, so a strip parses its header once,
+/// not twice. Errors are identical to [`decode_into`]'s by construction: the
+/// one parse is the same function on the same bytes and runs first, the shape
+/// check runs second as before, and the scan starts at the same offset.
+///
+/// # Errors
+///
+/// As [`decode_into`], less the header-parse errors (already returned by the
+/// caller's [`parse_headers`]).
+pub(crate) fn decode_parsed_into(
+    data: &[u8],
+    frame: &Frame,
+    tables: &[HuffTable],
+    entropy_at: usize,
+    out: &mut [u16],
+) -> Result<(), Error> {
+    let mut reader = open_scan(data, entropy_at)?;
     if frame.components == 2 {
-        reconstruct_two_component_window(&frame, &tables, &mut reader, out, win)?;
+        reconstruct_two_component(frame, tables, &mut reader, out)
+    } else {
+        // `Nf=1`: the single-component path, byte-for-byte unchanged. `tables`
+        // holds exactly one entry for a well-formed single-component header.
+        let table = tables
+            .first()
+            .ok_or(Error::LjpegMissingMarker { marker: MARKER_DHT })?;
+        reconstruct(frame, table, &mut reader, out)
+    }
+}
+
+/// The back half of [`decode_window_into`], from an already-parsed header, as
+/// [`decode_parsed_into`] is for [`decode_into`] (`SPEC-074`). `plane`'s tile
+/// path calls it with the header it parsed for the shape check.
+///
+/// # Errors
+///
+/// As [`decode_window_into`], less the header-parse errors.
+pub(crate) fn decode_parsed_window_into(
+    data: &[u8],
+    frame: &Frame,
+    tables: &[HuffTable],
+    entropy_at: usize,
+    out: &mut [u16],
+    win: Window,
+) -> Result<(), Error> {
+    let mut reader = open_scan(data, entropy_at)?;
+    if frame.components == 2 {
+        reconstruct_two_component_window(frame, tables, &mut reader, out, win)
     } else {
         let table = tables
             .first()
             .ok_or(Error::LjpegMissingMarker { marker: MARKER_DHT })?;
-        reconstruct_window(&frame, table, &mut reader, out, win)?;
+        reconstruct_window(frame, table, &mut reader, out, win)
     }
-    Ok(frame)
 }
 
-/// Parse the headers and position a [`ScanReader`] at the entropy-coded
-/// segment — the shared front half of [`decode_into`] and
-/// [`decode_window_into`].
-fn open_scan(data: &[u8]) -> Result<(Frame, Vec<HuffTable>, ScanReader<'_>), Error> {
-    let (frame, tables, offset) = parse_headers(data)?;
-    // `offset` is `<= data.len()` (parse_headers only advances through
+/// Position a [`ScanReader`] at the entropy-coded segment that starts at
+/// `entropy_at`, the offset [`parse_headers`] returned for `data`. The one
+/// place the slice-and-[`Error::Truncated`] logic lives, shared by the two
+/// wrappers ([`decode_into`], [`decode_window_into`]) and the two
+/// from-parsed paths `plane` calls. It parses nothing: each caller parsed the
+/// header once (`SPEC-074`).
+fn open_scan(data: &[u8], entropy_at: usize) -> Result<ScanReader<'_>, Error> {
+    // `entropy_at` is `<= data.len()` (parse_headers only advances through
     // bounds-checked reads), so this slice is always present; the `ok_or`
     // keeps the path total without an index.
-    let entropy = data
-        .get(offset..)
-        .ok_or(Error::Truncated { at: offset, len: 0 })?;
-    Ok((frame, tables, ScanReader::new(entropy)))
+    let entropy = data.get(entropy_at..).ok_or(Error::Truncated {
+        at: entropy_at,
+        len: 0,
+    })?;
+    Ok(ScanReader::new(entropy))
 }
 
 #[cfg(test)]

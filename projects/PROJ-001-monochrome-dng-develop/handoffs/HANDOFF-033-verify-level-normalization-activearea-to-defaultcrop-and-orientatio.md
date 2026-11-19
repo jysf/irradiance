@@ -153,9 +153,9 @@ you are reproducing a known result, not hunting for one.
 
 - **Project brief:** `./projects/PROJ-001-monochrome-dng-develop/brief.md`
 - **Stage:** `./projects/PROJ-001-monochrome-dng-develop/stages/STAGE-002-the-monochrome-plane-unpack-bit-exact-oracle-geometry.md`
-- **Spec:** `./projects/PROJ-001-monochrome-dng-develop/specs/SPEC-014-level-normalization-activearea-to-defaultcrop-and-orientation.md`
+- **Spec:** `./projects/PROJ-001-monochrome-dng-develop/specs/SPEC-014-level-normalization-activearea-to-defaultcrop-and-orientatio.md`
   — read its `## Implementation Context` in full; the blind-spot section is the spec.
-- **Build handoff:** `./projects/PROJ-001-monochrome-dng-develop/handoffs/HANDOFF-032-build-level-normalization-activearea-to-defaultcrop-and-orientation.md`
+- **Build handoff:** `./projects/PROJ-001-monochrome-dng-develop/handoffs/HANDOFF-032-build-level-normalization-activearea-to-defaultcrop-and-orientatio.md`
 - **Toolchain brief:** `./guidance/toolchain-brief.md` (DEC-004 rule 5) — leads with the `cargo +nightly` trap.
 - **Corpus:** `export IRRADIANCE_CORPUS_DIR=~/PSeven/experiments/crustimg_redo_plus/images` — the default root does not exist, and a tier-B test passes whether or not the corpus is there. Only `just test` names what is missing.
 

@@ -69,7 +69,7 @@ bit-exact plane survives for SPEC-025's oracle.
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
 - **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-006-cfa-sensor-model-and-bit-exact-mosaic-plane.md`
-- **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-029-whitelevel-exceedance-policy-samples-above-whitelevel-are-legal-the-canon-5d-iii-clips-one-relax-sampleexceedswhitelevel-and-amend-dec-008.md`
+- **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-029-whitelevel-exceedance-policy-samples-above-whitelevel-are-le.md`
   — read in full; the Acceptance Criteria and the Failing Tests are the contract.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — the `+toolchain` traps,
   `just lint-ci` for CI's clippy, the five-lint panic policy, the corpus env var.

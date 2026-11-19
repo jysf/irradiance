@@ -74,7 +74,7 @@ The receiving agent MUST read these before starting work.
 
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-052-parser-resource-guard-aggregate-entry-byte-budget.md` — read all of it, especially `## Design` and `## Failing Tests`.
 - **Decision:** `./decisions/DEC-046-bound-aggregate-ifd-entry-table-bytes-by-file-length.md` — the full rationale, the exact rule, and the measured corpus baseline.
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-010-downstream-consumer-api-validate-before-allocate-error-kinds-determinism-0-2-0.md` (re-planned by DEC-045).
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-010-downstream-consumer-api-validate-before-allocate-error-kinds.md` (re-planned by DEC-045).
 - **Triage:** `./docs/reviews/2026-11-09-pre-0.2.0-code-review-triage.md` (finding #1 and its evidence).
 - **Code:** `src/ifd.rs` (`Container::parse` l.848, `walk_chain` l.905, `read_ifd` l.955, `MAX_IFDS` l.69, `ENTRY_SIZE` l.81, `Entry` l.339), `src/lib.rs` (`Error` l.217, `TooManyIfds` + its `Display` l.258/l.763), `tests/support/tiff.rs` (`Ifd::new`, `tiff`, `at_offset`), `fuzz/fuzz_targets/ifd.rs`, `examples/fuzz-seeds.rs`.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — test framework, lint quirks, the `+toolchain` fuzz trap. Read it (DEC-004 rule 5).

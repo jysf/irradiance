@@ -8,6 +8,13 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Changed
+
+- **Compression 7 strips and tiles parse their lossless-JPEG header once, not twice**
+  (SPEC-074, STAGE-022, PROJ-004). The header parsed to bind the frame's shape to its
+  strip or tile (DEC-047) is now the one the decode starts from, which halves the
+  per-chunk allocations (10 to 5 on a one-table header). Output and errors are unchanged.
+
 ## [0.2.2] - 2026-11-16
 
 Develop options, embedded previews, tiled sensor planes, plane units and faster

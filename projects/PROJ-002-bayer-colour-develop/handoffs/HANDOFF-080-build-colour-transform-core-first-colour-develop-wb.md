@@ -80,7 +80,7 @@ list tight, but don't omit anything necessary.
 ### Primary
 
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-033-colour-transform-core-first-colour-develop-wb.md` — **read the whole thing**; `## Design` is the exact math, `## Failing Tests` is the contract.
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-008-colour-transform-white-balance-colour-matrix-display-encode-colorchecker-de.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-008-colour-transform-white-balance-colour-matrix-display-encode.md`
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — test framework, lint quirks,
   runtime gotchas (DEC-004 rule 5). Also note: run `just test` (NOT `just test

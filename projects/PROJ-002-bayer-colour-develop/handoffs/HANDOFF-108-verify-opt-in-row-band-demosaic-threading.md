@@ -66,7 +66,7 @@ the build in PR #157 (`HANDOFF-107`).
 ### Primary
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-performance.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-pe.md`
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-051-opt-in-row-band-demosaic-threading.md`
 - **Build handoff:** `./projects/PROJ-002-bayer-colour-develop/handoffs/HANDOFF-107-build-opt-in-row-band-demosaic-threading.md`
 - **Toolchain brief:** `./guidance/toolchain-brief.md`

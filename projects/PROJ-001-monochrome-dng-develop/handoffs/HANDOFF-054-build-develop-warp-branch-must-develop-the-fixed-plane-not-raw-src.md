@@ -74,7 +74,7 @@ list tight, but don't omit anything necessary.
   — read the whole thing; its **Inputs** section is the fixture recipe (exact
   helpers, coeffs, the optical-centre fixed-point trick) and its **AC1–AC4**
   are the contract. The **Notes for the Implementer** has the red-proof hygiene.
-- **Stage:** `./projects/PROJ-001-monochrome-dng-develop/stages/STAGE-005-harden-the-harness-the-gates-the-oracle-s-parser-and-the-second-cargo-graph.md`
+- **Stage:** `./projects/PROJ-001-monochrome-dng-develop/stages/STAGE-005-harden-the-harness-the-gates-the-oracle-s-parser-and-the-sec.md`
 - **Project brief:** `./projects/PROJ-001-monochrome-dng-develop/brief.md`
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — test framework, lint
   quirks (pinned vs local clippy), the `+toolchain`/PATH trap, zsh `$pipestatus`

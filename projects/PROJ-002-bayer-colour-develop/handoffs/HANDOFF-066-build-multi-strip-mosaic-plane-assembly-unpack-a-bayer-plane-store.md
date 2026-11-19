@@ -69,7 +69,7 @@ single-strip path byte-for-byte unchanged.
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
 - **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-006-cfa-sensor-model-and-bit-exact-mosaic-plane.md`
-- **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-028-multi-strip-mosaic-plane-assembly-unpack-a-bayer-plane-stored-as-n-strips-plane-unpack-into-is-single-strip-only-spec-012-src-plane-rs-225-the-nikon-d300s-is-12-strips.md`
+- **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-028-multi-strip-mosaic-plane-assembly-unpack-a-bayer-plane-store.md`
   — read in full; the Acceptance Criteria and the Failing Tests are the contract.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — the `+toolchain` traps,
   `just lint-ci` for CI's clippy, the five-lint panic policy, the corpus env var.

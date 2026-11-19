@@ -70,7 +70,7 @@ list tight, but don't omit anything necessary.
 ### Primary
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-performance.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-pe.md`
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-047-colour-path-honours-the-activearea-origin.md` — the Acceptance Criteria, Failing Tests and Notes are the contract.
 - **Decision:** `./decisions/DEC-040-index-the-cfa-phase-and-level-slot-from-the-activearea-origin.md` — the offset form, and why not a crop.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — this repo's test

@@ -75,7 +75,7 @@ list tight, but don't omit anything necessary.
 ### Primary
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-performance.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-012-colour-develop-activearea-origin-correctness-and-demosaic-pe.md`
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-050-colour-develop-crop-to-active-area-and-geometry-parity.md` — the Acceptance Criteria, Failing Tests and Notes for the Implementer are the contract.
 - **Decision:** `./decisions/DEC-043-crop-the-colour-path-to-full-geometry-parity-with-develop-into.md` — **this is the design.** Crop at the sink, don't re-scope the kernel; preserve SPEC-049's memory shape (no RGB buffer); the inverse-orientation helper; the contract change.
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — this repo's test

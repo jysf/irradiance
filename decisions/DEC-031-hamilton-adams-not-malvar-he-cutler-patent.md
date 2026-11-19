@@ -30,7 +30,7 @@ deciders: [jysf, claude]
 affected_scope:
   - src/demosaic.rs
   - projects/PROJ-002-bayer-colour-develop/brief.md
-  - projects/PROJ-002-bayer-colour-develop/stages/STAGE-007-demosaic-clean-room-malvar-he-cutler-mosaic-to-camera-linear-rgb.md
+  - projects/PROJ-002-bayer-colour-develop/stages/STAGE-007-demosaic-clean-room-malvar-he-cutler-mosaic-to-camera-linear.md
 
 tags:
   - demosaic

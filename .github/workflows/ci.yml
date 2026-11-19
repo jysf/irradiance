@@ -74,6 +74,14 @@ jobs:
       - name: gate-audit — no mute-death shape in any gate script
         run: ./scripts/gate-audit.sh
 
+      # SPEC-074 / DEC-067. No tracked path component over 150 bytes. Tools that
+      # copy the tree write a temporary file beside each file, named the file
+      # plus a suffix; cargo semver-checks' baseline clone crashed with "File
+      # name too long" on a 235-byte handoff name. The generators cap slugs at
+      # 60 characters; this also covers hand-named files (DECs, docs).
+      - name: name-length-check — no tracked name over 150 bytes
+        run: ./scripts/name-length-check.sh
+
       # SPEC-023 red-proof (oracle-must-be-shown-red covers gates, SPEC-003/FU-14):
       # a gate that has never gone red cannot be told from one that never ran.
       # Proves gate-audit catches each of the three mute-death shapes injected into

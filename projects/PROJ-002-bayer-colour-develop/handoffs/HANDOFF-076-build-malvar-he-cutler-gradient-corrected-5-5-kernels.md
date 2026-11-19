@@ -71,7 +71,7 @@ list tight, but don't omit anything necessary.
 ### Primary
 
 - **Project brief:** `./projects/PROJ-002-bayer-colour-develop/brief.md`
-- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-007-demosaic-clean-room-malvar-he-cutler-mosaic-to-camera-linear-rgb.md`
+- **Stage:** `./projects/PROJ-002-bayer-colour-develop/stages/STAGE-007-demosaic-clean-room-malvar-he-cutler-mosaic-to-camera-linear.md`
   (title slug says MHC; algorithm is Hamilton-Adams per DEC-031).
 - **Spec:** `./projects/PROJ-002-bayer-colour-develop/specs/SPEC-031-malvar-he-cutler-gradient-corrected-5-5-kernels.md`
   — its `## Design` section pins the EXACT HA arithmetic; build to it precisely.
