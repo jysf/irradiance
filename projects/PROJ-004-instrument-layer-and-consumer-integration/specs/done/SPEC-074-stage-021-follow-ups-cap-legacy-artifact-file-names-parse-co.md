@@ -6,19 +6,19 @@
 task:
   id: SPEC-074
   type: chore                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 12000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-155
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 13604926
+      estimated_usd: 9.36
+      duration_minutes: 15
+      recorded_at: 2026-11-18
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (87 unique message.ids, all claude-opus-5-5, no subagents): input 188 + cache-creation 154,084 (1-hour) + cache-read 13,406,071 + output 44,583 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Covers the build and its handback commit. The handback floor was 11,423,772 and $7.99."
+    - cycle: verify
+      handoff: HANDOFF-156
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 5733675
+      estimated_usd: 4.47
+      duration_minutes: 15
+      recorded_at: 2026-11-18
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (44 unique message.ids, all claude-opus-5-5, no subagents): input 87 + cache-creation 98,435 (1-hour) + cache-read 5,608,094 + output 27,059, opus-5-5 rates. APPROVED at f56f5eb with no code changes. The handback floor was 4,661,997 and $3.69."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 19338601
+    estimated_usd: 13.83
+    session_count: 2
+shipped_at: 2026-11-18
 ---
 
 # SPEC-074: STAGE-021 follow-ups, bundled: cap legacy artifact file names, and parse Compression 7 headers once
@@ -282,3 +303,33 @@ per-chunk allocations, no output change.
 ## Reflection
 
 *Appended during **ship**.*
+
+1. **What would I do differently next time?**
+   — Nothing in substance. The design probe paid for itself. It reproduced the semver
+   crash and found the crates.io baseline clean, and it prototyped the one-parse plane
+   path to a measured 5 allocations per chunk. So the build had no open question and
+   ran in one turn. The bundle cost about 19.3M tokens against a 12M estimate. Most of
+   the overrun was the 83-file rename and its reference rewrites, which read many files
+   for few changed lines.
+
+2. **Does any template, constraint, or decision need updating?**
+   — DEC-067 records it. Generated names were already capped at 60 characters by the
+   template's `slugify` since v0.6.49. Only the legacy files were long, and CI now keeps
+   any tracked path component at 150 bytes or less. `just semver-check` uses the
+   crates.io baseline, so it no longer needs a local clone of a tag.
+
+3. **Is there a follow-up spec I should write now before I forget?**
+   — None. Both STAGE-021 follow-ups are closed. The macOS determinism leg stays a watch
+   signal (`macos-arm64-runner-unavailable`), not a spec.
+
+4. **Where was the worst defect caught?**
+   — design
+   *(The probe showed the semver crash came from legacy names, not from the generator,
+   so the build renamed files instead of changing the template. Verify found nothing:
+   every mutant went red, including moving the decode before the shape check.)*
+
+5. **What can a user do now that they couldn't before?**
+   — A contributor can run `cargo semver-checks` and other tools that clone the repo
+   without a "File name too long" crash, using `just semver-check`. A crate user gets a
+   Compression 7 strip or tile decoded with one header parse, so 5 allocations per
+   chunk instead of 10. The output is unchanged.

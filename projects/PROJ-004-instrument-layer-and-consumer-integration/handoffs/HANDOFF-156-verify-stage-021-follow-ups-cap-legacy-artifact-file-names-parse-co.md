@@ -58,7 +58,7 @@ handback:
   pr: "https://github.com/jysf/irradiance/pull/259 (verdict comment; no new PR)"
   completed_at: 2026-11-18               # YYYY-MM-DD
   notes: "APPROVED at f56f5eb. 37 message ids, no subagents, opus-5-5 list rates with 1-hour cache writes; measured just before the handback commit."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-18
 ---
 
 # HANDOFF-156: VERIFY: STAGE-021 follow-ups, bundled (SPEC-074)
