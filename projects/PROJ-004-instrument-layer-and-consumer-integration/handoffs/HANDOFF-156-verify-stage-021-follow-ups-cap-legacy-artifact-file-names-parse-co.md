@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-18
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                  # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-074
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                     # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved                    # verify handoffs: approved | punch-list | rejected
+  basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 4661997               # REAL combined count — what cost-audit reads
+  estimated_usd: 3.69              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 15
+  branch: claude/spec-074-verify-0f9175
+  pr: "https://github.com/jysf/irradiance/pull/259 (verdict comment; no new PR)"
+  completed_at: 2026-11-18               # YYYY-MM-DD
+  notes: "APPROVED at f56f5eb. 37 message ids, no subagents, opus-5-5 list rates with 1-hour cache writes; measured just before the handback commit."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -211,43 +211,142 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
+*Filled in by the cold verifier (claude-opus-5-5), 2026-11-18.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-074-verify-0f9175` (this handback and the timeline's
+  verify line). The verdict is a comment on PR #259. There is no new PR: the build
+  needed no code change.
+- **Completed at:** 2026-11-18
+- **All acceptance criteria met?** Yes. AC1–AC7 were checked independently; the
+  evidence follows.
+- **For `verify`:** ✅ **APPROVED at `f56f5eb`** (the PR #259 head; the build's last
+  code commit is `9f3a724`).
+
+#### Part B: error identity
+
+- `decode_into` and `decode_window_into` are now `parse_headers`, then
+  `decode_parsed_into` / `decode_parsed_window_into`.
+- The back halves are the old bodies verbatim, with the `Nf=2` / `Nf=1` split and the
+  `LjpegMissingMarker { marker: MARKER_DHT }` fallback. `open_scan(data, entropy_at)`
+  keeps the single slice-or-`Truncated { at, len: 0 }` site.
+- Both plane paths still run, in order:
+  1. `parse_headers(chunk)?`
+  2. `check_strip_shape(..)?`
+  3. the scan from the same `entropy_at`.
+- The old second parse was the same pure function on the same bytes, so it could
+  never fail where the first one passed. No error variant or field can differ.
+- `src/lib.rs` (the fuzz entry), `fuzz/` and every public item are untouched, and
+  semver-checks gives 202/202.
+
+#### The `open_scan` deviation is accepted
+
+- `tests/plane_tiles.rs` `the_tile_path_allocates_nothing` scans `src/ljpeg.rs` from
+  `pub(crate) struct Window` (line 1301) to the first `fn open_scan` (line 1898). That
+  text occurs exactly once.
+- Both new functions (lines 1846 and 1873) and both wrappers sit inside that region.
+  The scan still covers every decode entry point, now plus the from-parsed ones.
+- `open_scan` and `parse_headers` stay outside it, as before. `open_scan` itself still
+  allocates nothing.
+
+#### Renames (`c37a3b2`)
+
+- **Rename set.** I re-derived it independently: at `073b594`, every tracked
+  `SPEC`/`HANDOFF`/`STAGE`/`PATCH`/`SPIKE` file whose slug (after the cycle word and
+  before `-timeline`) exceeds 60, with the new name from `scripts/_lib.sh`'s own
+  `slugify`.
+  - That gives 83 files, and they equal the commit's 83 renames exactly (`diff` empty).
+  - There are no collisions.
+  - The 16 spec and timeline pairs share a slug.
+- **Pure renames plus reference rewrites.**
+  - 76 renames are R100 and 7 are R098/R099. The other 33 files are modified.
+  - Applying the old-to-new name map to each of the 44 removed lines reproduces the 44
+    added lines exactly, with 0 mismatched hunks, so there are no content edits.
+- **No old name remains** at HEAD, with or without `.md`. This includes the history
+  quotes, which use `…`.
+- At HEAD, 0 slugs are over 60.
+- `git log --follow` on the renamed HANDOFF-064 reaches `4afc018` (PR #37).
+
+#### Gate (AC4)
+
+Reproduced in a scratch worktree, control first:
+- The tree is green: 833 paths.
+- A 150-byte name is green.
+- A 151-byte name is red with exit 1, and the output names it.
+- Mutant `LIMIT=151` lets the 151-byte name pass, so the red-proof is what pins the
+  limit.
+- The script from `9f3a724`, run on the `073b594` tree, is red on 13 names.
+- The step is in the `cost-data` job (`cost-capture audit`). It ran green on #259 run
+  44421850791 at `f56f5eb`: 832 paths.
+
+#### AC3: semver
+
+Both checks use cargo-semver-checks 0.51.0.
+- `cargo semver-checks --baseline-rev HEAD` gets past the clone: 202 checks, 202 pass.
+- `just semver-check` against crates.io 0.2.2: 202 pass.
+
+#### AC5–AC6: mutants
+
+All mutants ran on a scratch worktree with its own target dir, control first; none
+were pushed.
+- **Double parse, strip path only:** red, 40 against 20 ("c7 multi-strip band 1").
+- **Double parse, tile path only:** red, 120 against 60 ("c7 tiles band 1").
+- **Scan before shape check, strip:** red in `plane::tests::compression7_frame_dimension_mismatch_is_typed_error`
+  and `ljpeg_shape_binding::line_count_mismatch_is_a_shape_mismatch`.
+- **Scan before shape check, tile:** red in `plane_tiles::clipped_size_edge_frame_is_refused`
+  and `tile_frame_shape_is_bound_to_the_tile`.
+
+  The order is pinned in both paths, so there is no gap to report.
+- **Entropy offset 0, both paths:** red across `plane_oracle` (MD5 pins), `plane_units`,
+  `ljpeg_shape_binding` (including `corpus_comp7_files_still_bit_exact`), `develop_*`,
+  `black_levels`, `dng_writer` and `plane_tiles`.
+- **Control after the mutants:** green.
+
+#### Tests and gates (AC6–AC7)
+
+- **Test edits.** `git diff 073b594 -- tests/` touches only `plane_units_alloc.rs`:
+  the constant (10 to 5), its doc comment and the assertion message. No oracle or MD5
+  pin was edited.
+- **`just test`** (corpus 12/12 present): 710 passed, 0 failed, 1 ignored, 3 min 11 s.
+- **Gates:** `lint-ci`, `lint-no-allow`, `lint-fuzz`, `fmt-check`, `validate`,
+  `doc-check`, `deny`, `msrv`, `cost-audit`, `gate-audit`, `name-length-check` and
+  `decisions-index --check` all exit 0.
+- **`just ljpeg-timing`** (medians, ms): 105.5 (K3III) / 93.3 (M246) / 61.3 (Pixel 4a).
+  The build measured 107.3 / 93.7 / 61.1, so there is no measurable change.
+- **CI on #259 (`f56f5eb`):** 22/22 pass.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** see front matter (`tokens_total`).
+- **Estimated USD:** see front matter (`estimated_usd`), at opus-5-5 list rates with
+  1-hour cache writes.
+- **Duration (minutes):** see front matter.
+- **Source of the number:** the transcript `ec107918-d4ee-4d06-b07d-3d543d80ea5d.jsonl`,
+  found by the scratchpad UUID. Each `message.id` is counted once at its max output.
+  There are no subagents. Measured just before the handback commit, so the last few
+  messages are not counted.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none of my own. I accept the build's three deviations:
+  - The pin's assertion message was reworded. It is a test edit the handoff permits.
+  - `open_scan` kept its name; see above.
+  - There is no separate red-proof script for the gate. The spec asked only for a shown
+    red-proof, and I reproduced it.
+- **Follow-up work identified:** none blocking.
+  - `just id-audit` is red on main from stale worktrees, as the build reported. It is
+    not a CI gate, and I did not re-run it here.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
-
+   — Nothing material. The handoff's mutant list mapped one-to-one onto edits.
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
-
+   — The handoff lists `decisions-index --check` beside the recipe names. Passing it
+   quoted as one argument to `just` fails as an unknown recipe, which looks like a red
+   gate.
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Derive the rename set and the line-level rewrite check as one script up front.
+   That was the strongest evidence, and it was cheap.
