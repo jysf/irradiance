@@ -525,13 +525,31 @@ fn black_is_applied_before_the_warp() {
                     got.iter().all(|&v| v == expected),
                     "blacks {blacks:?} k {k} {framing:?} α {alpha}: not uniform {expected}: {got:?}"
                 );
-                // The warp really ran: FirstValue on the same plane is not
-                // uniform for k > 0 and differs from PerPosition.
+                // FirstValue on the same plane is not uniform for k > 0, so
+                // it differs from PerPosition. That alone does not show the
+                // warp ran: the two differ without a warp too.
+                let mut first = opts;
+                first.black_levels = BlackLevels::FirstValue;
+                let (_, _, first_out) = develop(&sensor, &src, &first);
                 if k > 0 {
-                    let mut first = opts;
-                    first.black_levels = BlackLevels::FirstValue;
-                    let (_, _, first_out) = develop(&sensor, &src, &first);
                     assert_ne!(first_out, got);
+                }
+                // `SPEC-076` `H3`: the warp ran. FirstValue leaves a
+                // non-uniform plane, which the warp resamples, so the same
+                // develop with the warp off (α 0) must give different pixels.
+                // Only on the AC3 pattern: the narrow-spread one leaves values
+                // 10 to 13, which this small warp on a 12x11 plane does not
+                // move (measured: identical with and without it). The AC3
+                // case alone still runs the guard under both framings and
+                // both α.
+                if k == 0 {
+                    let mut unwarped = first;
+                    unwarped.warp_alpha = 0.0;
+                    let (_, _, unwarped_out) = develop(&sensor, &src, &unwarped);
+                    assert_ne!(
+                        first_out, unwarped_out,
+                        "blacks {blacks:?} {framing:?} α {alpha}: the warp did not run"
+                    );
                 }
             }
         }
@@ -682,10 +700,16 @@ fn bad_pattern_sensor() -> Sensor {
 fn develop_err(sensor: &Sensor, src: &[u16], dst_len: usize, options: &DevelopOptions) -> Error {
     let mut dst = vec![SENTINEL; dst_len];
     let err = develop_with_into(sensor, src, &mut dst, options).unwrap_err();
-    let mut scratch = vec![0u16; 4096];
+    // `SPEC-076` `H4`: the scratch is sentinel-filled too, as `refused()`
+    // does, so a refusal that wrote to it before failing is visible.
+    let mut scratch = vec![SENTINEL; 4096];
     let err2 = develop_with_scratch_into(sensor, src, &mut dst, &mut scratch, options).unwrap_err();
     assert_eq!(format!("{err:?}"), format!("{err2:?}"));
     assert!(dst.iter().all(|&v| v == SENTINEL));
+    assert!(
+        scratch.iter().all(|&v| v == SENTINEL),
+        "{err:?}: scratch written"
+    );
     err
 }
 
