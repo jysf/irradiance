@@ -310,11 +310,13 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
     let (expected_src, output) = check_color_buffers(sensor, src.len(), dst.len())?;
     // The black pattern resolves before any allocation or write (`DEC-068`
     // §2), and the match on its two shapes runs once, here, not per pixel.
-    match make_normalizer(sensor, src)? {
-        Normalizer::Slots(normalize) => {
+    match resolve_colour_levels(sensor)? {
+        ColourLevels::Slots(levels) => {
+            let normalize = slot_normalizer(sensor, src, levels);
             develop_color_u16_with(sensor, expected_src, output, &normalize, dst)
         }
-        Normalizer::Pattern(normalize) => {
+        ColourLevels::Pattern(pattern, white) => {
+            let normalize = pattern_normalizer(sensor, src, pattern, white);
             develop_color_u16_with(sensor, expected_src, output, &normalize, dst)
         }
     }
@@ -397,11 +399,13 @@ pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> 
     let (expected_src, output) = check_color_buffers(sensor, src.len(), dst.len())?;
     // As in `develop_color_into`: resolve the black pattern once, before any
     // write (`DEC-068` §2).
-    match make_normalizer(sensor, src)? {
-        Normalizer::Slots(normalize) => {
+    match resolve_colour_levels(sensor)? {
+        ColourLevels::Slots(levels) => {
+            let normalize = slot_normalizer(sensor, src, levels);
             develop_color_f32_with(sensor, expected_src, output, &normalize, dst)
         }
-        Normalizer::Pattern(normalize) => {
+        ColourLevels::Pattern(pattern, white) => {
+            let normalize = pattern_normalizer(sensor, src, pattern, white);
             develop_color_f32_with(sensor, expected_src, output, &normalize, dst)
         }
     }
@@ -631,11 +635,13 @@ where
 {
     // Resolved once, before any band runs or `dst` is touched (`DEC-068` §2):
     // a refused pattern returns here, from the calling thread.
-    match make_normalizer(sensor, src)? {
-        Normalizer::Slots(normalize) => {
+    match resolve_colour_levels(sensor)? {
+        ColourLevels::Slots(levels) => {
+            let normalize = slot_normalizer(sensor, src, levels);
             develop_color_bands_with(sensor, &normalize, dst, threads, plan, store)
         }
-        Normalizer::Pattern(normalize) => {
+        ColourLevels::Pattern(pattern, white) => {
+            let normalize = pattern_normalizer(sensor, src, pattern, white);
             develop_color_bands_with(sensor, &normalize, dst, threads, plan, store)
         }
     }
@@ -1277,17 +1283,19 @@ fn quantize(value: f64) -> u16 {
     (clamped + 0.5).floor() as u16
 }
 
-/// The colour path's level-normalize map, in one of its two shapes
-/// (`SPEC-075`, `DEC-068` §2). [`make_normalizer`] resolves it once per develop;
-/// each entry point then matches on it once and runs a body generic over the
-/// closure, so no per-pixel branch picks the shape (the mono path's `Blacks`
-/// does the same).
-enum Normalizer<S, P> {
+/// The colour path's resolved levels, in one of two shapes (`SPEC-075`,
+/// `DEC-068` §2). [`resolve_colour_levels`] resolves them once per develop;
+/// each entry point then matches once, builds that shape's normalizer and runs
+/// a body generic over it, so no per-pixel branch picks the shape (the mono
+/// path's `Blacks` does the same).
+enum ColourLevels<'a> {
     /// `BlackLevelRepeatDim` rows and columns each 1 or 2, or no per-position
-    /// black: the four-slot table ([`slot_normalizer`]). Every held file.
-    Slots(S),
-    /// A larger pattern: a per-photosite lookup ([`pattern_normalizer`]).
-    Pattern(P),
+    /// black: the four `(row_odd, col_odd)` slots' `(black, white)`, for
+    /// [`slot_normalizer`]. Every held file.
+    Slots([(u32, u32); 4]),
+    /// A larger pattern and the one white, for [`pattern_normalizer`]'s
+    /// per-photosite lookup.
+    Pattern(BlackPattern<'a>, u32),
 }
 
 /// A black pattern too large for the four-slot table (`DEC-068` §2): `values`
@@ -1340,8 +1348,8 @@ fn pattern_index(x: u32, y: u32, (top, left): (u32, u32), dims: [u32; 2]) -> Opt
     pattern_cell(u32::try_from(row).ok()?, u32::try_from(col).ok()?, dims)
 }
 
-/// Resolve the colour develop's levels once and build its normalizer
-/// (`SPEC-049`, `DEC-042`; the black rule is `SPEC-075`, `DEC-068` §2).
+/// Resolve the colour develop's levels once (`SPEC-049`, `DEC-042`; the black
+/// rule is `SPEC-075`, `DEC-068` §2).
 ///
 /// - **White**, for every photosite (`DEC-061` §3): the first `white_levels`
 ///   value, else `white_level`, else `2^BitsPerSample − 1`.
@@ -1360,13 +1368,7 @@ fn pattern_index(x: u32, y: u32, (top, left): (u32, u32), dims: [u32; 2]) -> Opt
 ///
 /// Returns before anything is written, so every colour entry point refuses a
 /// bad pattern with `dst` untouched.
-fn make_normalizer<'a>(
-    sensor: &'a Sensor,
-    src: &'a [u16],
-) -> Result<
-    Normalizer<impl Fn(u32, u32) -> u16 + Sync + 'a, impl Fn(u32, u32) -> u16 + Sync + 'a>,
-    Error,
-> {
+fn resolve_colour_levels(sensor: &Sensor) -> Result<ColourLevels<'_>, Error> {
     let white_default = max_value_for_bits(sensor.bits_per_sample).unwrap_or(u32::from(u16::MAX));
     let white = sensor
         .white_levels
@@ -1377,11 +1379,7 @@ fn make_normalizer<'a>(
     let values = sensor.black_levels.as_slice();
     if values.is_empty() {
         let black = sensor.black_level.unwrap_or(0);
-        return Ok(Normalizer::Slots(slot_normalizer(
-            sensor,
-            src,
-            [(black, white); 4],
-        )));
+        return Ok(ColourLevels::Slots([(black, white); 4]));
     }
     let dims = black_pattern_dims(sensor)?;
     let [rows, cols] = dims;
@@ -1396,12 +1394,10 @@ fn make_normalizer<'a>(
                 .unwrap_or(0);
             *slot = (black, white);
         }
-        return Ok(Normalizer::Slots(slot_normalizer(sensor, src, levels)));
+        return Ok(ColourLevels::Slots(levels));
     }
     let (top, left) = active_area_origin(sensor);
-    Ok(Normalizer::Pattern(pattern_normalizer(
-        sensor,
-        src,
+    Ok(ColourLevels::Pattern(
         BlackPattern {
             values,
             rows,
@@ -1410,12 +1406,12 @@ fn make_normalizer<'a>(
             left,
         },
         white,
-    )))
+    ))
 }
 
 /// The per-cell level-normalize map the fused develop path
 /// ([`develop_color_fused`]) fills its rolling row cache from, for a black
-/// pattern that fits the four 2×2 slots ([`make_normalizer`]). Given a mosaic
+/// pattern that fits the four 2×2 slots ([`resolve_colour_levels`]). Given a mosaic
 /// cell `(col, row)` — already reflected into range by the demosaic logic — it
 /// returns the level-normalized value for that cell: `[black, white] → [0,
 /// 65535]` by the cell's slot in `levels`, clamped per `DEC-018`.
@@ -1423,7 +1419,7 @@ fn make_normalizer<'a>(
 /// The fuse calls it **once per row** as that row enters the rolling cache (not
 /// a full scratch plane, and not re-run per neighbour read), so each sample is
 /// normalised exactly once. The four slot `(black, white)` pairs were resolved
-/// once by [`make_normalizer`]; this closure does no per-read division to find
+/// once by [`resolve_colour_levels`]; this closure does no per-read division to find
 /// its slot.
 ///
 /// The 2×2 slot is taken **relative to the `ActiveArea` origin** (`DEC-040`): in
@@ -1841,7 +1837,7 @@ mod tests {
             }
         }
 
-        // The same through `make_normalizer`: a [3, 2] pattern takes the
+        // The same through `resolve_colour_levels`: a [3, 2] pattern takes the
         // general path, and each photosite gets its value's black. Each sample
         // is its own black + 1000, so with white 65535 the output is
         // 1000 × 65535 / (65535 − black), rounded half up: a wrong black shows.
@@ -1869,9 +1865,10 @@ mod tests {
                 src[y * 4 + x] = blacks[i] + 1000;
             }
         }
-        let Ok(Normalizer::Pattern(normalize)) = make_normalizer(&sensor, &src) else {
+        let Ok(ColourLevels::Pattern(pattern, white)) = resolve_colour_levels(&sensor) else {
             panic!("a [3, 2] pattern must take the general path");
         };
+        let normalize = pattern_normalizer(&sensor, &src, pattern, white);
         for (y, row) in TABLE.iter().enumerate() {
             for (x, &i) in row.iter().enumerate() {
                 let range = 65_535 - u64::from(blacks[i]);
@@ -1895,13 +1892,13 @@ mod tests {
         sensor.black_levels = vec![7, 9];
         for repeat in [[1, 2], [2, 1], [1, 1], [2, 2]] {
             sensor.black_level_repeat_dim = Some(repeat);
-            let result = make_normalizer(&sensor, &[]);
+            let result = resolve_colour_levels(&sensor);
             match repeat {
                 [1, 1] | [2, 2] => assert!(
                     matches!(result, Err(Error::InvalidBlackLevelPattern { .. })),
                     "{repeat:?} with 2 values"
                 ),
-                _ => assert!(matches!(result, Ok(Normalizer::Slots(_))), "{repeat:?}"),
+                _ => assert!(matches!(result, Ok(ColourLevels::Slots(_))), "{repeat:?}"),
             }
         }
     }
