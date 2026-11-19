@@ -2027,9 +2027,14 @@ mod tests {
             // not count; and the call must walk the sensor's own orientation,
             // since a constant one keeps every pixel and only changes the
             // order the tile test above pins.
+            // Each line is cut at its first `//`, so a trailing comment
+            // after code is dropped too, not only a whole comment line
+            // (`SPEC-076` verify: a call replaced by another walk with the
+            // old call text left in a trailing comment passed otherwise).
+            // Neither gather has a `//` inside a string literal.
             let code: String = body
                 .lines()
-                .filter(|line| !line.trim_start().starts_with("//"))
+                .map(|line| line.split("//").next().unwrap_or(""))
                 .collect::<Vec<_>>()
                 .join("\n");
             let call = concat!("for_each", "_out_pixel(");
