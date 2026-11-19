@@ -6,19 +6,19 @@
 task:
   id: SPEC-075
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M  # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 22000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-157
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 25047190
+      estimated_usd: 17.39
+      duration_minutes: 25
+      recorded_at: 2026-11-19
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (103 unique message.ids, all claude-opus-5-5, no subagents): input 214 + cache-creation 280,847 (1-hour) + cache-read 24,676,242 + output 89,887 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Covers the build, the 17-red fixture round trip and the handback commit. The handback floor was 22,453,279 and $15.75."
+    - cycle: verify
+      handoff: HANDOFF-159
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 8366080
+      estimated_usd: 6.47
+      duration_minutes: 35
+      recorded_at: 2026-11-19
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (51 unique message.ids, all claude-opus-5-5, no subagents): input 102 + cache-creation 155,489 (1-hour) + cache-read 8,177,433 + output 33,056, opus-5-5 rates. PUNCH LIST, tests only: four surviving mutants (f32 general-path origin, per-sample white, two MaskedAreas classes) pinned in 3e5dd05 and carried into PR 262 by fast-forward. The handback floor was 6,781,670 and $5.30."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 33413270
+    estimated_usd: 23.86
+    session_count: 2
+shipped_at: 2026-11-19
 ---
 
 # SPEC-075: Black-level fixes: round fractional BlackLevel, colour BlackLevelRepeatDim, MaskedAreas
@@ -345,34 +366,37 @@ exiftool over all 11 held DNGs (the table is in DEC-068 §Context):
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Probe the existing tests as well as the corpus. The design proved that no held file
+   reached either black-level bug, but it never asked which tier-A fixtures the new count
+   rule would refuse. Seventeen colour tests built 4 blacks with no repeat dim, and they
+   cost a mid-build round trip. The spec's list of `DEVELOP_VERSION` pins also missed one
+   of four; a grep for the pin would have found it. The bundle cost about 33.4M tokens
+   against a 22M estimate. The build's fixture round trip and its red-proof copies (each
+   with its own target dir) are most of the overrun.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — DEC-068 holds as written, and no source changed after verify. Lesson for design:
+   every DEC rule clause, including each malformed class, should map to a named test in
+   the spec's failing-test list. The verify found four clauses with no test (f32
+   general-path origin, per-sample white, `bottom > height`, `left == right`).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None now. SPEC-076 (STAGE-019 hardenings) is already framed and builds next. Carried
+   `[XS]`, left unframed unless a real file shows it: a non-integral RATIONAL
+   `BlackLevel` above `i32::MAX` stays malformed instead of rounding.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
+   *(Test gaps only: four mutants survived the build's suite while the source stayed
+   correct. Pinned in 3e5dd05 and carried into PR 262 before merge.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — A caller reading a Pixel 7 Pro DNG gets `black_level == Some(1024)` and the exact
+   rationals, instead of `None` and a malformed tag. A colour develop honours
+   `BlackLevelRepeatDim` (`[1, 2]`, `[2, 1]`, `[4, 4]`, ...) and refuses a mismatched
+   count, instead of guessing. `Sensor::masked_areas` exposes DNG `MaskedAreas` for
+   optical-black work (monorail-000 request 5). Every held file develops byte-identically;
+   `DEVELOP_VERSION` is 5.

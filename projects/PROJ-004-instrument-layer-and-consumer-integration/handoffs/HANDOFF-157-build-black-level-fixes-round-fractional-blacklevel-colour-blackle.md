@@ -58,7 +58,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/262
   completed_at: 2026-11-19         # YYYY-MM-DD
   notes: "Transcript 91ac1b3f-39ab-454e-80bc-0ff9cf1f716a.jsonl, 95 message.ids deduped (max output each), no subagents, all claude-opus-5-5: input 198, output 80,376, cache read 22,104,382, cache write 268,323 (all 1-hour). Opus 5.5 at $5 in / $25 out, reads x0.10, 1-hour writes x2.0. Summed before the handback commit, so a floor; re-sum at ship."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-19
 ---
 
 # HANDOFF-157: BUILD: Black-level fixes and MaskedAreas (SPEC-075)

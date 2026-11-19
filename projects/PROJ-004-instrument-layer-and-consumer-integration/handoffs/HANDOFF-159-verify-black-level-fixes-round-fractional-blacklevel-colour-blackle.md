@@ -58,7 +58,7 @@ handback:
   pr: null                         # no PR opened (brief); reviews PR 262
   completed_at: 2026-11-19         # YYYY-MM-DD
   notes: "FLOOR, summed before the handback commit from transcript 2a423e07-a9d4-43ac-9eb2-a77a6f0f00ff.jsonl (found by the scratchpad UUID): 43 unique message.ids, all claude-opus-5-5, no subagents; input 86 + cache-creation 142,865 (all 1-hour) + cache-read 6,616,298 + output 22,421 (max per message); opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Re-sum at ship. PUNCH LIST is tests-only: the source at 365b55e is correct, and the four test gaps are fixed in 3e5dd05 on this branch."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-19
 ---
 
 # HANDOFF-159: VERIFY: Black-level fixes and MaskedAreas (SPEC-075)
