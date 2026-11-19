@@ -166,6 +166,54 @@ fn four_by_four_pattern_takes_the_general_path() {
     assert_eq!(got, want, "a tiled [4, 4] must develop as its [2, 2] tile");
 }
 
+/// The `f32` colour develop of `d`, through the single-thread and the threaded
+/// entry, which must agree (`SPEC-075` verify).
+fn develop_f32(d: &DngDescription) -> Vec<f32> {
+    let (sensor, plane) = read(d);
+    let mut single = vec![SENTINEL_F32; rgb_len(&sensor)];
+    develop_color_f32_into(&sensor, &plane, &mut single).expect("develop_color_f32_into");
+    let mut threaded = vec![SENTINEL_F32; single.len()];
+    develop_color_f32_into_threaded(&sensor, &plane, &mut threaded, 3)
+        .expect("develop_color_f32_into_threaded");
+    assert_eq!(single, threaded, "the threaded f32 entry disagrees");
+    single
+}
+
+#[test]
+fn four_by_four_pattern_takes_the_general_path_in_f32() {
+    // SPEC-075 verify: the f32 entry points build their own normalizer, so
+    // the general path is checked through them too, from the odd origin.
+    #[rustfmt::skip]
+    let tiled = [
+        A, B, A, B,
+        C, D, C, D,
+        A, B, A, B,
+        C, D, C, D,
+    ];
+    let got = develop_f32(&cfa(&tiled, Some([4, 4])));
+    let want = develop_f32(&cfa(&[A, B, C, D], Some([2, 2])));
+    assert_eq!(
+        got, want,
+        "a tiled [4, 4] must develop as its [2, 2] tile in f32"
+    );
+}
+
+#[test]
+fn white_is_per_sample_not_per_position() {
+    // SPEC-075 verify (DEC-068 §2, DEC-061 §3): white is the first WhiteLevel
+    // value for every photosite. Extra values must not be read as a per-slot
+    // white, so they change nothing. 30000 sits below much of the ramp, so a
+    // slot that took it would clip differently.
+    let mut extra = cfa(&[A, B, C, D], Some([2, 2]));
+    extra.meta.white_level = Some(vec![WHITE, 30_000, 30_000, 30_000]);
+    let single = cfa(&[A, B, C, D], Some([2, 2]));
+    assert_eq!(
+        develop(&extra),
+        develop(&single),
+        "WhiteLevel's first value is the one white"
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AC6 — a count mismatch is refused, everywhere, before any write
 // ─────────────────────────────────────────────────────────────────────────────

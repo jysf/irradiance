@@ -369,6 +369,16 @@ fn malformed_masked_areas_cost_only_the_tag() {
             masked(TYPE_LONG, &[[0, 0, 12, 2], [5, 0, 5, 2]]),
         ),
         ("right > width", masked(TYPE_LONG, &[[0, 0, 12, WIDTH + 1]])),
+        // SPEC-075 verify: the other two DEC-068 §3 classes, each in its own
+        // case so dropping either check from the read shows red.
+        (
+            "bottom > height",
+            masked(TYPE_LONG, &[[0, 0, HEIGHT + 1, 2]]),
+        ),
+        (
+            "left == right",
+            masked(TYPE_LONG, &[[0, 0, 12, 2], [0, 4, 12, 4]]),
+        ),
         (
             "RATIONAL type",
             raw(
