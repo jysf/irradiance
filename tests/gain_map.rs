@@ -945,6 +945,50 @@ fn ac5_colour_develop_equals_the_pre_gained_twin_on_every_entry() {
     }
 }
 
+/// Verify (`HANDOFF-163`): an area that runs past the image is intersected
+/// with it (`DEC-069` §2), so the colour demosaic's read of the masked column
+/// just right of the `ActiveArea` (not stage 2) stays ungained. The crop is
+/// the whole `ActiveArea`, so the right-edge pixels' neighbourhoods reach
+/// that column; with the maps' `Bottom`/`Right` at 100 instead of the image
+/// edge, a develop that skipped the intersection would gain it and differ
+/// from the twin, whose masked column is normalised only.
+#[test]
+fn ac5_area_past_the_image_edge_leaves_reads_outside_the_active_area_ungained() {
+    let plane = Plane::new(14, 11, [1, 3, 11, 13]);
+    let mut maps = phase_maps();
+    for m in &mut maps {
+        (m.bottom, m.right) = (100, 100);
+    }
+    let whole_active_crop = |mut d: DngDescription| {
+        d.meta.default_crop_origin = Some([0, 0]);
+        d.meta.default_crop_size = Some([10, 10]);
+        d
+    };
+    let with_gain = whole_active_crop(description(
+        &plane,
+        rggb(),
+        plane.raw.clone(),
+        Some((BLACK, WHITE)),
+        1,
+        [None, Some(list_of(&maps)), None],
+    ));
+    let twin = whole_active_crop(description(
+        &plane,
+        rggb(),
+        plane.pre_gained(&maps),
+        None,
+        1,
+        [None, None, None],
+    ));
+    let (sensor, src) = read(&with_gain);
+    let (twin_sensor, twin_src) = read(&twin);
+    assert_eq!(
+        colour_outputs(&sensor, &src),
+        colour_outputs(&twin_sensor, &twin_src),
+        "a read outside the ActiveArea must not be gained"
+    );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Fuzz seeds — the `opcode` target's GainMap corpus, run through every entry
 // ─────────────────────────────────────────────────────────────────────────────

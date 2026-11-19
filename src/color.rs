@@ -235,7 +235,10 @@ const MCCAMY_C0: f64 = 5520.33;
 ///
 /// - Whatever [`crate::opcode::check_required_processing`] returns for
 ///   [`crate::opcode::DevelopPath::Colour`], checked first: a mandatory opcode
-///   in any list ([`Error::UnsupportedRequiredOpcode`] /
+///   in any list other than an `OpcodeList2` `GainMap` (`SPEC-059`; this
+///   primitive takes camera RGB already past stage 2, so a composer applies
+///   the maps first with [`crate::develop::apply_gain_maps`])
+///   ([`Error::UnsupportedRequiredOpcode`] /
 ///   [`Error::UnsupportedMandatoryOpcode`]) or a present-but-unreadable list
 ///   ([`Error::UnreadableOpcodeList`]) refuses (`SPEC-056`, `DEC-053`).
 /// - [`Error::ColorSourceWrongLength`] if `camera_rgb.len() != width·height·3`.
@@ -325,8 +328,9 @@ pub fn to_srgb_linear_into(
 /// # Errors
 ///
 /// - [`Error::UnsupportedRequiredOpcode`] (checked first, `SPEC-054`) if any
-///   opcode list carries a mandatory recognized opcode — this path applies
-///   none — or [`Error::UnsupportedMandatoryOpcode`] for a mandatory
+///   opcode list carries a mandatory recognized opcode other than an
+///   `OpcodeList2` `GainMap` — the one opcode this path applies (`SPEC-059`) —
+///   or [`Error::UnsupportedMandatoryOpcode`] for a mandatory
 ///   unrecognized one; [`Error::Truncated`] for a broken opcode list.
 /// - [`Error::ColorSourceWrongLength`] if `src.len() != width·height`.
 /// - [`Error::InvalidActiveArea`] / [`Error::InvalidDefaultCrop`] /

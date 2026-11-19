@@ -219,8 +219,9 @@ impl BayerPhase {
 /// # Errors
 ///
 /// - Whatever [`crate::opcode::check_required_processing`] returns for
-///   [`crate::opcode::DevelopPath::Colour`], checked first: this path applies
-///   no opcode, so a mandatory opcode in any list is
+///   [`crate::opcode::DevelopPath::Colour`], checked first: that path applies
+///   only `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069`), so any other
+///   mandatory opcode in any list is
 ///   [`Error::UnsupportedRequiredOpcode`] /
 ///   [`Error::UnsupportedMandatoryOpcode`], and a present-but-unreadable list
 ///   is [`Error::UnreadableOpcodeList`] (`SPEC-056`, `DEC-053`).
