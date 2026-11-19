@@ -58,7 +58,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/264
   completed_at: 2026-11-19               # YYYY-MM-DD
   notes: "FLOOR, summed before the handback commit from transcript 2b3b79ac-80fe-432a-94f8-bc7e26a3f647.jsonl (found by the scratchpad UUID): 46 unique message.ids, all claude-opus-5-5, no subagents; input 95, output 24,302 (max per message), cache read 6,183,894, cache write 108,142 (all 1-hour). Opus 5.5 at 5 in / 25 out per M, reads x0.10, 1-hour writes x2.0. Re-sum at ship."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-19
 ---
 
 # HANDOFF-158: BUILD: STAGE-019 verify test hardenings (SPEC-076)

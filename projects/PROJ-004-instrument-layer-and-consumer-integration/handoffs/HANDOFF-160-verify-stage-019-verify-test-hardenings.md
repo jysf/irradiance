@@ -58,7 +58,7 @@ handback:
   pr: null                         # no PR opened (brief); reviews PR 264
   completed_at: 2026-11-19         # YYYY-MM-DD
   notes: "FLOOR, summed before the handback commit from transcript e907e25f-5337-49b4-a02a-34c292e831b9.jsonl (found by the scratchpad UUID): 41 unique message.ids; input 81 + cache-creation 98,348 (all 1-hour) + cache-read 5,370,199 + output 29,790 (max per message); all claude-opus-5-5, no subagents; opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Re-sum at ship. PUNCH LIST is tests-only: the source at c9d9c7f is correct, and the two surviving mutants (H2 applier-parse allocation, H5 trailing-comment call) are pinned in d79dc50 on this branch."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-19
 ---
 
 # HANDOFF-160: VERIFY: STAGE-019 verify test hardenings (SPEC-076)
