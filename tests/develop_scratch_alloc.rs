@@ -25,6 +25,7 @@ use irradiance::develop::{
 use irradiance::ifd::{ActiveArea, Container, DefaultCropOrigin, DefaultCropSize, Sensor};
 use irradiance::opcode::{parse_fix_bad_pixels_constant, parse_warp_rectilinear};
 use irradiance::plane::unpack_into;
+use irradiance::Error;
 
 struct Counting;
 
@@ -269,9 +270,46 @@ fn scratch_develop_allocates_nothing() {
         bad.expect_ok = false;
         calls.push(bad);
     }
+    // `SPEC-076` `H2`: a malformed `OpcodeList1` reached through the develop
+    // itself, not only through the parser (`opcode_lookups_allocate_nothing`
+    // below). The one `FixBadPixelsConstant` declares eight bytes of
+    // parameters; the list stops four bytes short of them.
+    let mut truncated = case_sensor(false, false, 1);
+    let mut list = opcode_support::single_fix_bad_pixels_constant_list(0, 0, 0);
+    list.truncate(list.len() - 4);
+    truncated.opcode_list_1 = Some(list);
+    let mut malformed = prepare(
+        "truncated FixBadPixelsConstant in OpcodeList1".into(),
+        truncated,
+        DevelopOptions::default(),
+        0,
+    );
+    malformed.expect_ok = false;
+    let malformed_index = calls.len();
+    calls.push(malformed);
+    // `SPEC-076` verify: the develop's OTHER malformed-`OpcodeList1` path. A
+    // `FixBadPixelsConstant` whose framing is whole but whose parameter block
+    // is four bytes, not eight, passes the required-processing check above
+    // and is refused only when the develop parses the opcode it applies.
+    let mut short_params = case_sensor(false, false, 1);
+    short_params.opcode_list_1 = Some(opcode_support::opcode_list(&[opcode_support::raw_opcode(
+        4,
+        0x0103_0000,
+        0,
+        &0u32.to_be_bytes(),
+    )]));
+    let mut malformed_params = prepare(
+        "four-byte FixBadPixelsConstant params in OpcodeList1".into(),
+        short_params,
+        DevelopOptions::default(),
+        0,
+    );
+    malformed_params.expect_ok = false;
+    let malformed_params_index = calls.len();
+    calls.push(malformed_params);
 
-    let mut counts = vec![(false, 0usize); calls.len()];
-    for (call, slot) in calls.iter_mut().zip(counts.iter_mut()) {
+    let mut counts: Vec<(Result<(), Error>, usize)> = Vec::with_capacity(calls.len());
+    for call in calls.iter_mut() {
         let (result, allocations, _) = counted(|| {
             develop_with_scratch_into(
                 &call.sensor,
@@ -280,14 +318,29 @@ fn scratch_develop_allocates_nothing() {
                 &mut call.scratch,
                 &call.options,
             )
-            .is_ok()
         });
-        *slot = (result, allocations);
+        counts.push((result, allocations));
     }
-    for (call, (ok, allocations)) in calls.iter().zip(counts) {
-        assert_eq!(ok, call.expect_ok, "{}: result", call.label);
-        assert_eq!(allocations, 0, "{}: allocated", call.label);
+    for (call, (result, allocations)) in calls.iter().zip(&counts) {
+        assert_eq!(result.is_ok(), call.expect_ok, "{}: result", call.label);
+        assert_eq!(*allocations, 0, "{}: allocated", call.label);
     }
+    let (malformed_result, _) = &counts[malformed_index];
+    assert!(
+        matches!(malformed_result, Err(Error::Truncated { .. })),
+        "truncated OpcodeList1: the opcode error, got {malformed_result:?}"
+    );
+    let (params_result, _) = &counts[malformed_params_index];
+    assert!(
+        matches!(
+            params_result,
+            Err(Error::MalformedOpcodeParams {
+                id: 4,
+                declared_size: 4
+            })
+        ),
+        "four-byte params: the applier's parse error, got {params_result:?}"
+    );
 }
 
 /// `SPEC-066` `AC9`: the per-position black pattern (`DEC-061` §4) reads

@@ -470,6 +470,48 @@ fn apply_replaces_one_isolated_bad_pixel_with_median() {
     );
 }
 
+/// `SPEC-076` `H1`: neighbours that arrive UNSORTED in scan order. Every other
+/// median fixture is uniform or a row-major ramp, so its neighbours are
+/// already sorted when gathered and an applier that skipped the sort (or took
+/// the middle of the unsorted gather) would still pass. Here the gather order
+/// is `NEIGHBOR_OFFSETS` order: (-1,-1), (0,-1), (1,-1), (-1,0), (1,0),
+/// (-1,1), (0,1), (1,1). Expected values by hand on this 4x4 plane:
+///
+/// ```text
+///        x=0 x=1 x=2 x=3
+///   y=0   90  10  70  30
+///   y=1   50   0  20  80
+///   y=2   40  60  30   0
+///   y=3   25  15  35  45
+/// ```
+#[test]
+fn fix_bad_pixels_median_of_unsorted_neighbours() {
+    #[rustfmt::skip]
+    let mut plane: Vec<u16> = vec![
+        90, 10, 70, 30,
+        50,  0, 20, 80,
+        40, 60, 30,  0,
+        25, 15, 35, 45,
+    ];
+    let all = ActiveArea {
+        top: 0,
+        left: 0,
+        bottom: 4,
+        right: 4,
+    };
+    let replaced = apply_fix_bad_pixels_constant(&mut plane, 4, 4, all, 0)
+        .expect("a correctly-sized plane must not error");
+    assert_eq!(replaced, 2, "the interior and the edge pixel");
+    // Interior (1, 1): gathered 90, 10, 70, 50, 20, 40, 60, 30. Sorted
+    // 10, 20, 30, 40, 50, 60, 70, 90; eight values, so the lower of the two
+    // middles, index 3, is 40. Index 3 of the unsorted gather is 50.
+    assert_eq!(plane[5], 40, "interior (1, 1)");
+    // Right edge (3, 2): gathered (2, 1) 20, (3, 1) 80, (2, 2) 30, (2, 3) 35,
+    // (3, 3) 45. Sorted 20, 30, 35, 45, 80; the middle of five, index 2, is
+    // 35. Index 2 of the unsorted gather is 30.
+    assert_eq!(plane[11], 35, "edge (3, 2)");
+}
+
 /// A bonus test beyond the ten named in `## Failing Tests` (AGENTS.md §12:
 /// "every new function gets at least one test") — mirrors
 /// `apply_warp_into`'s own `wrong_length_buffers_are_rejected_not_panicked`

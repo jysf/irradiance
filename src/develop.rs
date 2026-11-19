@@ -2022,6 +2022,37 @@ mod tests {
                 !body.contains(concat!("for out", "_y in")),
                 "{name}: has its own row loop"
             );
+            // `SPEC-076` `H5`: the same checks on the code alone, with `//`
+            // comment lines dropped, so a call left behind in a comment does
+            // not count; and the call must walk the sensor's own orientation,
+            // since a constant one keeps every pixel and only changes the
+            // order the tile test above pins.
+            // Each line is cut at its first `//`, so a trailing comment
+            // after code is dropped too, not only a whole comment line
+            // (`SPEC-076` verify: a call replaced by another walk with the
+            // old call text left in a trailing comment passed otherwise).
+            // Neither gather has a `//` inside a string literal.
+            let code: String = body
+                .lines()
+                .map(|line| line.split("//").next().unwrap_or(""))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let call = concat!("for_each", "_out_pixel(");
+            assert_eq!(
+                code.matches(call).count(),
+                1,
+                "{name}: must call the traversal helper once, outside a comment"
+            );
+            assert!(
+                !code.contains(concat!("for out", "_y in")),
+                "{name}: has its own row loop"
+            );
+            let args = &code[code.find(call).expect("one call") + call.len()..];
+            let first_arg = args.split(',').next().expect("an argument").trim();
+            assert_eq!(
+                first_arg, "geometry.orientation",
+                "{name}: the traversal helper's first argument"
+            );
         }
     }
 
