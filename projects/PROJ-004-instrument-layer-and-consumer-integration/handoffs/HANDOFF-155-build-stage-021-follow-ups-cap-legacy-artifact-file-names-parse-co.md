@@ -58,7 +58,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/259
   completed_at: 2026-11-18         # YYYY-MM-DD
   notes: "Transcript e4d08c12-5435-4d9a-a32a-c561d7ebd7d4.jsonl, 76 message.ids deduped (max output each), no subagents: input 160, output 36,858, cache read 11,242,140, cache write 144,614 (all 1-hour). Opus 5.5 at $5 in / $25 out, reads x0.10, 1-hour writes x2.0. Summed before the handback commit, so a floor; re-sum at ship."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-18
 ---
 
 # HANDOFF-155: BUILD: STAGE-021 follow-ups, bundled (SPEC-074)

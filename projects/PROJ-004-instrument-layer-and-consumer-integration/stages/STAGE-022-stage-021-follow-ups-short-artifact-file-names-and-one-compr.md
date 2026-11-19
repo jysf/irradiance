@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-022                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-18
-shipped_at: null
+shipped_at: 2026-11-18
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -47,7 +47,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 12316807
+      estimated_usd: 9.65
+      recorded_at: 2026-11-18
+      notes: "Stage orchestration, measured from the orchestrator transcript (session 2b783e6b, claude-opus-5-5) from the user's 'lets do the followups' message at 2026-11-18T23:05Z through this close at 02:58Z: 80 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus list rates (input 182 + cache-creation 239,896 (1-hour) + cache-read 12,027,260 + output 49,469); no subagents. Covers framing STAGE-022, the SPEC-074 design probe (semver crash repro, one-parse prototype), DEC-067, the build and verify dispatches, the verify base, this ship and close. A FLOOR: the final messages after the measurement are not in it."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -93,9 +98,9 @@ strip or tile parse its header once.
 
 ## Spec Backlog
 
-- [ ] SPEC-074 (design) [S] — STAGE-021 follow-ups, bundled: (A) rename the 83 legacy generated artifacts whose slug exceeds the 60-character cap, rewrite references, add a 150-byte `name-length-check` CI gate and a `just semver-check` recipe on the crates.io baseline (DEC-067); (B) decode Compression 7 strips and tiles from the header already parsed for the shape check, 10 to 5 allocations per chunk.
+- [x] SPEC-074 (shipped on 2026-11-18) [S] — STAGE-021 follow-ups, bundled: (A) rename the 83 legacy generated artifacts whose slug exceeds the 60-character cap, rewrite references, add a 150-byte `name-length-check` CI gate and a `just semver-check` recipe on the crates.io baseline (DEC-067); (B) decode Compression 7 strips and tiles from the header already parsed for the shape check, 10 to 5 allocations per chunk.
 
-**Count:** 0 shipped / 1 active / 0 pending
+**Count:** 1 shipped / 0 active / 0 pending (SPEC-074 19.34M tok / $13.83; orchestration 12.32M / $9.65)
 
 **Designed 2026-11-18:** probe on `28ecd5d` reproduced the semver crash (temporary name = file name + about 45 bytes; HANDOFF-064 is 235 bytes), confirmed the crates.io baseline runs clean (202/202), and measured a throwaway one-parse build at 5 allocations per chunk with the plane tests green.
 
@@ -115,6 +120,22 @@ strip or tile parse its header once.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. 83 legacy artifacts
+  renamed to the slug cap with history kept, a 150-byte name-length gate in CI,
+  `just semver-check` on the crates.io baseline, and one Compression 7 header parse per
+  strip or tile (5 allocations per chunk, output and errors unchanged). PR 259, merged
+  as 25b305a.
+- **How many specs did it actually take?** 1, as planned.
+- **How many outlines survived unchanged?** n/a (not framed with `just frame-stage`).
+- **Cost.** SPEC-074 19.34M tokens / $13.83 (estimate 12M); orchestration 12.32M /
+  $9.65 (floor). About $23.48 for the stage.
+- **What went well.** The design probe settled both parts before the build: the semver
+  crash came from legacy names, not the generator, and the one-parse prototype measured
+  5 allocations with the plane tests green. Build and verify each ran in one turn, and
+  verify had no punch list.
+- **What to change.** The estimate missed the cost of the rename: 83 files and their
+  references are cheap to change but expensive to read. Size rename-heavy chores by file
+  count, not by lines changed.
+- **Signals walked.** `push-and-pull-request-both-trigger-ci` done (PR 256);
+  `macos-arm64-runner-unavailable` stays watch (the leg is non-blocking since PR 257).
+  No new signals.
