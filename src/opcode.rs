@@ -159,6 +159,18 @@ pub enum Opcode {
         /// monochrome plane (`## Non-Goals`).
         bayer_phase: u32,
     },
+    /// An opcode ID this module does not parse into its own variant —
+    /// genuinely unknown. Only ever produced when `flags` bit 0 (optional)
+    /// is set; an unset bit on an unrecognized ID is
+    /// [`Error::UnsupportedMandatoryOpcode`] instead of a value.
+    Unknown {
+        /// The opcode ID.
+        id: u32,
+        /// The raw `Flags` word.
+        flags: u32,
+        /// The raw parameter bytes, unparsed.
+        params: Vec<u8>,
+    },
     /// DNG 1.7.0.0 Chapter 7, `OpcodeID` 9 — `SPEC-059`, `DEC-069`. A
     /// per-area, per-pitch gain from a bilinearly interpolated grid; the
     /// develop paths apply every one in `OpcodeList2` (module docs,
@@ -197,18 +209,6 @@ pub enum Opcode {
         /// `points_v · points_h · map_planes` gains, row-major, map planes
         /// innermost, as the file stores them.
         gains: Vec<f32>,
-    },
-    /// An opcode ID this module does not parse into its own variant —
-    /// genuinely unknown. Only ever produced when `flags` bit 0 (optional)
-    /// is set; an unset bit on an unrecognized ID is
-    /// [`Error::UnsupportedMandatoryOpcode`] instead of a value.
-    Unknown {
-        /// The opcode ID.
-        id: u32,
-        /// The raw `Flags` word.
-        flags: u32,
-        /// The raw parameter bytes, unparsed.
-        params: Vec<u8>,
     },
 }
 

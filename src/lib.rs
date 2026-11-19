@@ -726,23 +726,6 @@ pub enum Error {
         declared_size: u32,
     },
 
-    /// `SPEC-059`, `DEC-069` §3. An `OpcodeList2` holds more `GainMap`s than
-    /// the 16 a develop keeps in its fixed-capacity array (the mono scratch
-    /// develop allocates nothing, `DEC-060`). Reported before any write.
-    TooManyGainMaps {
-        /// How many `GainMap`s the list holds.
-        count: u32,
-    },
-
-    /// `SPEC-059`. [`develop::apply_gain_maps`]'s `stage2` image does not hold
-    /// exactly `width * height` samples.
-    GainMapImageWrongLength {
-        /// `width * height`, the required length.
-        expected: u64,
-        /// `stage2.len()` as given.
-        actual: usize,
-    },
-
     /// `SPEC-018`. An opcode ID this reader does not recognize, with its
     /// `Flags` bit 0 (optional) NOT set — DNG 1.7.0.0's Opcode List
     /// Processing chapter: an optional-and-unknown opcode may be skipped,
@@ -1072,6 +1055,22 @@ pub enum Error {
         /// The component's `Hi/Vi` byte as found (`H` in the high nibble, `V`
         /// in the low); only `0x11` is supported.
         factor: u8,
+    },
+    /// `SPEC-059`, `DEC-069` §3. An `OpcodeList2` holds more `GainMap`s than
+    /// the 16 a develop keeps in its fixed-capacity array (the mono scratch
+    /// develop allocates nothing, `DEC-060`). Reported before any write.
+    TooManyGainMaps {
+        /// How many `GainMap`s the list holds.
+        count: u32,
+    },
+
+    /// `SPEC-059`. [`develop::apply_gain_maps`]'s `stage2` image does not hold
+    /// exactly `width * height` samples.
+    GainMapImageWrongLength {
+        /// `width * height`, the required length.
+        expected: u64,
+        /// `stage2.len()` as given.
+        actual: usize,
     },
 }
 
