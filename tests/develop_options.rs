@@ -266,8 +266,9 @@ const PINNED: [(&str, u32, u32, &str); 8] = [
     ),
 ];
 
-/// The three Pixel files `develop_into` refuses (§1).
-const PIXEL_REFUSED: [&str; 3] = [
+/// The three Pixel files. `develop_into` refused them for their mandatory
+/// `OpcodeList2` `GainMap`s (§1) until `SPEC-059` (`DEC-069`) applied them.
+const PIXELS: [&str; 3] = [
     "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng",
     "GOOGLE-PIXEL-3A/IMG_20190918_164153.dng",
     "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng",
@@ -338,22 +339,19 @@ fn develop_into_output_is_unchanged_on_held_files() {
         );
     }
 
-    for path in PIXEL_REFUSED {
-        let Some((sensor, _byte_order, _bytes)) = corpus_sensor(path) else {
-            continue;
+    // `SPEC-059` (`DEC-069`): the Pixels' `GainMap`s are applied, so both
+    // entries develop them, and identically. Their pins are `SPEC-060`'s.
+    for path in PIXELS {
+        let Some((sensor, plane)) = corpus_plane(path) else {
+            continue; // SKIP announced by name by CorpusFile::require
         };
-        // The refusal is the required-processing check, which runs before any
-        // buffer is examined, so empty buffers reach it.
-        let plain = develop_into(&sensor, &[], &mut []).expect_err("refused");
-        let with = develop_with_into(&sensor, &[], &mut [], &DevelopOptions::default())
-            .expect_err("refused");
-        assert!(
-            plain
-                .to_string()
-                .contains("opcode 9 is unrecognized and not marked optional"),
-            "{path}: unexpected refusal {plain}"
-        );
-        assert_eq!(plain.to_string(), with.to_string(), "{path}: same refusal");
+        let (w, h) = output_dimensions(&sensor).expect("dimensions");
+        let mut plain = vec![0u16; (w as usize) * (h as usize)];
+        develop_into(&sensor, &plane, &mut plain).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let mut with = vec![SENTINEL; plain.len()];
+        develop_with_into(&sensor, &plane, &mut with, &DevelopOptions::default())
+            .unwrap_or_else(|e| panic!("{path}: {e}"));
+        assert_eq!(md5_le(&plain), md5_le(&with), "{path}: same output");
     }
 }
 
