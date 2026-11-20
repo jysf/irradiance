@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-19
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-077
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 7457943            # REAL combined count — what cost-audit reads
+  estimated_usd: 5.60              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 15
+  branch: claude/spec-077-build
+  pr: 272
+  completed_at: 2026-11-19         # YYYY-MM-DD
+  notes: "FLOOR, measured live from transcript 1ba3d26e-8545-47cd-abfd-84c9a0037c7d.jsonl (49 unique message.ids, all claude-opus-5-5, no subagents): input 102 + cache-creation 126,140 (1-hour) + cache-read 7,304,343 + output 27,358 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). The few turns after this write are not in it; re-sum at ship." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -150,43 +150,82 @@ This is one CI-gated, fully reversible PR. **You never tag, publish or yank.**
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-077-build`, https://github.com/jysf/irradiance/pull/272
+  (unmerged). Commits: `cf8b252` the prep and the candidate; `289681f` the pre-flight;
+  then the handback and timeline.
+- **Completed at:** 2026-11-19
+- **All acceptance criteria met?** Yes. Build work 1 to 8 are done, and every gate is
+  green on the candidate. CI on #272 was still running when this was written.
+- **No tag, no publish:** `git tag -l v0.2.3` is empty.
+
+**The semver check, verbatim** (`cargo-semver-checks 0.51.0`, `just semver-check` on
+candidate `cf8b252`):
+
+```
+cargo semver-checks
+    Building irradiance v0.2.3 (current)
+       Built [   1.130s] (current)
+     Parsing irradiance v0.2.3 (current)
+      Parsed [   0.008s] (current)
+     Parsing irradiance v0.2.2 (baseline, cached)
+      Parsed [   0.006s] (baseline)
+    Checking irradiance v0.2.2 -> v0.2.3 (minor change)
+     Checked [   0.026s] 202 checks: 202 pass, 58 skip
+     Summary no semver update required
+    Finished [   1.894s] irradiance
+```
+
+`cargo semver-checks check-release --baseline-version 0.2.2 --all-features` on the same
+candidate: `202 checks: 202 pass, 58 skip`, `no semver update required`. Nothing breaking,
+so nothing went to `guidance/questions.yaml`.
+
+**Evidence on `cf8b252`:**
+- `just test`: 12/12 present, 43 binaries plus doctests, 764 passed, 0 failed,
+  1 ignored, 224 s; doctests 4 passed.
+- Timings (ms, medians): unpack 9.9 / 1.7; ljpeg 103.9 / 90.2 / 61.1; orient warp-free
+  O1 85, O5 111; post-warp O1 615.
+- SDK cross-check: gain step max |d| 1 on all three Pixels; exact 99.9794% (4a),
+  99.9672% (3a), 99.9664% (7 Pro). `gain_map_corpus` 8 passed.
+- Dry run: `Packaging irradiance v0.2.3`, 19 files, 371.7 KiB compressed;
+  `.cargo_vcs_info.json` sha1 `cf8b2529b6d6511fbf4ba67bbdfd961545130ba5`; dev-dependencies
+  only `ssimulacra2` and `toml`.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 7,457,943 (a floor, measured live)
+- **Estimated USD:** 5.60
+- **Duration (minutes):** about 15
+- **Source of the number:** the session transcript, deduplicated by `message.id` per
+  docs/cost-tracking.md (`basis: transcript`); no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - The design's Release Scope lists `InvalidBlackLevelPattern` among the new `Error`
+    variants. It shipped in 0.2.2; only `TooManyGainMaps` and `GainMapImageWrongLength`
+    are new. The refreshed release notes say so.
+  - The design's notes said "the Pixel 7 Pro was black 0 and is now 1024" under output
+    changes. The 7 Pro was refused for develop in 0.2.2 (its mandatory `GainMap`), so the
+    notes put it under the files that now develop, and the merged CHANGELOG entry names it.
+  - A crate-doc fix beyond the wording the spec named: the `develop_into` sentence "the
+    tone-curve stage SPEC-019 will add" (a follow-up from SPEC-073's verify) is reworded.
+  - The CHANGELOG gained a short 0.2.3 intro paragraph, matching 0.2.2's.
+- **Follow-up work identified:** none new. The optional GitHub release on `v0.2.3` is part
+  of the user's Phase 2.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing much. The spec's draft notes had two small factual slips (above), caught by
+   checking the CHANGELOG.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Start the corpus `just test` as soon as the candidate commit exists and run the
+   cheap gates alongside it, as this time; hold the timing examples until it finishes so
+   they don't skew each other.

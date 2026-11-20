@@ -8,6 +8,15 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-19
+
+Google Pixel DNGs develop, and black levels are read correctly in two more cases
+(PROJ-004, STAGE-016, STAGE-022 and STAGE-023). A compatible patch release over 0.2.2:
+no public item was removed or changed, every new field and variant is appended to a
+`#[non_exhaustive]` type, there is no new dependency or feature, and the MSRV stays
+1.90. `DEVELOP_VERSION` goes from `"4"` to `"6"`; output changes only for files 0.2.2
+refused or developed with a wrong black or a skipped `GainMap`.
+
 ### Added
 
 - **`OpcodeList2` `GainMap` is applied on both develop paths** (SPEC-059, STAGE-016,
@@ -55,19 +64,25 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
-- **`DEVELOP_VERSION` is `"6"`** (SPEC-059, DEC-069 §5). A file whose `OpcodeList2`
-  holds only optional `GainMap`s developed before with them skipped and now develops
-  with them applied. No held file's output changes: the only held files with a
-  `GainMap` were refused before.
-
 - **The colour develop refuses a `BlackLevel` whose count disagrees with
   `BlackLevelRepeatDim`** (SPEC-075, DEC-068 §2). All four colour entry points return
   `Error::InvalidBlackLevelPattern` before writing to `dst`, as the mono `PerPosition`
   develop already did. An absent repeat dim means `[1, 1]`; an empty `BlackLevel` still
   develops with black 0.
-- **`DEVELOP_VERSION` is `"5"`** (SPEC-075, DEC-068 §4). Output changes for a file with a
-  fractional black, and for a colour file with a `[1, 2]`, `[2, 1]` or larger black
-  pattern. No held file is one of those.
+- **Every develop refuses an `OpcodeList2` `GainMap` it cannot apply, optional or not**
+  (SPEC-059, DEC-069 §3). 0.2.2 skipped an optional `GainMap` unread, so a file whose
+  optional `GainMap` has malformed parameters, or whose `OpcodeList2` holds more than 16
+  `GainMap`s, developed then; it is now refused with `MalformedOpcodeParams { id: 9, .. }`
+  or `TooManyGainMaps` before any write. A malformed mandatory `GainMap` was
+  `UnsupportedMandatoryOpcode { id: 9 }` and is now `MalformedOpcodeParams`. No held file
+  is affected.
+- **`DEVELOP_VERSION` goes from `"4"` to `"6"`** (SPEC-075, DEC-068 §4, then SPEC-059,
+  DEC-069 §5). Output changes for a file with a fractional black, for a colour file with
+  a `[1, 2]`, `[2, 1]` or larger black pattern, and for a file whose `OpcodeList2` holds
+  only optional `GainMap`s, which developed before with them skipped and now develops
+  with them applied. No held file's output changes: no held file has a non-2×2 colour
+  pattern, and the only held files with a fractional black (the Pixel 7 Pro) or a
+  `GainMap` (the Pixel 3a, 4a and 7 Pro) were refused before.
 
 - **Compression 7 strips and tiles parse their lossless-JPEG header once, not twice**
   (SPEC-074, STAGE-022, PROJ-004). The header parsed to bind the frame's shape to its

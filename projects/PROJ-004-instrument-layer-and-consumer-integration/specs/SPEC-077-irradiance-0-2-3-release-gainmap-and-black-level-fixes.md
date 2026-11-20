@@ -15,7 +15,7 @@
 task:
   id: SPEC-077
   type: release                    # epic | story | task | bug | chore | release
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -80,9 +80,10 @@ user tags and runs `cargo publish`, as with 0.2.2 (SPEC-073).
 - **Why it is compatible: the design's mechanical check.** `cargo semver-checks
   check-release --baseline-version 0.2.2 --all-features` was run at `b515520` and reports
   "202 checks: 202 pass, 58 skip … no semver update required". The new `Error` variants
-  (`InvalidBlackLevelPattern`, `TooManyGainMaps`, `GainMapImageWrongLength`), the new
-  `Opcode::GainMap`, and the new `Sensor` fields all sit on `#[non_exhaustive]` types.
-  Every addition is appended last.
+  (`TooManyGainMaps`, `GainMapImageWrongLength`), the new `Opcode::GainMap`, and the
+  new `Sensor` fields all sit on `#[non_exhaustive]` types. Every addition is appended
+  last. (Verify correction: the design listed `InvalidBlackLevelPattern` as new here; it
+  shipped in 0.2.2, SPEC-066.)
 - **Behaviour changes, called out in the notes (they don't break the API):**
   - **`DEVELOP_VERSION` goes from `"4"` to `"6"`.** Callers who cache developed pixels
     keyed on it re-develop. No held file's output changed.
@@ -159,36 +160,102 @@ never tags or publishes.
 
 ## Release Notes
 
-*Drafted at design. The build refreshes it from `just release-notes PROJ-004` and the
-final CHANGELOG.*
+*Outward-facing, written for whoever uses the crate. Seeded at build with
+`just release-notes PROJ-004`. Five of its notes are new since 0.2.2 (SPEC-059, SPEC-060,
+SPEC-074, SPEC-075, SPEC-076); SPEC-060 and SPEC-076 have no crate-user outcome and stay
+absent. Edited against the final CHANGELOG, SPEC ids dropped. The GitHub release text for
+`v0.2.3` is this section, down to the internal record.*
 
 **Headline:** Google Pixel DNGs develop. irradiance now applies the `OpcodeList2`
-`GainMap` (lens-shading correction) that Android phones write as mandatory, and it
-matches Adobe's DNG SDK within one code.
+`GainMap` (lens-shading correction) that Pixel phones write as mandatory, and on the
+three Pixel files tested its gain step matches Adobe's DNG SDK within one code. Black
+levels are read correctly in two more cases. A compatible 0.2.x release: run `cargo update -p irradiance`.
 
+**New capability**
 - **Pixel 3a, 4a and 7 Pro DNGs develop** in colour and in mono. They were refused before
   with `UnsupportedMandatoryOpcode { id: 9 }`. Each `GainMap` is applied at stage 2,
+  after the black and white levels and before the lens warp (mono) or demosaic (colour),
   sampled at pixel centres with bilinear interpolation, and clipped at white. On all
   three files, the step matches Adobe `dng_validate` 1.7.1 to within 1 code, with at
   least 99.966% of samples exact.
 - **`develop::apply_gain_maps`** applies every `GainMap` in an `OpcodeList2` to a
   normalised stage-2 image, for callers that compose stages themselves.
-- **Black levels are read correctly in two more cases:**
-  - A fractional `RATIONAL` `BlackLevel` rounds to nearest instead of becoming 0. The
-    Pixel 7 Pro now reads 1024.
-  - The colour develop honours `BlackLevelRepeatDim` (`[1, 2]`, `[2, 1]`, `[4, 4]`, …).
-- **`Sensor::black_levels_exact`** holds the rationals as written. **`Sensor::masked_areas`**
-  exposes DNG `MaskedAreas` for optical-black work.
+- **`Sensor::black_levels_exact`** holds a `RATIONAL` `BlackLevel` exactly as written.
+  **`Sensor::masked_areas`** exposes DNG `MaskedAreas` (the optical-black rectangles)
+  verbatim, for optical-black work; irradiance itself does not use it.
+
+**Fixed**
+- **A fractional `RATIONAL` `BlackLevel` rounds to nearest** instead of being treated as
+  malformed and becoming 0. The Pixel 7 Pro now reads 1024.
+- **The colour develop honours `BlackLevelRepeatDim`** (`[1, 2]`, `[2, 1]`, `[4, 4]`, …)
+  instead of assuming a 2×2 pattern.
+
+**Faster**
 - **Compression 7 strips and tiles parse their lossless-JPEG header once,** which halves
   the per-chunk allocations. Output is unchanged.
 
-**Breaking / action required:** none for the API (semver-checks: no update required).
-**Behaviour changes:**
-- `DEVELOP_VERSION` is `"6"`, so a pixel cache keyed on it re-develops.
-- A colour file whose `BlackLevel` count disagrees with its `BlackLevelRepeatDim` is now
-  refused (`InvalidBlackLevelPattern`) instead of developing with a guessed black.
-- Files with a fractional black, a non-2×2 colour black pattern, or optional `GainMap`s
-  develop differently, and correctly. Every other file's output is byte-identical.
+**Breaking / action required:** none for the API. `cargo semver-checks` against crates.io
+0.2.2 reports no semver update required. The new `Error` variants (`TooManyGainMaps`,
+`GainMapImageWrongLength`), `Opcode::GainMap` and the new `Sensor` fields are appended to
+`#[non_exhaustive]` types, so a `match` with a `_` arm and existing field reads keep compiling.
+
+**Behaviour changes**
+- **`DEVELOP_VERSION` goes from `"4"` to `"6"`,** so a pixel cache keyed on it
+  re-develops.
+- **A colour file whose `BlackLevel` count disagrees with its `BlackLevelRepeatDim` is
+  now refused** with `Error::InvalidBlackLevelPattern`, before any write, instead of
+  developing with a guessed black. The mono `PerPosition` develop already did this.
+- **An `OpcodeList2` `GainMap` that cannot be applied is now refused, even an optional
+  one.** 0.2.2 skipped optional `GainMap`s unread, so a file whose optional `GainMap`
+  has malformed parameters, or whose `OpcodeList2` holds more than 16 `GainMap`s,
+  developed; it now returns `Error::MalformedOpcodeParams { id: 9, .. }` or
+  `Error::TooManyGainMaps` before any write. No held file is affected.
+- **Output changes only for files 0.2.2 got wrong or refused:** a fractional black, a
+  colour black pattern other than 2×2, optional `GainMap`s (now applied), and the Pixel
+  3a, 4a and 7 Pro (now developed). Every other file's output is byte-identical: every
+  `dnglab` checksum and develop MD5 pin from 0.2.2 holds.
+
+**Known limitations**
+- **No colour-accuracy claim yet.** The ColorChecker ΔE2000 measurement is still blocked
+  on capturing the chart. Treat colour as plausible, not calibrated.
+- **The colour develop runs the `GainMap` but not the other `OpcodeList` stages**
+  (`WarpRectilinear`, `FixBadPixelsConstant`) that the monochrome develop runs. A file
+  that requires them is refused with a typed error. The develop options are mono-only.
+- **A `GainMap` in `OpcodeList1` or `OpcodeList3`** is recognised but not applied; a
+  mandatory one is refused with `UnsupportedRequiredOpcode`.
+- **A Compression 7 strip is one plane unit.** Restart-interval units are not built, so
+  a single-scan lossless-JPEG file (the K-3 III, the Typ 246) cannot be split.
+
+### Internal release record (not part of the GitHub release text)
+
+- **Mechanical semver check:** `cargo-semver-checks 0.51.0`, crates.io 0.2.2 to the
+  candidate `cf8b252`, by `just semver-check` (DEC-067). Clean: no failure, nothing to
+  accept. Verbatim summary:
+
+  ```
+  Checking irradiance v0.2.2 -> v0.2.3 (minor change)
+   Checked [   0.026s] 202 checks: 202 pass, 58 skip
+   Summary no semver update required
+  ```
+
+  `cargo semver-checks check-release --baseline-version 0.2.2 --all-features` on the
+  same candidate gives the same 202 pass, 58 skip, no semver update required. The tool
+  labels 0.2.2 to 0.2.3 a "minor change" because a 0.x patch bump is cargo's minor
+  level; no update is required. A run before the version bump (at `b008690`) also
+  passed 202 of 202.
+- **Candidate timings** (`cf8b252`, stamped `v0.2.2-19-gcf8b252`, Apple M4 Pro, release,
+  medians in ms; all within a few percent of 0.2.2's):
+  - `just unpack-timing`: Q2M `unpack_into` on 1 thread 9.9; 8 units on 8 threads 1.7.
+  - `just ljpeg-timing`: K-3 III 103.9; Typ 246 90.2; Pixel 4a 61.1.
+  - `just orient-timing`, warp-free: O1 85, O5 111, O6 127, O7 154, O8 154.
+  - `just orient-timing`, post-warp: O1 615, O5 632, O8 656.
+- **SDK cross-check** (optional, run): `scripts/sdk-stage2.sh` with the local
+  `dng_validate` 1.7.1, outputs in the build's scratchpad, then
+  `IRRADIANCE_SDK_STAGE2_DIR` set for `--test gain_map_corpus` (8 passed). The gain step
+  against the SDK's stage 2, max |d| 1 code on all three files:
+  - Pixel 4a: 99.9794% exact;
+  - Pixel 3a: 99.9672% exact;
+  - Pixel 7 Pro: 99.9664% exact.
 
 ## Release cut is two-phase
 
@@ -199,38 +266,59 @@ matches Adobe's DNG SDK within one code.
 
 ## Release Pre-Flight
 
-**Delivery shape: library plus a crates.io package (source crate, no binary).** Filled by
-the Phase-1 build on its candidate SHA.
+**Delivery shape: library plus a crates.io package (source crate, no binary).** Filled
+2026-11-19 by the Phase-1 build (HANDOFF-165) on candidate `cf8b252`
+(`cf8b2529b6d6511fbf4ba67bbdfd961545130ba5`).
 - `[now]`: verified on the candidate in the build session.
 - `[cut]`: verified by the user at Phase 2.
 - `N/A`: does not apply.
 
-- [ ] **1. Version / tag integrity & build provenance.**
-  - `[now]`:
-    - `version = "0.2.3"`;
-    - the dry run reports `Packaging irradiance v0.2.3`;
-    - `git tag -l 'v0.2.3'` is empty;
-    - the dry run's `.cargo_vcs_info.json` sha1 is the candidate;
-    - the metadata is unchanged from 0.2.2.
+- [ ] **1. Version / tag integrity & build provenance** — `[now]` done, the rest `[cut]`.
+  - `[now]` ✔:
+    - `Cargo.toml` says `version = "0.2.3"`, and `cargo publish --dry-run` reports
+      `Packaging irradiance v0.2.3` (19 files, 1.7 MiB, 371.7 KiB compressed);
+    - `git tag -l 'v0.2.3'` is empty. The timing examples stamp the candidate as
+      `v0.2.2-19-gcf8b252`;
+    - the dry run's packaged `.cargo_vcs_info.json` carries `git.sha1`
+      `cf8b2529b6d6511fbf4ba67bbdfd961545130ba5`, the candidate;
+    - `git diff v0.2.2 -- Cargo.toml` before the bump was empty, and the bump changes
+      only the version line, so `license`, `description`, `keywords`, `categories`,
+      `repository`, `include` and `rust-version = "1.90"` are unchanged. The packaged
+      manifest carries `readme = "README.md"`.
   - `[cut]`:
     - `git tag -a v0.2.3 -m "irradiance 0.2.3"` on the merged prep commit;
     - `git tag --points-at HEAD` prints exactly `v0.2.3`;
-    - the published `.crate`'s sha1 equals the tagged commit.
+    - the published `.crate`'s `.cargo_vcs_info.json` sha1 equals the tagged commit:
+      `curl -sL https://static.crates.io/crates/irradiance/irradiance-0.2.3.crate | tar -xzO irradiance-0.2.3/.cargo_vcs_info.json`
+      against `git rev-parse v0.2.3^{commit}`. (Command added at verify; its 0.2.2 form
+      printed `46b6fc2…`, the `v0.2.2` commit.)
 - [x] **2. Artifact trust on a clean host** — `N/A`: a source crate, no signed binary.
-- [ ] **3. Distribution-channel trust.**
-  - `[now]`:
-    - `cargo publish --dry-run` is clean;
-    - the packaged manifest has no self dev-dependency;
-    - `package-targets-check`, `deny` and `deny-fuzz` pass;
-    - no SDK, corpus or script bytes are in the package list.
+- [ ] **3. Distribution-channel trust** — `[now]` proxy done, the rest `[cut]`.
+  - `[now]` ✔:
+    - `cargo publish --dry-run` packaged and verified the crate in isolation and stopped
+      at "aborting upload due to dry run". Its only warnings are the expected "ignoring
+      example/test … not included in the published package" lines, as in 0.2.2;
+    - the packaged `Cargo.toml` has no self dev-dependency (its only dev-dependencies are
+      `ssimulacra2` and `toml`);
+    - `just package-targets-check` passed (no executable in the default build or the
+      package, `irr` builds under `--features irr`, its red case caught); `just deny` and
+      `just deny-fuzz` both report `licenses ok`;
+    - the package list is the same 19 files as 0.2.2: `Cargo.toml`, `Cargo.toml.orig`,
+      `Cargo.lock`, `.cargo_vcs_info.json`, `README.md`, the two licences and
+      `src/**/*.rs`. No `scripts/`, `tests/`, SDK or corpus bytes.
   - `[cut]`: on a clean host, `cargo add irradiance@=0.2.3 && cargo build`. crates.io
     shows 0.2.3, and docs.rs is green.
 - [x] **4. Data isolation** — `N/A`: a library with no I/O and no data store.
-- [ ] **5. Runtime smoke on a clean host.**
-  - `[now]`:
-    - `just test` with the corpus: 12/12 present, every pin held, with counts and time;
-    - `cargo test --doc --all-features`;
-    - `just doc-check`.
+- [ ] **5. Runtime smoke on a clean host** — `[now]` done on the candidate, `[cut]` on the
+  published crate.
+  - `[now]` ✔:
+    - `just test`, with `IRRADIANCE_CORPUS_DIR` set, printed "corpus: 12/12 present — no
+      tier-B test will skip". 43 test binaries plus the doctests: 764 passed, 0 failed,
+      1 ignored, exit 0, in 224 s (a semver-check build overlapped its first minute).
+      Every `dnglab` checksum pin and every develop MD5 pin held. The `sdk-stage2` line
+      was a SKIP in that run; the cross-check ran separately (internal record above);
+    - `cargo test --doc --all-features` (inside `just test`): 4 passed;
+    - `just doc-check`: 2 feature surfaces, 0 rustdoc warnings.
   - `[cut]`: in a clean-host probe crate:
     - parse one held DNG, then run `plane::validate`, `unpack_into` and `develop_into`;
     - develop the Pixel 4a with `develop_color_into`, the 0.2.3 headline;
@@ -239,6 +327,22 @@ the Phase-1 build on its candidate SHA.
   - **Withdraw:** `cargo yank --version 0.2.3`, and dependents on `"0.2"` fall back to
     0.2.2. `cargo yank --undo --version 0.2.3` reverses it.
   - **Git rollback:** revert the Phase-1 PR.
+
+**Gates on the candidate, all green** (2026-11-19, `IRRADIANCE_CORPUS_DIR` set):
+- `just test` (above)
+- `lint-ci`
+- `lint-no-allow`
+- `lint-fuzz`
+- `fmt-check`
+- `validate`
+- `doc-check`
+- `deny`, plus `deny-fuzz`
+- `msrv` (1.90.0)
+- `cost-audit`
+- `gate-audit`
+- `name-length-check`
+- `semver-check` (202 of 202)
+- `package-targets-check`
 
 ## Notes for the Implementer
 
