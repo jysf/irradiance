@@ -1438,7 +1438,10 @@ fn main() {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);
     }
-    if let Err(e) = write_seeds("opcode", "bin", opcode::fix_bad_pixels_fuzz_seed_corpus()) {
+    // SPEC-059: the GainMap seeds join the opcode target's corpus.
+    let mut opcode_seeds = opcode::fix_bad_pixels_fuzz_seed_corpus();
+    opcode_seeds.extend(opcode::gain_map_fuzz_seed_corpus());
+    if let Err(e) = write_seeds("opcode", "bin", opcode_seeds) {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);
     }

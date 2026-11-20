@@ -85,6 +85,13 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             CallerError,
         ),
         (
+            Error::GainMapImageWrongLength {
+                expected: 16,
+                actual: 15,
+            },
+            CallerError,
+        ),
+        (
             Error::OutputBufferWrongLength {
                 expected: 16,
                 actual: 15,
@@ -237,6 +244,7 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
         (Error::CyclicIfd { offset: 8 }, Corrupt),
         (Error::IfdDepthExceeded { limit: 8 }, Corrupt),
         (Error::TooManyIfds { limit: 256 }, Corrupt),
+        (Error::TooManyGainMaps { count: 17 }, Corrupt),
         (
             Error::IfdTableBytesExceedFile {
                 declared: 12_288,
@@ -441,8 +449,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        66,
-        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063) classified 66",
+        68,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069) classified 68",
         declared.len()
     );
 
@@ -460,14 +468,15 @@ fn every_variant_classified() {
         .collect();
     assert!(wrong.is_empty(), "misclassified: {wrong:#?}");
 
-    // DEC-051's bucket sizes: 15 / 21 / 30 (DEC-053 added one Corrupt;
+    // DEC-051's bucket sizes: 16 / 21 / 31 (DEC-053 added one Corrupt;
     // DEC-056 one Unsupported and two Corrupt; DEC-057 one of each; DEC-058
     // one Unsupported; DEC-059 and DEC-060 one CallerError each; DEC-061 one
-    // Corrupt; DEC-063 one CallerError).
+    // Corrupt; DEC-063 one CallerError; DEC-069 one CallerError and one
+    // Corrupt).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
-    assert_eq!(count(ErrorKind::CallerError), 15);
+    assert_eq!(count(ErrorKind::CallerError), 16);
     assert_eq!(count(ErrorKind::Unsupported), 21);
-    assert_eq!(count(ErrorKind::Corrupt), 30);
+    assert_eq!(count(ErrorKind::Corrupt), 31);
 }
 
 #[test]

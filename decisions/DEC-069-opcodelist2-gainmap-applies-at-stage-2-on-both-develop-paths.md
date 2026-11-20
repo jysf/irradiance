@@ -229,6 +229,9 @@ above.
 - The Pixel 3a, 4a and 7 Pro develop in colour and in mono. This is the "phone DNGs
   develop" outcome PROJ-004 has carried since STAGE-013.
 - `apply_gain_maps` and `Error::TooManyGainMaps` are additive public API (0.2.x).
+  So is `Error::GainMapImageWrongLength { expected, actual }`, `apply_gain_maps`'s
+  wrong-length buffer error, shaped like the other stage primitives' (a `CallerError`
+  in DEC-051's table). SPEC-059's build added it; its verify recorded it here.
 - `DevelopPath`'s documentation changes: both paths apply every `OpcodeList2` `GainMap`.
 - `DEVELOP_VERSION` is `"6"`.
 - A follow-up is carried for the max-black normalisation.

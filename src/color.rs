@@ -120,7 +120,39 @@ use crate::develop::{
     black_pattern_dims, oriented_dimensions, output_coords_from_crop, resolve_geometry,
 };
 use crate::ifd::{active_area_origin, Rational, Sensor};
+use crate::opcode::GainMaps;
 use crate::Error;
+
+/// Bind `$n` to the resolved stage-2 normaliser for `$levels` and `$gains`
+/// and evaluate `$body` with it (`SPEC-059`). The match on the shapes runs
+/// once, outside every loop, and each arm is its own monomorphisation: with no
+/// `GainMap` the normaliser is exactly the [`slot_normalizer`] or
+/// [`pattern_normalizer`] closure the colour path ran before, so a file
+/// without one gains nothing in the hot loop.
+macro_rules! with_normalizer {
+    ($sensor:expr, $src:expr, $levels:expr, $gains:expr, |$n:ident| $body:expr) => {
+        match ($levels, $gains.is_empty()) {
+            (ColourLevels::Slots(levels), true) => {
+                let $n = slot_normalizer($sensor, $src, levels);
+                $body
+            }
+            (ColourLevels::Pattern(pattern, white), true) => {
+                let $n = pattern_normalizer($sensor, $src, pattern, white);
+                $body
+            }
+            (ColourLevels::Slots(levels), false) => {
+                let inner = slot_normalizer($sensor, $src, levels);
+                let $n = gained_normalizer($sensor, inner, &$gains);
+                $body
+            }
+            (ColourLevels::Pattern(pattern, white), false) => {
+                let inner = pattern_normalizer($sensor, $src, pattern, white);
+                let $n = gained_normalizer($sensor, inner, &$gains);
+                $body
+            }
+        }
+    };
+}
 
 /// Linear sRGB ← CIE XYZ (D65), the IEC 61966-2-1 primaries (sRGB colour space
 /// definition). The inverse of the published XYZ-from-sRGB matrix; its rows map
@@ -203,7 +235,10 @@ const MCCAMY_C0: f64 = 5520.33;
 ///
 /// - Whatever [`crate::opcode::check_required_processing`] returns for
 ///   [`crate::opcode::DevelopPath::Colour`], checked first: a mandatory opcode
-///   in any list ([`Error::UnsupportedRequiredOpcode`] /
+///   in any list other than an `OpcodeList2` `GainMap` (`SPEC-059`; this
+///   primitive takes camera RGB already past stage 2, so a composer applies
+///   the maps first with [`crate::develop::apply_gain_maps`])
+///   ([`Error::UnsupportedRequiredOpcode`] /
 ///   [`Error::UnsupportedMandatoryOpcode`]) or a present-but-unreadable list
 ///   ([`Error::UnreadableOpcodeList`]) refuses (`SPEC-056`, `DEC-053`).
 /// - [`Error::ColorSourceWrongLength`] if `camera_rgb.len() != width·height·3`.
@@ -219,8 +254,9 @@ pub fn to_srgb_linear_into(
     camera_rgb: &[u16],
     dst: &mut [u16],
 ) -> Result<(), Error> {
-    // Camera-referred pixels on the colour path, which applies no opcode:
-    // refuse first, as every colour develop does (`SPEC-056`, `DEC-053`).
+    // Camera-referred pixels on the colour path, which applies only
+    // `OpcodeList2`'s `GainMap`s (`SPEC-059`): refuse first, as every colour
+    // develop does (`SPEC-056`, `DEC-053`).
     check_colour_required_processing(sensor)?;
     let rgb_len = interleaved_rgb_len(sensor)?;
     let expected = usize::try_from(rgb_len).unwrap_or(usize::MAX);
@@ -262,9 +298,11 @@ pub fn to_srgb_linear_into(
 /// pixel is scattered straight into its output slot or dropped. No intermediate
 /// RGB buffer exists. (Before `SPEC-050` the output was the whole
 /// `width·height·3` plane, border included — a contract change, `DEVELOP_VERSION`
-/// 4.) **No opcode is applied on this path** (`WarpRectilinear`,
-/// `FixBadPixelsConstant`, any `OpcodeList`) — so, per `SPEC-054` / `DEC-049`,
-/// a file whose opcode lists carry any **mandatory** opcode is refused with a
+/// 4.) **The one opcode applied on this path is `OpcodeList2`'s `GainMap`**
+/// (`SPEC-059`, `DEC-069`): every one, optional or mandatory, at stage 2 inside
+/// the normaliser, in `ActiveArea` coordinates. No `WarpRectilinear` or
+/// `FixBadPixelsConstant` is applied — so, per `SPEC-054` / `DEC-049`, a file
+/// whose opcode lists carry any other **mandatory** opcode is refused with a
 /// typed error before anything is allocated; optional opcodes are skipped, as
 /// the DNG spec permits.
 ///
@@ -290,8 +328,9 @@ pub fn to_srgb_linear_into(
 /// # Errors
 ///
 /// - [`Error::UnsupportedRequiredOpcode`] (checked first, `SPEC-054`) if any
-///   opcode list carries a mandatory recognized opcode — this path applies
-///   none — or [`Error::UnsupportedMandatoryOpcode`] for a mandatory
+///   opcode list carries a mandatory recognized opcode other than an
+///   `OpcodeList2` `GainMap` — the one opcode this path applies (`SPEC-059`) —
+///   or [`Error::UnsupportedMandatoryOpcode`] for a mandatory
 ///   unrecognized one; [`Error::Truncated`] for a broken opcode list.
 /// - [`Error::ColorSourceWrongLength`] if `src.len() != width·height`.
 /// - [`Error::InvalidActiveArea`] / [`Error::InvalidDefaultCrop`] /
@@ -300,6 +339,8 @@ pub fn to_srgb_linear_into(
 /// - [`Error::RgbBufferWrongLength`] if `dst.len() != out_w·out_h·3`.
 /// - [`Error::InvalidBlackLevelPattern`] if `BlackLevel` has a count other than
 ///   `BlackLevelRepeatDim`'s rows × columns (`DEC-068` §2), before any write.
+/// - [`Error::MalformedOpcodeParams`] `{ id: 9, .. }` or [`Error::TooManyGainMaps`]
+///   for `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069` §3), before any write.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] for a
 ///   non-CFA plane or an unsupported mosaic, or [`Error::MissingColorCalibration`]
 ///   if the colour matrix cannot be built — in that order (CFA before matrix).
@@ -308,18 +349,14 @@ pub fn to_srgb_linear_into(
 pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
     check_colour_required_processing(sensor)?;
     let (expected_src, output) = check_color_buffers(sensor, src.len(), dst.len())?;
-    // The black pattern resolves before any allocation or write (`DEC-068`
-    // §2), and the match on its two shapes runs once, here, not per pixel.
-    match resolve_colour_levels(sensor)? {
-        ColourLevels::Slots(levels) => {
-            let normalize = slot_normalizer(sensor, src, levels);
-            develop_color_u16_with(sensor, expected_src, output, &normalize, dst)
-        }
-        ColourLevels::Pattern(pattern, white) => {
-            let normalize = pattern_normalizer(sensor, src, pattern, white);
-            develop_color_u16_with(sensor, expected_src, output, &normalize, dst)
-        }
-    }
+    // The black pattern and the `GainMap`s resolve before any allocation or
+    // write (`DEC-068` §2, `DEC-069` §3), and the match on their shapes runs
+    // once, here, not per pixel.
+    let levels = resolve_colour_levels(sensor)?;
+    let gains = resolve_colour_gain_maps(sensor)?;
+    with_normalizer!(sensor, src, levels, gains, |normalize| {
+        develop_color_u16_with(sensor, expected_src, output, &normalize, dst)
+    })
 }
 
 /// [`develop_color_into`]'s body for one resolved normalizer.
@@ -390,6 +427,8 @@ fn develop_color_u16_with<N: Fn(u32, u32) -> u16>(
 /// - [`Error::RgbBufferWrongLength`] if `dst.len() != out_w·out_h·3`.
 /// - [`Error::InvalidBlackLevelPattern`] if `BlackLevel` has a count other than
 ///   `BlackLevelRepeatDim`'s rows × columns (`DEC-068` §2), before any write.
+/// - [`Error::MalformedOpcodeParams`] `{ id: 9, .. }` or [`Error::TooManyGainMaps`]
+///   for `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069` §3), before any write.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] /
 ///   [`Error::MissingColorCalibration`], in that order (CFA before matrix).
 ///
@@ -397,18 +436,13 @@ fn develop_color_u16_with<N: Fn(u32, u32) -> u16>(
 pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> Result<(), Error> {
     check_colour_required_processing(sensor)?;
     let (expected_src, output) = check_color_buffers(sensor, src.len(), dst.len())?;
-    // As in `develop_color_into`: resolve the black pattern once, before any
-    // write (`DEC-068` §2).
-    match resolve_colour_levels(sensor)? {
-        ColourLevels::Slots(levels) => {
-            let normalize = slot_normalizer(sensor, src, levels);
-            develop_color_f32_with(sensor, expected_src, output, &normalize, dst)
-        }
-        ColourLevels::Pattern(pattern, white) => {
-            let normalize = pattern_normalizer(sensor, src, pattern, white);
-            develop_color_f32_with(sensor, expected_src, output, &normalize, dst)
-        }
-    }
+    // As in `develop_color_into`: resolve the black pattern and the
+    // `GainMap`s once, before any write (`DEC-068` §2, `DEC-069` §3).
+    let levels = resolve_colour_levels(sensor)?;
+    let gains = resolve_colour_gain_maps(sensor)?;
+    with_normalizer!(sensor, src, levels, gains, |normalize| {
+        develop_color_f32_with(sensor, expected_src, output, &normalize, dst)
+    })
 }
 
 /// [`develop_color_f32_into`]'s body for one resolved normalizer.
@@ -558,7 +592,8 @@ pub fn develop_color_f32_into_threaded(
 }
 
 /// The colour path's required-processing check (`SPEC-054`, `DEC-049`): it
-/// applies no opcode, so any mandatory opcode in any list is refused. Every
+/// applies every `OpcodeList2` `GainMap` (`SPEC-059`, `DEC-069`) and nothing
+/// else, so any other mandatory opcode in any list is refused. Every
 /// public colour entry calls this first, before any allocation or decode.
 fn check_colour_required_processing(sensor: &Sensor) -> Result<(), Error> {
     crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Colour)
@@ -633,18 +668,14 @@ where
     T: Send,
     S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]) + Sync,
 {
-    // Resolved once, before any band runs or `dst` is touched (`DEC-068` §2):
-    // a refused pattern returns here, from the calling thread.
-    match resolve_colour_levels(sensor)? {
-        ColourLevels::Slots(levels) => {
-            let normalize = slot_normalizer(sensor, src, levels);
-            develop_color_bands_with(sensor, &normalize, dst, threads, plan, store)
-        }
-        ColourLevels::Pattern(pattern, white) => {
-            let normalize = pattern_normalizer(sensor, src, pattern, white);
-            develop_color_bands_with(sensor, &normalize, dst, threads, plan, store)
-        }
-    }
+    // Resolved once, before any band runs or `dst` is touched (`DEC-068` §2,
+    // `DEC-069` §3): a refused pattern or `GainMap` returns here, from the
+    // calling thread.
+    let levels = resolve_colour_levels(sensor)?;
+    let gains = resolve_colour_gain_maps(sensor)?;
+    with_normalizer!(sensor, src, levels, gains, |normalize| {
+        develop_color_bands_with(sensor, &normalize, dst, threads, plan, store)
+    })
 }
 
 /// [`develop_color_bands`]' body for one resolved normalizer.
@@ -1281,6 +1312,38 @@ fn apply_matrix_into(m: &[[f64; 3]; 3], camera_rgb: &[u16], dst: &mut [u16]) {
 fn quantize(value: f64) -> u16 {
     let clamped = value.clamp(0.0, 65535.0);
     (clamped + 0.5).floor() as u16
+}
+
+/// `OpcodeList2`'s `GainMap`s for this sensor's `ActiveArea`-sized stage 2
+/// (`SPEC-059`, `DEC-069` §1), or none. The geometry was already validated by
+/// [`check_color_buffers`]; a geometry error here is that same typed error.
+fn resolve_colour_gain_maps(sensor: &Sensor) -> Result<GainMaps<'_>, Error> {
+    let geometry = resolve_geometry(sensor)?;
+    crate::develop::resolve_gain_maps(sensor, geometry.active_width, geometry.active_height)
+}
+
+/// `inner` (a level normaliser over raw-plane coordinates) followed by
+/// `gains` at stage 2 (`DEC-069` §1): `(x, y)` maps to `(r, c) = (y − top,
+/// x − left)` from the `ActiveArea` origin. A read outside the `ActiveArea`
+/// (the demosaic's reflected border, or a masked photosite) is not part of
+/// stage 2 and is left at its normalised value.
+fn gained_normalizer<'a, N>(
+    sensor: &Sensor,
+    inner: N,
+    gains: &'a GainMaps<'a>,
+) -> impl Fn(u32, u32) -> u16 + Sync + 'a
+where
+    N: Fn(u32, u32) -> u16 + Sync + 'a,
+{
+    let (top, left) = active_area_origin(sensor);
+    move |x: u32, y: u32| -> u16 {
+        let v = inner(x, y);
+        match (y.checked_sub(top), x.checked_sub(left)) {
+            // `apply` leaves a sample past the bottom or right edge unchanged.
+            (Some(r), Some(c)) => gains.apply(r, c, v),
+            _ => v,
+        }
+    }
 }
 
 /// The colour path's resolved levels, in one of two shapes (`SPEC-075`,

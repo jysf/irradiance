@@ -10,6 +10,25 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **`OpcodeList2` `GainMap` is applied on both develop paths** (SPEC-059, STAGE-016,
+  PROJ-004, DEC-069). Every `GainMap` (OpcodeID 9) in `OpcodeList2`, optional or
+  mandatory, is applied at stage 2: after the black and white levels, in `ActiveArea`
+  coordinates, before `WarpRectilinear` (mono), demosaic (colour), `DefaultCrop` and
+  `Orientation`. Each map is sampled at pixel centres with bilinear interpolation in
+  `f64`, its indices clamped at the grid edge, and each result is clipped at white and
+  rounded to `u16` before the next map. The required-processing check accepts every
+  `GainMap` in `OpcodeList2` on both paths, so the Pixel 3a, 4a and 7 Pro, refused
+  before with `UnsupportedMandatoryOpcode { id: 9 }`, now develop in colour and mono.
+  A `GainMap` in `OpcodeList1` or `OpcodeList3` is now a recognised opcode: mandatory,
+  it is `UnsupportedRequiredOpcode`.
+- **`develop::apply_gain_maps`** (SPEC-059, DEC-069 §4), a stage primitive that applies
+  every `GainMap` in an `OpcodeList2` byte stream to an `ActiveArea`-sized normalised
+  image and returns how many it held.
+- **`Opcode::GainMap`**, **`Error::TooManyGainMaps { count }`** (more than 16 maps in
+  one list, `Corrupt`) and **`Error::GainMapImageWrongLength { expected, actual }`**
+  (`apply_gain_maps`'s buffer, `CallerError`). A malformed `GainMap` is
+  `MalformedOpcodeParams { id: 9, .. }`, reported before any write.
+
 - **`Sensor::black_levels_exact` and `Sensor::masked_areas`** (SPEC-075, STAGE-023,
   PROJ-004, DEC-068). `black_levels_exact` holds a `RATIONAL` `BlackLevel` exactly as
   written, as `Rational`s in file order, and is empty for SHORT or LONG. `masked_areas`
@@ -35,6 +54,11 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   byte-identical.
 
 ### Changed
+
+- **`DEVELOP_VERSION` is `"6"`** (SPEC-059, DEC-069 §5). A file whose `OpcodeList2`
+  holds only optional `GainMap`s developed before with them skipped and now develops
+  with them applied. No held file's output changes: the only held files with a
+  `GainMap` were refused before.
 
 - **The colour develop refuses a `BlackLevel` whose count disagrees with
   `BlackLevelRepeatDim`** (SPEC-075, DEC-068 §2). All four colour entry points return

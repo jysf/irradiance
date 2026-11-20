@@ -190,6 +190,28 @@ fn prepare(
     }
 }
 
+/// `n` mandatory `GainMap`s (`SPEC-059`), each a 2×2 grid at pitch 2 over the
+/// whole image, one per Bayer phase in turn, gains above and below 1.
+fn gain_map_list(n: u32) -> Vec<u8> {
+    let ops: Vec<Vec<u8>> = (0..n)
+        .map(|k| {
+            let mut p = Vec::new();
+            for v in [k / 2 % 2, k % 2, 6, 7, 0, 1, 2, 2, 2, 2] {
+                p.extend_from_slice(&v.to_be_bytes());
+            }
+            for v in [1.0f64, 1.0, 0.0, 0.0] {
+                p.extend_from_slice(&v.to_be_bytes());
+            }
+            p.extend_from_slice(&1u32.to_be_bytes());
+            for g in [1.5f32, 0.75, 1.25, 2.0] {
+                p.extend_from_slice(&g.to_be_bytes());
+            }
+            opcode_support::raw_opcode(9, 0x0103_0000, 0, &p)
+        })
+        .collect();
+    opcode_support::opcode_list(&ops)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
@@ -307,6 +329,32 @@ fn scratch_develop_allocates_nothing() {
     malformed_params.expect_ok = false;
     let malformed_params_index = calls.len();
     calls.push(malformed_params);
+
+    // `SPEC-059`: `OpcodeList2`'s `GainMap`s resolve into a fixed array and
+    // apply per sample, so a develop with them still allocates nothing — with
+    // and without the other two opcodes, at a tiled orientation, and on the
+    // over-cap refusal.
+    for (fbp, warp) in [(false, false), (true, true)] {
+        for orientation in [1, 6] {
+            for framing in [Framing::StandardCrop, Framing::FullActiveArea] {
+                let mut sensor = case_sensor(fbp, warp, orientation);
+                sensor.opcode_list_2 = Some(gain_map_list(4));
+                calls.push(prepare(
+                    format!(
+                        "GainMap x4, fbp {fbp} warp {warp} orientation {orientation} {framing:?}"
+                    ),
+                    sensor,
+                    opts(framing, 1.0, true),
+                    0,
+                ));
+            }
+        }
+    }
+    let mut over_cap = case_sensor(false, false, 1);
+    over_cap.opcode_list_2 = Some(gain_map_list(17));
+    let mut over_cap = prepare("17 GainMaps".into(), over_cap, DevelopOptions::default(), 0);
+    over_cap.expect_ok = false;
+    calls.push(over_cap);
 
     let mut counts: Vec<(Result<(), Error>, usize)> = Vec::with_capacity(calls.len());
     for call in calls.iter_mut() {
@@ -513,6 +561,24 @@ fn opcode_lookups_allocate_nothing() {
         *slot = allocations;
     }
     assert_eq!(counts, vec![0; lists.len()], "per-list allocation counts");
+}
+
+/// `SPEC-059`: the public `GainMap` applier allocates nothing, on success and
+/// on the over-cap refusal.
+#[test]
+fn apply_gain_maps_allocates_nothing() {
+    let four = gain_map_list(4);
+    let seventeen = gain_map_list(17);
+    let mut image = vec![1000u16; 6 * 7];
+    let (result, allocations, _) =
+        counted(|| irradiance::develop::apply_gain_maps(&mut image, 7, 6, &four));
+    assert_eq!(result.unwrap(), 4);
+    assert_eq!(allocations, 0, "four GainMaps allocated");
+    assert_ne!(image, vec![1000u16; 6 * 7], "the maps applied");
+    let (result, allocations, _) =
+        counted(|| irradiance::develop::apply_gain_maps(&mut image, 7, 6, &seventeen));
+    assert!(matches!(result, Err(Error::TooManyGainMaps { count: 17 })));
+    assert_eq!(allocations, 0, "the refusal allocated");
 }
 
 #[test]

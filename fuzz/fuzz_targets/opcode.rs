@@ -39,11 +39,19 @@
 //! walkers `parse_warp_rectilinear` and `parse_fix_bad_pixels_constant` must
 //! return exactly what `parse_opcode_list` followed by `find_map` returns,
 //! errors included (compared by `Debug`).
+//!
+//! `SPEC-059` adds `GainMap` (`DEC-069`): the same bytes, as an
+//! `OpcodeList2`, go through `develop::apply_gain_maps` on a small image whose
+//! size the input picks, and the seed corpus gains a hostile variant of every
+//! `DEC-069` §3 class (`tests/support/opcode.rs::gain_map_fuzz_seed_corpus`).
+//! Because the check above runs the bytes in every list slot, `GainMap` IDs
+//! reach the required-processing check in all three lists.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 
+use irradiance::develop::apply_gain_maps;
 use irradiance::opcode::{
     parse_fix_bad_pixels_constant, parse_opcode_list, parse_warp_rectilinear, Opcode,
 };
@@ -114,6 +122,28 @@ fuzz_target!(|data: &[u8]| {
         format!("{reference_warp:?}"),
         "parse_warp_rectilinear differs from parse_opcode_list + find_map"
     );
+
+    // SPEC-059: the GainMap applier on a 1..=16 × 1..=16 image. Whenever the
+    // typed parse succeeds, the applier must too (or refuse only the 17th+
+    // map) and report exactly the parsed GainMap count; the output stays in
+    // range by its type, so the only other check is "no panic".
+    let width = 1 + u32::from(data.first().copied().unwrap_or(0) % 16);
+    let height = 1 + u32::from(data.last().copied().unwrap_or(0) % 16);
+    let mut image: Vec<u16> = (0..width * height).map(|i| (i * 4099) as u16).collect();
+    let applied = apply_gain_maps(&mut image, width, height, data);
+    if let Ok(opcodes) = &parsed {
+        let maps = opcodes
+            .iter()
+            .filter(|op| matches!(op, Opcode::GainMap { .. }))
+            .count();
+        match applied {
+            Ok(n) => assert_eq!(n, maps, "apply_gain_maps count differs from the parse"),
+            Err(Error::TooManyGainMaps { count }) => {
+                assert!(maps > 16 && count as usize == maps, "cap: {count} vs {maps}")
+            }
+            Err(e) => panic!("the parse accepted a list apply_gain_maps refused: {e:?}"),
+        }
+    }
 
     for slot in 0..3 {
         let mut lists: [Option<&[u8]>; 3] = [None; 3];

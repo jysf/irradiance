@@ -98,7 +98,7 @@ later without breaking callers, and `Error` stays `#[non_exhaustive]` and unchan
 stays the one reference):* `UnreadableOpcodeList` → **`Corrupt`** (`DEC-053`,
 `SPEC-056`, 0.2.1), making `Corrupt` 26 and the enum 56. `UnsupportedTileRowBits` →
 **`Unsupported`**, `InvalidTileLayout` and `StripsAndTiles` → **`Corrupt`** (`DEC-056`,
-`SPEC-058`), making `Unsupported` 19, `Corrupt` 28 and the enum 59.
+`SPEC-058`), making `Unsupported` 19, `Corrupt` 28 and the enum 59. `TooManyGainMaps` → **`Corrupt`** (like `TooManyIfds`) and `GainMapImageWrongLength` → **`CallerError`** (`DEC-069`, `SPEC-059`), making the enum 68 (the decisions between them, recorded in `tests/error_kind.rs`'s count, took it to 66).
 
 The build must re-derive this table against the live enum and pin **every** variant in
 a test (one representative constructed per variant, asserted to the kind above); the

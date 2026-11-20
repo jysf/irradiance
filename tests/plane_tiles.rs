@@ -12,9 +12,10 @@
 //! a sentinel rather than a plausible value.
 //!
 //! Tier B (`pixel_files_*`): the three Pixel phone DNGs, bit-exact against the
-//! manifest's pinned `dnglab --raw-checksum`, and still refused at develop for
-//! their mandatory `OpcodeList2` GainMaps (`DEC-049`). Each skips loudly by name
-//! when the corpus is absent (`DEC-003`).
+//! manifest's pinned `dnglab --raw-checksum`, and developing on both paths with
+//! their mandatory `OpcodeList2` GainMaps applied (`SPEC-059`, `DEC-069`; they
+//! were refused under `DEC-049` before). Each skips loudly by name when the
+//! corpus is absent (`DEC-003`).
 //!
 //! The window red-proof (AC7) lives with the copy-and-rebuild apparatus in
 //! `tests/plane_oracle.rs` (`window_clip_red_proof`).
@@ -886,32 +887,31 @@ fn pixel_files_unpack_bit_exact() {
     }
 }
 
+/// `SPEC-059` (`DEC-069`): the Pixels' mandatory `OpcodeList2` GainMaps are
+/// now applied on both develop paths, so each file develops `Ok` where it was
+/// refused with `UnsupportedMandatoryOpcode { id: 9 }` before. The develop
+/// pins and the SDK cross-check are `SPEC-060`'s.
 #[test]
-fn pixel_files_develop_refuses_mandatory_gainmap() {
+fn pixel_files_develop_with_gainmap_applied() {
     use irradiance::color::develop_color_into;
-    use irradiance::develop::develop_into;
+    use irradiance::develop::{develop_into, output_dimensions};
 
     for (path, bytes, _) in present_pixel_files() {
         let container = Container::parse(&bytes).unwrap();
         let sensor = container.sensor().unwrap();
-        // The plane decodes now (AC3); develop must still refuse (DEC-049):
-        // OpcodeList2 carries mandatory GainMaps no develop path applies.
+        assert!(
+            sensor.opcode_list_2.is_some(),
+            "{path}: carries OpcodeList2"
+        );
         let plane = decode(&bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
-        let mut out: Vec<u16> = Vec::new();
-        for (label, result) in [
-            ("colour", develop_color_into(&sensor, &plane, &mut out)),
-            ("mono", develop_into(&sensor, &plane, &mut out)),
-        ] {
-            let err = result.expect_err(&format!("{path}: {label} develop must refuse"));
-            // GainMap is opcode 9 (DNG 1.7 §6). This reader does not model it,
-            // so the mandatory-flag check refuses it as an unrecognized
-            // mandatory opcode (DEC-049), Unsupported-kind.
-            assert!(
-                matches!(err, Error::UnsupportedMandatoryOpcode { id: 9 }),
-                "{path}: {label} develop gave {err:?}, expected the mandatory GainMap refusal"
-            );
-            assert_eq!(err.kind(), ErrorKind::Unsupported);
-        }
+        let (w, h) = output_dimensions(&sensor).unwrap();
+        let mut rgb = vec![0u16; w as usize * h as usize * 3];
+        develop_color_into(&sensor, &plane, &mut rgb)
+            .unwrap_or_else(|e| panic!("{path}: colour develop: {e:?}"));
+        let mut mono = vec![0u16; w as usize * h as usize];
+        develop_into(&sensor, &plane, &mut mono)
+            .unwrap_or_else(|e| panic!("{path}: mono develop: {e:?}"));
+        eprintln!("PIXEL DEVELOPS ({path}): {w}x{h}, colour and mono");
     }
 }
 

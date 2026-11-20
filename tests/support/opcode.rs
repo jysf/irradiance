@@ -205,6 +205,100 @@ pub fn fix_bad_pixels_fuzz_seed_corpus() -> Vec<(&'static str, Vec<u8>)> {
     seeds
 }
 
+/// One `GainMap` parameter block (`SPEC-059`, DNG 1.7.0.0 Chapter 7,
+/// `OpcodeID` 9): the ten `u32` header fields (`Top, Left, Bottom, Right,
+/// Plane, Planes, RowPitch, ColPitch, MapPointsV, MapPointsH`), the four
+/// `f64` (`MapSpacingV, MapSpacingH, MapOriginV, MapOriginH`), `MapPlanes`,
+/// then `gains` as `f32`, all big-endian. `gains` is written as given, so a
+/// fixture can disagree with the header on purpose.
+pub fn gain_map_params(
+    header: [u32; 10],
+    floats: [f64; 4],
+    map_planes: u32,
+    gains: &[f32],
+) -> Vec<u8> {
+    let mut p = Vec::new();
+    for v in header {
+        p.extend_from_slice(&v.to_be_bytes());
+    }
+    for v in floats {
+        p.extend_from_slice(&v.to_be_bytes());
+    }
+    p.extend_from_slice(&map_planes.to_be_bytes());
+    for g in gains {
+        p.extend_from_slice(&g.to_be_bytes());
+    }
+    p
+}
+
+/// The `opcode` fuzz target's `GainMap` seeds (`SPEC-059`): one valid
+/// Pixel-shaped list (four phase maps, pitch 2) and a hostile variant for each
+/// `DEC-069` §3 class, plus an area outside the image, `Plane` 1, and 17 maps.
+/// Shared with `tests/gain_map.rs::gain_map_fuzz_seeds_do_not_panic`.
+pub fn gain_map_fuzz_seed_corpus() -> Vec<(&'static str, Vec<u8>)> {
+    // A 2×2 map over a 6×8 area at pitch 2, phase (top, left).
+    let header = |top: u32, left: u32| [top, left, 6, 8, 0, 1, 2, 2, 2, 2];
+    let floats = [1.0, 1.0, 0.0, 0.0];
+    let gains = [1.5f32, 0.75, 1.25, 3.0];
+    let op = |params: Vec<u8>| raw_opcode(9, 0x0103_0000, 0, &params);
+    let one =
+        |h: [u32; 10], f: [f64; 4], g: &[f32]| opcode_list(&[op(gain_map_params(h, f, 1, g))]);
+
+    let pixel = opcode_list(
+        &[(0, 0), (0, 1), (1, 0), (1, 1)]
+            .map(|(t, l)| op(gain_map_params(header(t, l), floats, 1, &gains))),
+    );
+    let mut huge = header(0, 0);
+    (huge[8], huge[9]) = (u32::MAX, u32::MAX);
+    let mut zero_pitch = header(0, 0);
+    zero_pitch[6] = 0;
+    let mut zero_points = header(0, 0);
+    zero_points[8] = 0;
+    let mut outside = header(0, 0);
+    (outside[0], outside[2]) = (1000, 1010);
+    let mut plane_1 = header(0, 0);
+    plane_1[4] = 1;
+    vec![
+        ("gainmap-pixel-four-phases", pixel),
+        ("gainmap-huge-grid-short-block", one(huge, floats, &gains)),
+        ("gainmap-zero-pitch", one(zero_pitch, floats, &gains)),
+        ("gainmap-zero-points", one(zero_points, floats, &[])),
+        (
+            "gainmap-nan-spacing",
+            one(header(0, 0), [f64::NAN, 1.0, 0.0, 0.0], &gains),
+        ),
+        (
+            "gainmap-inf-spacing",
+            one(header(0, 0), [1.0, f64::INFINITY, 0.0, 0.0], &gains),
+        ),
+        (
+            "gainmap-negative-spacing",
+            one(header(0, 0), [-0.5, 1.0, 0.0, 0.0], &gains),
+        ),
+        (
+            "gainmap-inf-origin",
+            one(header(0, 0), [1.0, 1.0, f64::NEG_INFINITY, 0.0], &gains),
+        ),
+        (
+            "gainmap-nan-gain",
+            one(header(0, 0), floats, &[1.0, f32::NAN, 1.0, 1.0]),
+        ),
+        (
+            "gainmap-inf-gain",
+            one(header(0, 0), floats, &[1.0, 1.0, f32::INFINITY, 1.0]),
+        ),
+        ("gainmap-area-outside-image", one(outside, floats, &gains)),
+        ("gainmap-plane-1", one(plane_1, floats, &gains)),
+        (
+            "gainmap-seventeen-maps",
+            opcode_list(&vec![
+                op(gain_map_params(header(0, 0), floats, 1, &gains));
+                17
+            ]),
+        ),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

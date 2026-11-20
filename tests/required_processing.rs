@@ -1106,3 +1106,202 @@ fn unreadable_opcode_list_is_corrupt_and_displays_the_list() {
         assert!(msg.contains("unreadable"), "{msg}");
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `SPEC-059`, `DEC-069`: both paths apply EVERY `GainMap` (id 9) in
+// `OpcodeList2`, and recognise it (as not applied) in lists 1 and 3.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ID_GAIN_MAP: u32 = 9;
+
+/// A 1×1 `GainMap` of constant `gain` over the whole image (an empty area),
+/// pitch 1: the 76-byte header plus one `f32`.
+fn gain_map_params(gain: f32, row_pitch: u32) -> Vec<u8> {
+    let mut p = Vec::new();
+    // Top, Left, Bottom, Right, Plane, Planes, RowPitch, ColPitch, points.
+    for v in [0u32, 0, 0, 0, 0, 1, row_pitch, 1, 1, 1] {
+        p.extend_from_slice(&v.to_be_bytes());
+    }
+    for v in [1.0f64, 1.0, 0.0, 0.0] {
+        p.extend_from_slice(&v.to_be_bytes());
+    }
+    p.extend_from_slice(&1u32.to_be_bytes());
+    p.extend_from_slice(&gain.to_be_bytes());
+    p
+}
+
+fn gain_map(flags: u32) -> Vec<u8> {
+    raw_opcode(ID_GAIN_MAP, 0x0103_0000, flags, &gain_map_params(1.0, 1))
+}
+
+/// Four mandatory maps: the Pixel shape.
+fn four_gain_maps() -> Option<Vec<u8>> {
+    list(&[
+        gain_map(MANDATORY),
+        gain_map(MANDATORY),
+        gain_map(MANDATORY),
+        gain_map(MANDATORY),
+    ])
+}
+
+#[test]
+fn four_mandatory_gain_maps_in_list_2_develop_on_both_paths() {
+    mono([None, four_gain_maps(), None]).expect("mono");
+    // With the Q2-Mono's own applied opcodes beside them.
+    mono([
+        list(&[fbpc(MANDATORY)]),
+        four_gain_maps(),
+        list(&[warp(MANDATORY)]),
+    ])
+    .expect("mono, all three lists");
+    for entry in COLOUR_ENTRIES {
+        colour(entry, [None, four_gain_maps(), None])
+            .unwrap_or_else(|e| panic!("{entry:?}: four GainMaps must develop, got {e:?}"));
+    }
+    for path in [DevelopPath::Mono, DevelopPath::Colour] {
+        let (sensor, _) = fixture(path == DevelopPath::Colour, [None, four_gain_maps(), None]);
+        check_required_processing(&sensor, path).expect("the public check agrees");
+    }
+}
+
+#[test]
+fn mandatory_gain_map_in_list_1_or_3_is_a_required_opcode_on_both_paths() {
+    let l = || list(&[gain_map(MANDATORY)]);
+    assert_required(mono([l(), None, None]), 1, ID_GAIN_MAP);
+    assert_required(mono([None, None, l()]), 3, ID_GAIN_MAP);
+    for entry in COLOUR_ENTRIES {
+        assert_required(colour(entry, [l(), None, None]), 1, ID_GAIN_MAP);
+        assert_required(colour(entry, [None, None, l()]), 3, ID_GAIN_MAP);
+    }
+    // Optional, it is skippable there like any opcode.
+    let opt = || list(&[gain_map(OPTIONAL)]);
+    mono([opt(), None, opt()]).expect("optional GainMap in lists 1 and 3");
+}
+
+#[test]
+fn unknown_mandatory_opcode_beside_gain_maps_keeps_its_error() {
+    let l2 = || list(&[gain_map(MANDATORY), unknown(MANDATORY), gain_map(MANDATORY)]);
+    assert_mandatory_unknown(mono([None, l2(), None]), ID_UNKNOWN);
+    for entry in COLOUR_ENTRIES {
+        assert_mandatory_unknown(colour(entry, [None, l2(), None]), ID_UNKNOWN);
+    }
+    // Any other recognised mandatory opcode in list 2 is still refused.
+    let l2 = || list(&[gain_map(MANDATORY), fbpc(MANDATORY)]);
+    assert_required(mono([None, l2(), None]), 2, ID_FBPC);
+    for entry in COLOUR_ENTRIES {
+        assert_required(colour(entry, [None, l2(), None]), 2, ID_FBPC);
+    }
+}
+
+/// Every develop entry on a fixture whose `OpcodeList2` is `l2`, each into a
+/// sentinel-filled `dst`. Returns each entry's result and whether its `dst`
+/// is still all sentinel.
+fn every_entry_with_sentinel(l2: Vec<u8>) -> Vec<(String, Result<(), Error>, bool)> {
+    use irradiance::develop::{develop_with_into, develop_with_scratch_into, scratch_len};
+    use irradiance::develop::{DevelopOptions, Framing};
+    const S: u16 = 0xBEEF;
+    const SF: f32 = -3.0;
+    let mut out = Vec::new();
+    let (sensor, plane) = fixture(false, [None, Some(l2.clone()), None]);
+    let mut dst = vec![S; out_len(&sensor, 1)];
+    let r = develop_into(&sensor, &plane, &mut dst);
+    out.push(("develop_into".into(), r, dst.iter().all(|&v| v == S)));
+    for framing in [Framing::StandardCrop, Framing::FullActiveArea] {
+        let mut o = DevelopOptions::default();
+        o.framing = framing;
+        let mut dst = vec![S; out_len(&sensor, 1)];
+        let r = develop_with_into(&sensor, &plane, &mut dst, &o);
+        out.push((
+            format!("develop_with_into {framing:?}"),
+            r,
+            dst.iter().all(|&v| v == S),
+        ));
+        let mut scratch = vec![S; scratch_len(&sensor, &o).expect("scratch_len")];
+        let mut dst = vec![S; out_len(&sensor, 1)];
+        let r = develop_with_scratch_into(&sensor, &plane, &mut dst, &mut scratch, &o);
+        out.push((
+            format!("develop_with_scratch_into {framing:?}"),
+            r,
+            dst.iter().all(|&v| v == S) && scratch.iter().all(|&v| v == S),
+        ));
+    }
+    let (sensor, plane) = fixture(true, [None, Some(l2), None]);
+    let n = out_len(&sensor, 3);
+    for entry in COLOUR_ENTRIES {
+        let (r, untouched) = match entry {
+            ColourEntry::U16 | ColourEntry::U16Threaded => {
+                let mut dst = vec![S; n];
+                let r = if matches!(entry, ColourEntry::U16) {
+                    develop_color_into(&sensor, &plane, &mut dst)
+                } else {
+                    develop_color_into_threaded(&sensor, &plane, &mut dst, 4)
+                };
+                (r, dst.iter().all(|&v| v == S))
+            }
+            ColourEntry::F32 | ColourEntry::F32Threaded => {
+                let mut dst = vec![SF; n];
+                let r = if matches!(entry, ColourEntry::F32) {
+                    develop_color_f32_into(&sensor, &plane, &mut dst)
+                } else {
+                    develop_color_f32_into_threaded(&sensor, &plane, &mut dst, 4)
+                };
+                (r, dst.iter().all(|&v| v == SF))
+            }
+        };
+        out.push((format!("{entry:?}"), r, untouched));
+    }
+    out
+}
+
+#[test]
+fn seventeen_gain_maps_are_refused_by_every_entry_with_dst_untouched() {
+    let ops: Vec<Vec<u8>> = (0..17).map(|_| gain_map(MANDATORY)).collect();
+    let results = every_entry_with_sentinel(opcode_list(&ops));
+    assert_eq!(results.len(), 9);
+    for (label, r, untouched) in results {
+        assert!(
+            matches!(r, Err(Error::TooManyGainMaps { count: 17 })),
+            "{label}: expected TooManyGainMaps {{ count: 17 }}, got {r:?}"
+        );
+        assert!(untouched, "{label}: dst was written");
+    }
+    // Sixteen is the cap, not over it.
+    let ops: Vec<Vec<u8>> = (0..16).map(|_| gain_map(OPTIONAL)).collect();
+    for (label, r, _) in every_entry_with_sentinel(opcode_list(&ops)) {
+        r.unwrap_or_else(|e| panic!("{label}: sixteen GainMaps must develop, got {e:?}"));
+    }
+}
+
+#[test]
+fn malformed_gain_map_is_refused_by_every_entry_with_dst_untouched() {
+    // RowPitch 0, the rest well formed; and one byte short.
+    let zero_pitch = gain_map_params(1.0, 0);
+    let mut short = gain_map_params(1.0, 1);
+    short.pop();
+    for params in [zero_pitch, short] {
+        let size = u32::try_from(params.len()).unwrap();
+        let l2 = opcode_list(&[
+            gain_map(MANDATORY),
+            raw_opcode(ID_GAIN_MAP, 0x0103_0000, OPTIONAL, &params),
+        ]);
+        for (label, r, untouched) in every_entry_with_sentinel(l2) {
+            assert!(
+                matches!(r, Err(Error::MalformedOpcodeParams { id: 9, declared_size }) if declared_size == size),
+                "{label}: expected MalformedOpcodeParams {{ id: 9, declared_size: {size} }}, got {r:?}"
+            );
+            assert!(untouched, "{label}: dst was written");
+        }
+    }
+}
+
+#[test]
+fn too_many_gain_maps_is_corrupt_and_displays_the_count() {
+    let e = Error::TooManyGainMaps { count: 17 };
+    assert_eq!(e.kind(), ErrorKind::Corrupt);
+    assert!(e.to_string().contains("17"), "{e}");
+    let e = Error::GainMapImageWrongLength {
+        expected: 12,
+        actual: 11,
+    };
+    assert_eq!(e.kind(), ErrorKind::CallerError);
+}

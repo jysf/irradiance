@@ -219,8 +219,9 @@ impl BayerPhase {
 /// # Errors
 ///
 /// - Whatever [`crate::opcode::check_required_processing`] returns for
-///   [`crate::opcode::DevelopPath::Colour`], checked first: this path applies
-///   no opcode, so a mandatory opcode in any list is
+///   [`crate::opcode::DevelopPath::Colour`], checked first: that path applies
+///   only `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069`), so any other
+///   mandatory opcode in any list is
 ///   [`Error::UnsupportedRequiredOpcode`] /
 ///   [`Error::UnsupportedMandatoryOpcode`], and a present-but-unreadable list
 ///   is [`Error::UnreadableOpcodeList`] (`SPEC-056`, `DEC-053`).
@@ -238,7 +239,8 @@ impl BayerPhase {
 /// saturating/checked operations whose inputs are provably far from `i32`'s
 /// range at 16-bit sample depth.
 pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
-    // The colour path applies no opcode, so refuse a file whose declared
+    // The colour path applies only `OpcodeList2`'s `GainMap`s, at stage 2,
+    // before this primitive's input (`SPEC-059`); refuse a file whose declared
     // processing it would skip, before anything else (`SPEC-056`, `DEC-053`).
     crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Colour)?;
     let cfa = sensor
