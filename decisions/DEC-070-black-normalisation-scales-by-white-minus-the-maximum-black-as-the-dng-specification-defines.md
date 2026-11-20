@@ -73,6 +73,15 @@ byte-identically, because `B = b` there.
 A plane is malformed when `W ≤ B`. This is the existing `Error::InvalidLevels` check, now
 made against the maximum black rather than the first or per-position one.
 
+**Amended at SPEC-078's ship (2026-11-20), from its verify ruling.** The refusal applies
+where a levels check already exists, which is mono `PerPosition`. The colour path has never
+refused levels: `normalize_sample` was total by design, and the colour entries' `# Errors`
+never listed `InvalidLevels`. So on colour, `W ≤ B` gives a range of 0 and every sample
+develops to 0, never a panic. One consequence: a malformed colour file whose largest black
+reaches white, but whose other blacks are below it, used to develop those positions and
+now develops entirely to 0. Whether colour should refuse such levels, as mono does, is a
+carried follow-up (a behaviour change needing its own spec).
+
 ### 4. `DEVELOP_VERSION` goes from 6 to 7
 
 Output changes for any file with position-varying blacks, on the colour path and on mono

@@ -58,7 +58,7 @@ handback:
   pr: 276
   completed_at: 2026-11-20         # YYYY-MM-DD
   notes: "APPROVED at 23ece24 (PR 276 head). Item 3 ruled an acceptable reading of DEC-070 section 3, to be recorded as an amendment at ship; FU-1 colour levels refusal, FU-2 tier-A colour fixture with the maximum black not last. Tokens are a floor from transcript ad04463f-192f-4249-9efc-b8e3e628fb47.jsonl taken before the commit and push turns; 66 message ids, no subagents."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-20
 ---
 
 # HANDOFF-168: VERIFY: black normalisation scales by white minus the maximum black (SPEC-078)

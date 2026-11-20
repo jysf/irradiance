@@ -1761,3 +1761,17 @@ signals:
       Sibling discipline for builders and verifiers: read each mutant's panic message,
       because both STAGE-023 builds hit a mutant that went red for the wrong reason or
       never reached its path. Codify as a spec-template checklist line at N=3.
+  - id: a-changed-formula-lists-every-assertion-it-moves
+    type: lesson
+    summary: "When a spec changes or removes a behaviour, the design greps every test that encodes it (pins, refusal tests and hand-written oracles), and lists them all in the spec as pre-approved moves. A short list stops the build for approval mid-cycle."
+    evidence: "N=2. SPEC-059 (STAGE-016): the design named one refusal test to rewrite and missed a second (develop_options.rs's Pixel loop), found by the build's corpus run. SPEC-078 (STAGE-025): AC5 listed the corpus pins and the Canon test, but thirteen tier-A oracles also encoded the per-position white-minus-black denominator; the build stopped once for approval."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-20
+    last_touched: 2026-11-20
+    raised_by: claude
+    notes: |
+      Candidate codification at N=3: a spec-template line under Failing Tests asking the
+      designer to run the full tier-A suite against a throwaway implementation of the new
+      rule and list every assertion that goes red, as SPEC-078's builder suggested.
