@@ -69,6 +69,13 @@ refused or developed with a wrong black or a skipped `GainMap`.
   `Error::InvalidBlackLevelPattern` before writing to `dst`, as the mono `PerPosition`
   develop already did. An absent repeat dim means `[1, 1]`; an empty `BlackLevel` still
   develops with black 0.
+- **Every develop refuses an `OpcodeList2` `GainMap` it cannot apply, optional or not**
+  (SPEC-059, DEC-069 §3). 0.2.2 skipped an optional `GainMap` unread, so a file whose
+  optional `GainMap` has malformed parameters, or whose `OpcodeList2` holds more than 16
+  `GainMap`s, developed then; it is now refused with `MalformedOpcodeParams { id: 9, .. }`
+  or `TooManyGainMaps` before any write. A malformed mandatory `GainMap` was
+  `UnsupportedMandatoryOpcode { id: 9 }` and is now `MalformedOpcodeParams`. No held file
+  is affected.
 - **`DEVELOP_VERSION` goes from `"4"` to `"6"`** (SPEC-075, DEC-068 §4, then SPEC-059,
   DEC-069 §5). Output changes for a file with a fractional black, for a colour file with
   a `[1, 2]`, `[2, 1]` or larger black pattern, and for a file whose `OpcodeList2` holds

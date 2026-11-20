@@ -48,8 +48,9 @@ It is deliberately a **library, not an application**
 > an allocation-free develop with caller-owned scratch, and zero-copy access to
 > embedded previews. 0.2.3 applies `OpcodeList2` `GainMap`s on both develop
 > paths, so the Google Pixel 3a, 4a and 7 Pro DNGs develop, and reads a
-> fractional `BlackLevel` and a colour `BlackLevelRepeatDim` correctly. Size the plane buffer with `plane::validate` first: it
-> checks the layout and your own pixel budget before you allocate. See
+> fractional `BlackLevel` and a colour `BlackLevelRepeatDim` correctly. Size
+> the plane buffer with `plane::validate` first: it checks the layout and your
+> own pixel budget before you allocate. See
 > [tested DNG modes](#tested-dng-modes), [`CHANGELOG.md`](CHANGELOG.md) and
 > [Scope](#scope-and-roadmap).
 

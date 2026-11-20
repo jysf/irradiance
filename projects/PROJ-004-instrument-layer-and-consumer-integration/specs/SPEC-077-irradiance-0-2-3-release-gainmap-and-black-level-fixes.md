@@ -80,9 +80,10 @@ user tags and runs `cargo publish`, as with 0.2.2 (SPEC-073).
 - **Why it is compatible: the design's mechanical check.** `cargo semver-checks
   check-release --baseline-version 0.2.2 --all-features` was run at `b515520` and reports
   "202 checks: 202 pass, 58 skip … no semver update required". The new `Error` variants
-  (`InvalidBlackLevelPattern`, `TooManyGainMaps`, `GainMapImageWrongLength`), the new
-  `Opcode::GainMap`, and the new `Sensor` fields all sit on `#[non_exhaustive]` types.
-  Every addition is appended last.
+  (`TooManyGainMaps`, `GainMapImageWrongLength`), the new `Opcode::GainMap`, and the
+  new `Sensor` fields all sit on `#[non_exhaustive]` types. Every addition is appended
+  last. (Verify correction: the design listed `InvalidBlackLevelPattern` as new here; it
+  shipped in 0.2.2, SPEC-066.)
 - **Behaviour changes, called out in the notes (they don't break the API):**
   - **`DEVELOP_VERSION` goes from `"4"` to `"6"`.** Callers who cache developed pixels
     keyed on it re-develop. No held file's output changed.
@@ -166,9 +167,9 @@ absent. Edited against the final CHANGELOG, SPEC ids dropped. The GitHub release
 `v0.2.3` is this section, down to the internal record.*
 
 **Headline:** Google Pixel DNGs develop. irradiance now applies the `OpcodeList2`
-`GainMap` (lens-shading correction) that Android phones write as mandatory, and it
-matches Adobe's DNG SDK within one code. Black levels are read correctly in two more
-cases. A compatible 0.2.x release: run `cargo update -p irradiance`.
+`GainMap` (lens-shading correction) that Pixel phones write as mandatory, and on the
+three Pixel files tested its gain step matches Adobe's DNG SDK within one code. Black
+levels are read correctly in two more cases. A compatible 0.2.x release: run `cargo update -p irradiance`.
 
 **New capability**
 - **Pixel 3a, 4a and 7 Pro DNGs develop** in colour and in mono. They were refused before
@@ -204,6 +205,11 @@ cases. A compatible 0.2.x release: run `cargo update -p irradiance`.
 - **A colour file whose `BlackLevel` count disagrees with its `BlackLevelRepeatDim` is
   now refused** with `Error::InvalidBlackLevelPattern`, before any write, instead of
   developing with a guessed black. The mono `PerPosition` develop already did this.
+- **An `OpcodeList2` `GainMap` that cannot be applied is now refused, even an optional
+  one.** 0.2.2 skipped optional `GainMap`s unread, so a file whose optional `GainMap`
+  has malformed parameters, or whose `OpcodeList2` holds more than 16 `GainMap`s,
+  developed; it now returns `Error::MalformedOpcodeParams { id: 9, .. }` or
+  `Error::TooManyGainMaps` before any write. No held file is affected.
 - **Output changes only for files 0.2.2 got wrong or refused:** a fractional black, a
   colour black pattern other than 2×2, optional `GainMap`s (now applied), and the Pixel
   3a, 4a and 7 Pro (now developed). Every other file's output is byte-identical: every
@@ -282,7 +288,10 @@ cases. A compatible 0.2.x release: run `cargo update -p irradiance`.
   - `[cut]`:
     - `git tag -a v0.2.3 -m "irradiance 0.2.3"` on the merged prep commit;
     - `git tag --points-at HEAD` prints exactly `v0.2.3`;
-    - the published `.crate`'s sha1 equals the tagged commit.
+    - the published `.crate`'s `.cargo_vcs_info.json` sha1 equals the tagged commit:
+      `curl -sL https://static.crates.io/crates/irradiance/irradiance-0.2.3.crate | tar -xzO irradiance-0.2.3/.cargo_vcs_info.json`
+      against `git rev-parse v0.2.3^{commit}`. (Command added at verify; its 0.2.2 form
+      printed `46b6fc2…`, the `v0.2.2` commit.)
 - [x] **2. Artifact trust on a clean host** — `N/A`: a source crate, no signed binary.
 - [ ] **3. Distribution-channel trust** — `[now]` proxy done, the rest `[cut]`.
   - `[now]` ✔:
