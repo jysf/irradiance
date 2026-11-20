@@ -5,7 +5,8 @@
 //! against `dnglab --raw-checksum`. This module turns that plane into the
 //! image a consumer would actually display: `OpcodeList1`'s
 //! `FixBadPixelsConstant` defect correction applied to the raw plane FIRST
-//! (`SPEC-017`), then black subtracted, white normalized, `OpcodeList3`'s
+//! (`SPEC-017`), then black subtracted, white normalized, `OpcodeList2`'s
+//! `GainMap`s applied (`SPEC-059`), `OpcodeList3`'s
 //! `WarpRectilinear` geometric correction applied over the `ActiveArea`
 //! window (`SPEC-018`), then `DefaultCrop` → `Orientation` extracts the
 //! final displayed rectangle. See [`develop_into`]'s own doc for why the
@@ -1345,9 +1346,9 @@ fn crop_and_orient_from_active_into(
 /// `ActiveArea` window, BEFORE `DefaultCrop` extraction and `Orientation`,
 /// not after. (No comparison oracle can confirm this choice either way —
 /// see `## No warp-correctness oracle exists` below — so this is verified
-/// against the specification text, not a tool.) The tone-curve stage
-/// `SPEC-019` will add after this one is, for now, a no-op: this function's
-/// output IS the final image.
+/// against the specification text, not a tool.) The display encode
+/// (`SPEC-019`'s [`crate::tone`] layer) is not part of this function: it
+/// runs on this function's scene-linear output, which is the final image.
 ///
 /// `src` must hold exactly `sensor.width * sensor.height` samples (the
 /// uncropped, un-normalised plane) and `dst` must hold exactly

@@ -159,36 +159,71 @@ never tags or publishes.
 
 ## Release Notes
 
-*Drafted at design. The build refreshes it from `just release-notes PROJ-004` and the
-final CHANGELOG.*
+*Outward-facing, written for whoever uses the crate. Seeded at build with
+`just release-notes PROJ-004`. Five of its notes are new since 0.2.2 (SPEC-059, SPEC-060,
+SPEC-074, SPEC-075, SPEC-076); SPEC-060 and SPEC-076 have no crate-user outcome and stay
+absent. Edited against the final CHANGELOG, SPEC ids dropped. The GitHub release text for
+`v0.2.3` is this section, down to the internal record.*
 
 **Headline:** Google Pixel DNGs develop. irradiance now applies the `OpcodeList2`
 `GainMap` (lens-shading correction) that Android phones write as mandatory, and it
-matches Adobe's DNG SDK within one code.
+matches Adobe's DNG SDK within one code. Black levels are read correctly in two more
+cases. A compatible 0.2.x release: run `cargo update -p irradiance`.
 
+**New capability**
 - **Pixel 3a, 4a and 7 Pro DNGs develop** in colour and in mono. They were refused before
   with `UnsupportedMandatoryOpcode { id: 9 }`. Each `GainMap` is applied at stage 2,
+  after the black and white levels and before the lens warp (mono) or demosaic (colour),
   sampled at pixel centres with bilinear interpolation, and clipped at white. On all
   three files, the step matches Adobe `dng_validate` 1.7.1 to within 1 code, with at
   least 99.966% of samples exact.
 - **`develop::apply_gain_maps`** applies every `GainMap` in an `OpcodeList2` to a
   normalised stage-2 image, for callers that compose stages themselves.
-- **Black levels are read correctly in two more cases:**
-  - A fractional `RATIONAL` `BlackLevel` rounds to nearest instead of becoming 0. The
-    Pixel 7 Pro now reads 1024.
-  - The colour develop honours `BlackLevelRepeatDim` (`[1, 2]`, `[2, 1]`, `[4, 4]`, …).
-- **`Sensor::black_levels_exact`** holds the rationals as written. **`Sensor::masked_areas`**
-  exposes DNG `MaskedAreas` for optical-black work.
+- **`Sensor::black_levels_exact`** holds a `RATIONAL` `BlackLevel` exactly as written.
+  **`Sensor::masked_areas`** exposes DNG `MaskedAreas` (the optical-black rectangles)
+  verbatim, for optical-black work; irradiance itself does not use it.
+
+**Fixed**
+- **A fractional `RATIONAL` `BlackLevel` rounds to nearest** instead of being treated as
+  malformed and becoming 0. The Pixel 7 Pro now reads 1024.
+- **The colour develop honours `BlackLevelRepeatDim`** (`[1, 2]`, `[2, 1]`, `[4, 4]`, …)
+  instead of assuming a 2×2 pattern.
+
+**Faster**
 - **Compression 7 strips and tiles parse their lossless-JPEG header once,** which halves
   the per-chunk allocations. Output is unchanged.
 
-**Breaking / action required:** none for the API (semver-checks: no update required).
-**Behaviour changes:**
-- `DEVELOP_VERSION` is `"6"`, so a pixel cache keyed on it re-develops.
-- A colour file whose `BlackLevel` count disagrees with its `BlackLevelRepeatDim` is now
-  refused (`InvalidBlackLevelPattern`) instead of developing with a guessed black.
-- Files with a fractional black, a non-2×2 colour black pattern, or optional `GainMap`s
-  develop differently, and correctly. Every other file's output is byte-identical.
+**Breaking / action required:** none for the API. `cargo semver-checks` against crates.io
+0.2.2 reports no semver update required. The new `Error` variants (`TooManyGainMaps`,
+`GainMapImageWrongLength`), `Opcode::GainMap` and the new `Sensor` fields are appended to
+`#[non_exhaustive]` types, so a `match` with a `_` arm and existing field reads keep compiling.
+
+**Behaviour changes**
+- **`DEVELOP_VERSION` goes from `"4"` to `"6"`,** so a pixel cache keyed on it
+  re-develops.
+- **A colour file whose `BlackLevel` count disagrees with its `BlackLevelRepeatDim` is
+  now refused** with `Error::InvalidBlackLevelPattern`, before any write, instead of
+  developing with a guessed black. The mono `PerPosition` develop already did this.
+- **Output changes only for files 0.2.2 got wrong or refused:** a fractional black, a
+  colour black pattern other than 2×2, optional `GainMap`s (now applied), and the Pixel
+  3a, 4a and 7 Pro (now developed). Every other file's output is byte-identical: every
+  `dnglab` checksum and develop MD5 pin from 0.2.2 holds.
+
+**Known limitations**
+- **No colour-accuracy claim yet.** The ColorChecker ΔE2000 measurement is still blocked
+  on capturing the chart. Treat colour as plausible, not calibrated.
+- **The colour develop runs the `GainMap` but not the other `OpcodeList` stages**
+  (`WarpRectilinear`, `FixBadPixelsConstant`) that the monochrome develop runs. A file
+  that requires them is refused with a typed error. The develop options are mono-only.
+- **A `GainMap` in `OpcodeList1` or `OpcodeList3`** is recognised but not applied; a
+  mandatory one is refused with `UnsupportedRequiredOpcode`.
+- **A Compression 7 strip is one plane unit.** Restart-interval units are not built, so
+  a single-scan lossless-JPEG file (the K-3 III, the Typ 246) cannot be split.
+
+### Internal release record (not part of the GitHub release text)
+
+- **Mechanical semver check:** see the Release Pre-Flight's semver block below.
+- **Candidate timings:** see the Release Pre-Flight, item 5.
 
 ## Release cut is two-phase
 

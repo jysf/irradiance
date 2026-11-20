@@ -39,14 +39,16 @@ It is deliberately a **library, not an application**
 - **Edition 2021**, MSRV `1.90` (the measured floor; the true floor is lower
   but unmeasured — see [`Cargo.toml`](Cargo.toml)).
 
-> **Status:** early (0.2.2, on crates.io). Uncompressed **monochrome** and
+> **Status:** early (0.2.3, on crates.io). Uncompressed **monochrome** and
 > **Bayer** DNG develop work end to end. Sensor planes stored as strips or
 > **tiles**, uncompressed or `Compression 7` (lossless-JPEG, SOF-3), decode
 > bit-exact through the public `plane::unpack_into`, and can be split into
 > independent row bands for your own threads. 0.2.2 adds develop options
 > (framing, orientation, partial lens correction, per-position black levels),
 > an allocation-free develop with caller-owned scratch, and zero-copy access to
-> embedded previews. Size the plane buffer with `plane::validate` first: it
+> embedded previews. 0.2.3 applies `OpcodeList2` `GainMap`s on both develop
+> paths, so the Google Pixel 3a, 4a and 7 Pro DNGs develop, and reads a
+> fractional `BlackLevel` and a colour `BlackLevelRepeatDim` correctly. Size the plane buffer with `plane::validate` first: it
 > checks the layout and your own pixel budget before you allocate. See
 > [tested DNG modes](#tested-dng-modes), [`CHANGELOG.md`](CHANGELOG.md) and
 > [Scope](#scope-and-roadmap).
@@ -57,8 +59,8 @@ It is deliberately a **library, not an application**
 |---|---|
 | [`ifd`](src/ifd.rs) | TIFF/IFD container reader; locates the sensor IFD and reads its tags into a `Sensor`; iterates embedded previews as zero-copy slices (`Container::previews`). |
 | [`plane`](src/plane.rs) | Unpacks the raw sensor plane (strips or tiles; uncompressed or lossless-JPEG) into a `u16` buffer, whole (`unpack_into`) or band by band (`units` + `unpack_unit_into`). |
-| [`develop`](src/develop.rs) | Plane → image: bad-pixel fix, black/white levels normalization, `WarpRectilinear`, then `DefaultCrop` → `Orientation`. Output stays scene-linear. `DevelopOptions` and caller-owned scratch via `develop_with_into` / `develop_with_scratch_into`. |
-| [`opcode`](src/opcode.rs) | `OpcodeList` byte-stream parser (DNG 1.7.0.0 Chapter 7): `FixBadPixelsConstant`, `WarpRectilinear`; the required-processing check every develop entry runs first. |
+| [`develop`](src/develop.rs) | Plane → image: bad-pixel fix, black/white levels normalization, `OpcodeList2` `GainMap`s, `WarpRectilinear`, then `DefaultCrop` → `Orientation`. Output stays scene-linear. `DevelopOptions` and caller-owned scratch via `develop_with_into` / `develop_with_scratch_into`. |
+| [`opcode`](src/opcode.rs) | `OpcodeList` byte-stream parser (DNG 1.7.0.0 Chapter 7): `FixBadPixelsConstant`, `GainMap`, `WarpRectilinear`; the required-processing check every develop entry runs first. |
 | [`warp`](src/warp.rs) | The `WarpRectilinear` geometric resampler. |
 | [`demosaic`](src/demosaic.rs) | Bayer (RGGB family) → camera-space linear RGB, Hamilton-Adams directional kernel. |
 | [`color`](src/color.rs) | Camera RGB → linear sRGB via the DNG colour matrices (dual-illuminant interpolation); `develop_color_into` runs levels → demosaic → colour in one call. |
@@ -122,9 +124,10 @@ let mut rgb = vec![0u16; w as usize * h as usize * 3];
 irradiance::color::develop_color_into(&sensor, &raw, &mut rgb)?;
 ```
 
-The colour path applies `ActiveArea` → `DefaultCrop` → `Orientation` (the
-masked border is dropped) but not yet the `OpcodeList` stages (`WarpRectilinear`,
-`FixBadPixelsConstant`) that `develop_into` runs.
+The colour path applies `OpcodeList2`'s `GainMap`s and `ActiveArea` →
+`DefaultCrop` → `Orientation` (the masked border is dropped) but not yet the
+other `OpcodeList` stages (`WarpRectilinear`, `FixBadPixelsConstant`) that
+`develop_into` runs.
 
 ### Develop options (monochrome)
 
@@ -276,14 +279,15 @@ waves:
   read-only, zero-I/O, caller-allocated surface beyond the developed image, for
   real consumers. Shipped in 0.2.2: tiled planes, embedded previews, develop
   options, caller-owned scratch, plane units, and faster packed and
-  lossless-JPEG decodes. Still ahead: applying `OpcodeList2` `GainMap`s (so the
-  tiled Pixel DNGs develop instead of refusing), a clean-room DNG writer, and
+  lossless-JPEG decodes. Shipped in 0.2.3: `OpcodeList2` `GainMap`s (the tiled
+  Pixel DNGs develop), fractional and colour per-pattern black levels, and
+  `Sensor::masked_areas`. Still ahead: a clean-room DNG writer and
   optical-black instruments.
 
 Intentionally **not** implemented yet (by design, not omission): lossless-JPEG
 component layouts other than `Nf = 1` and `Nf = 2`, compressions other than `1` and `7`,
-`GainMap` and other mandatory opcodes the develop does not apply (refused with a
-typed error, never silently skipped), and the `ASCII`/signed DNG tag types. The long view — more vendor formats and beyond — is in
+mandatory opcodes the develop does not apply (refused with a typed error, never
+silently skipped), and the `ASCII`/signed DNG tag types. The long view — more vendor formats and beyond — is in
 [`docs/future-plans.md`](docs/future-plans.md); see [`projects/`](projects/)
 for active briefs.
 
