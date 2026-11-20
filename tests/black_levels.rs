@@ -60,6 +60,23 @@ fn normalize(sample: u32, black: u32, white: u32) -> u16 {
     u16::try_from((numerator + denominator / 2) / denominator).unwrap()
 }
 
+/// The same map under `DEC-070` (DNG 1.7.1 Chapter 5, "Rescaling"): subtract
+/// the photosite's own `black`, but scale by `white − max_black`, the largest
+/// black the pattern applies, clipping there. The caller takes `max_black`
+/// from its own fixture's blacks.
+fn normalize_max(sample: u32, black: u32, white: u32, max_black: u32) -> u16 {
+    let range = white - max_black;
+    let shifted = sample.saturating_sub(black).min(range);
+    let numerator = u64::from(shifted) * 65535;
+    let denominator = u64::from(range);
+    u16::try_from((numerator + denominator / 2) / denominator).unwrap()
+}
+
+/// The largest value of a fixture's black pattern: `B` in `DEC-070`.
+fn max_black(blacks: &[u32]) -> u32 {
+    *blacks.iter().max().unwrap()
+}
+
 /// The black DNG assigns raw photosite `(x, y)`: `BlackLevel` indexed by
 /// `BlackLevelRepeatDim [rows, cols]`, the pattern's origin at the `ActiveArea`
 /// top-left `(left, top)`. The phase is extended (Euclidean remainder) over
@@ -244,7 +261,7 @@ fn default_is_first_value_and_pins_hold() {
         BlackLevels::FirstValue
     );
     assert_eq!(BlackLevels::default(), BlackLevels::FirstValue);
-    assert_eq!(DEVELOP_VERSION, "6", "DEC-069 bumps DEVELOP_VERSION to 6");
+    assert_eq!(DEVELOP_VERSION, "7", "DEC-070 bumps DEVELOP_VERSION to 7");
 
     // On a tier-A plane with a real pattern, `develop_into` is the
     // first-value develop: every photosite takes `BlackLevel[0]`.
@@ -292,41 +309,44 @@ fn uniform_cfa_plane_develops_uniform_under_per_position() {
                     let opts = options(framing, apply_orientation, BlackLevels::PerPosition);
                     let (w, h, got) = develop(&cfa, &src, &opts);
 
-                    // The analytic value: each photosite maps `k` against its
-                    // own range `[0, 16368 − black]`.
+                    // The analytic value: each photosite subtracts its own
+                    // black and maps `k` against the one range `[0, 16368 −
+                    // 1023]`, white minus the maximum black (`DEC-070`).
                     let (ew, eh, want) = expected_image(&SHAPE, framing, shown, |x, y| {
-                        normalize(k + black(x, y), black(x, y), PIXEL_WHITE)
+                        normalize_max(
+                            k + black(x, y),
+                            black(x, y),
+                            PIXEL_WHITE,
+                            max_black(&PIXEL_BLACKS),
+                        )
                     });
                     assert_eq!((w, h), (ew, eh), "{label}: size");
                     assert_eq!(got, want, "{label}: analytic");
 
-                    // For k = 0 and 200 the two ranges (15345 and 15346) round
-                    // to the same code value, so the plane is uniform and
-                    // equals a LinearRaw develop of `1023 + k`. For k = 15345
-                    // they do not (65535 against 65531): the ranges genuinely
-                    // differ by one, so only the analytic value is asserted.
-                    if k != 15345 {
-                        let constant = normalize(k, 0, PIXEL_WHITE - 1023);
-                        assert!(got.iter().all(|&v| v == constant), "{label}: uniform");
-                        let mut mono = sensor_with(&SHAPE, false, orientation);
-                        set_levels(&mut mono, &[1023], Some([1, 1]), PIXEL_WHITE);
-                        let mono_src = black_plus_k(&SHAPE, |_, _| 1023, k);
-                        let mono_opts =
-                            options(framing, apply_orientation, BlackLevels::FirstValue);
-                        let (_, _, mono_out) = develop(&mono, &mono_src, &mono_opts);
-                        assert_eq!(got, mono_out, "{label}: equals the LinearRaw develop");
-                    }
+                    // Every photosite maps the same `k` over the same 15345,
+                    // so the plane is uniform for every k and equals a
+                    // LinearRaw develop of `1023 + k`. (Before SPEC-078 the
+                    // 1022 positions divided by 15346, and at k = 15345 they
+                    // rounded to 65531 against 65535, so k = 15345 was exempt
+                    // from this check. `DEC-070`'s one range removes the
+                    // exemption.)
+                    let constant = normalize(k, 0, PIXEL_WHITE - 1023);
+                    assert!(got.iter().all(|&v| v == constant), "{label}: uniform");
+                    let mut mono = sensor_with(&SHAPE, false, orientation);
+                    set_levels(&mut mono, &[1023], Some([1, 1]), PIXEL_WHITE);
+                    let mono_src = black_plus_k(&SHAPE, |_, _| 1023, k);
+                    let mono_opts = options(framing, apply_orientation, BlackLevels::FirstValue);
+                    let (_, _, mono_out) = develop(&mono, &mono_src, &mono_opts);
+                    assert_eq!(got, mono_out, "{label}: equals the LinearRaw develop");
 
                     // FirstValue on the same plane is NOT uniform for k > 0:
-                    // the fixture tells the two modes apart. (At k = 15345
-                    // both modes happen to round positions 2 and 3 to 65531,
-                    // so only k = 200 separates them sample by sample.)
+                    // the fixture tells the two modes apart, sample by sample,
+                    // at every k > 0 (at k = 15345 FirstValue rounds positions
+                    // 2 and 3 to 65531, PerPosition to 65535).
                     if k > 0 {
                         let first = options(framing, apply_orientation, BlackLevels::FirstValue);
                         let (_, _, first_out) = develop(&cfa, &src, &first);
-                        if k == 200 {
-                            assert_ne!(first_out, got, "{label}: FirstValue differs");
-                        }
+                        assert_ne!(first_out, got, "{label}: FirstValue differs");
                         assert!(
                             first_out.iter().any(|&v| v != first_out[0]),
                             "{label}: FirstValue is not uniform"
@@ -349,16 +369,18 @@ fn per_position_matches_hand_computed_block() {
     let (w, h, got) = develop(&sensor, &src, &per_position());
     assert_eq!((w, h), (5, 6));
 
-    // Hand-computed (tests/black_levels.rs's normalize, run outside the
+    // Hand-computed (tests/black_levels.rs's normalize_max, run outside the
     // crate): raw = 500 + 37x + 11y, black = [100, 200, 300, 400] at
-    // ((y − 1) mod 2, (x − 3) mod 2). The other candidates give, at (0, 0):
-    // plane origin 6579, DefaultCrop origin 9531, transposed index 6579,
-    // entries 0 and 1 swapped 9531, FirstValue 9531 — all different.
+    // ((y − 1) mod 2, (x − 3) mod 2), every position scaled by 4095 − 400 =
+    // 3695 (`DEC-070`; SPEC-078 re-derived these from per-position 4095 − b).
+    // The other candidates give, at (0, 0): plane origin 6757, DefaultCrop
+    // origin 10305, transposed index 6757, entries 0 and 1 swapped 10305,
+    // FirstValue 9531 — all different.
     let want: [[u16; 4]; 4] = [
-        [8093, 10138, 9338, 11352],
-        [5179, 7408, 6491, 8686],
-        [8463, 10499, 9708, 11713],
-        [5569, 7788, 6882, 9066],
+        [8531, 10961, 9844, 12273],
+        [5179, 7609, 6491, 8921],
+        [8921, 11351, 10234, 12664],
+        [5569, 7999, 6882, 9311],
     ];
     for (oy, row) in want.iter().enumerate() {
         for (ox, &value) in row.iter().enumerate() {
@@ -377,10 +399,11 @@ fn per_position_matches_hand_computed_block() {
                 let (_, _, got) = develop(&sensor, &src, &opts);
                 let (_, _, want) = expected_image(&SHAPE, framing, shown, |x, y| {
                     let black = pattern_black(&AC3_BLACKS, 2, 2, 3, 1, x, y);
-                    normalize(
+                    normalize_max(
                         u32::from(src[(y * SHAPE.width + x) as usize]),
                         black,
                         AC3_WHITE,
+                        max_black(&AC3_BLACKS),
                     )
                 });
                 assert_eq!(
@@ -424,10 +447,11 @@ fn non_square_and_3x3_patterns() {
             let (_, _, got) = develop(&sensor, &src, &opts);
             let (_, _, want) = expected_image(&SHAPE, framing, 1, |x, y| {
                 let black = pattern_black(&blacks, rows, cols, 3, 1, x, y);
-                normalize(
+                normalize_max(
                     u32::from(src[(y * SHAPE.width + x) as usize]),
                     black,
                     AC3_WHITE,
+                    max_black(&blacks),
                 )
             });
             assert_eq!(got, want, "{label} {framing:?}");
@@ -435,7 +459,9 @@ fn non_square_and_3x3_patterns() {
     }
 
     // The hand-computed StandardCrop top-left 4×4 of each, as literals
-    // (this file's normalize, run outside the crate). The crop starts at raw
+    // (this file's normalize_max, run outside the crate; SPEC-078 re-derived
+    // them for `DEC-070`'s 4095 − max black: 3795 for [100, 300], 3735 for
+    // the 3×3). The crop starts at raw
     // (4, 3), active-relative (1, 2). A fixed 2×2 slot gives a different
     // block for every one of the three.
     let blocks: [Ac4Block; 3] = [
@@ -444,10 +470,10 @@ fn non_square_and_3x3_patterns() {
             vec![100, 300],
             [1, 2],
             [
-                [6579, 10138, 7857, 11352],
-                [6769, 10318, 8047, 11532],
-                [6959, 10499, 8237, 11713],
-                [7149, 10679, 8427, 11893],
+                [6579, 10672, 7857, 11950],
+                [6769, 10862, 8047, 12140],
+                [6959, 11052, 8237, 12330],
+                [7149, 11242, 8427, 12520],
             ],
         ),
         (
@@ -455,9 +481,9 @@ fn non_square_and_3x3_patterns() {
             vec![100, 300],
             [2, 1],
             [
-                [9531, 10138, 10745, 11352],
+                [10033, 10672, 11311, 11950],
                 [6769, 7408, 8047, 8686],
-                [9892, 10499, 11106, 11713],
+                [10413, 11052, 11691, 12330],
                 [7149, 7788, 8427, 9066],
             ],
         ),
@@ -466,10 +492,10 @@ fn non_square_and_3x3_patterns() {
             (1..=9).map(|i| 40 * i).collect(),
             [3, 3],
             [
-                [6267, 6282, 8160, 8194],
-                [9989, 10040, 11733, 11801],
-                [8463, 8500, 10276, 10331],
-                [6840, 6861, 8727, 8767],
+                [6334, 6282, 8334, 8282],
+                [10738, 10686, 12739, 12686],
+                [8826, 8773, 10826, 10773],
+                [6913, 6861, 8913, 8861],
             ],
         ),
     ];
@@ -805,8 +831,25 @@ fn md5_le(samples: &[u16]) -> String {
     md5::to_hex(&md5::hash(&bytes))
 }
 
+/// `DEC-018`'s map by hand: `⌊clamp(v − black, 0, range) · 65535 / range + ½⌋`.
+fn scaled(v: u16, black: u32, range: u32) -> u16 {
+    let shifted = u64::from(u32::from(v).saturating_sub(black).min(range));
+    u16::try_from((shifted * 65_535 + u64::from(range / 2)) / u64::from(range)).unwrap()
+}
+
+/// The Canon's measured counts under `DEC-070`, at `SPEC-078`'s build.
+const SCALE_ONLY: usize = 6_780_144;
+const AT_3: usize = 5_602_332;
+const LARGEST: u16 = 6;
+
+/// `SPEC-078` AC5 (`DEC-070`): under `PerPosition` every position of the Canon
+/// scales by `W − B = 15000 − 2048 = 12952`, so positions 0–2 differ from
+/// `FirstValue` too. There both modes subtract the same black, 2047, and differ
+/// only through the scale: `FirstValue` divides by `15000 − 2047 = 12953`.
+/// Position 3 subtracts 2048 instead, over the same 12952. Both are asserted by
+/// hand at every sample.
 #[test]
-fn canon_per_position_differs_only_at_position_3() {
+fn canon_per_position_scales_every_position_by_white_minus_the_maximum_black() {
     let path = "CANON-EOS-5D-MARK-III/5G4A9394.DNG";
     let Some((sensor, src)) = corpus_plane(path) else {
         eprintln!("SKIP {path}: not present");
@@ -814,6 +857,7 @@ fn canon_per_position_differs_only_at_position_3() {
     };
     assert_eq!(sensor.black_levels, vec![2047, 2047, 2047, 2048]);
     assert_eq!(sensor.black_level_repeat_dim, Some([2, 2]));
+    assert_eq!(sensor.white_level, Some(15000));
     let mut first = DevelopOptions::default();
     first.framing = Framing::FullActiveArea;
     first.apply_orientation = false;
@@ -827,24 +871,34 @@ fn canon_per_position_differs_only_at_position_3() {
     develop_with_into(&sensor, &src, &mut a, &first).unwrap();
     develop_with_into(&sensor, &src, &mut b, &per).unwrap();
 
-    let (mut differing, mut largest) = (0usize, 0u16);
+    let area = sensor
+        .active_area
+        .expect("the Canon declares an ActiveArea");
+    let (mut scale_only, mut at_3, mut largest) = (0usize, 0usize, 0u16);
     for y in 0..h {
         for x in 0..w {
             let i = (y * w + x) as usize;
+            let v = src[((area.top + y) * sensor.width + area.left + x) as usize];
             let position = (y % 2) * 2 + x % 2;
-            if position == 3 {
-                assert!(b[i] <= a[i], "({x}, {y}): PerPosition above FirstValue");
-                if a[i] != b[i] {
-                    differing += 1;
-                    largest = largest.max(a[i] - b[i]);
+            assert_eq!(a[i], scaled(v, 2047, 12953), "({x}, {y}): FirstValue");
+            let black = if position == 3 { 2048 } else { 2047 };
+            assert_eq!(b[i], scaled(v, black, 12952), "({x}, {y}): PerPosition");
+            if a[i] != b[i] {
+                if position == 3 {
+                    at_3 += 1;
+                } else {
+                    // Same black, larger gain: PerPosition is never below.
+                    assert!(b[i] > a[i], "({x}, {y}): PerPosition below FirstValue");
+                    scale_only += 1;
                 }
-            } else {
-                assert_eq!(a[i], b[i], "({x}, {y}) position {position}");
+                largest = largest.max(a[i].abs_diff(b[i]));
             }
         }
     }
-    assert_eq!(differing, 5_602_332, "{path}: differing samples");
-    assert_eq!(largest, 6, "{path}: largest difference");
+    eprintln!("{path}: scale-only {scale_only}, position 3 {at_3}, largest {largest}");
+    assert_eq!(scale_only, SCALE_ONLY, "{path}: positions 0–2 differing");
+    assert_eq!(at_3, AT_3, "{path}: position 3 differing");
+    assert_eq!(largest, LARGEST, "{path}: largest difference");
 }
 
 #[test]

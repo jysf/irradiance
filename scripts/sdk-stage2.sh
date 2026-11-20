@@ -1,6 +1,7 @@
 #!/bin/sh
 # sdk-stage2.sh — generate Adobe dng_validate stage-2 references for the
-# Pixel GainMap cross-check (SPEC-060, DEC-069 §6).
+# Pixel GainMap cross-check (SPEC-060, DEC-069 §6) and the black-normalisation
+# cross-check (SPEC-078, DEC-070).
 #
 # Usage:
 #   scripts/sdk-stage2.sh <dng_validate> <corpus_root> <out_dir>
@@ -14,6 +15,10 @@
 #                      number (51009) is rewritten to the unused private tag
 #                      51010, so the SDK skips the list (stage 2 BEFORE the gain)
 #   <CAMERA>-nogain.dng  that scratch copy (about 24 MB; delete freely)
+#
+# and, for the held Canon EOS 5D Mark III (no opcode lists, blacks that differ
+# by position):
+#   CANON-EOS-5D-MARK-III-stage2.tif  dng_validate -2 on the real file
 #
 # Nothing here is ever committed, vendored, or run in CI. <out_dir> must be
 # outside the repository.
@@ -112,5 +117,13 @@ for entry in \
     count=$((count + 1))
 done
 
-[ "$count" -eq 3 ] || die "expected 3 files, processed $count"
-echo "sdk-stage2: 3 files done; set IRRADIANCE_SDK_STAGE2_DIR=$out_abs"
+canon=CANON-EOS-5D-MARK-III
+canon_path=$corpus/$canon/5G4A9394.DNG
+[ -f "$canon_path" ] || die "missing corpus file: $canon_path"
+echo "$canon: $canon_path"
+run_stage2 "$canon_path" "$out_abs/$canon-stage2"
+echo "  wrote $canon-stage2.tif"
+count=$((count + 1))
+
+[ "$count" -eq 4 ] || die "expected 4 files, processed $count"
+echo "sdk-stage2: 4 files done; set IRRADIANCE_SDK_STAGE2_DIR=$out_abs"

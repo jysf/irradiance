@@ -117,7 +117,8 @@ use crate::demosaic::{
     develop_color_fused, develop_rows_banded, is_supported_bayer, run_row_bands,
 };
 use crate::develop::{
-    black_pattern_dims, oriented_dimensions, output_coords_from_crop, resolve_geometry,
+    black_pattern_dims, normalize_range, oriented_dimensions, output_coords_from_crop,
+    resolve_geometry,
 };
 use crate::ifd::{active_area_origin, Rational, Sensor};
 use crate::opcode::GainMaps;
@@ -136,8 +137,8 @@ macro_rules! with_normalizer {
                 let $n = slot_normalizer($sensor, $src, levels);
                 $body
             }
-            (ColourLevels::Pattern(pattern, white), true) => {
-                let $n = pattern_normalizer($sensor, $src, pattern, white);
+            (ColourLevels::Pattern(pattern, range), true) => {
+                let $n = pattern_normalizer($sensor, $src, pattern, range);
                 $body
             }
             (ColourLevels::Slots(levels), false) => {
@@ -145,8 +146,8 @@ macro_rules! with_normalizer {
                 let $n = gained_normalizer($sensor, inner, &$gains);
                 $body
             }
-            (ColourLevels::Pattern(pattern, white), false) => {
-                let inner = pattern_normalizer($sensor, $src, pattern, white);
+            (ColourLevels::Pattern(pattern, range), false) => {
+                let inner = pattern_normalizer($sensor, $src, pattern, range);
                 let $n = gained_normalizer($sensor, inner, &$gains);
                 $body
             }
@@ -1353,10 +1354,11 @@ where
 /// path's `Blacks` does the same).
 enum ColourLevels<'a> {
     /// `BlackLevelRepeatDim` rows and columns each 1 or 2, or no per-position
-    /// black: the four `(row_odd, col_odd)` slots' `(black, white)`, for
-    /// [`slot_normalizer`]. Every held file.
+    /// black: the four `(row_odd, col_odd)` slots' `(black, range)`, for
+    /// [`slot_normalizer`]. Every held file. `range` is `W − B`, the same in
+    /// every slot (`DEC-070` §1).
     Slots([(u32, u32); 4]),
-    /// A larger pattern and the one white, for [`pattern_normalizer`]'s
+    /// A larger pattern and its range `W − B`, for [`pattern_normalizer`]'s
     /// per-photosite lookup.
     Pattern(BlackPattern<'a>, u32),
 }
@@ -1429,6 +1431,13 @@ fn pattern_index(x: u32, y: u32, (top, left): (u32, u32), dims: [u32; 2]) -> Opt
 /// slots are filled from that rule and [`slot_normalizer`] runs, the fused
 /// path's existing closure. A larger pattern takes [`pattern_normalizer`].
 ///
+/// **The scale (`DEC-070`):** every photosite scales by `W − B`, with `B` the
+/// maximum of the blacks the pattern applies, as the DNG specification's
+/// Rescaling step defines; each subtracts its own black first. With one black
+/// everywhere `B` is that black and the map is `DEC-018`'s. A plane with
+/// `W ≤ B` has no range: every sample maps to 0, never a panic (the colour
+/// path has no levels refusal).
+///
 /// Returns before anything is written, so every colour entry point refuses a
 /// bad pattern with `dst` untouched.
 fn resolve_colour_levels(sensor: &Sensor) -> Result<ColourLevels<'_>, Error> {
@@ -1442,23 +1451,30 @@ fn resolve_colour_levels(sensor: &Sensor) -> Result<ColourLevels<'_>, Error> {
     let values = sensor.black_levels.as_slice();
     if values.is_empty() {
         let black = sensor.black_level.unwrap_or(0);
-        return Ok(ColourLevels::Slots([(black, white); 4]));
+        return Ok(ColourLevels::Slots(
+            [(black, white.saturating_sub(black)); 4],
+        ));
     }
     let dims = black_pattern_dims(sensor)?;
     let [rows, cols] = dims;
     if rows <= 2 && cols <= 2 {
         // Slot order is `(row_odd, col_odd)` = (0,0), (0,1), (1,0), (1,1).
         const PARITIES: [(u32, u32); 4] = [(0, 0), (0, 1), (1, 0), (1, 1)];
-        let mut levels = [(0u32, white); 4];
-        for (slot, (row_odd, col_odd)) in levels.iter_mut().zip(PARITIES) {
-            let black = pattern_cell(row_odd, col_odd, dims)
+        let mut blacks = [0u32; 4];
+        for (slot, (row_odd, col_odd)) in blacks.iter_mut().zip(PARITIES) {
+            *slot = pattern_cell(row_odd, col_odd, dims)
                 .and_then(|i| values.get(i))
                 .copied()
                 .unwrap_or(0);
-            *slot = (black, white);
         }
-        return Ok(ColourLevels::Slots(levels));
+        // `B` over the blacks the slots apply (`DEC-070` §1): a `[1, 2]` or
+        // `[2, 1]` pattern fills all four slots from its two values.
+        let max_black = blacks.iter().copied().max().unwrap_or(0);
+        let range = white.saturating_sub(max_black);
+        return Ok(ColourLevels::Slots(blacks.map(|black| (black, range))));
     }
+    // `values` is non-empty here, so the fallback is never taken.
+    let max_black = values.iter().copied().max().unwrap_or(0);
     let (top, left) = active_area_origin(sensor);
     Ok(ColourLevels::Pattern(
         BlackPattern {
@@ -1468,7 +1484,7 @@ fn resolve_colour_levels(sensor: &Sensor) -> Result<ColourLevels<'_>, Error> {
             top,
             left,
         },
-        white,
+        white.saturating_sub(max_black),
     ))
 }
 
@@ -1477,7 +1493,8 @@ fn resolve_colour_levels(sensor: &Sensor) -> Result<ColourLevels<'_>, Error> {
 /// pattern that fits the four 2×2 slots ([`resolve_colour_levels`]). Given a mosaic
 /// cell `(col, row)` — already reflected into range by the demosaic logic — it
 /// returns the level-normalized value for that cell: `[black, white] → [0,
-/// 65535]` by the cell's slot in `levels`, clamped per `DEC-018`.
+/// 65535]` by the cell's slot in `levels`: its own black subtracted, scaled by
+/// the plane's `W − B` and clamped per `DEC-018` and `DEC-070`.
 ///
 /// The fuse calls it **once per row** as that row enters the rolling cache (not
 /// a full scratch plane, and not re-run per neighbour read), so each sample is
@@ -1515,21 +1532,21 @@ fn slot_normalizer<'a>(
             (true, false) => 2,
             (true, true) => 3,
         };
-        let (black, white) = levels.get(pos).copied().unwrap_or((0, u32::from(u16::MAX)));
+        let (black, range) = levels.get(pos).copied().unwrap_or((0, u32::from(u16::MAX)));
         let index = row.checked_mul(width).and_then(|rb| rb.checked_add(col));
         let sample = index.and_then(|i| src.get(i)).copied().unwrap_or(0);
-        normalize_sample(sample, black, white)
+        normalize_range(sample, black, range)
     }
 }
 
 /// [`slot_normalizer`] for a black pattern larger than 2×2 (`DEC-068` §2): the
 /// black is looked up per photosite through [`BlackPattern::at`], with no
-/// allocation, and white is the one per-sample value.
+/// allocation, and `range` is the plane's one `W − B` (`DEC-070`).
 fn pattern_normalizer<'a>(
     sensor: &'a Sensor,
     src: &'a [u16],
     pattern: BlackPattern<'a>,
-    white: u32,
+    range: u32,
 ) -> impl Fn(u32, u32) -> u16 + Sync + 'a {
     let width = usize::try_from(sensor.width).unwrap_or(0);
     move |x: u32, y: u32| -> u16 {
@@ -1538,7 +1555,7 @@ fn pattern_normalizer<'a>(
         let black = pattern.at(x, y);
         let index = row.checked_mul(width).and_then(|rb| rb.checked_add(col));
         let sample = index.and_then(|i| src.get(i)).copied().unwrap_or(0);
-        normalize_sample(sample, black, white)
+        normalize_range(sample, black, range)
     }
 }
 
@@ -1546,6 +1563,9 @@ fn pattern_normalizer<'a>(
 /// nearest, clamped (`DEC-018`) — the per-channel analogue of
 /// [`crate::develop`]'s scalar `normalize`, made total: if `black > white`
 /// (malformed) or `black == white` the result is `0` rather than a panic.
+/// The develop runs [`normalize_range`] with `W − B` (`DEC-070`); with one
+/// black everywhere that is this map exactly, which the unit tests pin.
+#[cfg(test)]
 fn normalize_sample(sample: u16, black: u32, white: u32) -> u16 {
     let value = u32::from(sample);
     // Clamp without panicking even if `black > white` (`u32::clamp` requires
@@ -1928,14 +1948,20 @@ mod tests {
                 src[y * 4 + x] = blacks[i] + 1000;
             }
         }
-        let Ok(ColourLevels::Pattern(pattern, white)) = resolve_colour_levels(&sensor) else {
+        let Ok(ColourLevels::Pattern(pattern, range)) = resolve_colour_levels(&sensor) else {
             panic!("a [3, 2] pattern must take the general path");
         };
-        let normalize = pattern_normalizer(&sensor, &src, pattern, white);
+        let normalize = pattern_normalizer(&sensor, &src, pattern, range);
+        // `DEC-070`: every photosite subtracts its own black but scales by
+        // white minus the fixture's largest black, 65535 − 600.
+        let max_black = u64::from(*blacks.iter().max().unwrap());
         for (y, row) in TABLE.iter().enumerate() {
             for (x, &i) in row.iter().enumerate() {
-                let range = 65_535 - u64::from(blacks[i]);
-                let want = (1000 * 65_535 + range / 2) / range;
+                let range = 65_535 - max_black;
+                // The sample less the hand table's black for this photosite:
+                // 1000, but only if the general path indexed the same cell.
+                let shifted = u64::from(src[y * 4 + x]) - u64::from(blacks[i]);
+                let want = (shifted * 65_535 + range / 2) / range;
                 let got = normalize(x as u32, y as u32);
                 assert_eq!(u64::from(got), want, "(x {x}, y {y})");
             }
@@ -1975,6 +2001,128 @@ mod tests {
         assert_eq!(normalize_sample(50, 100, 4100), 0); // below black clamps
         assert_eq!(normalize_sample(9000, 100, 4100), 65535); // above white clamps
         assert_eq!(normalize_sample(500, 100, 100), 0); // degenerate span, no panic
+    }
+
+    /// `SPEC-078` AC1 on the colour normaliser (`DEC-070`): blacks `[2047,
+    /// 2047, 2047, 2048]` on `[2, 2]`, white 15000, so `B = 2048` and `W − B =
+    /// 12952`. Each `(x, y, sample, black, DEC-070)` row is placed at a
+    /// photosite whose slot holds that black; the arithmetic is
+    /// `tests/black_normalisation.rs`'s `AC1_ROWS`:
+    /// `⌊clamp(v − b, 0, 12952) · 65535 / 12952 + ½⌋`.
+    const AC1_COLOUR: [(u32, u32, u16, u32, u16); 6] = [
+        (0, 0, 8523, 2047, 32768),  // 6476 of 12952 (today 32765)
+        (1, 1, 8524, 2048, 32768),  // 6476 of 12952 on both rules
+        (2, 0, 4000, 2047, 9882),   // 1953 of 12952 (today 9881)
+        (1, 0, 14999, 2047, 65535), // 12952 of 12952 (today 65530)
+        (0, 1, 15000, 2047, 65535), // 12953, clipped at 12952
+        (3, 0, 2000, 2047, 0),      // below black
+    ];
+
+    /// The AC1 sensor: 4×2, RGGB, the AC1 levels on `[2, 2]` (no
+    /// `ActiveArea`, so slot 3 is odd row, odd column), or `blacks` if given.
+    fn ac1_colour_sensor(blacks: &[u32]) -> (Sensor, Vec<u16>) {
+        let mut sensor = color_sensor(ColorMeta {
+            forward_matrix_1: None,
+            color_matrix_1: None,
+            as_shot_neutral: None,
+        });
+        sensor.width = 4;
+        sensor.height = 2;
+        sensor.white_level = Some(15_000);
+        sensor.black_levels = blacks.to_vec();
+        sensor.black_level_repeat_dim = Some([2, 2]);
+        let mut src = vec![5000u16; 8];
+        for (x, y, sample, _, _) in AC1_COLOUR {
+            src[(y * 4 + x) as usize] = sample;
+        }
+        (sensor, src)
+    }
+
+    #[test]
+    fn colour_slots_scale_by_white_minus_the_maximum_black() {
+        let (sensor, src) = ac1_colour_sensor(&[2047, 2047, 2047, 2048]);
+        let Ok(ColourLevels::Slots(levels)) = resolve_colour_levels(&sensor) else {
+            panic!("a [2, 2] pattern takes the slot path");
+        };
+        assert_eq!(
+            levels,
+            [(2047, 12952), (2047, 12952), (2047, 12952), (2048, 12952)],
+            "every slot scales by W − B"
+        );
+        let normalize = slot_normalizer(&sensor, &src, levels);
+        for (x, y, sample, black, want) in AC1_COLOUR {
+            assert_eq!(
+                normalize(x, y),
+                want,
+                "sample {sample} at black {black} ({x}, {y})"
+            );
+        }
+    }
+
+    #[test]
+    fn colour_general_pattern_scales_by_white_minus_the_maximum_black() {
+        // The same 2×2 tiled as a 4×4 pattern takes the general path.
+        #[rustfmt::skip]
+        let tiled = [
+            2047, 2047, 2047, 2047,
+            2047, 2048, 2047, 2048,
+            2047, 2047, 2047, 2047,
+            2047, 2048, 2047, 2048,
+        ];
+        let (mut sensor, src) = ac1_colour_sensor(&tiled);
+        sensor.black_level_repeat_dim = Some([4, 4]);
+        let Ok(ColourLevels::Pattern(pattern, range)) = resolve_colour_levels(&sensor) else {
+            panic!("a [4, 4] pattern takes the general path");
+        };
+        assert_eq!(range, 12952, "W − B");
+        let normalize = pattern_normalizer(&sensor, &src, pattern, range);
+        for (x, y, sample, black, want) in AC1_COLOUR {
+            assert_eq!(
+                normalize(x, y),
+                want,
+                "sample {sample} at black {black} ({x}, {y})"
+            );
+        }
+    }
+
+    #[test]
+    fn colour_uniform_black_is_todays_map() {
+        // Black 2047 in every slot: W − B = 12953, `normalize_sample` exactly.
+        let (sensor, src) = ac1_colour_sensor(&[2047; 4]);
+        let Ok(ColourLevels::Slots(levels)) = resolve_colour_levels(&sensor) else {
+            panic!("a [2, 2] pattern takes the slot path");
+        };
+        let normalize = slot_normalizer(&sensor, &src, levels);
+        for (x, y, sample, _, _) in AC1_COLOUR {
+            assert_eq!(
+                normalize(x, y),
+                normalize_sample(sample, 2047, 15_000),
+                "sample {sample} ({x}, {y})"
+            );
+        }
+        // And an absent `BlackLevel` pattern: the scalar black, today's map.
+        let (mut scalar, src) = ac1_colour_sensor(&[]);
+        scalar.black_level = Some(2047);
+        let Ok(ColourLevels::Slots(levels)) = resolve_colour_levels(&scalar) else {
+            panic!("no pattern takes the slot path");
+        };
+        assert_eq!(levels, [(2047, 12953); 4]);
+        let normalize = slot_normalizer(&scalar, &src, levels);
+        assert_eq!(normalize(0, 0), 32765, "today's value at 8523");
+    }
+
+    #[test]
+    fn colour_with_no_range_maps_to_zero_without_panicking() {
+        // `W ≤ B`: the colour path has no levels refusal, so the range is 0
+        // and every sample maps to 0, never a division by zero.
+        let (sensor, src) = ac1_colour_sensor(&[2047, 2047, 2047, 15_000]);
+        let Ok(ColourLevels::Slots(levels)) = resolve_colour_levels(&sensor) else {
+            panic!("a [2, 2] pattern takes the slot path");
+        };
+        let normalize = slot_normalizer(&sensor, &src, levels);
+        for (x, y, ..) in AC1_COLOUR {
+            assert_eq!(normalize(x, y), 0, "({x}, {y})");
+        }
     }
 
     // ── SPEC-034: dual-illuminant interpolation (DNG NeutralToXY + McCamy) ──

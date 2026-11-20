@@ -550,11 +550,18 @@ fn reference_normalize(sensor: &Sensor, mosaic: &[u16]) -> Vec<u16> {
             None => scalar.unwrap_or(default),
         }
     };
+    // `DEC-070`: each photosite subtracts its own slot's black but every one
+    // scales by white minus the largest of the four slot blacks, clipping
+    // there (DNG 1.7.1 Chapter 5, "Rescaling").
+    let max_black = (0..4)
+        .map(|pos| level_at(&sensor.black_levels, pos, sensor.black_level, 0))
+        .max()
+        .unwrap_or(0);
     let normalize = |sample: u16, black: u32, white: u32| -> u16 {
-        let value = u32::from(sample);
-        let clamped = value.clamp(black.min(white), black.max(white));
-        let numerator = u64::from(clamped.saturating_sub(black)) * u64::from(u16::MAX);
-        let denominator = u64::from(white.saturating_sub(black));
+        let range = white.saturating_sub(max_black);
+        let shifted = u32::from(sample).saturating_sub(black).min(range);
+        let numerator = u64::from(shifted) * u64::from(u16::MAX);
+        let denominator = u64::from(range);
         if denominator == 0 {
             return 0;
         }
@@ -1218,9 +1225,10 @@ fn grey_origin_sensor(pattern: &[u8], sensor_origin: Option<(u32, u32)>) -> Sens
 
 /// A flat-grey mosaic (`GREY_W × GREY_H`) constructed *relative to* `build_origin`
 /// for the given Bayer `pattern`: each photosite reads
-/// `black_slot + k·(white − black_slot)·asn[colour]`, where the 2×2 slot and its
-/// colour come from the position *relative to `build_origin`*. Normalizing by
-/// that slot's `[black, white]` therefore recovers `k·65535·asn[colour]` for
+/// `black_slot + k·(white − max_black)·asn[colour]`, where the 2×2 slot and its
+/// colour come from the position *relative to `build_origin`*. Subtracting that
+/// slot's black and scaling by `white − max_black` (`DEC-070`; before SPEC-078
+/// each slot used its own `white − black_slot`) therefore recovers `k·65535·asn[colour]` for
 /// every photosite of a colour — a spectrally neutral (grey) subject. Once the
 /// develop path indexes from the same origin, demosaic sees a piecewise-constant
 /// mosaic and the colour matrix maps the neutral to grey.
@@ -1236,7 +1244,9 @@ fn grey_mosaic(pattern: &[u8], build_origin: (u32, u32)) -> Vec<u16> {
             let slot = usize::from(row_odd) * 2 + usize::from(col_odd);
             let colour = usize::from(pattern[slot]);
             let black = f64::from(SLOT_BLACK[slot]);
-            let raw = black + GREY_K * (white - black) * asn[colour];
+            // `DEC-070`: every slot scales by white minus the largest black.
+            let max_black = f64::from(*SLOT_BLACK.iter().max().unwrap());
+            let raw = black + GREY_K * (white - max_black) * asn[colour];
             mosaic[(y * GREY_W + x) as usize] = raw.round() as u16;
         }
     }

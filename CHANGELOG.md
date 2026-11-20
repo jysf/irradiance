@@ -8,6 +8,21 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Changed
+
+- **Black normalisation scales by white minus the maximum black** (SPEC-078, STAGE-025,
+  PROJ-004, DEC-070), as the DNG 1.7.1 specification's Rescaling step defines and Adobe's
+  SDK implements. On the colour develop (`develop_color_into`, `develop_color_f32_into`
+  and both threaded entries) and on mono `BlackLevels::PerPosition`, a sample still
+  subtracts its own position's black but now scales by `WhiteLevel` minus the largest
+  black the path applies, clipping there, instead of by `WhiteLevel` minus its own black.
+  Output changes only for a file whose blacks differ by position: in the held corpus the
+  Canon EOS 5D Mark III, Pixel 3a and Pixel 4a on those paths, which now match
+  `dng_validate` within one code before the `GainMap`. Every uniform-black file, and every
+  mono default (`BlackLevels::FirstValue`) develop, is byte-identical. Under `PerPosition`
+  a pattern whose largest black reaches white is `Error::InvalidLevels`, now reporting
+  that largest black. `DEVELOP_VERSION` goes from `"6"` to `"7"`.
+
 ## [0.2.3] - 2026-11-19
 
 Google Pixel DNGs develop, and black levels are read correctly in two more cases

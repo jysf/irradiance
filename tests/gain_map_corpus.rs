@@ -13,8 +13,10 @@
 //!   `scripts/sdk-stage2.sh` from a locally built Adobe `dng_validate`,
 //!   never committed and never run in CI): the gain step alone against the
 //!   SDK's own pre/post stage 2 (`AC4`, the gate), and end to end plus the
-//!   no-gain root cause (`AC5`). The bounds are `SPEC-060`'s, pre-registered
-//!   before this file was written; a miss is reported, never widened.
+//!   no-gain root cause (`AC5`). The gain-step bounds are `SPEC-060`'s; the
+//!   end-to-end and no-gain bounds, and the Canon, are `SPEC-078` AC4's
+//!   (`DEC-070`). All were pre-registered before the code they check; a miss
+//!   is reported, never widened.
 //!
 //! **Independence (AGENTS.md §16 rule 5).** The SDK lane's expected values
 //! come from Adobe's implementation, not this crate. The pins are this
@@ -335,25 +337,30 @@ fn stage2_reader_refuses_sample_format_and_hostile_size() {
 /// mono FullActiveArea PerPosition warp_alpha 0, colour u16, colour f32])`. MD5 of the
 /// output as little-endian `u16` / `f32` bit patterns. A change here is a
 /// change to Pixel output: explain it, never just re-pin.
+///
+/// Re-pinned at `SPEC-078` (`DEC-070`): the Pixel 3a's and 4a's blacks differ
+/// by position (1023, 1023, 1022, 1022), so their `PerPosition` and colour
+/// outputs now scale by `W − B`. Their mono default pins, and every 7 Pro pin
+/// (one black after `DEC-068`'s rounding), are unchanged.
 const PINNED: [(&str, [&str; 5]); 3] = [
     (
         "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng",
         [
             "a2de8cfb2bbcc6892113d3ad08312edb",
-            "b1feae5d5184e196cd4ca0d1c4c10256",
-            "435929609d2960438f0f69d61200eabd",
-            "00c8361c0f9741f4f3714b15fb6f5bae",
-            "c5899c08b544ebf3d2780f9891ef2290",
+            "73d85bb84102586d767e2036c70df563",
+            "8cdd4bc68e117a259b67cec86588e511",
+            "092b1ca02b474f3ba73d55e7893af058",
+            "3a5d78cdca45b02f443cd4e30c6682dc",
         ],
     ),
     (
         "GOOGLE-PIXEL-3A/IMG_20190918_164153.dng",
         [
             "98cafcff902bdb4e2382301dd291218d",
-            "25391555e20bc3749114019db10fcdb3",
-            "ff0973a390ee1300407955ae1c951fa6",
-            "6ab25b632f65f4651bc2ae122e33294f",
-            "f8d21871ca1949c199ac7347ec779a01",
+            "0787d0980ce83ab107439bd7b515663e",
+            "8dd219504381e8e91ac8f6cbcacababb",
+            "6b4a538d8e0e81fc9da9adc318f9041e",
+            "135015408536104e2247e9af16dbcf04",
         ],
     ),
     (
@@ -701,15 +708,83 @@ fn sdk_stage2(dir: &std::path::Path, stem: &str, which: &str) -> stage2_tiff::St
 /// max |d| ≤ 1 and at least 99.9% exact, on every file.
 const GAIN_STEP_MAX_ABS: u32 = 1;
 const GAIN_STEP_MIN_EXACT: f64 = 0.999;
-/// `AC5`, end to end: mono `stage2_like()` against the SDK's post-gain stage 2.
-const END_TO_END_MAX_ABS: u32 = 8;
-/// `AC5`, root cause: the same develop with no `GainMap` against the SDK's
-/// pre-gain stage 2.
-const NO_GAIN_MAX_ABS: u32 = 5;
-/// Files whose no-gain differences are all `≥ 0` (SDK at or above us: its
-/// `white − max black` scale). The 7 Pro's rounded black sits below the SDK's
-/// fractional one (`DEC-068`), so its differences are mostly negative.
-const NO_GAIN_NON_NEGATIVE: [&str; 2] = ["GOOGLE-PIXEL-4A", "GOOGLE-PIXEL-3A"];
+
+/// One file's pre-registered bounds (`SPEC-078` AC4, `DEC-070`), Δ being SDK
+/// minus ours.
+struct Bound {
+    /// Largest allowed `|Δ|`.
+    max_abs: u32,
+    /// Smallest allowed fraction of samples with `Δ = 0`; `None` asserts none.
+    min_exact: Option<f64>,
+    /// Every `Δ` is `0` or `+1`: the SDK's `f32` scale lands at or one code
+    /// above our integer map, never below.
+    zero_or_plus_one: bool,
+}
+
+/// `SPEC-078` AC4, no gain: mono `stage2_like()` with no `OpcodeList2`
+/// against the SDK's pre-gain stage 2. Under `DEC-070` both scale by `W − B`;
+/// the design probe measured 99.79% (4a) and 99.85% (3a) exact. The 7 Pro
+/// stays at 2, `DEC-068`'s rounded fractional black.
+fn no_gain_bound(stem: &str) -> Bound {
+    match stem {
+        "GOOGLE-PIXEL-7-PRO" => Bound {
+            max_abs: 2,
+            min_exact: None,
+            zero_or_plus_one: false,
+        },
+        _ => Bound {
+            max_abs: 1,
+            min_exact: Some(0.995),
+            zero_or_plus_one: true,
+        },
+    }
+}
+
+/// `SPEC-078` AC4, end to end: mono `stage2_like()` with the file's
+/// `GainMap`s against the SDK's post-gain stage 2. The design probe measured
+/// 4 / 99.77% (4a), 4 / 99.82% (3a) and 4 (7 Pro).
+fn end_to_end_bound(stem: &str) -> Bound {
+    match stem {
+        "GOOGLE-PIXEL-7-PRO" => Bound {
+            max_abs: 4,
+            min_exact: None,
+            zero_or_plus_one: false,
+        },
+        _ => Bound {
+            max_abs: 4,
+            min_exact: Some(0.997),
+            zero_or_plus_one: false,
+        },
+    }
+}
+
+/// Assert `d` is inside `bound`, with the full report on a miss.
+fn assert_within(d: &Diff, bound: &Bound, label: &str) {
+    let mut misses = Vec::new();
+    if d.max_abs > bound.max_abs {
+        misses.push(format!("max|d| over {}", bound.max_abs));
+    }
+    if let Some(min_exact) = bound.min_exact {
+        if d.exact_fraction() < min_exact {
+            misses.push(format!("exact under {}%", 100.0 * min_exact));
+        }
+    }
+    if bound.zero_or_plus_one && (d.min < 0 || d.max > 1) {
+        misses.push("a difference outside {0, +1}".to_string());
+    }
+    assert!(
+        misses.is_empty(),
+        "{}",
+        d.report(&format!("{label}: {}", misses.join(", ")))
+    );
+}
+
+/// The held Canon (`SPEC-078` AC4): blacks 2047 ×3 and 2048, no opcode lists,
+/// so `dng_validate -2` on the real file is its plain stage 2.
+const CANON: (&str, &str) = (
+    "CANON-EOS-5D-MARK-III/5G4A9394.DNG",
+    "CANON-EOS-5D-MARK-III",
+);
 
 #[test]
 fn gain_step_matches_dng_validate_stage_2() {
@@ -771,22 +846,32 @@ fn end_to_end_and_no_gain_are_within_their_bounds() {
         let no_gain = Diff::of(&pre.samples, &ours_plain);
         eprintln!("SDK NO GAIN {}", no_gain.report(stem));
 
-        assert!(
-            end_to_end.max_abs <= END_TO_END_MAX_ABS,
-            "{}",
-            end_to_end.report(&format!("{stem}: end to end over {END_TO_END_MAX_ABS}"))
+        assert_within(
+            &end_to_end,
+            &end_to_end_bound(stem),
+            &format!("{stem}: end to end"),
         );
-        assert!(
-            no_gain.max_abs <= NO_GAIN_MAX_ABS,
-            "{}",
-            no_gain.report(&format!("{stem}: no-gain over {NO_GAIN_MAX_ABS}"))
-        );
-        if NO_GAIN_NON_NEGATIVE.contains(&stem) {
-            assert!(
-                no_gain.min >= 0,
-                "{}",
-                no_gain.report(&format!("{stem}: a no-gain difference is negative"))
-            );
-        }
+        assert_within(&no_gain, &no_gain_bound(stem), &format!("{stem}: no gain"));
     }
+}
+
+/// `SPEC-078` AC4 on the Canon: no opcode lists, so the plain stage 2 is the
+/// no-gain comparison. The design probe measured 1 / 99.57%, Δ ∈ {0, +1}.
+#[test]
+fn canon_no_gain_is_within_its_bound() {
+    let Some(dir) = sdk_dir() else { return };
+    let (path, stem) = CANON;
+    let Some((sensor, plane)) = corpus_plane(path) else {
+        return; // SKIP announced by name by CorpusFile::require
+    };
+    assert!(
+        sensor.opcode_list_2.is_none(),
+        "{path}: the Canon has no OpcodeList2"
+    );
+    let reference = sdk_stage2(&dir, stem, "stage2");
+    let (w, h, ours) = develop_mono(&sensor, &plane, &stage2_like());
+    assert_eq!((w, h), (reference.width, reference.height), "{stem}: size");
+    let no_gain = Diff::of(&reference.samples, &ours);
+    eprintln!("SDK NO GAIN {}", no_gain.report(stem));
+    assert_within(&no_gain, &no_gain_bound(stem), &format!("{stem}: no gain"));
 }
