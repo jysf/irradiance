@@ -58,7 +58,7 @@ handback:
   pr: 276
   completed_at: 2026-11-20         # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit and PR turns, from transcript 82149180-6978-4ac5-a3f8-666c6afba95f.jsonl (104 unique message.ids, all claude-opus-5-5, no subagents): input 215 + cache-creation 248,955 (1-hour) + cache-read 21,873,698 + output 85,490 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Re-sum at ship. One stop-and-report: 13 tier-A oracles outside AC5 moved; orchestrator approved." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-20
 ---
 
 # HANDOFF-167: BUILD: black normalisation by white minus the maximum black (SPEC-078)

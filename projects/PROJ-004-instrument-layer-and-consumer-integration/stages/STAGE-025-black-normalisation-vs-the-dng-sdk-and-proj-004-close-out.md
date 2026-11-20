@@ -128,13 +128,22 @@ leaving them open would carry them into a project that has nothing to do with th
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-078 (design) [M] Black normalisation by white minus the maximum black (DEC-070): the DNG 1.7.1 spec's Rescaling rule, confirmed by the SDK; colour and mono PerPosition only, FirstValue and uniform-black files byte-identical; DEVELOP_VERSION 7; Canon added to the SDK cross-check; bounds tightened (no gain within 1, end to end within 4)
+- [x] SPEC-078 (shipped on 2026-11-20) [M] Black normalisation by white minus the maximum black (DEC-070): the DNG 1.7.1 spec's Rescaling rule, confirmed by the SDK; colour and mono PerPosition only, FirstValue and uniform-black files byte-identical; DEVELOP_VERSION 7; Canon added to the SDK cross-check; bounds tightened (no gain within 1, end to end within 4)
 - [ ] SPEC-079 (frame) — [S] PROJ-004 close-out hygiene: sdk-stage2.sh walks the IFDs and creates its output dir after the in-repo check; the SDK cross-check fails rather than skips when its env var is set without inputs; the Adobe licence line in the provenance ledger; the PROJ-004 brief count and monorail triage table refreshed
 
-**Count:** 0 shipped / 2 active / 0 pending
+**Count:** 1 shipped / 1 active / 0 pending
 
 ## Design Notes
 
+- **Carried from SPEC-078's verify (2026-11-20).**
+  - **FU-2 (tests only):** a tier-A colour fixture whose maximum black is not in the last
+    slot. Every tier-A colour fixture puts its largest black last, so a "`B` = last slot"
+    bug is caught only by the tier-B Pixel pins, which CI does not run. It fits SPEC-079's
+    hygiene scope; fold it in at SPEC-079's design.
+  - **FU-1 (behaviour change):** should the four colour entries refuse `W ≤ B` with
+    `InvalidLevels`, as mono `PerPosition` does? DEC-070 §3 as amended keeps colour total.
+    It needs its own spec and a CHANGELOG entry, so it moves to the next project with
+    STAGE-017 and STAGE-004 at PROJ-004's close.
 - **Order.** The black-normalisation spec goes first. The hygiene spec touches
   `tests/gain_map_corpus.rs`, whose bounds the first spec may tighten, so the hygiene
   spec builds on the first one's merge.
