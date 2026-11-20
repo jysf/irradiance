@@ -314,6 +314,36 @@ parse_targets=()
 while IFS= read -r f; do
     [ -n "$f" ] && parse_targets+=("$f")
 done < <(find "${REPO_ROOT}/projects" "$(decisions_dir)" -type f -name '*.md' 2>/dev/null | sort)
+# ── feedback/ (this repo's addition to the template, irradiance SPEC-080) ───
+# Every feedback/*.md (feedback/archive/ included) that STARTS with a `---`
+# line is a parse target too, except _template.md, whose front matter sits
+# after prose as an example. A file with no front matter is not a target, as
+# in every other scope. Its top-level `status` must be one of the template's
+# vocabulary; anything else is an offender, named.
+VALID_FEEDBACK_STATUS=" open addressed deferred "
+feedback_parsed=0
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    [ "$(basename "$f")" = _template.md ] && continue
+    [ "$(head -n 1 "$f" | tr -d '[:space:]')" = "---" ] || continue
+    parse_targets+=("$f")
+    feedback_parsed=$((feedback_parsed + 1))
+    fb_status=$(awk '
+        NR == 1 { next }
+        /^---[[:space:]]*$/ { exit }
+        /^status:/ { print $2; exit }
+    ' "$f")
+    case "$VALID_FEEDBACK_STATUS" in
+        *" ${fb_status:-∅} "*) : ;;
+        *)
+            fbname=$(basename "$f" .md)
+            off_names+=("$fbname"); off_problems+=(" status(='${fb_status:-∅}')")
+            off_kinds+=("feedback"); off_messages+=("")
+            [ "$JSON_OUT" = 1 ] || printf "  %-52s invalid/missing: feedback status(='%s', expected one of%s)\n" "$fbname" "${fb_status:-∅}" "${VALID_FEEDBACK_STATUS% }"
+            offenders=$((offenders + 1))
+            ;;
+    esac
+done < <(find "${REPO_ROOT}/feedback" -type f -name '*.md' 2>/dev/null | sort)
 if [ "${#parse_targets[@]}" -gt 0 ]; then
     parse_report="$(mktemp)"
     set +e
@@ -431,6 +461,6 @@ fi
 
 if [ "$offenders" -gt 0 ]; then
     echo ""
-    die "validate: ${offenders} artifact(s) failed front-matter validation: ${checked} checked for required keys (specs + patches + spikes), ${parsed} parsed (${PARSER}) under projects/ + decisions/. See DEC-001 §1 / docs/schema-reference.md."
+    die "validate: ${offenders} artifact(s) failed front-matter validation: ${checked} checked for required keys (specs + patches + spikes), ${parsed} parsed (${PARSER}) under projects/ + decisions/ + feedback/ (${feedback_parsed} feedback). See DEC-001 §1 / docs/schema-reference.md."
 fi
-success "validate: ${checked} artifact(s) (specs + patches + spikes) have valid required front-matter; ${parsed} artifact(s) under projects/ + decisions/ parse (${PARSER})."
+success "validate: ${checked} artifact(s) (specs + patches + spikes) have valid required front-matter; ${parsed} artifact(s) under projects/ + decisions/ + feedback/ parse (${PARSER}), ${feedback_parsed} of them feedback with a valid status."

@@ -22,6 +22,14 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   mono default (`BlackLevels::FirstValue`) develop, is byte-identical. Under `PerPosition`
   a pattern whose largest black reaches white is `Error::InvalidLevels`, now reporting
   that largest black. `DEVELOP_VERSION` goes from `"6"` to `"7"`.
+- **The colour develop refuses white at or below the maximum black** (SPEC-080, STAGE-026,
+  PROJ-004, DEC-070 §3 second amendment). `develop_color_into`, `develop_color_f32_into`
+  and both threaded entries now return `Error::InvalidLevels { black_level, white_level }`
+  when the colour white (the first `WhiteLevel` value) is at or below the largest black
+  the plane applies, for a scalar `BlackLevel`, a 2×2 or smaller pattern and a larger
+  pattern alike, as the mono path already did. The input is refused before anything is
+  written; it used to develop to an all-zero image. No file that developed before changes
+  output, and `DEVELOP_VERSION` stays `"7"`.
 
 ## [0.2.3] - 2026-11-19
 

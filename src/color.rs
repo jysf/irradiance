@@ -340,6 +340,9 @@ pub fn to_srgb_linear_into(
 /// - [`Error::RgbBufferWrongLength`] if `dst.len() != out_w·out_h·3`.
 /// - [`Error::InvalidBlackLevelPattern`] if `BlackLevel` has a count other than
 ///   `BlackLevelRepeatDim`'s rows × columns (`DEC-068` §2), before any write.
+/// - [`Error::InvalidLevels`] if the colour white `W` (the first `WhiteLevel`
+///   value) is at or below `B`, the maximum black the pattern applies
+///   (`DEC-070` §3), reporting `B` and `W`, before any write.
 /// - [`Error::MalformedOpcodeParams`] `{ id: 9, .. }` or [`Error::TooManyGainMaps`]
 ///   for `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069` §3), before any write.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] for a
@@ -428,6 +431,9 @@ fn develop_color_u16_with<N: Fn(u32, u32) -> u16>(
 /// - [`Error::RgbBufferWrongLength`] if `dst.len() != out_w·out_h·3`.
 /// - [`Error::InvalidBlackLevelPattern`] if `BlackLevel` has a count other than
 ///   `BlackLevelRepeatDim`'s rows × columns (`DEC-068` §2), before any write.
+/// - [`Error::InvalidLevels`] if the colour white `W` (the first `WhiteLevel`
+///   value) is at or below `B`, the maximum black the pattern applies
+///   (`DEC-070` §3), reporting `B` and `W`, before any write.
 /// - [`Error::MalformedOpcodeParams`] `{ id: 9, .. }` or [`Error::TooManyGainMaps`]
 ///   for `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069` §3), before any write.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] /
@@ -512,7 +518,8 @@ fn develop_color_f32_with<N: Fn(u32, u32) -> u16>(
 ///
 /// Exactly [`develop_color_into`]'s, in the same order: any input the threaded
 /// path does not accept is handed to [`develop_color_into`], which returns its
-/// typed error.
+/// typed error. [`Error::InvalidLevels`] (`W ≤ B`, `DEC-070` §3) is among them,
+/// refused on the calling thread before any write.
 ///
 /// Never panics: inputs (buffers, geometry, CFA, colour matrix) are validated
 /// once before any thread is spawned; a thread the OS refuses to spawn only
@@ -558,7 +565,9 @@ pub fn develop_color_into_threaded(
 ///
 /// # Errors
 ///
-/// Exactly [`develop_color_f32_into`]'s, in the same order.
+/// Exactly [`develop_color_f32_into`]'s, in the same order, including
+/// [`Error::InvalidLevels`] (`W ≤ B`, `DEC-070` §3), refused on the calling
+/// thread before any write.
 ///
 /// Never panics.
 pub fn develop_color_f32_into_threaded(
@@ -1434,9 +1443,12 @@ fn pattern_index(x: u32, y: u32, (top, left): (u32, u32), dims: [u32; 2]) -> Opt
 /// **The scale (`DEC-070`):** every photosite scales by `W − B`, with `B` the
 /// maximum of the blacks the pattern applies, as the DNG specification's
 /// Rescaling step defines; each subtracts its own black first. With one black
-/// everywhere `B` is that black and the map is `DEC-018`'s. A plane with
-/// `W ≤ B` has no range: every sample maps to 0, never a panic (the colour
-/// path has no levels refusal).
+/// everywhere `B` is that black and the map is `DEC-018`'s.
+///
+/// **The refusal (`DEC-070` §3, second amendment; `SPEC-080`):** on every
+/// branch (the scalar black, the slots, the general pattern), `W ≤ B` is
+/// [`Error::InvalidLevels`] reporting `B` and `W`, as the mono path refuses
+/// it. Before `SPEC-080` such a plane developed to all zeros.
 ///
 /// Returns before anything is written, so every colour entry point refuses a
 /// bad pattern with `dst` untouched.
@@ -1451,9 +1463,8 @@ fn resolve_colour_levels(sensor: &Sensor) -> Result<ColourLevels<'_>, Error> {
     let values = sensor.black_levels.as_slice();
     if values.is_empty() {
         let black = sensor.black_level.unwrap_or(0);
-        return Ok(ColourLevels::Slots(
-            [(black, white.saturating_sub(black)); 4],
-        ));
+        let range = colour_range(white, black)?;
+        return Ok(ColourLevels::Slots([(black, range); 4]));
     }
     let dims = black_pattern_dims(sensor)?;
     let [rows, cols] = dims;
@@ -1470,11 +1481,12 @@ fn resolve_colour_levels(sensor: &Sensor) -> Result<ColourLevels<'_>, Error> {
         // `B` over the blacks the slots apply (`DEC-070` §1): a `[1, 2]` or
         // `[2, 1]` pattern fills all four slots from its two values.
         let max_black = blacks.iter().copied().max().unwrap_or(0);
-        let range = white.saturating_sub(max_black);
+        let range = colour_range(white, max_black)?;
         return Ok(ColourLevels::Slots(blacks.map(|black| (black, range))));
     }
     // `values` is non-empty here, so the fallback is never taken.
     let max_black = values.iter().copied().max().unwrap_or(0);
+    let range = colour_range(white, max_black)?;
     let (top, left) = active_area_origin(sensor);
     Ok(ColourLevels::Pattern(
         BlackPattern {
@@ -1484,8 +1496,22 @@ fn resolve_colour_levels(sensor: &Sensor) -> Result<ColourLevels<'_>, Error> {
             top,
             left,
         },
-        white.saturating_sub(max_black),
+        range,
     ))
+}
+
+/// The colour plane's range `W − B` (`DEC-070` §1), or
+/// [`Error::InvalidLevels`] reporting `B` and `W` when `W ≤ B` (`DEC-070` §3,
+/// second amendment), as the mono path's `resolve_levels_with` refuses it.
+/// `max_black` is the maximum black the branch applies, never its first.
+fn colour_range(white: u32, max_black: u32) -> Result<u32, Error> {
+    if white <= max_black {
+        return Err(Error::InvalidLevels {
+            black_level: max_black,
+            white_level: white,
+        });
+    }
+    Ok(white.saturating_sub(max_black))
 }
 
 /// The per-cell level-normalize map the fused develop path
@@ -2111,17 +2137,121 @@ mod tests {
         assert_eq!(normalize(0, 0), 32765, "today's value at 8523");
     }
 
+    /// `resolve_colour_levels`' result, required to be exactly
+    /// `InvalidLevels { black_level: black, white_level: white }`.
+    fn assert_invalid_levels(sensor: &Sensor, black: u32, white: u32, ctx: &str) {
+        match resolve_colour_levels(sensor) {
+            Err(Error::InvalidLevels {
+                black_level,
+                white_level,
+            }) => assert_eq!((black_level, white_level), (black, white), "{ctx}"),
+            Err(other) => panic!("{ctx}: expected InvalidLevels, got {other:?}"),
+            Ok(_) => panic!("{ctx}: expected InvalidLevels, got Ok"),
+        }
+    }
+
     #[test]
-    fn colour_with_no_range_maps_to_zero_without_panicking() {
-        // `W ≤ B`: the colour path has no levels refusal, so the range is 0
-        // and every sample maps to 0, never a division by zero.
-        let (sensor, src) = ac1_colour_sensor(&[2047, 2047, 2047, 15_000]);
+    fn colour_with_no_range_is_refused() {
+        // SPEC-080 (DEC-070 §3, second amendment) rewrites SPEC-078's
+        // `colour_with_no_range_maps_to_zero_without_panicking`: `W ≤ B` is now
+        // `InvalidLevels` reporting `B`, as on the mono path, on every branch.
+        //
+        // The slot branch, with the old test's fixture: W = B = 15000, at the
+        // last index.
+        let (sensor, _) = ac1_colour_sensor(&[2047, 2047, 2047, 15_000]);
+        assert_invalid_levels(&sensor, 15_000, 15_000, "2x2, W = B, B last");
+        // B neither first nor last, and the first black below W.
+        let (sensor, _) = ac1_colour_sensor(&[2047, 16_000, 2047, 2047]);
+        assert_invalid_levels(&sensor, 16_000, 15_000, "2x2, W < B, B second");
+        // A [1, 2] pattern fills the slots from two values.
+        let (mut sensor, _) = ac1_colour_sensor(&[2047, 15_000]);
+        sensor.black_level_repeat_dim = Some([1, 2]);
+        assert_invalid_levels(&sensor, 15_000, 15_000, "[1, 2], W = B");
+        // The general branch: a 3x3 pattern, B in the middle.
+        let (mut sensor, _) =
+            ac1_colour_sensor(&[2047, 2047, 2047, 2047, 15_001, 2047, 2047, 2047, 2047]);
+        sensor.black_level_repeat_dim = Some([3, 3]);
+        assert_invalid_levels(&sensor, 15_001, 15_000, "[3, 3], W < B, B middle");
+        // The scalar branch: no pattern, the scalar black.
+        let (mut sensor, _) = ac1_colour_sensor(&[]);
+        sensor.black_level = Some(15_000);
+        assert_invalid_levels(&sensor, 15_000, 15_000, "scalar, W = B");
+        // The colour white is white_levels' first value, not white_level.
+        let (mut sensor, _) = ac1_colour_sensor(&[2047, 2047, 2047, 2047]);
+        sensor.white_levels = vec![2047, 60_000];
+        assert_invalid_levels(&sensor, 2047, 2047, "white_levels first");
+    }
+
+    #[test]
+    fn colour_one_code_of_range_is_accepted_and_clips_at_white() {
+        // W = B + 1 on each branch: Ok, range 1, and a sample at or above W
+        // maps to 65535 while one at the black maps to 0.
+        let (sensor, src) = ac1_colour_sensor(&[2047, 14_999, 2047, 2047]);
         let Ok(ColourLevels::Slots(levels)) = resolve_colour_levels(&sensor) else {
-            panic!("a [2, 2] pattern takes the slot path");
+            panic!("a [2, 2] pattern at W = B + 1 takes the slot path");
         };
+        assert_eq!(levels.map(|(_, range)| range), [1; 4], "range W − B");
+        // With one code of range, a sample above its own black maps to 65535
+        // and one at or below it to 0 (the hand rule; no crate call).
+        let blacks = [2047, 14_999, 2047, 2047];
+        let expect = |sample: u16, black: u32| if u32::from(sample) > black { 65_535 } else { 0 };
         let normalize = slot_normalizer(&sensor, &src, levels);
-        for (x, y, ..) in AC1_COLOUR {
-            assert_eq!(normalize(x, y), 0, "({x}, {y})");
+        for y in 0..2u32 {
+            for x in 0..4u32 {
+                let sample = src[(y * 4 + x) as usize];
+                let black = blacks[((y % 2) * 2 + x % 2) as usize];
+                assert_eq!(
+                    normalize(x, y),
+                    expect(sample, black),
+                    "slot: sample {sample} at black {black} ({x}, {y})"
+                );
+            }
+        }
+        // A sample of W and of u16::MAX through the slot holding B.
+        assert_eq!(normalize_range(15_000, 14_999, 1), 65_535, "W at B");
+        assert_eq!(normalize_range(u16::MAX, 14_999, 1), 65_535, "above W");
+
+        #[rustfmt::skip]
+        let general = [
+            2047, 2047, 2047,
+            2047, 14_999, 2047,
+            2047, 2047, 2047,
+        ];
+        let (mut sensor, src) = ac1_colour_sensor(&general);
+        sensor.black_level_repeat_dim = Some([3, 3]);
+        let Ok(ColourLevels::Pattern(pattern, range)) = resolve_colour_levels(&sensor) else {
+            panic!("a [3, 3] pattern at W = B + 1 takes the general path");
+        };
+        assert_eq!(range, 1, "range W − B");
+        let normalize = pattern_normalizer(&sensor, &src, pattern, range);
+        for y in 0..2u32 {
+            for x in 0..4u32 {
+                let sample = src[(y * 4 + x) as usize];
+                let black = general[((y % 3) * 3 + x % 3) as usize];
+                assert_eq!(
+                    normalize(x, y),
+                    expect(sample, black),
+                    "general: sample {sample} at black {black} ({x}, {y})"
+                );
+            }
+        }
+
+        let (mut sensor, _) = ac1_colour_sensor(&[]);
+        sensor.black_level = Some(14_999);
+        let Ok(ColourLevels::Slots(levels)) = resolve_colour_levels(&sensor) else {
+            panic!("no pattern takes the slot path");
+        };
+        assert_eq!(levels, [(14_999, 1); 4]);
+    }
+
+    #[test]
+    fn normalize_range_stays_total_at_range_zero() {
+        // The refusal sits in the resolvers; the normaliser itself still maps
+        // range 0 to 0 without dividing by zero (it also serves the mono path).
+        for sample in [0, 1, 2047, 15_000, u16::MAX] {
+            for black in [0, 2047, 15_000, u32::MAX] {
+                assert_eq!(normalize_range(sample, black, 0), 0, "{sample} at {black}");
+            }
         }
     }
 
