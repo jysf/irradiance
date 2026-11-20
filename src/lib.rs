@@ -166,7 +166,13 @@ use core::fmt;
 /// `"6"`: SPEC-059 (`DEC-069` §5) applies every `OpcodeList2` `GainMap` on
 /// both develop paths, so a file whose `GainMap`s are all optional, developed
 /// before with them skipped, now develops with them applied.
-pub const DEVELOP_VERSION: &str = "6";
+///
+/// `"7"`: SPEC-078 (`DEC-070`) scales black-subtracted samples by white minus
+/// the maximum black, as the DNG specification's Rescaling step defines, on
+/// the colour develop and on mono [`develop::BlackLevels::PerPosition`]. Output changes
+/// only for a file whose blacks differ by position; every mono default develop
+/// is unchanged.
+pub const DEVELOP_VERSION: &str = "7";
 
 /// libFuzzer entry for the SOF-3 lossless-JPEG decoder (`ljpeg::decode_into`,
 /// one- or two-component — `SPEC-046`) — `SPEC-038`, `DEC-036`.

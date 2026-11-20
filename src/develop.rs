@@ -320,6 +320,13 @@ pub struct DevelopOptions {
     /// White stays per sample: DNG gives a one-sample plane one `WhiteLevel`,
     /// resolved as today, so there is no per-position white.
     ///
+    /// **The scale is `W − B`** (`DEC-070`, DNG 1.7.1 Chapter 5,
+    /// "Rescaling"): with `B` the largest value in the pattern, a photosite
+    /// with black `b` develops to `⌊clamp(v − b, 0, W − B) · 65535 / (W − B)
+    /// + ½⌋`. A photosite whose black is below `B` therefore clips at full
+    /// scale slightly before raw white. A pattern whose values are all equal
+    /// develops exactly as under [`BlackLevels::FirstValue`].
+    ///
     /// The pattern is validated only when it is used. Under `PerPosition`, a
     /// `BlackLevel` count other than `R × C` (or `R` or `C` zero, or `R × C`
     /// overflowing) is [`Error::InvalidBlackLevelPattern`], and any value not
@@ -356,7 +363,8 @@ pub enum BlackLevels {
     /// `BlackLevel` indexed by `BlackLevelRepeatDim`, the pattern's origin at
     /// the `ActiveArea` top-left (DNG 1.7). For a converted (CFA-removed)
     /// camera developed as monochrome, and for any plane with a black
-    /// pattern.
+    /// pattern. Every photosite scales by white minus the pattern's maximum
+    /// black, as the DNG specification's Rescaling step defines (`DEC-070`).
     PerPosition,
 }
 
@@ -577,12 +585,17 @@ enum Blacks<'a> {
     /// `values[row × cols + col]`, with `row = (raw_y − top) mod rows` and
     /// `col = (raw_x − left) mod cols`. `values.len() == rows × cols`, both
     /// at least 1, checked by [`resolve_levels_with`].
+    ///
+    /// `range` is `W − B`, white minus the pattern's maximum black, resolved
+    /// once (`DEC-070` §1): every photosite scales by it, whatever its own
+    /// black ([`normalize_range`]).
     Pattern {
         values: &'a [u32],
         rows: u32,
         cols: u32,
         left: u32,
         top: u32,
+        range: u32,
     },
 }
 
@@ -599,6 +612,7 @@ impl Blacks<'_> {
                 cols,
                 left,
                 top,
+                range: _,
             } => {
                 let row = raw_y.checked_sub(top).and_then(|v| v.checked_rem(rows));
                 let col = raw_x.checked_sub(left).and_then(|v| v.checked_rem(cols));
@@ -614,6 +628,10 @@ impl Blacks<'_> {
 
 /// [`resolve_levels`] for `options.black_levels` (`DEC-061` §3).
 /// [`BlackLevels::FirstValue`] is [`resolve_levels`] exactly.
+///
+/// Under [`BlackLevels::PerPosition`] the pattern's maximum black `B` is
+/// taken once (`DEC-070` §1). `W ≤ B` is [`Error::InvalidLevels`], reporting
+/// `B` (`DEC-070` §3), and every photosite scales by `W − B`.
 fn resolve_levels_with<'a>(
     sensor: &'a Sensor,
     options: &DevelopOptions,
@@ -625,9 +643,11 @@ fn resolve_levels_with<'a>(
     }
     let white = resolve_white(sensor);
     let [rows, cols] = black_pattern_dims(sensor)?;
-    if let Some(&black_level) = values.iter().find(|&&v| v >= white) {
+    // `values` is non-empty here, so the fallback is never taken.
+    let max_black = values.iter().copied().max().unwrap_or(0);
+    if max_black >= white {
         return Err(Error::InvalidLevels {
-            black_level,
+            black_level: max_black,
             white_level: white,
         });
     }
@@ -648,6 +668,7 @@ fn resolve_levels_with<'a>(
             cols,
             left,
             top,
+            range: white.saturating_sub(max_black),
         },
         white,
     ))
@@ -714,6 +735,28 @@ fn normalize(sample: u16, black: u32, white: u32) -> u16 {
     // Round to nearest rather than truncate, so the interior isn't biased
     // low. `denominator` is never 0 here (`resolve_levels`), but the
     // fallback keeps this function total rather than trusting the caller.
+    let half = denominator.checked_div(2).unwrap_or(0);
+    let scaled = numerator
+        .checked_add(half)
+        .and_then(|v| v.checked_div(denominator))
+        .unwrap_or(0);
+    u16::try_from(scaled).unwrap_or(u16::MAX)
+}
+
+/// Map one raw sample whose black is `black` onto `[0, u16::MAX]` by the
+/// plane's range `W − B` (`DEC-070` §1): `⌊clamp(v − b, 0, W − B) · 65535 /
+/// (W − B) + ½⌋`, the same integer affine map as [`normalize`] with only the
+/// denominator changed. The clip at `W − B` is the DNG specification's
+/// "rescaled values above 1.0 should be clipped": a photosite whose black is
+/// below `B` reaches full scale slightly before raw white.
+///
+/// With `range == W − b` this is [`normalize`] exactly. A zero `range` maps
+/// everything to 0 rather than dividing by zero; the callers' levels checks
+/// refuse it first.
+pub(crate) fn normalize_range(sample: u16, black: u32, range: u32) -> u16 {
+    let shifted = u32::from(sample).saturating_sub(black).min(range);
+    let numerator = u64::from(shifted).saturating_mul(u64::from(u16::MAX));
+    let denominator = u64::from(range);
     let half = denominator.checked_div(2).unwrap_or(0);
     let scaled = numerator
         .checked_add(half)
@@ -1078,17 +1121,17 @@ fn crop_orient_normalize_for(
             let level = |s, _, _| normalize(s, black, white);
             crop_orient_normalize_into(sensor, geometry, level, src, dst);
         }
-        (pattern @ Blacks::Pattern { .. }, true) => {
-            let level = |s, x, y| normalize(s, pattern.at(x, y), white);
+        (pattern @ Blacks::Pattern { range, .. }, true) => {
+            let level = |s, x, y| normalize_range(s, pattern.at(x, y), range);
             crop_orient_normalize_into(sensor, geometry, level, src, dst);
         }
         (Blacks::Uniform(black), false) => {
             let level = |s, x, y| gained(gains, (left, top), x, y, normalize(s, black, white));
             crop_orient_normalize_into(sensor, geometry, level, src, dst);
         }
-        (pattern @ Blacks::Pattern { .. }, false) => {
+        (pattern @ Blacks::Pattern { range, .. }, false) => {
             let level = |s, x, y| {
-                let v = normalize(s, pattern.at(x, y), white);
+                let v = normalize_range(s, pattern.at(x, y), range);
                 gained(gains, (left, top), x, y, v)
             };
             crop_orient_normalize_into(sensor, geometry, level, src, dst);
@@ -1215,17 +1258,17 @@ fn normalize_active_area_for(
             let level = |s, _, _| normalize(s, black, white);
             normalize_active_area_into(sensor, geometry, level, src, dst_active);
         }
-        (pattern @ Blacks::Pattern { .. }, true) => {
-            let level = |s, x, y| normalize(s, pattern.at(x, y), white);
+        (pattern @ Blacks::Pattern { range, .. }, true) => {
+            let level = |s, x, y| normalize_range(s, pattern.at(x, y), range);
             normalize_active_area_into(sensor, geometry, level, src, dst_active);
         }
         (Blacks::Uniform(black), false) => {
             let level = |s, x, y| gained(gains, (left, top), x, y, normalize(s, black, white));
             normalize_active_area_into(sensor, geometry, level, src, dst_active);
         }
-        (pattern @ Blacks::Pattern { .. }, false) => {
+        (pattern @ Blacks::Pattern { range, .. }, false) => {
             let level = |s, x, y| {
-                let v = normalize(s, pattern.at(x, y), white);
+                let v = normalize_range(s, pattern.at(x, y), range);
                 gained(gains, (left, top), x, y, v)
             };
             normalize_active_area_into(sensor, geometry, level, src, dst_active);

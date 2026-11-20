@@ -61,6 +61,17 @@ fn normalize(sample: u32, black: u32, white: u32) -> u16 {
     u16::try_from((numerator + denominator / 2) / denominator).unwrap()
 }
 
+/// The same map under `DEC-070`: subtract the photosite's own `black`, scale
+/// by `white − max_black` (the largest black of the fixture's pattern, taken by
+/// the caller), clipping there.
+fn normalize_max(sample: u32, black: u32, white: u32, max_black: u32) -> u16 {
+    let range = white - max_black;
+    let shifted = sample.saturating_sub(black).min(range);
+    let numerator = u64::from(shifted) * 65535;
+    let denominator = u64::from(range);
+    u16::try_from((numerator + denominator / 2) / denominator).unwrap()
+}
+
 /// Where crop pixel `(cx, cy)` of a `w × h` crop lands in the oriented output,
 /// from the TIFF 6.0 `Orientation` table (which corner of the displayed image
 /// the stored row 0 / column 0 is). Written as the forward map (crop → output),
@@ -287,7 +298,7 @@ fn assert_same(label: &str, w: u32, got: &[u16], want: &[u16]) {
 
 #[test]
 fn every_orientation_matches_an_independent_gather() {
-    assert_eq!(DEVELOP_VERSION, "6", "DEC-069 bumps DEVELOP_VERSION to 6");
+    assert_eq!(DEVELOP_VERSION, "7", "DEC-070 bumps DEVELOP_VERSION to 7");
     for (crop_w, crop_h) in CROPS {
         let shape = Shape::around(crop_w, crop_h);
         let src = distinct_plane(&shape);
@@ -360,11 +371,14 @@ fn per_position_blacks_survive_the_tiled_walk() {
                 let mut opts = options(framing, 0.0, true);
                 opts.black_levels = BlackLevels::PerPosition;
                 let (w, _, got) = develop(&sensor, &src, &opts);
+                // `DEC-070`: the scale is white minus the pattern's maximum.
+                let max_black = *BLACKS.iter().max().unwrap();
                 let (_, _, want) = expected_image(&shape, framing, orientation, |x, y| {
-                    normalize(
+                    normalize_max(
                         u32::from(src[(y * shape.width + x) as usize]),
                         pattern(x, y),
                         WHITE,
+                        max_black,
                     )
                 });
                 assert_same(
