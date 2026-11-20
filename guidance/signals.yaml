@@ -1775,3 +1775,30 @@ signals:
       Candidate codification at N=3: a spec-template line under Failing Tests asking the
       designer to run the full tier-A suite against a throwaway implementation of the new
       rule and list every assertion that goes red, as SPEC-078's builder suggested.
+  - id: a-designed-mutant-must-be-able-to-fail-on-its-fixture
+    type: lesson
+    summary: "At design, check each pre-registered mutant against the fixture meant to catch it: a mutant whose wrong answer equals the right one on that fixture cannot go red, so the AC is unmeetable as written."
+    evidence: "N=1. SPEC-079 (STAGE-025): AC5's third mutant ('B = the general pattern's first value') could not fail on Design §6's fixture, whose maximum black was at index 0. The builder put the maximum at all 16 indices; the verifier's own last-value mutant is caught only by that test."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-20
+    last_touched: 2026-11-20
+    raised_by: claude
+    notes: |
+      Sibling of `a-changed-formula-lists-every-assertion-it-moves` and
+      `every-rule-clause-maps-to-a-reachable-test`: all three are design-time checks that
+      the designed tests can actually see what they are meant to.
+  - id: validate-does-not-parse-feedback-or-docs
+    type: process-debt
+    summary: "`just validate` parses front matter only under projects/ and decisions/, so feedback/ and docs/ front matter is never checked, and an AC that says 'validate parses it' is unenforced."
+    evidence: "N=1, 2026-11-20: SPEC-079's AC6 asked validate to parse the monorail feedback file; the builder and the verifier each parsed it by hand instead."
+    bar: null
+    status: watch
+    disposition_at: project-close
+    first_flagged: 2026-11-20
+    last_touched: 2026-11-20
+    raised_by: claude
+    notes: |
+      Candidate fix: add feedback/ (and any docs/ file with front matter) to validate's
+      parse set. Small; decide at the PROJ-004 close whether to carry it.

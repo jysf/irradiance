@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-025                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-19
-shipped_at: null
+shipped_at: 2026-11-20
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -47,7 +47,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 42299676
+      estimated_usd: 27.69
+      recorded_at: 2026-11-20
+      notes: "Stage orchestration, measured from the orchestrator transcript (session 2b783e6b, claude-opus-5-5) from the user's 'what's next for PROJ-004?' message at 2026-11-20T03:52Z through this close: 167 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus list rates (input 386 + cache-creation 395,845 (1-hour) + cache-read 41,790,041 + output 113,404); no subagents. Covers the PROJ-004 next-step read, framing STAGE-025, the DEC-070 probe and SPEC-078 design, SPEC-079 design, four handoffs, two builds and two verifies dispatched, two verify-base fast-forwards, a verifier nudge, both ships and this close. A FLOOR: the final messages after the measurement are not in it."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -129,9 +134,9 @@ leaving them open would carry them into a project that has nothing to do with th
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-078 (shipped on 2026-11-20) [M] Black normalisation by white minus the maximum black (DEC-070): the DNG 1.7.1 spec's Rescaling rule, confirmed by the SDK; colour and mono PerPosition only, FirstValue and uniform-black files byte-identical; DEVELOP_VERSION 7; Canon added to the SDK cross-check; bounds tightened (no gain within 1, end to end within 4)
-- [ ] SPEC-079 (build) [S] PROJ-004 close-out hygiene, designed 2026-11-20: sdk-stage2.sh walks the IFDs (byte-identical outputs) and creates its output dir only after the in-repo check; with the SDK variable set, a missing corpus file fails instead of skipping; the ledger records that the SDK zip ships no licence agreement document; the monorail triage record marked addressed; FU-2, tier-A fixtures with the maximum black at each slot. No src change
+- [x] SPEC-079 (shipped on 2026-11-20) [S] PROJ-004 close-out hygiene, designed 2026-11-20: sdk-stage2.sh walks the IFDs (byte-identical outputs) and creates its output dir only after the in-repo check; with the SDK variable set, a missing corpus file fails instead of skipping; the ledger records that the SDK zip ships no licence agreement document; the monorail triage record marked addressed; FU-2, tier-A fixtures with the maximum black at each slot. No src change
 
-**Count:** 1 shipped / 1 active / 0 pending
+**Count:** 2 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -175,18 +180,39 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 *Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
 FIRST_SESSION_PROMPTS.md to draft this.*
 
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes, both parts.
+  - **Black normalisation:** DEC-070 adopts the DNG 1.7.1 specification's Rescaling rule
+    (white minus the maximum black), which the SDK also follows. SPEC-078 (PR 276)
+    implements it on the colour path and mono `PerPosition`; the Canon, Pixel 3a and 4a go
+    from up to 6 codes off `dng_validate` to within 1 (at least 99.5% exact), Pixel end to
+    end from 7 to 4. `FirstValue` and uniform-black files are byte-identical;
+    `DEVELOP_VERSION` is 7. DEC-070 §3 was amended at ship: the colour path stays total.
+  - **Close-out:** SPEC-079 (PR 279) hardens the SDK recipe (an IFD walk, the output
+    directory created after the in-repo check) and the env-gated cross-check (set means
+    must run), records that the SDK zip ships no licence agreement document, marks the
+    monorail triage record addressed, and closes SPEC-078's FU-2 colour fixture gap.
+- **How many specs did it actually take?** 2, as planned.
+- **How many outlines survived unchanged?** 1 of 2. SPEC-078's outline held. SPEC-079's
+  dropped the brief-count refresh (already accurate) and gained FU-2 from SPEC-078's verify.
+- **Cost.** SPEC-078 38.72M tokens / $27.20 (estimate 25M, actual M); SPEC-079 20.98M /
+  $15.47 (estimate 15M, actual S); orchestration 42.30M / $27.69 (floor). About $70.36 for
+  the stage.
+- **What changed between starting and shipping?** The design probe settled the question
+  outright: the specification's text names the maximum black, so the stage changed the
+  rule rather than documenting the gap. The verify turned up that the colour path never
+  refused levels, which became a DEC-070 amendment and the carried FU-1.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - None codified. At design, list every assertion a formula change moves (N=2), and check
+    each designed mutant can actually fail on its designed fixture (N=1).
+- **Signals dispositioned at this close?**
+  - `a-changed-formula-lists-every-assertion-it-moves`: N=2 (SPEC-059, SPEC-078); SPEC-079
+    moved no assertion, so no new instance. Left `watch`.
+  - New `watch` at N=1: `a-designed-mutant-must-be-able-to-fail-on-its-fixture`
+    (SPEC-079's third mutant).
+  - New `process-debt`: `validate-does-not-parse-feedback-or-docs`, disposition at the
+    project close.
+  - The other open `watch` lessons were walked; none has a new instance in this stage.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - No. Both are recorded as signals above.
+- **Carried to the next project at PROJ-004's close:** FU-1 (a colour levels refusal), the
+  SDK script's repo-root detection from its own location, STAGE-017 and STAGE-004.

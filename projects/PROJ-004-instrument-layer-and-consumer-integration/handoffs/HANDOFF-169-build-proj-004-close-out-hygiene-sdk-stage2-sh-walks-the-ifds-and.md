@@ -58,7 +58,7 @@ handback:
   pr: 279
   completed_at: 2026-11-20         # YYYY-MM-DD
   notes: "Floor taken before the handback commit: 61 message ids, opus-5-5 only, no subagents, 1-hour cache writes. Re-sum at ship."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-20
 ---
 
 # HANDOFF-169: BUILD: PROJ-004 close-out hygiene (SPEC-079)
