@@ -32,8 +32,9 @@ value:
     - "Written files round-trip bit-exact through irradiance and pass dnglab, exiftool and dng_validate"
     - "The default build gains nothing: `write` is additive, and the crate keeps zero runtime dependencies"
   risks_to_thesis:
-    - "Scope is unknown until onyx answers the Darkroom v1 questions (what is written, previews, compression, float data, EXIF carry-over, API shape); compression or float could each add a stage"
-    - "Designing a public API ahead of its caller's requirements; wait for onyx's answers"
+    - "onyx's answers (monorail-000/DEC-075) settle scope, but two of irradiance's answers back still need onyx's agreement: the EXIF offset contract (DEC-072, also diamond-exif's) and framing as tags (DEC-073)"
+    - "Linear DNG export also waits on diamond-exif's block serialiser, which irradiance does not control"
+    - "Lossless compression, CFA or float could each add a stage if a later consumer asks"
 
 value_realized:
   thesis_held: null
@@ -46,9 +47,10 @@ roadmap: []
 
 # PROJ-005: Public DNG writer for the onyx Darkroom
 
-> **PROPOSED. Not yet framed.** Created on 2026-11-20 so STAGE-017 (the public DNG
-> writer) and its outline SPEC-061 have an owner once PROJ-004 closes. Run Prompt 1a/1b
-> (project frame + brief) with onyx's answers before any stage here goes active.
+> **PROPOSED. STAGE-017 re-framed 2026-11-20 from onyx's answers** (`monorail-000/DEC-075`).
+> Created on 2026-11-20 so STAGE-017 (the public DNG writer) has an owner once PROJ-004
+> closes. Project status stays `proposed` until jysf activates it; DEC-071..073 are
+> `proposed` until accepted.
 >
 > The ID is the next free one. `docs/future-plans.md` uses "PROJ-005" for the spectral
 > monochrome mixer, which was never minted; that plan takes a later number.
@@ -68,7 +70,11 @@ PROJ-004 so PROJ-004 can close and higher-priority work can start sooner.
 
 ## Success Criteria
 
-See `value.success_signals`. Refined at frame time, from onyx's answers to:
+See `value.success_signals`. onyx answered the six questions below on 2026-11-20 with
+`monorail-000/DEC-075`: one monochrome u16 plane, samples and levels unchanged,
+`OpcodeList3` kept, an optional caller JPEG preview, uncompressed, no float, an opaque
+EXIF block from `diamond-exif` plus XMP, and a bytes-in/bytes-out caller-buffer API.
+STAGE-017 traces each answer to a DEC and a spec. The questions were:
 1. What Darkroom v1 writes: the original sensor plane with corrected metadata, a linear DNG
    of a processed image, or a result built from several frames.
 2. Whether it needs embedded previews.
@@ -92,7 +98,8 @@ See `value.success_signals`. Refined at frame time, from onyx's answers to:
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [ ] STAGE-017 (proposed) — Public DNG writer behind a `write` feature (SPEC-061 outline). Moved from PROJ-004 on 2026-11-20; scope to be re-framed from onyx's Darkroom v1 answers.
+- [ ] STAGE-017 (proposed) — Public DNG writer behind a `write` feature: SPEC-061 core, SPEC-081 EXIF/XMP placement, SPEC-082 preview (outlines). Moved from PROJ-004 and re-framed from `monorail-000/DEC-075` on 2026-11-20.
+- [ ] (release) — a release spec carrying `write`, framed when STAGE-017's backlog ships.
 
 **Count:** 0 shipped / 0 active / 1 pending
 
@@ -101,7 +108,7 @@ Format: `- [status] STAGE-ID — one-line summary`
 ### Depends on
 - PROJ-004 STAGE-013: the clean-room writer core and its verification plan (shipped).
 - PROJ-004 STAGE-025: the local `dng_validate` reference (DEC-069 §6), for acceptance.
-- External: onyx's answers on Darkroom v1's DNG needs.
+- External input (not a dependency): onyx's answers, `monorail-000/DEC-075`.
 
 ### Enables
 - onyx Darkroom v1's DNG output; crustyimg RAW-in/DNG-out.
