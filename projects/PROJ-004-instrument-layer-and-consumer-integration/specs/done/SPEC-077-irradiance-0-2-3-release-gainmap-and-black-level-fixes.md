@@ -15,13 +15,15 @@
 task:
   id: SPEC-077
   type: release                    # epic | story | task | bug | chore | release
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
+  verify_verdict: approved
+  verify_rounds: [approved]
 
 project:
   id: PROJ-004
@@ -49,11 +51,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 15000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-165
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 9156722
+      estimated_usd: 6.69
+      duration_minutes: 15
+      recorded_at: 2026-11-19
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (58 unique message.ids, all claude-opus-5-5, no subagents): input 122 + cache-creation 134,500 (1-hour) + cache-read 8,988,018 + output 34,082 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Covers the Phase 1 prep, the corpus and SDK evidence runs, the dry run and the handback commit. The handback floor was 7,457,943 and $5.60."
+    - cycle: verify
+      handoff: HANDOFF-166
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 10612512
+      estimated_usd: 7.29
+      duration_minutes: 12
+      recorded_at: 2026-11-19
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (72 unique message.ids, all claude-opus-5-5, no subagents): input 143 + cache-creation 124,707 (1-hour) + cache-read 10,455,161 + output 32,501, opus-5-5 rates. APPROVED at c69c813, which added doc-only fixes (a missed newly refused input, malformed or too many optional GainMaps; an overstated SDK headline; InvalidBlackLevelPattern already existed in 0.2.2; README wrap), carried into PR 272 by fast-forward. src byte-identical to cf8b252. The handback floor was 9,021,275 and $6.14."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 19769234
+    estimated_usd: 13.98
+    session_count: 2
+shipped_at: 2026-11-19
 ---
 
 # SPEC-077: irradiance 0.2.3 release, GainMap and black-level fixes
@@ -353,38 +376,45 @@ levels are read correctly in two more cases. A compatible 0.2.x release: run `ca
   4. `cargo publish`, with the user's crates.io token.
   5. The `[cut]` halves of pre-flight items 1, 3 and 5.
   6. Optional: a GitHub release on `v0.2.3` with the `## Release Notes` text.
-  7. Append the one-line `## Cut Record`.
-- **`just semver-check`** uses the crates.io baseline. A `--baseline-rev` checkout fails
-  on legacy long paths in old trees (DEC-067).
-- **Plain-prose commit bodies**, with no code tokens. `Cargo.lock` is gitignored; never
-  force-add it. Never commit corpus or SDK bytes.
-- **0.2.2's build blocked once on the semver check** (a lint about mid-enum variants).
-  Since then new variants are appended last, and the design's run is clean. If it
-  reports anything, stop and record it as 0.2.2 did.
+  7. Append the one-line `## Cut Record
 
-## Cut Record
-
-*Filled at Phase 2.*
+v0.2.2 → **v0.2.3 published 2026-11-20** (crates.io, by the user, 03:41 UTC). Tag `v0.2.3`
+(annotated) points at `61a2671`, the PR 272 merge on `main`, which holds the verify-approved
+`c69c813` docs. crates.io shows 0.2.3 not yanked (checksum `f3116f4de41f19e5…`), and docs.rs
+reports `doc_status: true`. The user ran the Phase 2 runbook through `cargo publish`; the
+clean-host `[cut]` smoke (pre-flight 3 and 5) and the `.crate` sha1 check were not reported
+back and are not recorded here. Pixel phone DNG support, `apply_gain_maps` and the
+black-level fixes are now on crates.io as a compatible 0.2.x release.
 
 ## Reflection
 
-*Appended during **ship**. Four questions, short answers.*
+*Appended during **ship**.*
 
-1. **What would I do differently next release?**
-   — <answer>
+1. **What would I do differently next time?**
+   — Diff each refusal path against the last release tag at design, not just the public
+   API. The design listed the colour `BlackLevel` count refusal but missed the second
+   newly refused input: 0.2.2 skipped optional `GainMap`s unread, while 0.2.3 parses
+   them, so a malformed optional map (or more than 16) is now refused. `cargo
+   semver-checks` cannot see that. The design also called `InvalidBlackLevelPattern` new
+   when it already existed in 0.2.2. The cold verify caught both, and the headline's SDK
+   claim, before the tag. The bundle cost about 19.8M tokens against a 15M estimate.
 
-2. **Does any template, constraint, or decision need updating?** (e.g. a new
-   pre-flight category to add to this template)
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`. See `docs/signals.md`.>
+2. **Does any template, constraint, or decision need updating?**
+   — No. DEC-052's two-phase cut and DEC-067's crates.io-baseline semver check both held.
+   The verify-then-fast-forward pattern put the doc fixes into the PR before the tag,
+   so the tag sits on the approved tree.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None. STAGE-016's carried follow-ups (max-black normalisation, the IFD-walking SDK
+   recipe, a set-means-must-run rule) stay unframed.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(A release-phase `escaped` defect means a pre-flight category above was
-   missing or skipped — grow the checklist.)*
+4. **Where was the worst defect caught?**
+   — verify
+   *(Release-note accuracy only: a missed newly refused input and an overstated SDK
+   headline. Fixed in c69c813 before the merge and tag. No code defect.)*
+
+5. **What can a user do now that they couldn't before?**
+   — A crates.io user on `irradiance = "0.2"` gets, with `cargo update`, Pixel 3a, 4a and
+   7 Pro DNG develops (refused in 0.2.2), the public `apply_gain_maps`, correct
+   fractional and non-2x2 colour black levels, and `Sensor::masked_areas`. irradiance
+   0.2.3 was published 2026-11-20, and its docs.rs build is green.
