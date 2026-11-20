@@ -122,6 +122,10 @@ The cross-check runs only where a local SDK output directory is supplied.
    skip machinery). For each Pixel:
    - `develop_into`, `develop_with_into` (`StandardCrop` and `FullActiveArea`, with
      `BlackLevels::PerPosition`) and all four colour entry points return `Ok`.
+     *(Build note, approved: `FullActiveArea` runs with `warp_alpha` 0. At the default
+     1.0 the 3a's `WarpRectilinear` is refused with `UnsupportedWarpedFullActiveArea`
+     (DEC-059), while the 4a and 7 Pro develop `Ok`; the test accepts only those two
+     outcomes.)*
    - Output dimensions match `output_dimensions` and `output_dimensions_with`.
    - The threaded colour output equals the single-thread output.
    - **Pins:** pin a hash of each mono and colour output, following the existing pin
@@ -129,7 +133,7 @@ The cross-check runs only where a local SDK output directory is supplied.
      develop output).
    - **Reaches the step:** assert the `GainMap` is actually applied by comparing with
      the same develop on a sensor with `opcode_list_2 = None`. The outputs must differ,
-     and the corner-to-centre mean ratio of a channel must move toward 1. That makes it a
+     and the corner-to-centre mean ratio of a channel must rise (AC2, amended at build; it moves toward 1 only where the scene starts darker at the corners). That makes it a
      behavioural check, not just `Ok`.
 4. **The SDK cross-check.** It runs only when `IRRADIANCE_SDK_STAGE2_DIR` is set, and
    prints a visible SKIP line otherwise, in the corpus-status style. The tolerances are
@@ -177,9 +181,16 @@ The cross-check runs only where a local SDK output directory is supplied.
 
 - [ ] **AC1.** All three Pixels develop `Ok` on every mono and colour entry listed in
   Design §3, with the right dimensions, and threaded colour equals single-thread.
-- [ ] **AC2.** On each file, the `GainMap` changes the output against `opcode_list_2 =
-  None`, and moves the corner-to-centre ratio toward 1 (the test names the channel and
-  the windows).
+- [ ] **AC2.** *(Amended at build, 2026-11-19, approved by the orchestrator: "toward 1"
+  assumed a scene with plain vignetting, and the Pixel 4a's corners are brighter than its
+  centre.)* On each file, for CFA phase (0, 0) with 128-pixel windows (the mean of the
+  four corner windows over the centre window), on mono `FullActiveArea`, unoriented,
+  `warp_alpha` 0, `PerPosition`:
+  1. the output differs from the same develop with `opcode_list_2 = None`;
+  2. the corner-to-centre ratio with the `GainMap` is greater than without it;
+  3. the phase-(0, 0) map, parsed by hand from `OpcodeList2`, has a corner gain greater
+     than its centre gain, which anchors (2) to the map, not the scene;
+  4. the ratio moves toward 1 only where it starts below 1 (the 3a and 7 Pro).
 - [ ] **AC3.** Each Pixel output is pinned, and no other pin changes.
 - [ ] **AC4.** With `IRRADIANCE_SDK_STAGE2_DIR` set, the gain-step gate holds on all
   three files: max |Δ| ≤ 1 and at least 99.9% exact. Unset, it prints SKIP and passes.
