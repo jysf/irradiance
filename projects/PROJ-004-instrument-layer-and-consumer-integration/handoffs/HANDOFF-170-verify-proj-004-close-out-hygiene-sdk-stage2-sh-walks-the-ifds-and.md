@@ -58,7 +58,7 @@ handback:
   pr: 279
   completed_at: 2026-11-20   # YYYY-MM-DD
   notes: "APPROVED at 8abd264 (PR 279 head; verify base 41748ce). Floor taken before the handback commit, transcript c0a1d557-a729-49e6-b66b-2b6b37b98278.jsonl, 53 message ids, no subagents; opus-5-5 at 1-hour cache writes. Re-sum at ship."   # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-20
 ---
 
 # HANDOFF-170: VERIFY: PROJ-004 close-out hygiene (SPEC-079)

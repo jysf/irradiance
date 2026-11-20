@@ -6,19 +6,19 @@
 task:
   id: SPEC-079
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 15000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-169
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 11804634
+      estimated_usd: 8.76
+      duration_minutes: 35
+      recorded_at: 2026-11-20
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (68 unique message.ids, all claude-opus-5-5, no subagents): input 138 + cache-creation 175,048 (1-hour) + cache-read 11,580,532 + output 48,916 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Covers the IFD walk, the directory order, the set-means-must-run helper, the FU-2 fixtures with four mutants, the records and the PR. One approved-in-handback deviation: the general-path fixture puts the maximum at all 16 indices. The handback floor was 10,271,921 and $7.65."
+    - cycle: verify
+      handoff: HANDOFF-170
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 9174244
+      estimated_usd: 6.71
+      duration_minutes: 80
+      recorded_at: 2026-11-20
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (63 unique message.ids, all claude-opus-5-5, no subagents): input 141 + cache-creation 132,063 (1-hour) + cache-read 9,006,665 + output 35,375, opus-5-5 rates. APPROVED at 8abd264 (PR 279 head), handback carried into PR 279 by fast-forward. Six mutants all red; three non-blocking follow-ups (script repo root from its own location, ledger PDF count and duplicated paragraph fixed at ship, validate does not parse feedback). The orchestrator nudged it once after it ended a turn waiting on background runs. The handback floor was 7,334,564 and $5.39."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 20978878
+    estimated_usd: 15.47
+    session_count: 2
+shipped_at: 2026-11-20
 ---
 
 # SPEC-079: PROJ-004 close-out hygiene: sdk-stage2.sh walks the IFDs and creates its output dir after the in-repo check; the SDK cross-check fails rather than skips when its env var is set without inputs; the Adobe licence line in the provenance ledger; the PROJ-004 brief count and monorail triage table refreshed
@@ -275,34 +296,33 @@ AC4 on both arms.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Check each mutant against its fixture at design. AC5's third mutant ("`B` = the
+   pattern's first value") could not go red on Design §6's index-0-only fixture, because
+   there the first value *is* the maximum. The builder caught it and put the maximum at all
+   16 indices; the verifier's own last-value mutant is caught only by that test. The bundle
+   took about 21.0M tokens against a 15M estimate: S, at its top.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No DEC changes. Two process points for the stage close: `just validate` does not
+   parse `feedback/` or `docs/` front matter, so an AC that says "validate parses it" is
+   unenforced (process debt), and the SDK script finds the repo root from its own
+   location, which misjudges a copy run from another worktree (carried, pre-existing).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None in PROJ-004. FU-1 (a colour levels refusal) moves to the next project at
+   PROJ-004's close, with STAGE-017 and STAGE-004.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — build
+   *(A design defect, the third mutant that could not fail on the designed fixture,
+   caught and corrected by the builder. The verify found nothing to fix; the ledger's PDF
+   count and duplicated paragraph were fixed at ship.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — none (library behaviour is unchanged). For maintainers: the SDK recipe accepts a file
+   with a stray `OpcodeList2` byte pattern and refuses malformed or cyclic IFDs, a
+   deliberate SDK run can no longer pass with nothing compared, and a "`B` = last slot"
+   colour bug now fails in CI instead of only on the corpus.
