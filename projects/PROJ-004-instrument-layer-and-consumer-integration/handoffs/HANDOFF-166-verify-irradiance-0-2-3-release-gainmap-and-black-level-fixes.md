@@ -58,7 +58,7 @@ handback:
   pr: null
   completed_at: 2026-11-19               # YYYY-MM-DD
   notes: "APPROVED at c69c813 (PR 272's head plus the verify doc fixes; src byte-identical to cf8b252). FLOOR, measured live from transcript 3fa65943-883c-4b14-9b7f-c2621b7e976e.jsonl (63 unique message.ids, all claude-opus-5-5, no subagents): input 125 + cache-creation 113,049 (1-hour) + cache-read 8,885,417 + output 22,684 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). The handback commit and push turns are not in it; re-sum at ship."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-19
 ---
 
 # HANDOFF-166: VERIFY: irradiance 0.2.3 release prep, Phase 1 (SPEC-077)

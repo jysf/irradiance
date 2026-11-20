@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-024                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-19
-shipped_at: null
+shipped_at: 2026-11-20
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -45,7 +45,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 13373593
+      estimated_usd: 8.23
+      recorded_at: 2026-11-20
+      notes: "Stage orchestration, measured from the orchestrator transcript (session 2b783e6b, claude-opus-5-5) from the user's 'cut the 0.2.x release' message at 2026-11-20T02:51Z through this close: 50 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus list rates (input 116 + cache-creation 65,389 (1-hour) + cache-read 13,270,405 + output 37,683); no subagents. Covers the design-time semver check, framing STAGE-024, SPEC-077 and both handoffs, the build and verify dispatches, the verify-base fast-forward, the publish confirmation (tag, crates.io, docs.rs) and this ship and close. A FLOOR: the final messages after the measurement are not in it."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -94,9 +99,9 @@ patch release is sound.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-077 (design) [S] irradiance 0.2.3 release: semver check against crates.io 0.2.2, version bump, CHANGELOG promotion, release notes with the behaviour changes, tier-B evidence, two-phase cut (user tags and publishes)
+- [x] SPEC-077 (shipped on 2026-11-19) [S] irradiance 0.2.3 release: semver check against crates.io 0.2.2, version bump, CHANGELOG promotion, release notes with the behaviour changes, tier-B evidence, two-phase cut (user tags and publishes)
 
-**Count:** 0 shipped / 1 active / 0 pending
+**Count:** 1 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -119,21 +124,26 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. irradiance 0.2.3 is on
+  crates.io (published 2026-11-20, tag `v0.2.3` on `61a2671`, docs.rs green), a compatible
+  patch carrying STAGE-016, STAGE-022 and STAGE-023. The semver check was clean against the
+  published 0.2.2, and the release notes name every behaviour change.
+- **How many specs did it actually take?** 1, as planned.
+- **How many outlines survived unchanged?** n/a (not framed with `just frame-stage`).
+- **Cost.** SPEC-077 19.77M tokens / $13.98 (estimate 15M, actual S); orchestration
+  13.37M / $8.23 (floor). About $22.21 for the stage.
+- **What changed between starting and shipping?** The cold verify found the release notes
+  missed a second newly refused input (malformed or too many optional `GainMap`s, which
+  0.2.2 skipped unread) and overstated the SDK headline. Both were fixed in `c69c813` and
+  fast-forwarded into PR 272, so the tag sits on the approved tree. No library code changed
+  after the build.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
-- **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - None codified. A release design should diff refusal paths against the last tag, as well
+    as the public API, because semver-checks cannot see a newly refused input. N=1, not
+    recorded as a signal yet.
+- **Signals dispositioned at this close?** The watch lessons were walked, and none has a
+  new instance here. `every-rule-clause-maps-to-a-reachable-test` was codified at
+  STAGE-016's close.
+- **Should any spec-level reflections be promoted to stage-level lessons?** No.
+- **Not recorded:** the clean-host `[cut]` smoke and the `.crate` sha1 check were not
+  reported back by the user.
