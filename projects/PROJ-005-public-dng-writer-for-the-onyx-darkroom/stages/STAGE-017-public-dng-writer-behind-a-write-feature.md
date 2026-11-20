@@ -10,7 +10,7 @@ stage:
   target_complete: null             # optional: YYYY-MM-DD
 
 project:
-  id: PROJ-004                      # parent project
+  id: PROJ-005                      # parent project
 repo:
   id: irradiance
 
@@ -107,6 +107,12 @@ DEC-055 governs the crate layout: the writer stays in the crate behind a feature
 and splits out only on its named triggers. The decision to proceed from framing to
 design waits for a named consumer ask. If none arrives by the time STAGE-016 ships,
 re-ask the maintainer rather than building speculatively.
+
+**2026-11-20: moved from PROJ-004 to PROJ-005, with a named consumer.** onyx needs to
+write DNG for its PROJ-002 (Darkroom v1), not for its PROJ-001 (Sensor Inspector).
+Re-frame this stage from onyx's answers to the questions in PROJ-005's brief before
+SPEC-061 is designed; the scope above (uncompressed only, no previews, no re-emitting)
+may change.
 
 ## Dependencies
 
