@@ -266,6 +266,66 @@ fn stage2_reader_refuses_other_shapes() {
     }
 }
 
+/// `SPEC-060` verify: `dng_validate` writes one strip, so the reader's
+/// multi-strip path is reached only here. Two one-row strips, stored in the
+/// file in reverse order (row 1 first), so a reader that ignored
+/// `StripOffsets` or read only the first strip would fail. Both byte orders.
+#[test]
+fn stage2_reader_joins_strips_in_offset_order() {
+    for little in [true, false] {
+        let u32b = |v: u32| {
+            if little {
+                v.to_le_bytes()
+            } else {
+                v.to_be_bytes()
+            }
+        };
+        // Seven entries; `data` starts at 8 + 2 + 12·7 + 4 = 98. It holds the
+        // two-entry offsets array (98), the counts array (106), row 1 (114)
+        // and row 0 (120).
+        let data_at = 98u32;
+        let rows = sample_bytes(little);
+        let mut data = Vec::new();
+        data.extend_from_slice(&u32b(data_at + 22));
+        data.extend_from_slice(&u32b(data_at + 16));
+        data.extend_from_slice(&u32b(6));
+        data.extend_from_slice(&u32b(6));
+        data.extend_from_slice(&rows[6..]);
+        data.extend_from_slice(&rows[..6]);
+        let mut entries = stage2_entries(7, 1, 1, 16);
+        for e in &mut entries {
+            match e.0 {
+                273 => *e = (273, 4, 2, data_at),
+                279 => *e = (279, 4, 2, data_at + 8),
+                _ => {}
+            }
+        }
+        let tiff = hand_tiff(little, &entries, &data);
+        let img = stage2_tiff::read(&tiff).unwrap_or_else(|e| panic!("little={little}: {e}"));
+        assert_eq!((img.width, img.height), (3, 2), "little={little}");
+        assert_eq!(img.samples, READER_SAMPLES, "little={little}");
+    }
+}
+
+/// `SPEC-060` verify: a signed or floating-point `SampleFormat` is refused,
+/// and a header claiming a huge image is refused, not allocated (the
+/// capacity is capped at the file's length).
+#[test]
+fn stage2_reader_refuses_sample_format_and_hostile_size() {
+    let data = sample_bytes(true);
+    let mut signed = stage2_entries(8, 1, 1, 16);
+    signed.push((339, 3, 1, 2));
+    let mut huge = stage2_entries(7, 1, 1, 16);
+    huge[0] = (256, 4, 1, 0x8000_0000);
+    huge[1] = (257, 4, 1, 0x8000_0000);
+    for (want, entries) in [("SampleFormat 2", signed), ("expected", huge)] {
+        match stage2_tiff::read(&hand_tiff(true, &entries, &data)) {
+            Ok(_) => panic!("{want}: accepted"),
+            Err(e) => assert!(e.contains(want), "{want}: refused with {e:?}"),
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AC1 + AC3 — every entry develops, at the right size, and is pinned (tier B)
 // ─────────────────────────────────────────────────────────────────────────────

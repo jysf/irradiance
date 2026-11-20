@@ -4,7 +4,8 @@
 //! It accepts exactly the shape `dng_validate` 1.7.1 writes for a one-plane
 //! stage-2 image: a classic TIFF in either byte order, uncompressed
 //! (`Compression` 1), one sample per pixel (`SamplesPerPixel` 1), 16 bits per
-//! sample, chunky (`PlanarConfiguration` 1 or absent), stored in strips. Any
+//! sample, unsigned (`SampleFormat` 1 or absent), chunky
+//! (`PlanarConfiguration` 1 or absent), stored in strips. Any
 //! other shape is refused with a message naming the tag, never read as
 //! something it is not: a reference that is silently misread is a reference
 //! that cannot go red.
@@ -108,6 +109,7 @@ pub fn read(bytes: &[u8]) -> Result<Stage2, String> {
     let mut compression = None;
     let mut samples_per_pixel = None;
     let mut planar = None;
+    let mut sample_format = None;
     let mut offsets = None;
     let mut counts = None;
     for i in 0..n {
@@ -120,6 +122,7 @@ pub fn read(bytes: &[u8]) -> Result<Stage2, String> {
             259 => &mut compression,
             277 => &mut samples_per_pixel,
             284 => &mut planar,
+            339 => &mut sample_format,
             273 => &mut offsets,
             279 => &mut counts,
             322..=325 => return Err(format!("tag {tag}: tiled TIFF, expected strips")),
@@ -160,6 +163,14 @@ pub fn read(bytes: &[u8]) -> Result<Stage2, String> {
             return Err(format!("PlanarConfiguration {p}, expected 1"));
         }
     }
+    // SampleFormat 1 (unsigned integer) is the TIFF default; a signed or
+    // floating-point 16-bit sample would be misread as unsigned.
+    if let Some(f) = sample_format {
+        let f = single(Some(f), 339, "SampleFormat")?;
+        if f != 1 {
+            return Err(format!("SampleFormat {f}, expected 1 (unsigned integer)"));
+        }
+    }
     let offsets = offsets.ok_or("StripOffsets (273): missing")?;
     let counts = counts.ok_or("StripByteCounts (279): missing")?;
     if offsets.len() != counts.len() || offsets.is_empty() {
@@ -174,7 +185,10 @@ pub fn read(bytes: &[u8]) -> Result<Stage2, String> {
         .checked_mul(height as usize)
         .and_then(|n| n.checked_mul(2))
         .ok_or("image size overflows")?;
-    let mut data = Vec::with_capacity(expected);
+    // Capped at the file's length: `expected` comes from the header, and a
+    // hostile `ImageWidth × ImageLength` would otherwise abort the process in
+    // the allocator before the strip-length check below could refuse it.
+    let mut data = Vec::with_capacity(expected.min(bytes.len()));
     for (&off, &len) in offsets.iter().zip(&counts) {
         data.extend_from_slice(r.slice(off as usize, len as usize)?);
     }
