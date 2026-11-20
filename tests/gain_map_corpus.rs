@@ -16,7 +16,9 @@
 //!   no-gain root cause (`AC5`). The gain-step bounds are `SPEC-060`'s; the
 //!   end-to-end and no-gain bounds, and the Canon, are `SPEC-078` AC4's
 //!   (`DEC-070`). All were pre-registered before the code they check; a miss
-//!   is reported, never widened.
+//!   is reported, never widened. Set means must run (`SPEC-079`): with the
+//!   variable set, a missing SDK output **or** a missing corpus file is a
+//!   failure, not a skip; unset, the lane skips visibly.
 //!
 //! **Independence (AGENTS.md §16 rule 5).** The SDK lane's expected values
 //! come from Adobe's implementation, not this crate. The pins are this
@@ -32,7 +34,7 @@ mod md5;
 mod stage2_tiff;
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use corpus::{CorpusRoot, Manifest};
 use irradiance::color::{
@@ -81,13 +83,18 @@ fn corpus_plane(path: &str) -> Option<(Sensor, Vec<u16>)> {
         .get(path)
         .unwrap_or_else(|| panic!("{path} must be in the manifest"));
     let file_path = entry.require(&root)?;
-    let bytes = std::fs::read(&file_path).unwrap_or_else(|e| panic!("{path}: read: {e}"));
+    Some(load_plane(path, &file_path))
+}
+
+/// The sensor and unpacked raw plane of the file at `file_path`.
+fn load_plane(path: &str, file_path: &Path) -> (Sensor, Vec<u16>) {
+    let bytes = std::fs::read(file_path).unwrap_or_else(|e| panic!("{path}: read: {e}"));
     let container = Container::parse(&bytes).unwrap_or_else(|e| panic!("{path}: {e}"));
     let sensor = container.sensor().unwrap_or_else(|e| panic!("{path}: {e}"));
     let mut plane = vec![0u16; (sensor.width as usize) * (sensor.height as usize)];
     unpack_into(&sensor, container.byte_order(), &bytes, &mut plane)
         .unwrap_or_else(|e| panic!("{path}: unpack: {e}"));
-    Some((sensor, plane))
+    (sensor, plane)
 }
 
 /// The sensor with `OpcodeList2` removed: the same develop with no `GainMap`.
@@ -690,6 +697,93 @@ fn sdk_dir() -> Option<PathBuf> {
     }
 }
 
+/// Set means must run (`SPEC-079`, `DEC-069` §6): the corpus file the SDK
+/// cross-check compares, decided apart from the environment so both arms are
+/// unit-tested. `sdk_set` is whether `$IRRADIANCE_SDK_STAGE2_DIR` is set;
+/// `resolved` is where the manifest entry `path` resolves under the corpus root.
+///
+/// - The file is there: `Some(resolved)`.
+/// - It is missing and the SDK variable is unset: `None`, the visible skip.
+/// - It is missing and the SDK variable is set: a **failure** naming the file
+///   and both variables. The variable was set on purpose, so a run that
+///   compares nothing must not pass.
+fn sdk_corpus_file(sdk_set: bool, path: &str, resolved: &Path) -> Option<PathBuf> {
+    if resolved.is_file() {
+        return Some(resolved.to_path_buf());
+    }
+    assert!(
+        !sdk_set,
+        "{path}: MISSING at {} — ${SDK_STAGE2_ENV} is set, so the dng_validate \
+         cross-check must run: point $IRRADIANCE_CORPUS_DIR at the corpus, or unset \
+         ${SDK_STAGE2_ENV}",
+        resolved.display()
+    );
+    eprintln!(
+        "SKIP {path} — MISSING at {} (see the corpus-status lines `just test` prints)",
+        resolved.display()
+    );
+    None
+}
+
+/// The SDK cross-check's corpus file: its sensor and raw plane. Called only
+/// after [`sdk_dir`] returned the directory, so a missing file fails
+/// ([`sdk_corpus_file`]).
+fn sdk_corpus_plane(path: &str) -> (Sensor, Vec<u16>) {
+    let manifest = Manifest::load().expect("tests/corpus/manifest.toml must parse");
+    let entry = manifest
+        .get(path)
+        .unwrap_or_else(|| panic!("{path} must be in the manifest"));
+    let resolved = entry.resolve(&CorpusRoot::resolve());
+    let file_path = sdk_corpus_file(true, path, &resolved)
+        .unwrap_or_else(|| unreachable!("sdk_corpus_file never skips when the SDK is set"));
+    load_plane(path, &file_path)
+}
+
+/// The panic message of `f`, which must panic.
+fn panic_message(f: impl FnOnce() + std::panic::UnwindSafe) -> String {
+    let payload = std::panic::catch_unwind(f).expect_err("must panic");
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+        .unwrap_or_default()
+}
+
+#[test]
+fn sdk_set_and_corpus_file_missing_fails_naming_the_file() {
+    let missing = std::env::temp_dir().join("irradiance-spec-079-no-such-dir/absent.dng");
+    assert!(!missing.exists(), "{} must not exist", missing.display());
+    let msg = panic_message(|| {
+        sdk_corpus_file(true, "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng", &missing);
+    });
+    for needle in [
+        "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng",
+        "absent.dng",
+        "IRRADIANCE_CORPUS_DIR",
+        SDK_STAGE2_ENV,
+    ] {
+        assert!(
+            msg.contains(needle),
+            "the failure must name {needle:?}: {msg}"
+        );
+    }
+}
+
+#[test]
+fn sdk_unset_and_corpus_file_missing_skips() {
+    let missing = std::env::temp_dir().join("irradiance-spec-079-no-such-dir/absent.dng");
+    assert!(!missing.exists(), "{} must not exist", missing.display());
+    assert_eq!(sdk_corpus_file(false, "X/absent.dng", &missing), None);
+    // A present file is returned on both arms.
+    let present = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    for sdk_set in [false, true] {
+        assert_eq!(
+            sdk_corpus_file(sdk_set, "Cargo.toml", &present),
+            Some(present.clone())
+        );
+    }
+}
+
 /// One SDK stage-2 TIFF. The directory was set on purpose, so a missing or
 /// malformed file is a failure, not a skip.
 fn sdk_stage2(dir: &std::path::Path, stem: &str, which: &str) -> stage2_tiff::Stage2 {
@@ -790,9 +884,7 @@ const CANON: (&str, &str) = (
 fn gain_step_matches_dng_validate_stage_2() {
     let Some(dir) = sdk_dir() else { return };
     for (path, stem) in PIXELS {
-        let Some((sensor, _)) = corpus_plane(path) else {
-            continue; // SKIP announced by name by CorpusFile::require
-        };
+        let (sensor, _) = sdk_corpus_plane(path);
         let list = sensor
             .opcode_list_2
             .as_deref()
@@ -831,9 +923,7 @@ fn gain_step_matches_dng_validate_stage_2() {
 fn end_to_end_and_no_gain_are_within_their_bounds() {
     let Some(dir) = sdk_dir() else { return };
     for (path, stem) in PIXELS {
-        let Some((sensor, plane)) = corpus_plane(path) else {
-            continue; // SKIP announced by name by CorpusFile::require
-        };
+        let (sensor, plane) = sdk_corpus_plane(path);
         let pre = sdk_stage2(&dir, stem, "pre");
         let post = sdk_stage2(&dir, stem, "post");
 
@@ -861,9 +951,7 @@ fn end_to_end_and_no_gain_are_within_their_bounds() {
 fn canon_no_gain_is_within_its_bound() {
     let Some(dir) = sdk_dir() else { return };
     let (path, stem) = CANON;
-    let Some((sensor, plane)) = corpus_plane(path) else {
-        return; // SKIP announced by name by CorpusFile::require
-    };
+    let (sensor, plane) = sdk_corpus_plane(path);
     assert!(
         sensor.opcode_list_2.is_none(),
         "{path}: the Canon has no OpcodeList2"
