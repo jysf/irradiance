@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-016                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-11
-shipped_at: null
+shipped_at: 2026-11-19
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -47,7 +47,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 34701700
+      estimated_usd: 24.00
+      recorded_at: 2026-11-19
+      notes: "Stage orchestration, measured from the orchestrator transcript (session 2b783e6b, claude-opus-5-5) from the user's 'stage-016' message at 2026-11-19T16:53Z through this close: 159 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus list rates (input 358 + cache-creation 374,510 (1-hour) + cache-read 34,200,574 + output 126,258); no subagents. Covers the GainMap design probe, the Adobe DNG SDK download and local build with dng_validate, the throwaway rule prototype and its SDK comparison, DEC-069, both specs and handoffs, two build and two verify dispatches, the two mid-build decisions (refusal-test rewrite, AC2 rewording), two verify-base fast-forwards, the SPEC-059 ship and this ship and close. A FLOOR: the final messages after the measurement are not in it."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -109,9 +114,9 @@ SM-G960F carries four **optional**, degenerate 1x1 maps. All four were measured
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-059 (shipped on 2026-11-19) [M] GainMap parse + apply on mono and colour paths (DEC-069), every `OpcodeList2` GainMap accepted by required processing, public `apply_gain_maps`, the analytic oracle and red-proofs on writer fixtures, fuzz, provenance, `DEVELOP_VERSION` 6
-- [ ] SPEC-060 (design) [S] Real-file GainMap evidence: the three Pixels develop on every entry and are pinned; the GainMap step cross-checked against `dng_validate` stage 2 within pre-registered tolerances (env-gated, local SDK); a reproducible SDK recipe
+- [x] SPEC-060 (shipped on 2026-11-19) [S] Real-file GainMap evidence: the three Pixels develop on every entry and are pinned; the GainMap step cross-checked against `dng_validate` stage 2 within pre-registered tolerances (env-gated, local SDK); a reproducible SDK recipe
 
-**Count:** 1 shipped / 1 active / 0 pending
+**Count:** 2 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -153,21 +158,44 @@ Build SPEC-059 first. SPEC-060 depends on it.
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. The Pixel 3a, 4a and 7 Pro
+  develop on every mono and colour entry, where both paths refused them with
+  `UnsupportedMandatoryOpcode { id: 9 }`. `OpcodeList2` `GainMap` is parsed with every
+  field validated and applied at stage 2 by DEC-069, the first opcode the colour path
+  applies; required processing honours every list-2 `GainMap`; `apply_gain_maps` is public.
+  The step matches Adobe `dng_validate` within 1 code (at least 99.966% exact) on all three
+  files. Every file with no `GainMap` is byte-identical; `DEVELOP_VERSION` is 6. SPEC-059 in
+  PR 267, SPEC-060 in PR 269.
+- **How many specs did it actually take?** 2, as planned.
+- **How many outlines survived unchanged?** n/a (not framed with `just frame-stage`).
+- **Cost.** SPEC-059 59.02M tokens / $39.59 (estimate 26M, actual L); SPEC-060 27.89M /
+  $20.09 (estimate 12M, actual M); orchestration 34.70M / $24.00 (floor). About $83.68 for
+  the stage. Both specs ran at more than twice their estimates: fixtures, red-proof copies
+  with their own target dirs, and (SPEC-060) the SDK recipe and TIFF reader.
+- **What changed between starting and shipping?** The original success criterion to refuse
+  an area outside the image was dropped for the SDK's intersect rule, and the reference
+  became a locally built Adobe `dng_validate`, which settled five points the DNG spec leaves
+  implicit. During build, two refusal pins were rewritten to `Ok` (one approved ahead, one
+  after), and AC2's "toward 1" became "corners lift relative to the centre", anchored on the
+  map, because the 4a's scene is brighter at the corners. Both verifies were punch lists
+  (one rule-clause test gap, three TIFF-reader robustness tests), fast-forwarded into the
+  build PRs before merge.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - `projects/_templates/spec.md` gains the rule-clause map paragraph (below).
+  - At design, grep the tests for every pin of the behaviour a spec removes, and check a
+    behavioural assertion's direction on the real scene before writing it into an AC.
+- **Signals dispositioned at this close?**
+  - `every-rule-clause-maps-to-a-reachable-test`: N=3 at SPEC-059 (V24, the area
+    intersection, tested only where unobservable). **Codified** into the spec template's
+    Failing Tests section.
+  - The other watch lessons were walked and stay watch, with no new instance here.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - None beyond the two design checks above, which are N=1 each and not recorded as
+    signals yet.
+- **Carried follow-ups (unframed).**
+  - The SDK normalises by `white − max black`, ours per position (0 to 5 codes before gain).
+    It would change held colour output.
+  - `[XS]` `scripts/sdk-stage2.sh` should find `OpcodeList2` by walking the IFDs, and create
+    its output directory only after the in-repo check.
+  - A "set means must run" rule for env-gated tier-B checks.
+  - The Adobe licence agreement's text for the provenance row.

@@ -58,7 +58,7 @@ handback:
   pr: 269
   completed_at: 2026-11-19         # YYYY-MM-DD
   notes: "LIVE FLOOR, re-sum at ship. Transcript 0c21a153-2805-44db-a24f-743b9eccaa3f.jsonl (found by the scratchpad UUID), 75 unique message.ids, all claude-opus-5-5, no subagents: input 159 + cache-creation 170,325 (all 1-hour) + cache-read 13,050,255 + output 61,241 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour write x2.0). Duration is the transcript span at the re-sum, before the handback commit and CI." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-19
 ---
 
 # HANDOFF-162: BUILD: Real-file GainMap evidence and the dng_validate cross-check (SPEC-060)

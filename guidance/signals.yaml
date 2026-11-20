@@ -1747,14 +1747,17 @@ signals:
     summary: "At design, map every DEC rule clause (each malformed class, each entry point, each numeric path) to a named test, and say which code path that test must reach. A cold verify otherwise finds mutants the build's suite cannot see."
     evidence: "N=3, bar reached 2026-11-19. STAGE-023: SPEC-075's verify found four surviving mutants (f32 general-path origin, per-sample white, MaskedAreas bottom past height and left equal to right), DEC-068 clauses with no test in the failing-test list. SPEC-076's verify found two (an allocation on the applier's own parse error, unreachable because the spec's truncated row is refused earlier; a helper call hidden in a trailing comment). STAGE-016: SPEC-059's verify found one (V24, the DEC-069 area intersection), tested only on paths where it is unobservable; it changes output only in the colour demosaic's read past the ActiveArea. All were test gaps only, pinned before merge."
     bar: "N=3 same-outcome"
-    status: watch
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-19
     last_touched: 2026-11-19
     raised_by: claude
     notes: |
-      Bar reached at N=3 (SPEC-059). Decide at STAGE-016 close whether to codify the
-      spec-template checklist line below.
+      ══ STAGE-016 CLOSE, 2026-11-19: CODIFIED. ══ Bar reached at N=3 (SPEC-059's V24).
+      projects/_templates/spec.md's Failing Tests section now carries a "Rule-clause map"
+      paragraph: map every DEC clause to a named test and the code path where the clause
+      changes the output. SPEC-060's verify punch was test-support robustness, not a new
+      instance.
       Sibling discipline for builders and verifiers: read each mutant's panic message,
       because both STAGE-023 builds hit a mutant that went red for the wrong reason or
       never reached its path. Codify as a spec-template checklist line at N=3.

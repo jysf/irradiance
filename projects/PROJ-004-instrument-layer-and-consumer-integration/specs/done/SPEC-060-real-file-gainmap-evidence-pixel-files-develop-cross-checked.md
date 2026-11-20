@@ -6,19 +6,19 @@
 task:
   id: SPEC-060
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [punch-list]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 12000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-162
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 14922330
+      estimated_usd: 10.76
+      duration_minutes: 19
+      recorded_at: 2026-11-19
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (82 unique message.ids, all claude-opus-5-5, no subagents): input 173 + cache-creation 179,109 (1-hour) + cache-read 14,677,835 + output 65,213 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Covers the build, the AC2 rewording question, the corner-sampling red-proof and the handback commit. The handback floor was 13,281,980 and $9.76."
+    - cycle: verify
+      handoff: HANDOFF-164
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 12969267
+      estimated_usd: 9.33
+      duration_minutes: 15
+      recorded_at: 2026-11-19
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (73 unique message.ids, all claude-opus-5-5, no subagents): input 147 + cache-creation 170,645 (1-hour) + cache-read 12,748,485 + output 49,990, opus-5-5 rates. PUNCH LIST, tests only: the stage-2 TIFF reader's multi-strip join untested, a hostile-size capacity panic and an unchecked SampleFormat, fixed in 89b310b and carried into PR 269 by fast-forward. SDK outputs regenerated from scratch were byte-identical, and every pre-registered bound held. The handback floor was 11,834,498 and $8.62."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 27891597
+    estimated_usd: 20.09
+    session_count: 2
+shipped_at: 2026-11-19
 ---
 
 # SPEC-060: Real-file GainMap evidence: Pixel files develop, cross-checked against dng_validate
@@ -231,34 +252,40 @@ The cross-check runs only where a local SDK output directory is supplied.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Check a behavioural assertion's direction against the actual scene before writing
+   it into an AC. "Corner-to-centre ratio moves toward 1" assumed simple vignetting, but
+   the Pixel 4a's corners are brighter than its centre. The builder measured it, did not
+   pick windows to force a pass, and the AC was reworded to the map's own direction.
+   Also: the design assumed every Pixel's `FullActiveArea` develop is refused with the
+   warp on, but only the 3a is. The bundle cost about 27.9M tokens against a 12M
+   estimate, so it was sized M, not S. The SDK recipe, the TIFF reader and its tests,
+   and three red-proof copies are most of it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No. DEC-069 holds, and every pre-registered bound held without widening on both the
+   builder's and the verifier's independently generated SDK outputs. The verify's punch
+   was test-support robustness (multi-strip, hostile size, SampleFormat), not a
+   rule-clause gap.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None framed. Carried, unframed: `[XS]` make `scripts/sdk-stage2.sh` find the
+   `OpcodeList2` entry by walking the IFDs instead of a whole-file 4-byte pattern (FU-1);
+   `[XS]` create the output directory only after the in-repo check (FU-2); a "set means
+   must run" rule for env-gated tier-B checks (FU-3). The SDK's max-black normalisation
+   difference (DEC-069 §Context) remains carried.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
+   *(Test support only: the stage-2 TIFF reader's untested multi-strip join, a hostile
+   size panic and an unchecked SampleFormat. None changed a result on the three files.
+   Fixed in 89b310b and carried into PR 269 before merge.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Nothing new in the library: SPEC-059 made the Pixels develop. This spec pins their
+   output (15 MD5 pins) and shows the GainMap step matches Adobe's `dng_validate` within
+   1 code, with at least 99.966% of samples exact on all three files. A maintainer can
+   reproduce that check locally with `scripts/sdk-stage2.sh` and
+   `IRRADIANCE_SDK_STAGE2_DIR`.
