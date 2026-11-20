@@ -325,6 +325,13 @@ cargo test --all-features <test_name> -- --exact --nocapture
 #              neither and is the only half CI runs.
 cargo test --all-features --test metadata_oracle
 
+# sdk-stage2 — OPTIONAL local cross-check of the Pixel GainMap step against
+#              Adobe dng_validate stage 2 (SPEC-060, DEC-069 §6). Build the
+#              SDK outside the repo, generate its outputs with
+#              scripts/sdk-stage2.sh, then set $IRRADIANCE_SDK_STAGE2_DIR;
+#              unset (always in CI) it prints a SKIP line in corpus-status.
+IRRADIANCE_SDK_STAGE2_DIR=<out_dir> cargo test --all-features --profile corpus --test gain_map_corpus
+
 # lint       — BOTH halves; `just lint` runs them in this order
 # PATCH-004: both lint recipes now print WHICH clippy answered — `lint` is
 # unpinned (PATH may resolve Homebrew's, not rustup's) and says so; `lint-ci`
