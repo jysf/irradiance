@@ -58,7 +58,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/267
   completed_at: 2026-11-19         # YYYY-MM-DD
   notes: "LIVE FLOOR, re-sum at ship. Transcript a33f1412-dd84-4832-989c-e2110ebe2cd1.jsonl (found by the scratchpad UUID), 127 unique message.ids, all claude-opus-5-5, no subagents: input 262 + cache-creation 351,741 (all 1-hour) + cache-read 37,759,582 + output 119,287 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour write x2.0). Duration is the transcript span at the re-sum, before the handback commit and CI." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-19
 ---
 
 # HANDOFF-161: BUILD: GainMap parse and apply on both develop paths (SPEC-059)

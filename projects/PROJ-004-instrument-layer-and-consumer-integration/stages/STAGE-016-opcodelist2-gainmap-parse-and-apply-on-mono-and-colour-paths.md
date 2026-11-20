@@ -108,10 +108,10 @@ SM-G960F carries four **optional**, degenerate 1x1 maps. All four were measured
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-059 (design) [M] GainMap parse + apply on mono and colour paths (DEC-069), every `OpcodeList2` GainMap accepted by required processing, public `apply_gain_maps`, the analytic oracle and red-proofs on writer fixtures, fuzz, provenance, `DEVELOP_VERSION` 6
+- [x] SPEC-059 (shipped on 2026-11-19) [M] GainMap parse + apply on mono and colour paths (DEC-069), every `OpcodeList2` GainMap accepted by required processing, public `apply_gain_maps`, the analytic oracle and red-proofs on writer fixtures, fuzz, provenance, `DEVELOP_VERSION` 6
 - [ ] SPEC-060 (design) [S] Real-file GainMap evidence: the three Pixels develop on every entry and are pinned; the GainMap step cross-checked against `dng_validate` stage 2 within pre-registered tolerances (env-gated, local SDK); a reproducible SDK recipe
 
-**Count:** 0 shipped / 2 active / 0 pending
+**Count:** 1 shipped / 1 active / 0 pending
 
 ## Design Notes
 
