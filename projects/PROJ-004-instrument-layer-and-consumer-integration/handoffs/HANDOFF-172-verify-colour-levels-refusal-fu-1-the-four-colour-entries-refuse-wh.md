@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-20
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-080
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed  # completed | blocked | rejected
+  agent: claude-opus-5-5  # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved  # verify handoffs: approved | punch-list | rejected
+  basis: transcript  # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 8706914  # REAL combined count — what cost-audit reads
+  estimated_usd: 6.33  # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 95
+  branch: claude/spec-080-verify-base
+  pr: 283
+  completed_at: 2026-11-20  # YYYY-MM-DD
+  notes: "APPROVED at 71e5758 (PR 283 head). Floor taken before the commit from transcript 9a5f7349-ad15-4fd7-812c-812b69377011.jsonl, 54 message ids, no subagents; re-sum at ship. Pushed by refspec because worktree monorail-000-backlog-f34c1a holds the branch."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -185,43 +185,170 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
+*Filled in by the receiving agent (cold verifier, claude-opus-5-5).*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** verdict and handback on `claude/spec-080-verify-base` (pushed by refspec;
+  no PR opened). Under review: PR #283, head `71e5758`, CI 22/22 green, mergeable.
+- **Completed at:** 2026-11-20
+- **All acceptance criteria met?** yes, AC1 to AC8.
+- **For `verify`:** ✅ **APPROVED at `71e5758`** (the PR #283 head; this branch adds only the
+  handoff and this handback on top).
+
+**1. Refusal complete and in the right place.**
+- `colour_range(white, max_black)` refuses `W ≤ B` with `InvalidLevels { black_level: B,
+  white_level: W }`. All three branches of `resolve_colour_levels` call it:
+  - scalar: `B = black_level.unwrap_or(0)`;
+  - slots: `B` is the max of the four slot blacks, which covers the 1×1, 1×2, 2×1 and 2×2 shapes;
+  - general: `B` is the max of every value.
+- `W` is `white_levels.first()`, then `white_level`, then the bit-depth default. It is unchanged.
+- Order on all four entries is unchanged: required processing, buffers, levels, GainMaps.
+- The threaded entries resolve the levels in `develop_color_bands` on the calling thread,
+  before any band. Their fallbacks go through the single-thread entries, so they refuse too.
+- Callers of `slot_normalizer`, `pattern_normalizer` and `normalize_range`: only
+  `with_normalizer!` in the colour path (fed by `resolve_colour_levels`), the mono path
+  (already refusing), and unit tests.
+- No other public function takes a `Sensor` and normalises. `to_srgb_linear_into` takes
+  camera RGB; `demosaic_into` applies no levels; `apply_gain_maps` takes no `Sensor`.
+- `src/develop.rs` is untouched, so `normalize_range` is unchanged and still total.
+
+**2. No output moved.**
+- In `git diff origin/main -- tests/ src/`, the only removed code lines are:
+  - the pre-approved unit test;
+  - the three `saturating_sub` range lines, now in `colour_range`;
+  - doc lines.
+- `tests/colour_levels.rs` is all additions.
+- `just test` with the corpus: 790 passed / 0 failed / 1 ignored, both with
+  `IRRADIANCE_SDK_STAGE2_DIR` unset (SKIP line shown) and set to my scratchpad SDK outputs
+  ("present — the dng_validate cross-check will run").
+- `DEVELOP_VERSION` is `"7"`.
+
+**3. Mutants.** Tier A, `cargo test --all-features --profile corpus --no-fail-fast`. Each copy
+came from `git archive` into the scratchpad and had its own `CARGO_TARGET_DIR`. I read every
+panic message.
+
+| mutant | result (pass/fail/ign) | red tests |
+|---|---|---|
+| control, unmutated | 776/0/1, green | none |
+| B1 check removed (builder's) | 770/6/1 | `colour_with_no_range_is_refused` + 5 in `colour_levels` ("expected InvalidLevels, got Ok") |
+| B2 `<` for `≤` (builder's) | 772/4/1 | the W = B tests (equal, WhiteLevel 0, GainMap order, unit) |
+| B3 first black (builder's) | 771/5/1 | the slot/4×4 cases ("W = B = 5000: ()" — Ok where Err was expected) |
+| B5 threaded entries skip (builder's) | 771/5/1 | the same 5 integration tests, naming `develop_color_into_threaded` |
+| V1 error fields swapped (mine) | 773/3/1 | the W < B cases; W = B is symmetric, as expected |
+| V2 levels after GainMaps, all 3 sites (mine) | 775/1/1 | only `the_levels_are_refused_before_a_malformed_gain_map`, so AC3 is what catches the reorder |
+| V3 W from `white_level` first (mine) | 774/2/1 | `the_colour_white_is_the_first_whitelevel_value` + the unit test |
+| V4 u16 single entry skips, f32 refuses (mine) | 771/5/1 | 5 integration tests, naming `develop_color_into` |
+| V5 scalar branch unchecked (mine) | 770/6/1 | the scalar cases + the unit test |
+
+The builder's three counts reproduce exactly (4, 5, 5).
+
+**4. AC3 fixtures.** The control half of `the_levels_are_refused_before_a_malformed_gain_map`
+asserts `MalformedOpcodeParams { id: 9, .. }` with valid levels. It passes on the control.
+Every mutant that refuses nothing shows `left: "MalformedOpcodeParams { id: 9,
+declared_size: 3 }"`. So the GainMap really is refused when the levels are fine, and the
+ordering test is not vacuous. V2 proves it bites.
+
+**5. Script (AC6).**
+- The real `dng_validate` ran into a scratchpad directory whose path holds a space: exit 0,
+  7 TIFFs. All 7 sha256s equal SPEC-079's table (HANDOFF-169) byte for byte.
+- Refusal cases. Each used `/usr/bin/true` as the validator, so a check that wrongly let a
+  path through would still have written no SDK output. Each refused before `mkdir`, and a
+  check afterwards found nothing left behind:
+  - a relative path in this worktree;
+  - an absolute path in the main checkout;
+  - a path in another worktree (`monorail-000-backlog-f34c1a`);
+  - a scratchpad symlink whose parent resolves into the main checkout;
+  - an output path that is a symlink to an existing worktree directory;
+  - `../../../x`, which escapes into the main checkout.
+- A dangling symlink into a worktree dies at `mkdir`, creating nothing.
+- With git absent from `PATH`, the fallback message is printed. This worktree is still
+  refused, and an outside directory is created.
+- Outside any checkout, the fallback message is printed and the script-relative root is refused.
+- A throwaway repo with spaces in both the main and the worktree paths:
+  - each worktree is refused from the other;
+  - a `/tmp` spelling resolving to `/private/tmp` is refused;
+  - a sibling-prefix directory (`wt with space2`) is correctly accepted;
+  - a prunable worktree's own path is refused.
+
+**6. Validate (AC7).**
+- `just validate` is green: "374 … parse (ruby), 9 of them feedback with a valid status".
+- On a scratchpad `git archive` copy:
+  - broken YAML fails, naming the file and the parser message;
+  - `status: closed` fails, naming the file;
+  - `status: closed` in `feedback/archive/` fails (10 feedback counted);
+  - a broken `_template.md` is skipped (green, 9);
+  - broken prose appended to the front-matter-less file is skipped (green, 9).
+- Robustness (non-blocking, see follow-ups):
+  - CRLF: detection works, but the status read keeps the `\r`, so a valid `status: open` is
+    falsely rejected with a confusing message (`status(='open', expected one of open …)`);
+  - a quoted `status: "open"` is falsely rejected;
+  - a BOM-prefixed file is silently not parsed, visible only as a count that does not
+    rise.
+  - No current feedback file is affected: all are LF, BOM-less and unquoted.
+
+**7. Docs and CHANGELOG.**
+- The four `# Errors` sections list `InvalidLevels` in the right position: after the
+  pattern check, before the GainMaps.
+- The threaded entries say it is refused on the calling thread.
+- `Error::InvalidLevels` now describes `B` as the maximum black on both paths.
+- The CHANGELOG `[Unreleased]` entry names the four entries, the maximum black, all three
+  pattern shapes, the old all-zero behaviour, and `DEVELOP_VERSION` staying 7.
+- `semver-check`: 202 pass, 58 skip, "no update required".
+
+**8. Nothing forbidden committed.**
+- The diff against `origin/main` touches 9 files: `CHANGELOG.md`, 3 PROJ-004 docs, 2
+  scripts, `src/color.rs`, `src/lib.rs` and `tests/colour_levels.rs`.
+- No `Cargo.lock`, TIFF, DNG, SDK output or corpus bytes are in the diff or the tree.
+- My SDK outputs, mutant copies and validate copies live only in the session scratchpad.
+
+**9. Gates.** All green locally:
+- `lint-ci` (0 warnings), `lint-no-allow`, `fmt-check`, `validate`;
+- `doc-check` (2 surfaces), `cost-audit`, `gate-audit` (13 scripts);
+- `name-length-check` (892 paths), `decisions-index --check` (70);
+- `semver-check` as above.
+
+CI on PR #283 is 22/22 SUCCESS.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 8,706,914 (input 125, cache write 1-hour 138,274, cache read 8,541,463,
+  output 27,052). This is a floor measured before the commit; re-sum at ship.
+- **Estimated USD:** 6.33 at opus-5-5 rates ($5 in, $25 out, reads ×0.10, 1-hour writes ×2).
+- **Duration (minutes):** ~95
+- **Source of the number:** transcript `9a5f7349-ad15-4fd7-812c-812b69377011.jsonl`, found by
+  the scratchpad UUID. It is deduped by `message.id` (54 ids), taking the largest
+  `output_tokens`. There were no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none found.
+- **Follow-up work identified** (none blocks the verdict):
+  - `scripts/validate.sh` feedback status read: strip a trailing CR and surrounding quotes
+    before the vocabulary check, and treat a leading UTF-8 BOM as part of the `---` test (or
+    reject it loudly). It is scripts only and small; it fits the release spec or a patch.
+  - `scripts/sdk-stage2.sh`: under `set -e`, a worktree directory that exists but cannot be
+    entered makes the command substitution fail. The script then exits with no message.
+    It is unlikely; add an `|| printf` fallback.
+  - DEC-070 §3 (second amendment) says mono and colour "refuse the same malformed levels".
+    That is true against mono `PerPosition`. Mono's default `FirstValue` checks the first
+    black, not the maximum, so wording for the release notes should not overclaim.
+  - The AC3 control half checks `develop_color_into` only. The other three entries are
+    covered by the second half, and V2 shows the test bites, so this is optional.
+  - Process: line 168 of this handoff is the same broken template heading the builder
+    reported on HANDOFF-171 (a half-substituted "## Handback" fragment).
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Only the branch checkout: `claude/spec-080-verify-base` is held by the orchestrator
+   worktree, so `git checkout -B` fails. I used a local tracking branch and pushed by refspec.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The "never write SDK outputs into any checkout" rule plus `/usr/bin/true` as the
+   validator made the refusal checks safe without writing anything.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would start the mutant batch before the first `just test`. They contend for CPU, and
+   the mutants were the long pole.
