@@ -63,5 +63,21 @@ fn main() -> std::process::ExitCode {
         );
     }
 
+    // SPEC-060: the optional Adobe dng_validate cross-check
+    // (tests/gain_map_corpus.rs) is gated on its own variable, never set in
+    // CI (DEC-069 §6). Its skip is surfaced here for the same reason the
+    // corpus's is: cargo test captures a passing test's eprintln.
+    const SDK_STAGE2_ENV: &str = "IRRADIANCE_SDK_STAGE2_DIR";
+    match std::env::var_os(SDK_STAGE2_ENV) {
+        Some(dir) if !dir.is_empty() => println!(
+            "sdk-stage2: present  {} — the dng_validate cross-check will run",
+            std::path::Path::new(&dir).display()
+        ),
+        _ => println!(
+            "sdk-stage2: SKIP     ${SDK_STAGE2_ENV} unset — the dng_validate cross-check \
+             (SPEC-060) will skip. Generate it with scripts/sdk-stage2.sh."
+        ),
+    }
+
     std::process::ExitCode::SUCCESS
 }
