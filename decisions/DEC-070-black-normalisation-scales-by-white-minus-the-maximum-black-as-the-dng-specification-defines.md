@@ -28,6 +28,7 @@ affected_scope:
   - src/develop.rs
   - src/color.rs
   - projects/PROJ-004-instrument-layer-and-consumer-integration/specs/SPEC-078-black-normalisation-decide-white-minus-max-black-the-dng-sdk.md
+  - projects/PROJ-004-instrument-layer-and-consumer-integration/specs/SPEC-080-colour-levels-refusal-fu-1-the-four-colour-entries-refuse-wh.md
 
 tags:
   - develop
@@ -81,6 +82,16 @@ develops to 0, never a panic. One consequence: a malformed colour file whose lar
 reaches white, but whose other blacks are below it, used to develop those positions and
 now develops entirely to 0. Whether colour should refuse such levels, as mono does, is a
 carried follow-up (a behaviour change needing its own spec).
+
+**Amended again at SPEC-080's design (2026-11-20), superseding the paragraph above once
+SPEC-080 ships.** The colour path refuses too. On all four colour entries,
+`resolve_colour_levels` returns `Error::InvalidLevels { black_level: B, white_level: W }`
+when `W ≤ B`, where `B` is the maximum black the path applies (DEC-070 §1) and `W` is the
+colour path's own resolved white. That covers the slot path, the general pattern path and
+the scalar `BlackLevel` with no pattern. It is checked after `InvalidBlackLevelPattern` and
+before any write, so mono and colour refuse the same malformed levels with the same error.
+No file that develops today changes output, so `DEVELOP_VERSION` stays 7. A file that
+developed to all zeros is now refused; the release notes name it.
 
 ### 4. `DEVELOP_VERSION` goes from 6 to 7
 
