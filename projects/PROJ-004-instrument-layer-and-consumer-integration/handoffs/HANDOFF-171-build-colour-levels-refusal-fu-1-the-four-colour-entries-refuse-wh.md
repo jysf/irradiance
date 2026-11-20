@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-20
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-080
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 15197942           # REAL combined count — what cost-audit reads
+  estimated_usd: 10.66              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 25
+  branch: claude/spec-080-build
+  pr: 283
+  completed_at: 2026-11-20         # YYYY-MM-DD
+  notes: "Floor taken before the handback commit: 85 message ids, opus-5-5 only, no subagents, 1-hour cache writes. Re-sum at ship."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -158,38 +158,99 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-080-build` → https://github.com/jysf/irradiance/pull/283. The build commit is `69634d8`; the handback is the next commit.
+- **Completed at:** 2026-11-20
+- **All acceptance criteria met?** Yes. CI is reported in the PR, not here. Its debug test job takes about 37 minutes.
+
+**Assertions that went red against a throwaway refusal, before any test was written.** I ran the full suite with the corpus set, under the corpus profile with no fail-fast. The result was 763 passed, 1 failed and 1 ignored. The only failure was `color::tests::colour_with_no_range_maps_to_zero_without_panicking`, the pre-approved unit test. No other assertion or pin moved.
+
+**The change.**
+- `src/color.rs`:
+  - A new helper, `colour_range(white, max_black)`, returns `W − B` or `Error::InvalidLevels { black_level: B, white_level: W }` when `W ≤ B`.
+  - All three branches of `resolve_colour_levels` call it: the scalar branch, the slots and the general pattern.
+  - The call order is unchanged, so the refusal comes after the pattern-shape check and before the `GainMap`s. The threaded entries reach it in `develop_color_bands`, on the calling thread.
+  - `normalize_range` is untouched.
+- **Docs:**
+  - `InvalidLevels` is added to the `# Errors` of all four entries. Each threaded entry also names it explicitly.
+  - The resolver doc and the `Error::InvalidLevels` doc in `src/lib.rs` are updated.
+  - `CHANGELOG.md` gets an `[Unreleased]` "Changed" entry.
+- `DEVELOP_VERSION` is still 7, and the public API's shape is unchanged.
+
+**Tests.**
+- **Pre-approved rewrite:**
+  - The old unit test is now `colour_with_no_range_is_refused`. It covers each branch: 2×2 with `W = B` and `B` last (the old fixture); 2×2 with `W < B` and `B` second; `[1, 2]`; a general `[3, 3]` pattern with `B` in the middle; the scalar branch; and the first `white_levels` value winning.
+  - `normalize_range_stays_total_at_range_zero` checks that range 0 still maps to 0 without dividing.
+  - `colour_one_code_of_range_is_accepted_and_clips_at_white` covers AC2 at the normaliser level, against a hand rule.
+- **New file, `tests/colour_levels.rs`:**
+  - It holds 8 tests, all tier A, run on all four entries with a sentinel-filled `dst`.
+  - AC1: `W = B` and `W < B` on each of the 4 branches, where the 2×2 case has `B` at index 1 of 4 and the 4×4 case has `B` at index 6 of 16. Also WhiteLevel 0 with no BlackLevel, straight from a file.
+  - AC1, white rule: `white_levels` differs from `white_level`, in both directions.
+  - AC2: `W = B + 1` develops. Planes of `W`, `W + 7` and 65535 develop identically on every entry, and a plane of 0 differs.
+  - AC3: a wrong `dst` length is reported first, then a wrong BlackLevel count. `W ≤ B` with a malformed `GainMap` (a well-framed `OpcodeList2` whose `GainMap` has 3 parameter bytes) reports `InvalidLevels`. A control first shows the same list alone is `MalformedOpcodeParams { id: 9 }`.
+  - Every refusing fixture with several blacks has its first black below `W`. The scalar branch and the white rule are reached by editing the parsed `Sensor`'s public fields, because the test writer cannot separate them.
+
+**AC5 mutant table.** Each copy had its own target dir. Each ran tier A (corpus unset), under the corpus profile with no fail-fast.
+
+| mutant | passed / failed / ignored | red tests |
+|---|---|---|
+| control (unmutated) | 776 / 0 / 1 | none |
+| check removed | 770 / 6 / 1 | unit refusal; W = B; W < B; white rule; WhiteLevel 0; levels before gain map |
+| `<` instead of `≤` | 772 / 4 / 1 | unit refusal; W = B; WhiteLevel 0; levels before gain map (all the W = B cases) |
+| check against the first black | 771 / 5 / 1 | unit refusal; W = B; W < B; white rule; levels before gain map |
+| slot branch only | 770 / 6 / 1 | unit refusal (the `[3, 3]` case); W = B; W < B; white rule; WhiteLevel 0; levels before gain map (scalar and general cases) |
+| threaded entry skips it | 771 / 5 / 1 | W = B; W < B; white rule; WhiteLevel 0; levels before gain map, each on `develop_color_into_threaded` (the u16 threaded entry is checked before the f32 one) |
+
+I read each panic message: every red is the intended assertion, either "expected InvalidLevels, got Ok" or a refusal where `Ok` was returned on the named entry. None is a compile or setup failure.
+
+**AC6, `sdk-stage2.sh`.** Every refusal leaves no directory behind.
+- **Inside this worktree:** refused, exit 1. The message names the main checkout, because this worktree sits under its `.claude/worktrees/`.
+- **Inside another worktree (the main checkout):** refused, exit 1, with "output directory is inside the repository (…/irradiance): …/irradiance/sdk-out-x".
+  - Run from this worktree, the old script accepted the same path and wrote SDK outputs into the main checkout. I deleted them at once; nothing there was tracked or committed.
+- **Inside a worktree outside the main checkout:** refused. This was a temporary detached worktree in the scratchpad, so the list is what refuses it, not nesting. The worktree was removed and pruned afterwards.
+- **git absent from `PATH`** (a `PATH` of symlinks with git left out): stderr says "sdk-stage2: git is unavailable or this is not a git checkout; refusing only the script-relative root (…/spec-080-build-ee8659)". An in-worktree path is then refused against that root.
+- **Outside every worktree:** created, and the cold four-file recipe ran (exit 0). All 7 TIFFs are byte-identical to SPEC-079's sha256s (`893d7b94…`, `b2f784d7…`, `b0dc823b…`, `d33afbb4…`, `771609b8…`, `ec2e1a55…`, `3fc24044…`).
+- shellcheck finds nothing in the script.
+
+**AC7, `just validate` on `feedback/`.** These ran in a temp copy of scripts, projects, decisions, feedback and the init files; nothing broken was committed.
+- **Control:** passes. 373 files parse, 9 of them feedback; the parse count went up by exactly those 9.
+- **Broken YAML** (an unterminated quoted scalar in a copy): exit 1, with "front matter did not parse: (<unknown>): found unexpected end of stream while scanning a quoted scalar at line 1 column 9".
+- **`status: closed`:** exit 1, with "invalid/missing: feedback status(='closed', expected one of open addressed deferred)". The same happens in `feedback/archive/`.
+- **Skipped files:**
+  - Broken front matter appended to `_template.md` changes nothing: still 9, still green.
+  - `2026-04-20-bragfile-project.md`, which has no front matter, is not a target.
+- `validate-red-proof` is still green. shellcheck reports the same 4 pre-existing findings before and after.
+
+**AC8, gates.**
+- `just test` with the corpus: 790 passed, 0 failed, 1 ignored. The only SKIP is the SDK line. With `IRRADIANCE_SDK_STAGE2_DIR` set to the fresh SDK outputs: 790 / 0 / 1 with no SKIP.
+- `lint-ci`, `lint-no-allow`, `fmt-check`, `validate`, `doc-check`, `cost-audit`, `gate-audit`, `name-length-check` and `decisions-index --check` are all green.
+- `semver-check`: 202 pass, 58 skip, "no semver update required", as expected for a new refusal on an existing variant.
+- CI: see the PR.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 15,197,942: input 174, output 54,025, cache read 14,961,024 and cache write 182,719 (all 1-hour), over 85 message ids. This is a floor, taken before the handback commit.
+- **Estimated USD:** $10.66 at opus-5-5 rates ($5 in, $25 out, reads ×0.10, 1-hour writes ×2.0).
+- **Duration (minutes):** about 25 by wall clock (the transcript runs from 15:13 to about 15:38 local).
+- **Source of the number:** my session transcript (`41a5f6b5-5b05-4fd8-8e9f-b081cd0674f5.jsonl`), measured per docs/cost-tracking.md "Measuring a cycle": deduplicated by `message.id`, with the largest `output_tokens` taken. No subagents. The floor was taken just before the handback commit, so re-sum it at ship.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none. DEC-070's second amendment was already written at design.
 - **Deviations from spec:**
-  - [list]
+  - The public-entry tests live in a new file, `tests/colour_levels.rs`, which the spec allows.
+  - AC3's malformed `GainMap` had to be a well-framed list with bad `GainMap` parameters. A truncated list is refused earlier, by the required-processing check (`Truncated`), so it cannot show that levels come before gains.
+  - In AC6, "inside this worktree" is refused by way of the main-checkout entry, because worktrees here are nested in the main checkout. I added the outside-worktree case to show the list itself does the refusing.
+  - `docs/provenance-ledger.md` is unchanged: no row describes the colour path as total.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - (Process, small) This handoff's body has a broken line 136, "## Handback` section below.**", which looks like a template substitution that lost its start. It renders as a stray heading.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — AC3's "malformed GainMap" did not say which malformation. The obvious one, a truncated list, is caught earlier by the required-processing check, so it does not test levels-before-gains. It took one failed run to find this.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — Worktrees in this repo are nested inside the main checkout (`.claude/worktrees/`). So the old script's gap was only the main checkout, not sibling worktrees, and an "another worktree" test passes through nesting alone unless the worktree lives outside.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would not run the OLD script against an in-repo path to demonstrate the gap. It really did write about 60 MB of SDK outputs into the main checkout before I deleted them. Comparing the resolved roots is enough evidence.
