@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-19
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                  # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-077
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                     # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
+  verdict: approved                    # verify handoffs: approved | punch-list | rejected
+  basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 9021275               # REAL combined count — what cost-audit reads
+  estimated_usd: 6.14              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 12
+  branch: claude/spec-077-verify-base
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  completed_at: 2026-11-19               # YYYY-MM-DD
+  notes: "APPROVED at c69c813 (PR 272's head plus the verify doc fixes; src byte-identical to cf8b252). FLOOR, measured live from transcript 3fa65943-883c-4b14-9b7f-c2621b7e976e.jsonl (63 unique message.ids, all claude-opus-5-5, no subagents): input 125 + cache-creation 113,049 (1-hour) + cache-read 8,885,417 + output 22,684 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). The handback commit and push turns are not in it; re-sum at ship."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -173,38 +173,172 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-077-verify-base`, no PR (as instructed). Fix commit
+  `c69c813`; this handback is the commit after it.
+- **Completed at:** 2026-11-19
+- **All acceptance criteria met?** Yes. All eight checks below were run, and three
+  doc defects were fixed on this branch.
+- **Verdict: ✅ APPROVED at `c69c813`.** That is PR #272's head (`228a76e`) plus
+  `d6cdbfb` (verify setup) and `c69c813` (verify doc fixes). Its `src/` and
+  `Cargo.toml` are byte-identical to the candidate `cf8b252`.
+  - The candidate `cf8b252` is **not** approved on its own. Its release notes miss one
+    newly refused input, and its headline overstates the SDK match.
+  - So the merge that the tag goes on must include `c69c813`. Either merge
+    `claude/spec-077-verify-base` instead of `claude/spec-077-build`, or cherry-pick
+    `c69c813` onto #272 first.
+  - `c69c813` changes the packaged README by wording and wrapping only.
+
+#### Evidence per "What to check hard" item
+
+1. **Semver. ✔**
+   - `just semver-check` (`cargo-semver-checks` 0.51.0, crates.io 0.2.2 baseline)
+     gives "202 checks: 202 pass, 58 skip", "no semver update required".
+     `check-release --baseline-version 0.2.2 --all-features` gives the same result.
+   - I read `git diff v0.2.2 HEAD -- src/` by hand. No `pub` item was removed or
+     re-signed. The only removed `pub` line is `DEVELOP_VERSION = "4"`, now `"6"`.
+   - The new public items are all additive:
+     - `develop::apply_gain_maps`;
+     - `ifd::TAG_MASKED_AREAS` and `ifd::MAX_MASKED_AREAS`;
+     - `Sensor::masked_areas` and `Sensor::black_levels_exact` (`Sensor` is
+       `#[non_exhaustive]`);
+     - `Error::TooManyGainMaps` and `Error::GainMapImageWrongLength`, appended last on
+       the `#[non_exhaustive]` `Error`;
+     - `Opcode::GainMap`, appended last on the `#[non_exhaustive]` `Opcode`.
+   - `ErrorKind` gained no variant.
+   - `InvalidBlackLevelPattern` already existed in 0.2.2. The design paragraph that
+     listed it as new is corrected.
+   - `Cargo.toml` changes only the version line, so there is no new dependency or
+     feature, and `rust-version` stays 1.90.
+   - **What the tool cannot see:**
+     - **Display text:** two new arms only. No existing text changed.
+     - **Changed output:** `DEVELOP_VERSION` 4 → 6, a fractional black, a non-2×2
+       colour black pattern, and optional `GainMap`s now applied. All are already in
+       the notes.
+     - **Colour BlackLevel count:** a colour count that disagrees with
+       `BlackLevelRepeatDim` is now refused. This is already in the notes.
+     - **GainMap refusals (missed by the notes; fixed):** 0.2.2 skipped optional
+       `GainMap`s unread (`check_list` at `v0.2.2`). 0.2.3 parses every `GainMap` in
+       `OpcodeList2` (`GainMaps::from_list`). A file with a malformed optional
+       `GainMap`, or more than 16 of them, developed before and is now refused with
+       `MalformedOpcodeParams { id: 9 }` or `TooManyGainMaps`. A malformed mandatory
+       one changes variant, from `UnsupportedMandatoryOpcode` to
+       `MalformedOpcodeParams`. DEC-069 §3 intends this.
+     - **`malformed_tags`:** a malformed `MaskedAreas` (50830) now appears in it,
+       and a fractional `BlackLevel` no longer does. The CHANGELOG states both.
+   - My judgment: every item is a refusal of malformed input or a correction of
+     wrong output, so it fits "Behaviour changes" in a patch, as the 0.2.2
+     precedent does. None needs 0.3.0.
+2. **The src diff is doc-only. ✔**
+   - `git diff origin/main HEAD -- src/` touches only `//!` and `///` lines: the
+     `develop` module pipeline, the `develop_into` tone sentence and the `lib.rs`
+     history.
+   - `DEVELOP_VERSION` is `"6"`.
+   - The new intra-doc link `[crate::tone]` resolves (doc-check is clean).
+3. **The CHANGELOG. ✔ (one entry added)**
+   - `git log v0.2.2..origin/main` lists five library commits:
+     - SPEC-074: the one Compression 7 header parse, under Changed;
+     - SPEC-075: rounding, colour RepeatDim and MaskedAreas, under Added, Fixed and
+       Changed;
+     - SPEC-059: GainMap, under Added and Changed;
+     - SPEC-060: tests and evidence only, with zero `src/` lines;
+     - SPEC-076: test hardenings only, 31 test lines in `src/develop.rs`.
+   - Everything else is CI or projects-only.
+   - Nothing was dropped in the promotion. The merged `DEVELOP_VERSION` entry (4 → 6,
+     citing DEC-068 §4 and DEC-069 §5) is correct.
+   - An empty `[Unreleased]` is on top.
+   - Added under Changed: the GainMap refusal from item 1.
+4. **The release notes. ✔ after fixes**
+   - The `dng_validate` figures reproduce exactly. I ran `scripts/sdk-stage2.sh` with
+     the local 1.7.1 build into my scratchpad, then
+     `--test gain_map_corpus --release`, and all 8 passed. The gain step's max |d|
+     is 1 on each file, and the exact share matches the build:
+     - Pixel 4a: 99.9794%;
+     - Pixel 3a: 99.9672%;
+     - Pixel 7 Pro: 99.9664%.
+   - **The headline overstated this.** It said the develop "matches Adobe's DNG SDK
+     within one code". The full stage 2 differs from the SDK by up to 7 (4a), 6 (3a)
+     and 4 (7 Pro), and those differences exist without the gain too. The headline
+     now limits the claim to the gain step on the three tested files. It also said
+     "Android phones write [it] as mandatory", but DEC-069 notes the Samsung's maps
+     are optional, so that now reads "Pixel phones".
+   - "Every other file's output is byte-identical" holds. No 0.2.2 MD5 or checksum
+     pin was removed or changed in `tests/`; only Pixel pins were added, and every
+     pin held in `just test`.
+   - No colour-accuracy claim is made: Known limitations says it is uncalibrated.
+   - The behaviour-change bullet from item 1 was added.
+5. **README and crate docs. ✔ (one rewrap)**
+   - I grepped for `GainMap`, `Pixel`, `opcode 9`, `id: 9` and
+     `UnsupportedMandatoryOpcode`. Nothing says a Pixel or a `GainMap` is refused.
+     The remaining hits describe current behaviour: lists 1 and 3, and other opcodes.
+   - The status line says 0.2.3.
+   - The new status sentence ran onto one 120-character line. It is rewrapped to the
+     block's width.
+   - `cargo test --doc --all-features`: 4 passed.
+   - `just doc-check`: 2 surfaces, 0 warnings.
+6. **The package. ✔**
+   - `cargo publish --dry-run` packaged v0.2.3, 19 files, 1.7 MiB (371.7 KiB
+     compressed), verified, and aborted the upload, on `d6cdbfb` and again on
+     `c69c813`.
+   - The file list is identical to the 19 entries in the crates.io 0.2.2 `.crate`,
+     checked with a `diff` against the cached file. There are no `scripts/`,
+     `tests/`, SDK or corpus bytes.
+   - The packaged dev-dependencies are only `ssimulacra2` and `toml`, with no self
+     dev-dependency.
+   - `.cargo_vcs_info.json` names the HEAD it was packed from (`c69c813` on the last
+     run). At the cut it names the merged commit.
+7. **The evidence reproduces. ✔**
+   - `just test` with the corpus: "corpus: 12/12 present"; 44 result lines, 764
+     passed, 0 failed, 1 ignored, exit 0, 3:45 wall. This matches the handback's 764
+     and 224 s.
+   - `just msrv` (`+1.90.0 check --all-targets --all-features`), `just deny`,
+     `just deny-fuzz` and `just package-targets-check` (red case caught) all pass.
+   - `lint-ci`, `lint-no-allow`, `lint-fuzz`, `fmt-check`, `validate`, `cost-audit`,
+     `gate-audit` and `name-length-check` all pass.
+8. **The pre-flight and the Phase 2 runbook. ✔ (one command added)**
+   - The `[now]` items match what I reproduced.
+   - The tag command `git tag -a v0.2.3 -m "irradiance 0.2.3"` is correct.
+   - `cargo add irradiance@=0.2.3` is valid `cargo add` syntax.
+   - `cargo yank --version 0.2.3` and `--undo` match `cargo yank --help`.
+   - **The `.cargo_vcs_info.json` curl command was missing** from item 1 `[cut]`,
+     which the 0.2.2 pre-flight had. It is added. Its 0.2.2 form printed `46b6fc2…`,
+     which equals `v0.2.2^{commit}`.
+   - Runbook step 1 (`git checkout main && git pull`) assumes the merged branch
+     carries `c69c813`. See the verdict.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 9,021,275 (floor; measured before the handback commit)
+- **Estimated USD:** 6.14
+- **Duration (minutes):** about 12
+- **Source of the number:** harness transcript `3fa65943-….jsonl`, deduplicated by
+  `message.id`, with the largest output per message and no subagents
+  (`docs/cost-tracking.md` "Measuring a cycle").
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none to the library. Doc fixes in `c69c813`:
+  - the CHANGELOG Changed bullet;
+  - the release-notes headline and the behaviour-change bullet;
+  - the pre-flight curl command;
+  - the Release Scope variant list;
+  - the README rewrap.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - Merge `c69c813` with #272 before tagging (the verdict's condition).
+  - The release-pre-flight template could carry the crates.io vcs-info curl line
+    by default, since 0.2.3's build dropped it.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing much. "Name anything the tool cannot see, such as a newly refused
+   input" pointed straight at the gap. It took reading `check_list` at `v0.2.2` to
+   prove the gap.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-069 §3 already states the refusal. The notes just didn't carry it
+   over.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the SDK cross-check first. Its end-to-end lines are what show the headline
+   overstated the match, and the script takes about 4 s.
