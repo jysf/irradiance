@@ -2,7 +2,7 @@
 source: "monorail-000"
 captured_at: 2026-11-11
 captured_by: claude
-status: open
+status: addressed
 ---
 
 # monorail-000 (macOS monochrome app): unit-level unpack, develop options, caller scratch, orientation speed, previews, CFA override
@@ -259,7 +259,7 @@ Maintainer decisions (2026-11-11): use the suggested order (Stage A → Stage C 
 
 | Item | Stage | Spec | Notes |
 |---|---|---|---|
-| 5 preview slices | STAGE-018 (shipped 2026-11-12) | SPEC-062 shipped | `Container::previews()`; build PR 208, verify PR 209 (punch list, 2 test gaps fixed); in `[Unreleased]`, ships with the next 0.2.x |
+| 5 preview slices | STAGE-018 (shipped 2026-11-12) | SPEC-062 shipped | `Container::previews()`; build PR 208, verify PR 209 (punch list, 2 test gaps fixed); released in 0.2.2 (crates.io, 2026-11-17) |
 | 2 develop options (framing, apply_orientation) | STAGE-019 | SPEC-063 `[M]` (shipped) | shipped 2026-11-12 (DEC-058); `develop_with_into`, released in 0.2.2 (crates.io, 2026-11-17); FullActiveArea on warped frames enabled by SPEC-064 |
 | 2 develop options (warp_alpha / lerp) | STAGE-019 | SPEC-064 `[M]` (shipped) | shipped 2026-11-12 (DEC-059); `warp_alpha` in [0, 1] over `WarpRect::lerp`; FullActiveArea develops all three Q2M frames at every alpha (measured scale [0.8998, 0.99925], corner pull 506.1 px); over-unity lenses (Pixel 3a) refused typed; released in 0.2.2 (crates.io, 2026-11-17) |
 | 3 caller scratch | STAGE-019 | SPEC-065 `[M]` (shipped) | shipped 2026-11-13 (DEC-060); `scratch_len` + `develop_with_scratch_into`, one exact-length `&mut [u16]`, typed `DevelopScratchWrongLength`; 0 allocations on every path (Q2M scratch 189.4 MB = P + A); `develop_into` down from 6 allocations / 283.9 MB to 1 / 189.4 MB; released in 0.2.2 (crates.io, 2026-11-17) |
@@ -268,8 +268,10 @@ Maintainer decisions (2026-11-11): use the suggested order (Stage A → Stage C 
 | 1 unit unpack | STAGE-020 (framed 2026-11-13) | SPEC-068 `[M]` (shipped) | shipped 2026-11-14 (DEC-063); `plane::units` + `unpack_unit_into`: every unit a full-width row band, so a caller splits dst with `split_at_mut` in safe Rust; Q2M 8 bands, Pixel 12 tile rows, single-scan Compression 7 one unit; M4 Pro: `unpack_into` 242 ms on one thread, 8 units on 8 threads 31 ms, byte-identical; released in 0.2.2 (crates.io, 2026-11-17) |
 | 1 (kernel) packed-bits unpack speed | STAGE-020 | SPEC-069 `[S]` (shipped) | shipped 2026-11-14 (DEC-064); 12/14-bit unpack reads whole byte groups, BitReader keeps the tail; M4 Pro: Q2M `unpack_into` 239 ms -> 9.7 ms on one thread, 8 units on 8 threads 31 ms -> 1.4 ms, byte-identical; released in 0.2.2 (crates.io, 2026-11-17) |
 | 1b Compression 7 decode speed | STAGE-020 | SPEC-070 `[M]` (shipped) | shipped 2026-11-14 (DEC-065); buffered scan reader plus 11-bit Huffman lookahead; M4 Pro: K-3 III `unpack_into` 692 ms -> 103 ms, Typ 246 591 ms -> 91 ms, Pixel 4a 324 ms -> 61 ms, on one thread, samples and errors identical; released in 0.2.2 (crates.io, 2026-11-17) |
-| 8 `MaskedAreas` pass-through (onyx request 5) | STAGE-023 (framed 2026-11-19) | SPEC-075 `[M]` (built, in verify) | built 2026-11-19; DEC-068 §3: `Sensor::masked_areas: Vec<ActiveArea>`, verbatim in file order, interpretation class (a malformed tag is costed in `malformed_tags`, not an error), 16-rectangle cap, not used by develop; bundled with the black-level fixes |
+| 8 `MaskedAreas` pass-through (onyx request 5) | STAGE-023 (framed 2026-11-19) | SPEC-075 `[M]` (shipped) | shipped 2026-11-19; DEC-068 §3: `Sensor::masked_areas: Vec<ActiveArea>`, verbatim in file order, interpretation class (a malformed tag is costed in `malformed_tags`, not an error), 16-rectangle cap, not used by develop; bundled with the black-level fixes; released in 0.2.3 (crates.io, 2026-11-20) |
 
 *Fill in as more stages and specs are minted.*
 
 Status stays `open` until items 1, 2, 3 and 5 ship.
+
+**Closed 2026-11-20 (SPEC-079).** Every item has shipped and been released: items 1–6 in 0.2.2, item 8 in 0.2.3, and item 7 needed no work. The closing rule above is met on 2026-11-20, so the status is `addressed`. Later requests from the consumer get a new feedback file.

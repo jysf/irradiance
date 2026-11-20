@@ -18,6 +18,12 @@
 //! - **AC1, uniform:** a uniform-black file gives exactly today's values.
 //! - **AC3, refusal:** a pattern whose largest black reaches white is refused
 //!   though its first black is below white (`DEC-070` §3).
+//! - **`SPEC-079` (FU-2), the maximum black at every position:** the AC1
+//!   fixtures all put the largest black last, so a `B` taken from the last
+//!   slot would pass them. The same shifted-uniform equivalence is repeated
+//!   with the 2048 black at each `[2, 2]` slot in turn (all four colour
+//!   entries and mono `PerPosition`), and at each index of a `[4, 4]`
+//!   pattern, which takes the general normaliser, index 0 included.
 //!
 //! **No expected value comes from calling the crate on the shape under test.**
 
@@ -115,9 +121,15 @@ fn colour_meta() -> DngMeta {
 
 /// An RGGB 16-bit plane of `samples` with `BlackLevel` `blacks` on `[2, 2]`.
 fn cfa(blacks: &[u32], samples: Vec<u16>) -> DngDescription {
+    cfa_on(blacks, [2, 2], samples)
+}
+
+/// [`cfa`] with `BlackLevel` on `repeat` (`BlackLevelRepeatDim`, rows then
+/// columns).
+fn cfa_on(blacks: &[u32], repeat: [u16; 2], samples: Vec<u16>) -> DngDescription {
     let mut meta = colour_meta();
     meta.black_level = Some(blacks.to_vec());
-    meta.black_level_repeat_dim = Some([2, 2]);
+    meta.black_level_repeat_dim = Some(repeat);
     DngDescription {
         order: Order::Little,
         layout: IfdLayout::SensorInIfd0,
@@ -328,4 +340,112 @@ fn per_position_refuses_a_maximum_black_at_white() {
     // FirstValue applies only the first black, 2047: still a valid develop.
     let first = plane_options(BlackLevels::FirstValue);
     develop_with_into(&sensor, &src, &mut dst, &first).expect("FirstValue is unaffected");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-079 (FU-2) — the maximum black at every position
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Samples cycled over the plane: the AC1 values (half scale at both blacks,
+/// full scale, white, below black) plus the blacks themselves and one value
+/// above white. Seven values over an 8-wide plane, so every position sees
+/// several of them. Each is at most 16000, so one more raw code stays in `u16`.
+const MIXED: [u16; 7] = [8523, 15_000, 2047, 4000, 14_999, 2048, 16_000];
+
+fn mixed_plane() -> Vec<u16> {
+    (0..WIDTH * HEIGHT)
+        .map(|i| MIXED[(i as usize) % MIXED.len()])
+        .collect()
+}
+
+/// `mixed_plane` plus one raw code at every photosite where `is_lower(x, y)`:
+/// the photosites whose black is 2047 in the pattern file.
+fn shifted_where(is_lower: impl Fn(u32, u32) -> bool) -> Vec<u16> {
+    let mut plane = mixed_plane();
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if is_lower(x, y) {
+                plane[(y * WIDTH + x) as usize] += 1;
+            }
+        }
+    }
+    plane
+}
+
+/// Blacks 2047 everywhere but 2048 at `at`, over `len` values.
+fn blacks_with_maximum_at(at: usize, len: usize) -> Vec<u32> {
+    (0..len)
+        .map(|i| if i == at { 2048 } else { 2047 })
+        .collect()
+}
+
+#[test]
+fn maximum_black_at_each_slot_scales_every_slot_by_it() {
+    // The 2048 black at slot 0, 1, 2 and 3 in turn. Under DEC-070 every slot
+    // scales by W − 2048 = 12952: the 2047 slots map clamp(v − 2047, 0, 12952)
+    // over 12952, which is clamp((v + 1) − 2048, 0, 12952) over 12952 on the
+    // uniform-2048 file with one more raw code there. A `B` read from any one
+    // fixed slot is 2047 for three of the four placements, divides those by
+    // 12953, and differs.
+    for at in 0..4 {
+        let blacks = blacks_with_maximum_at(at, 4);
+        let pattern = cfa(&blacks, mixed_plane());
+        let uniform = cfa(&[2048; 4], shifted_where(|x, y| position(x, y) != at));
+
+        let colour_pattern = develop_colour(&pattern);
+        let colour_uniform = develop_colour(&uniform);
+        assert_eq!(
+            colour_pattern.0, colour_uniform.0,
+            "u16 colour, maximum black at slot {at}"
+        );
+        assert_eq!(
+            colour_pattern.1, colour_uniform.1,
+            "f32 colour, maximum black at slot {at}"
+        );
+
+        let options = plane_options(BlackLevels::PerPosition);
+        let (pattern_sensor, pattern_src) = read(&pattern);
+        let (uniform_sensor, uniform_src) = read(&uniform);
+        assert_eq!(
+            develop_mono(&pattern_sensor, &pattern_src, &options),
+            develop_mono(&uniform_sensor, &uniform_src, &options),
+            "mono PerPosition, maximum black at slot {at}"
+        );
+    }
+}
+
+#[test]
+fn general_pattern_maximum_black_at_each_index_scales_every_position_by_it() {
+    // A [4, 4] BlackLevelRepeatDim pattern takes the colour path's general
+    // normaliser. No ActiveArea, so raw (x, y) has pattern index
+    // (y % 4) · 4 + x % 4. The 2048 black at each index in turn, index 0
+    // first: a `B` taken from the pattern's first value is 2047 for every
+    // placement but index 0, one from its last value for every placement but
+    // 15. The reference is the same uniform-2048 [2, 2] file as above.
+    let index = |x: u32, y: u32| ((y % 4) * 4 + x % 4) as usize;
+    for at in 0..16 {
+        let blacks = blacks_with_maximum_at(at, 16);
+        let pattern = cfa_on(&blacks, [4, 4], mixed_plane());
+        let uniform = cfa(&[2048; 4], shifted_where(|x, y| index(x, y) != at));
+
+        let colour_pattern = develop_colour(&pattern);
+        let colour_uniform = develop_colour(&uniform);
+        assert_eq!(
+            colour_pattern.0, colour_uniform.0,
+            "u16 colour, maximum black at pattern index {at}"
+        );
+        assert_eq!(
+            colour_pattern.1, colour_uniform.1,
+            "f32 colour, maximum black at pattern index {at}"
+        );
+
+        let options = plane_options(BlackLevels::PerPosition);
+        let (pattern_sensor, pattern_src) = read(&pattern);
+        let (uniform_sensor, uniform_src) = read(&uniform);
+        assert_eq!(
+            develop_mono(&pattern_sensor, &pattern_src, &options),
+            develop_mono(&uniform_sensor, &uniform_src, &options),
+            "mono PerPosition, maximum black at pattern index {at}"
+        );
+    }
 }

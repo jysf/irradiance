@@ -38,7 +38,13 @@
 # - Link the objects into dng_validate against Homebrew's libjxl
 #   (brew install jpeg-xl) plus -lz and the CoreFoundation/CoreServices
 #   frameworks.
-# The SDK's licence is the Adobe DNG SDK licence agreement shipped in the zip.
+# Licence, as found (SPEC-079): dng_sdk_1_7_1.zip (sha256 above) ships no
+# licence agreement document. Its own terms are the per-file notice in each
+# dng_sdk/source file, which refers to "the Adobe license agreement
+# accompanying it"; the only licence files in the zip are third-party ones
+# (libjpeg, the XMP toolkit, libjxl). irradiance reads the SDK's source and
+# runs dng_validate locally; it copies no SDK code and redistributes nothing
+# from the SDK (DEC-069 §6).
 
 set -eu
 
@@ -54,40 +60,99 @@ out=$3
 
 [ -x "$validate" ] || die "not an executable: $validate"
 [ -d "$corpus" ] || die "corpus root is not a directory: $corpus"
-mkdir -p "$out" || die "cannot create output directory: $out"
-
 # The output directory must not be inside the repository: SDK bytes are never
-# committed (DEC-069 §6).
+# committed (DEC-069 §6). Its absolute path is resolved WITHOUT creating
+# anything, so a refused in-repo path leaves no directory behind (SPEC-079).
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
-out_abs=$(cd "$out" && pwd -P)
+if [ -d "$out" ]; then
+    out_abs=$(cd "$out" && pwd -P)
+elif [ -e "$out" ]; then
+    die "output path exists and is not a directory: $out"
+else
+    parent=$(dirname "$out")
+    [ -d "$parent" ] || die "the output directory's parent does not exist: $parent"
+    out_abs=$(cd "$parent" && pwd -P)/$(basename "$out")
+fi
 case "$out_abs/" in
     "$repo"/*) die "output directory is inside the repository ($repo): $out_abs" ;;
 esac
+mkdir -p "$out_abs" || die "cannot create output directory: $out_abs"
 
 # Rewrite the single IFD entry for tag 51009 (OpcodeList2, type UNDEFINED) to
-# tag 51010. The 4-byte pattern is tag + type in the file's byte order; it must
-# occur exactly once or the copy is refused (a second hit could be pixel data).
+# tag 51010, found by walking the IFDs (SPEC-079): IFD0, every NextIFD chain,
+# and every IFD reachable through SubIFDs (tag 330), recursively. Every offset
+# and count is bounds-checked against the file length, an IFD reached twice is
+# refused (no cycle can loop), and the copy is refused unless exactly one 51009
+# entry exists and its type is 7. Only that entry's two tag bytes change, so a
+# copy of the tag pattern in pixel or metadata bytes is never touched.
 disable_opcode_list_2() {
     src=$1
     dst=$2
     perl -e '
         use strict;
+        use warnings FATAL => "all";
         my ($src, $dst) = @ARGV;
         open(my $in, "<:raw", $src) or die "read $src: $!\n";
         local $/; my $b = <$in>; close($in);
+        my $len = length($b);
+        die "$src: $len bytes is too short for a TIFF header\n" if $len < 8;
         my $order = substr($b, 0, 2);
-        my ($from, $to);
-        if ($order eq "II") { ($from, $to) = ("\x41\xC7\x07\x00", "\x42\xC7\x07\x00"); }
-        elsif ($order eq "MM") { ($from, $to) = ("\xC7\x41\x00\x07", "\xC7\x42\x00\x07"); }
+        my ($u16, $u32);
+        if ($order eq "II") { ($u16, $u32) = ("v", "V"); }
+        elsif ($order eq "MM") { ($u16, $u32) = ("n", "N"); }
         else { die "$src: not a TIFF byte-order mark\n"; }
-        my $count = () = $b =~ /\Q$from\E/g;
-        die "$src: OpcodeList2 entry pattern found $count times, expected exactly 1\n"
-            unless $count == 1;
-        my $at = index($b, $from);
-        substr($b, $at, 4) = $to;
+        my $at16 = sub { my ($o) = @_;
+            die "$src: read of 2 bytes at $o is past the end ($len)\n" if $o + 2 > $len;
+            return unpack($u16, substr($b, $o, 2)); };
+        my $at32 = sub { my ($o) = @_;
+            die "$src: read of 4 bytes at $o is past the end ($len)\n" if $o + 4 > $len;
+            return unpack($u32, substr($b, $o, 4)); };
+        my $magic = $at16->(2);
+        die "$src: TIFF magic is $magic, expected 42\n" unless $magic == 42;
+
+        my @queue = ($at32->(4));
+        my %seen;
+        my @hits;
+        while (@queue) {
+            my $ifd = shift @queue;
+            die "$src: IFD offset $ifd is inside the header\n" if $ifd < 8;
+            die "$src: IFD offset $ifd is past the end ($len)\n" if $ifd + 2 > $len;
+            die "$src: IFD at $ifd is reached twice (an IFD cycle)\n" if $seen{$ifd}++;
+            my $n = $at16->($ifd);
+            my $end = $ifd + 2 + 12 * $n + 4;
+            die "$src: IFD at $ifd has $n entries, which run past the end ($len)\n"
+                if $end > $len;
+            for my $k (0 .. $n - 1) {
+                my $e = $ifd + 2 + 12 * $k;
+                my $tag = $at16->($e);
+                my $type = $at16->($e + 2);
+                my $count = $at32->($e + 4);
+                if ($tag == 51009) {
+                    push @hits, [$ifd, $e, $type];
+                } elsif ($tag == 330) {
+                    # SubIFDs: LONG (4) or IFD (13), four bytes each; inline when
+                    # they fit the 4-byte value field, else at its offset.
+                    die "$src: SubIFDs at $e has type $type, expected 4 or 13\n"
+                        unless $type == 4 || $type == 13;
+                    my $base = $count <= 1 ? $e + 8 : $at32->($e + 8);
+                    die "$src: SubIFDs at $e: $count offsets at $base run past the end ($len)\n"
+                        if $base + 4 * $count > $len;
+                    push @queue, map { $at32->($base + 4 * $_) } 0 .. $count - 1;
+                }
+            }
+            my $next = $at32->($ifd + 2 + 12 * $n);
+            push @queue, $next if $next != 0;
+        }
+        my $found = scalar @hits;
+        die "$src: $found OpcodeList2 (51009) entries found, expected exactly 1\n"
+            unless $found == 1;
+        my ($ifd, $e, $type) = @{$hits[0]};
+        die "$src: OpcodeList2 entry at byte $e has type $type, expected 7 (UNDEFINED)\n"
+            unless $type == 7;
+        substr($b, $e, 2) = pack($u16, 51010);
         open(my $out, ">:raw", $dst) or die "write $dst: $!\n";
         print $out $b; close($out) or die "close $dst: $!\n";
-        print "  OpcodeList2 entry at byte $at rewritten to tag 51010\n";
+        print "  OpcodeList2 entry at byte $e (IFD at byte $ifd) rewritten to tag 51010\n";
     ' "$src" "$dst" || die "could not disable OpcodeList2 in $src"
 }
 
