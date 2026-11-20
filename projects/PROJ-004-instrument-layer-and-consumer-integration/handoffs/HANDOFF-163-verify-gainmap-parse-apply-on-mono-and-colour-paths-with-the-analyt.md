@@ -58,7 +58,7 @@ handback:
   pr: 267
   completed_at: 2026-11-19          # YYYY-MM-DD
   notes: "PUNCH LIST, tests and docs only, fixed on the verify branch at 2e1a9c8: a new colour test kills the no-intersection mutant V24, plus stale colour-path docs and a DEC-069 consequence line. Source at 56f0b6b correct. 27 verifier mutants: 22 red, V24 closed, 4 equivalent. Cost is a floor before the handback commit: transcript 4ad4774a-533b-4a3a-a07b-1d8053bca58a.jsonl, 83 unique message ids, all claude-opus-5-5, no subagents; input 165, cache-creation 202,095 (1-hour), cache-read 16,007,785, output 51,904."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-19
 ---
 
 # HANDOFF-163: VERIFY: GainMap parse and apply on the mono and colour paths (SPEC-059)

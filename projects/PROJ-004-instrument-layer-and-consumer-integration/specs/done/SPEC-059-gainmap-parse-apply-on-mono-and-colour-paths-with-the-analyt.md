@@ -6,19 +6,19 @@
 task:
   id: SPEC-059
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: punch-list  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [punch-list]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 26000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-161
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 40668345
+      estimated_usd: 26.93
+      duration_minutes: 27
+      recorded_at: 2026-11-19
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (133 unique message.ids, all claude-opus-5-5, no subagents): input 274 + cache-creation 361,567 (1-hour) + cache-read 40,177,598 + output 128,906 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Covers the build, the refusal-test question to the orchestrator, the eight-mutant red-proof and the handback commit. The handback floor was 38,230,872 and $25.38."
+    - cycle: verify
+      handoff: HANDOFF-163
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 18350336
+      estimated_usd: 12.66
+      duration_minutes: 24
+      recorded_at: 2026-11-19
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (91 unique message.ids, all claude-opus-5-5, no subagents): input 181 + cache-creation 216,812 (1-hour) + cache-read 18,075,393 + output 57,950, opus-5-5 rates. PUNCH LIST, tests and docs only: the no-intersection mutant V24 pinned by a new colour test, stale colour-path docs and a DEC-069 consequence line, in 2e1a9c8, carried into PR 267 by fast-forward. 27 verifier mutants: 22 red, V24 closed, 4 equivalent. The handback floor was 16,261,949 and $11.32."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 59018681
+    estimated_usd: 39.59
+    session_count: 2
+shipped_at: 2026-11-19
 ---
 
 # SPEC-059: GainMap parse + apply on mono and colour paths with the analytic oracle and red-proof (writer fixtures), required-processing wiring, fuzz, provenance
@@ -304,34 +325,38 @@ part of the rule.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Grep the tests for every pin of the behaviour a spec removes. The design named one
+   refusal test (`plane_tiles.rs`) for the builder to rewrite but missed a second
+   (`develop_options.rs`'s Pixel loop), found only by the build's full corpus run, so it
+   was rewritten without prior approval. The bundle cost about 59.0M tokens against a
+   26M estimate, so it was sized L, not M. The colour path's three normaliser sites, the
+   pre-gained-twin fixtures and eight red-proof copies (each with its own target dir)
+   are most of the overrun.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — DEC-069 holds as written. The verify added one line to its Consequences naming
+   `Error::GainMapImageWrongLength`, and no source changed after build. The
+   `every-rule-clause-maps-to-a-reachable-test` signal fired again: the area
+   intersection clause had a test only on paths where it is unobservable. A clause's
+   test has to run on the path where the clause changes the output, here the colour
+   demosaic that reads past the `ActiveArea`.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None new. SPEC-060 (Pixel pins plus the `dng_validate` cross-check) is framed and
+   builds next. Still carried: the SDK's max-black normalisation difference (DEC-069
+   §Context), and fetching the Adobe licence agreement's text for the provenance row.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
+   *(A test gap only: verifier mutant V24, dropping the area's intersection with the
+   image, survived the build's suite while the source stayed correct. Pinned in 2e1a9c8
+   and carried into PR 267 before merge.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — A caller can develop the Pixel 3a, 4a and 7 Pro DNGs in colour and in mono, which
+   were refused with `UnsupportedMandatoryOpcode { id: 9 }`. `OpcodeList2` `GainMap` is
+   applied at stage 2 by DEC-069's rule, and composers get the public `apply_gain_maps`.
+   Every file with no `GainMap` develops byte-identically; `DEVELOP_VERSION` is 6.
