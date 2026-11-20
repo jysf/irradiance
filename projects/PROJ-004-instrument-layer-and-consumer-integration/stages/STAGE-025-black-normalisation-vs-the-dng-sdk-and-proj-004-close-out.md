@@ -129,7 +129,7 @@ leaving them open would carry them into a project that has nothing to do with th
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-078 (shipped on 2026-11-20) [M] Black normalisation by white minus the maximum black (DEC-070): the DNG 1.7.1 spec's Rescaling rule, confirmed by the SDK; colour and mono PerPosition only, FirstValue and uniform-black files byte-identical; DEVELOP_VERSION 7; Canon added to the SDK cross-check; bounds tightened (no gain within 1, end to end within 4)
-- [ ] SPEC-079 (frame) — [S] PROJ-004 close-out hygiene: sdk-stage2.sh walks the IFDs and creates its output dir after the in-repo check; the SDK cross-check fails rather than skips when its env var is set without inputs; the Adobe licence line in the provenance ledger; the PROJ-004 brief count and monorail triage table refreshed
+- [ ] SPEC-079 (build) [S] PROJ-004 close-out hygiene, designed 2026-11-20: sdk-stage2.sh walks the IFDs (byte-identical outputs) and creates its output dir only after the in-repo check; with the SDK variable set, a missing corpus file fails instead of skipping; the ledger records that the SDK zip ships no licence agreement document; the monorail triage record marked addressed; FU-2, tier-A fixtures with the maximum black at each slot. No src change
 
 **Count:** 1 shipped / 1 active / 0 pending
 
