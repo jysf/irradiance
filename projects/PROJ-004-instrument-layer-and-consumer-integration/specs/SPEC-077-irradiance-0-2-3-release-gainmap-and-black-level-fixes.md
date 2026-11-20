@@ -222,8 +222,34 @@ cases. A compatible 0.2.x release: run `cargo update -p irradiance`.
 
 ### Internal release record (not part of the GitHub release text)
 
-- **Mechanical semver check:** see the Release Pre-Flight's semver block below.
-- **Candidate timings:** see the Release Pre-Flight, item 5.
+- **Mechanical semver check:** `cargo-semver-checks 0.51.0`, crates.io 0.2.2 to the
+  candidate `cf8b252`, by `just semver-check` (DEC-067). Clean: no failure, nothing to
+  accept. Verbatim summary:
+
+  ```
+  Checking irradiance v0.2.2 -> v0.2.3 (minor change)
+   Checked [   0.026s] 202 checks: 202 pass, 58 skip
+   Summary no semver update required
+  ```
+
+  `cargo semver-checks check-release --baseline-version 0.2.2 --all-features` on the
+  same candidate gives the same 202 pass, 58 skip, no semver update required. The tool
+  labels 0.2.2 to 0.2.3 a "minor change" because a 0.x patch bump is cargo's minor
+  level; no update is required. A run before the version bump (at `b008690`) also
+  passed 202 of 202.
+- **Candidate timings** (`cf8b252`, stamped `v0.2.2-19-gcf8b252`, Apple M4 Pro, release,
+  medians in ms; all within a few percent of 0.2.2's):
+  - `just unpack-timing`: Q2M `unpack_into` on 1 thread 9.9; 8 units on 8 threads 1.7.
+  - `just ljpeg-timing`: K-3 III 103.9; Typ 246 90.2; Pixel 4a 61.1.
+  - `just orient-timing`, warp-free: O1 85, O5 111, O6 127, O7 154, O8 154.
+  - `just orient-timing`, post-warp: O1 615, O5 632, O8 656.
+- **SDK cross-check** (optional, run): `scripts/sdk-stage2.sh` with the local
+  `dng_validate` 1.7.1, outputs in the build's scratchpad, then
+  `IRRADIANCE_SDK_STAGE2_DIR` set for `--test gain_map_corpus` (8 passed). The gain step
+  against the SDK's stage 2, max |d| 1 code on all three files:
+  - Pixel 4a: 99.9794% exact;
+  - Pixel 3a: 99.9672% exact;
+  - Pixel 7 Pro: 99.9664% exact.
 
 ## Release cut is two-phase
 
@@ -234,38 +260,56 @@ cases. A compatible 0.2.x release: run `cargo update -p irradiance`.
 
 ## Release Pre-Flight
 
-**Delivery shape: library plus a crates.io package (source crate, no binary).** Filled by
-the Phase-1 build on its candidate SHA.
+**Delivery shape: library plus a crates.io package (source crate, no binary).** Filled
+2026-11-19 by the Phase-1 build (HANDOFF-165) on candidate `cf8b252`
+(`cf8b2529b6d6511fbf4ba67bbdfd961545130ba5`).
 - `[now]`: verified on the candidate in the build session.
 - `[cut]`: verified by the user at Phase 2.
 - `N/A`: does not apply.
 
-- [ ] **1. Version / tag integrity & build provenance.**
-  - `[now]`:
-    - `version = "0.2.3"`;
-    - the dry run reports `Packaging irradiance v0.2.3`;
-    - `git tag -l 'v0.2.3'` is empty;
-    - the dry run's `.cargo_vcs_info.json` sha1 is the candidate;
-    - the metadata is unchanged from 0.2.2.
+- [ ] **1. Version / tag integrity & build provenance** — `[now]` done, the rest `[cut]`.
+  - `[now]` ✔:
+    - `Cargo.toml` says `version = "0.2.3"`, and `cargo publish --dry-run` reports
+      `Packaging irradiance v0.2.3` (19 files, 1.7 MiB, 371.7 KiB compressed);
+    - `git tag -l 'v0.2.3'` is empty. The timing examples stamp the candidate as
+      `v0.2.2-19-gcf8b252`;
+    - the dry run's packaged `.cargo_vcs_info.json` carries `git.sha1`
+      `cf8b2529b6d6511fbf4ba67bbdfd961545130ba5`, the candidate;
+    - `git diff v0.2.2 -- Cargo.toml` before the bump was empty, and the bump changes
+      only the version line, so `license`, `description`, `keywords`, `categories`,
+      `repository`, `include` and `rust-version = "1.90"` are unchanged. The packaged
+      manifest carries `readme = "README.md"`.
   - `[cut]`:
     - `git tag -a v0.2.3 -m "irradiance 0.2.3"` on the merged prep commit;
     - `git tag --points-at HEAD` prints exactly `v0.2.3`;
     - the published `.crate`'s sha1 equals the tagged commit.
 - [x] **2. Artifact trust on a clean host** — `N/A`: a source crate, no signed binary.
-- [ ] **3. Distribution-channel trust.**
-  - `[now]`:
-    - `cargo publish --dry-run` is clean;
-    - the packaged manifest has no self dev-dependency;
-    - `package-targets-check`, `deny` and `deny-fuzz` pass;
-    - no SDK, corpus or script bytes are in the package list.
+- [ ] **3. Distribution-channel trust** — `[now]` proxy done, the rest `[cut]`.
+  - `[now]` ✔:
+    - `cargo publish --dry-run` packaged and verified the crate in isolation and stopped
+      at "aborting upload due to dry run". Its only warnings are the expected "ignoring
+      example/test … not included in the published package" lines, as in 0.2.2;
+    - the packaged `Cargo.toml` has no self dev-dependency (its only dev-dependencies are
+      `ssimulacra2` and `toml`);
+    - `just package-targets-check` passed (no executable in the default build or the
+      package, `irr` builds under `--features irr`, its red case caught); `just deny` and
+      `just deny-fuzz` both report `licenses ok`;
+    - the package list is the same 19 files as 0.2.2: `Cargo.toml`, `Cargo.toml.orig`,
+      `Cargo.lock`, `.cargo_vcs_info.json`, `README.md`, the two licences and
+      `src/**/*.rs`. No `scripts/`, `tests/`, SDK or corpus bytes.
   - `[cut]`: on a clean host, `cargo add irradiance@=0.2.3 && cargo build`. crates.io
     shows 0.2.3, and docs.rs is green.
 - [x] **4. Data isolation** — `N/A`: a library with no I/O and no data store.
-- [ ] **5. Runtime smoke on a clean host.**
-  - `[now]`:
-    - `just test` with the corpus: 12/12 present, every pin held, with counts and time;
-    - `cargo test --doc --all-features`;
-    - `just doc-check`.
+- [ ] **5. Runtime smoke on a clean host** — `[now]` done on the candidate, `[cut]` on the
+  published crate.
+  - `[now]` ✔:
+    - `just test`, with `IRRADIANCE_CORPUS_DIR` set, printed "corpus: 12/12 present — no
+      tier-B test will skip". 43 test binaries plus the doctests: 764 passed, 0 failed,
+      1 ignored, exit 0, in 224 s (a semver-check build overlapped its first minute).
+      Every `dnglab` checksum pin and every develop MD5 pin held. The `sdk-stage2` line
+      was a SKIP in that run; the cross-check ran separately (internal record above);
+    - `cargo test --doc --all-features` (inside `just test`): 4 passed;
+    - `just doc-check`: 2 feature surfaces, 0 rustdoc warnings.
   - `[cut]`: in a clean-host probe crate:
     - parse one held DNG, then run `plane::validate`, `unpack_into` and `develop_into`;
     - develop the Pixel 4a with `develop_color_into`, the 0.2.3 headline;
@@ -274,6 +318,22 @@ the Phase-1 build on its candidate SHA.
   - **Withdraw:** `cargo yank --version 0.2.3`, and dependents on `"0.2"` fall back to
     0.2.2. `cargo yank --undo --version 0.2.3` reverses it.
   - **Git rollback:** revert the Phase-1 PR.
+
+**Gates on the candidate, all green** (2026-11-19, `IRRADIANCE_CORPUS_DIR` set):
+- `just test` (above)
+- `lint-ci`
+- `lint-no-allow`
+- `lint-fuzz`
+- `fmt-check`
+- `validate`
+- `doc-check`
+- `deny`, plus `deny-fuzz`
+- `msrv` (1.90.0)
+- `cost-audit`
+- `gate-audit`
+- `name-length-check`
+- `semver-check` (202 of 202)
+- `package-targets-check`
 
 ## Notes for the Implementer
 
