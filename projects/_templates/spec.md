@@ -126,6 +126,13 @@ job in **build** is to make these pass.
   - `"test description 1"` — asserts: ...
   - `"test description 2"` — asserts: ...
 
+**Rule-clause map.** When this spec implements a `DEC-*` rule, map every clause
+of it (each malformed class, each entry point, each numeric path) to a named
+test above, and say which code path that test must reach. Name the path where the
+clause changes the output, not just one that runs it: a clause tested only where it
+is unobservable leaves a mutant the build's suite cannot see (signal
+`every-rule-clause-maps-to-a-reachable-test`).
+
 ## Non-Goals
 
 Explicit scope limits. If the implementer thinks any of these need to

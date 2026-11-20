@@ -58,7 +58,7 @@ handback:
   pr: null
   completed_at: 2026-11-19               # YYYY-MM-DD
   notes: "Floor, measured live before the handback commit (opus-5-5, 1-hour writes); re-sum at ship. Punch P1-P3 are test-support fixes already in 89b310b."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-19
 ---
 
 # HANDOFF-164: VERIFY: Real-file GainMap evidence and the dng_validate cross-check (SPEC-060)
