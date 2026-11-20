@@ -105,7 +105,7 @@ and would otherwise be carried out of PROJ-004.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-080 (frame) — [S] Colour levels refusal (FU-1): the four colour entries refuse WhiteLevel at or below the maximum applied black with Error::InvalidLevels before writing, as mono PerPosition does; DEC-070 §3 amended again; no pin moves. Plus the two SPEC-079 tooling follow-ups: sdk-stage2.sh finds the repo through git, and just validate parses feedback/ front matter
+- [ ] SPEC-080 (build) [S] Colour levels refusal (FU-1), designed 2026-11-20: the four colour entries refuse W ≤ B with InvalidLevels reporting B, after the pattern check and before any write (DEC-070 §3, second amendment); no output change, DEVELOP_VERSION stays 7; sdk-stage2.sh refuses an output dir inside any worktree (via git); just validate parses feedback/ front matter and checks status
 
 The release spec is minted with `just new-release-spec` when SPEC-080 has shipped, as
 SPEC-077 was for 0.2.3.
