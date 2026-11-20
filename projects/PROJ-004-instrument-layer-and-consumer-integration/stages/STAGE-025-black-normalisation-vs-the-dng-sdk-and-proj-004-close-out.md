@@ -128,7 +128,7 @@ leaving them open would carry them into a project that has nothing to do with th
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-078 (frame) — [M] Black normalisation: decide white minus max black (the DNG SDK) against per-position white minus black (today) by the DNG spec text and a dng_validate probe on every held file with position-varying blacks; DEC-070; if it changes, implement on both develop paths, DEVELOP_VERSION 7, re-pin, tighten SPEC-060's bounds
+- [ ] SPEC-078 (design) [M] Black normalisation by white minus the maximum black (DEC-070): the DNG 1.7.1 spec's Rescaling rule, confirmed by the SDK; colour and mono PerPosition only, FirstValue and uniform-black files byte-identical; DEVELOP_VERSION 7; Canon added to the SDK cross-check; bounds tightened (no gain within 1, end to end within 4)
 - [ ] SPEC-079 (frame) — [S] PROJ-004 close-out hygiene: sdk-stage2.sh walks the IFDs and creates its output dir after the in-repo check; the SDK cross-check fails rather than skips when its env var is set without inputs; the Adobe licence line in the provenance ledger; the PROJ-004 brief count and monorail triage table refreshed
 
 **Count:** 0 shipped / 2 active / 0 pending
@@ -141,6 +141,11 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - **The probe decides; nothing is assumed.** The SDK is the DNG reference
   implementation, but its choice is not automatically the specification's. The DEC
   quotes the specification text it relies on.
+- **Design outcome (2026-11-20): change, by DEC-070.** The DNG 1.7.1 specification's
+  Rescaling step is explicit: the scale is the inverse of `WhiteLevel` minus "the maximum
+  computed black level for the sample plane". The SDK computes the same, and the probe
+  brings the Canon, Pixel 3a and Pixel 4a from up to 6 codes off `dng_validate` to within 1.
+  `FirstValue` stays as it is.
 - **Measure the image effect, not just the code gap.** Under the per-position rule,
   every position reaches exactly white at clip. Under the max-black rule, positions with
   a lower black clip below 1.0. Check whether that matters for highlights on the held

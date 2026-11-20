@@ -6,7 +6,7 @@
 task:
   id: SPEC-078
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -31,14 +31,14 @@ repo:
   id: irradiance
 
 handoff:
-  from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
+  from_agent: claude-opus-5-5  # from .repo-context tier_map.design (DEC-005)
   to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
   created_at: null
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-070, DEC-018, DEC-061, DEC-068, DEC-069]  # [DEC-NNN, DEC-MMM]
   constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  related_specs: [SPEC-060, SPEC-066, SPEC-075, SPEC-079]  # [SPEC-NNN]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -52,7 +52,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-025's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "Settles STAGE-025's black-normalisation question: the colour and PerPosition develops follow the DNG specification and match dng_validate within one code."
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -67,7 +67,7 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
+  tokens_estimate: 25000000
   sessions: []
   totals:
     tokens_total: 0
@@ -75,83 +75,158 @@ cost:
     session_count: 0
 ---
 
-# SPEC-078: Black normalisation: decide white minus max black (the DNG SDK) against per-position white minus black (today) by the DNG spec text and a dng_validate probe on every held file with position-varying blacks; DEC-070; if it changes, implement on both develop paths, DEVELOP_VERSION 7, re-pin, tighten SPEC-060's bounds
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-078]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
+# SPEC-078: Black normalisation scales by white minus the maximum black (DEC-070)
 
 ## Context
 
-Why does this spec exist? What problem does it solve? Link to:
-- The parent `STAGE-025` and this spec's place in its backlog
-- The project `PROJ-004`
-- Any related discussions, issues, or prior decisions
+STAGE-025 (PROJ-004). Every develop path today normalises a sample as
+`(v − b) / (W − b)`, with `b` the black at that sample's position (DEC-018, DEC-061,
+DEC-068). The DNG specification instead scales by `W` minus the **maximum** black for the
+plane: DNG 1.7.1.0, Chapter 5, "Rescaling". Adobe's SDK does the same.
+
+On files whose blacks differ by position, the two rules disagree by up to 6 codes. The
+STAGE-025 design probe measured the specification's rule against `dng_validate` stage 2
+on every held file whose blacks differ by position. It matches within one code. DEC-070
+records the rule and the numbers.
 
 ## Goal
 
-1–2 sentences. Unambiguous. If you can't write the goal in two
-sentences, split the spec.
+The colour path, and the mono path under `BlackLevels::PerPosition`, scale by `W − B`,
+where `B` is the maximum black they apply. Every file with uniform blacks, and every mono
+default (`FirstValue`) develop, stays byte-identical. `DEVELOP_VERSION` is 7. SPEC-060's
+SDK cross-check is tightened to the new figures, and the Canon is added to it.
 
-## Inputs
+## Design
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
-
-## Outputs
-
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+1. **The rule (DEC-070 §1).**
+   - Formula: `v' = ⌊clamp(v − b, 0, W − B) · 65535 / (W − B) + ½⌋`, in `u64`. The
+     rounding is DEC-018's: add `(W − B) / 2`, then divide.
+   - `B` is computed once per develop, over the blacks that the path applies: the colour
+     slot or pattern blacks, or the `PerPosition` pattern. It is never computed per sample.
+   - With a uniform black (`B = b`), the formula is exactly today's `normalize` /
+     `normalize_sample`. Keep it that way. The `FirstValue` and uniform cases must not
+     change code path in a way that changes output or speed.
+2. **Where.**
+   - **Mono:** `src/develop.rs`. `normalize` and the `PerPosition` resolution (`Blacks`
+     and `resolve_levels` / the per-position resolver) carry `B` alongside the
+     per-position blacks.
+   - **Colour:** `src/color.rs`. `slot_normalizer`, `pattern_normalizer` and
+     `normalize_sample` take `B`, at every resolution site (`u16`, `f32` and banded
+     threaded). These are the sites SPEC-059's `with_normalizer!` wraps.
+   - `apply_gain_maps` is unchanged: it works on the normalised image.
+3. **Validation (DEC-070 §3).**
+   - `W ≤ B` is `Error::InvalidLevels`, with the same variant and fields as today.
+   - The check uses `B`. A pattern whose largest black reaches white is now refused even
+     if its first black is below white. Add a tier-A test for that.
+4. **`DEVELOP_VERSION` goes to `"7"`,** with all four pins. Add a CHANGELOG
+   `[Unreleased] → Changed` entry naming the affected files and paths.
+5. **Docs.**
+   - `BlackLevels::PerPosition`'s and the colour entry points' docs state the scale.
+   - DEC-061's and DEC-068's text stay as they are; DEC-070 records the change.
+   - Add a provenance-ledger row: class 1 (the specification text), plus class 4 for the
+     SDK confirmation, as in DEC-069.
+6. **The SDK cross-check (SPEC-060's `tests/gain_map_corpus.rs` and
+   `scripts/sdk-stage2.sh`).**
+   - The recipe also writes `CANON-EOS-5D-MARK-III-stage2.tif`: `dng_validate -2` on the
+     Canon, which has no opcode lists.
+   - The tests use the comparisons and **pre-registered bounds** in AC4. Δ is SDK minus
+     ours. The tests remain env-gated on `IRRADIANCE_SDK_STAGE2_DIR`.
+   - Keep the change to the script minimal. SPEC-079 rewrites its tag search afterwards.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
+- [ ] **AC1. Analytic values (tier A).** Use a writer fixture with blacks `[2047, 2047,
+  2047, 2048]`, a `[2, 2]` repeat and `W = 15000`, so `B = 2048` and `W − B = 12952`. Each
+  value is asserted on mono `PerPosition` and on colour normalisation, with its arithmetic
+  shown in the test:
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+  | Sample | Black | Today | DEC-070 |
+  |---|---|---|---|
+  | 8523 | 2047 | 32765 | **32768** |
+  | 8524 | 2048 | 32768 | 32768 |
+  | 4000 | 2047 | 9881 | **9882** |
+  | 14999 | 2047 | 65530 | **65535** (clip at `W − B`) |
+  | 15000 | 2047 | 65535 | 65535 |
+  | 2000 | 2047 | 0 | 0 |
+
+  A uniform-black fixture gives exactly today's values.
+- [ ] **AC2. No collateral change.**
+  - Every develop pin on a uniform-black file holds byte-for-byte: the Leica M Monochrom,
+    Typ 246, Q2 Mono ×3, the Pentax K-3 III, the Nikon D300S and the Pixel 7 Pro.
+  - Every mono default (`FirstValue`) pin holds on **every** held file, the Canon and the
+    Pixels included.
+  - Only the four `DEVELOP_VERSION` pins move.
+- [ ] **AC3. Both paths.** Mono `PerPosition` and all four colour entries apply DEC-070,
+  in `u16` and `f32`. Threaded output equals single-thread. The mono scratch develop still
+  allocates nothing (`tests/develop_scratch_alloc.rs`).
+- [ ] **AC4. The SDK cross-check, pre-registered.** With `IRRADIANCE_SDK_STAGE2_DIR` set:
+  - **No gain:** mono `FullActiveArea`, unoriented, warp 0, `PerPosition`, with no
+    `OpcodeList2`, against `-pre.tif` (Pixels) or `-stage2.tif` (Canon).
+    - Canon, Pixel 3a and Pixel 4a: **max |Δ| ≤ 1, every Δ ∈ {0, +1}, at least 99.5%
+      exact.** The probe measured 99.57%, 99.85% and 99.79%.
+    - Pixel 7 Pro: max |Δ| ≤ 2, unchanged (DEC-068's fractional black).
+  - **End to end:** the same develop with the file's `GainMap`s, against `-post.tif`.
+    - Pixel 3a and 4a: **max |Δ| ≤ 4, at least 99.7% exact.** The probe measured 4 / 99.82%
+      and 4 / 99.77%.
+    - Pixel 7 Pro: max |Δ| ≤ 4. The probe measured 4.
+  - **The gain-step gate** (max |Δ| ≤ 1, at least 99.9% exact) is unchanged.
+  - **Unset:** a visible SKIP, as today.
+- [ ] **AC5. Re-pins are listed and explained.**
+  - SPEC-060's Pixel 3a and 4a colour and `PerPosition` pins change; list each old and new
+    hash. The Pixel 7 Pro's pins do not change.
+  - `tests/black_levels.rs::canon_per_position_differs_only_at_position_3` is
+    **pre-approved** for rewrite. Under DEC-070, positions 0–2 differ from `FirstValue`
+    too, because their scale changes. Rename it to state the new fact, and assert the
+    hand-computable relation: at positions 0–2 the outputs differ only through the scale.
+  - No other existing assertion is weakened. Any other pin that moves is a stop-and-report.
+- [ ] **AC6. Red-proof, control first.** Each mutant fails at least one test, by its
+  target assertion:
+  - (a) the old per-position denominator `W − b`: fails AC1 and AC4;
+  - (b) `B` as the minimum black: fails AC1;
+  - (c) no clip at `W − B` (`v − b` unclamped above): fails AC1's 14999 row, or is shown
+    equivalent with a proof as in SPEC-059;
+  - (d) DEC-070 applied to `FirstValue` (`B` from the whole pattern): fails AC2;
+  - (e) the validation check against the first black instead of `B`: fails AC3's new
+    refusal test.
+
+  Record the table in the handback.
+- [ ] **AC7. Gates:**
+  - `just test` with the corpus, and once more with the SDK variable;
+  - `lint-ci`, `lint-no-allow`, `fmt-check`, `validate`, `doc-check`;
+  - `cost-audit`, `gate-audit`, `name-length-check`, `semver-check`;
+  - a short `fuzz-opcode` run;
+  - CI green.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
-
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
-
-**Rule-clause map.** When this spec implements a `DEC-*` rule, map every clause
-of it (each malformed class, each entry point, each numeric path) to a named
-test above, and say which code path that test must reach. Name the path where the
-clause changes the output, not just one that runs it: a clause tested only where it
-is unobservable leaves a mutant the build's suite cannot see (signal
-`every-rule-clause-maps-to-a-reachable-test`).
+Each clause of DEC-070 has a named test on the code path where it changes the output:
+- **§1, the formula and the `W − B` clip:** AC1's rows, on mono `PerPosition` **and** on
+  colour normalisation;
+- **§1, uniform black unchanged:** AC1's uniform fixture and AC2's corpus pins;
+- **§2, `FirstValue` unchanged:** AC2's mono default pins on the Canon and the Pixels,
+  which are the files where `B ≠ b`;
+- **§3, validation:** AC3's new refusal test;
+- **§4, `DEVELOP_VERSION`:** the four version pins;
+- **The real-file agreement:** AC4, env-gated.
 
 ## Non-Goals
 
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
-
-- ...
+- `BlackLevelDeltaH` / `BlackLevelDeltaV`. DEC-070 §5 carries them as a follow-up.
+- DEC-068's fractional-black rounding. The Pixel 7 Pro's two-code gap stays.
+- Emulating the SDK's `f32` scale.
+- SPEC-079's script hardening.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
-
----
+- **The probe's own numbers** (DEC-070 §Context) are the expected results. If a measured
+  number lands outside a pre-registered bound, stop and report it. Don't widen the bound.
+- **Regenerate the SDK inputs** with the committed `scripts/sdk-stage2.sh` (plus the Canon
+  line) into your scratchpad. The `dng_validate` is at
+  `/Users/jyashinsky/PSeven/experiments/crustimg_redo_plus/tools/dng_sdk/build/dng_validate`.
+- **Keep the per-sample cost** the same integer affine map. `B` is resolved once, never
+  per sample.
+- **Commits:** plain-prose bodies with no code tokens. `Cargo.lock` is gitignored. Never
+  commit corpus or SDK bytes.
 
 ## Reflection
 
