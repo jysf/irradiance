@@ -36,9 +36,9 @@ handoff:
   created_at: null
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  decisions: [DEC-016, DEC-050, DEC-051, DEC-052, DEC-055, DEC-071, DEC-073]
+  constraints: [no-panics-on-untrusted-input, library-not-application, provenance-recorded-per-algorithm, oracle-must-be-shown-red]
+  related_specs: [SPEC-081, SPEC-082]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -52,7 +52,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-017's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "The writer core onyx Darkroom v1 wraps for its Linear DNG export (STAGE-017)."
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -78,21 +78,28 @@ cost:
 # SPEC-061: Public `write` feature: sealed API over the STAGE-013 core, caller-allocated output, validation + typed errors, fuzz target, round-trip + dnglab/exiftool/dng_validate acceptance
 
 > **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-061]`. Capture **scope** (Context /
+> siblings can declare `depends_on:` on it. Capture **scope** (Context /
 > Goal / Non-Goals) and **dependencies** only — the *approach* is designed
 > just-in-time when this moves to `design`. Do not pre-design it here.
 
 ## Context
 
-Why does this spec exist? What problem does it solve? Link to:
-- The parent `STAGE-017` and this spec's place in its backlog
-- The project `PROJ-004`
-- Any related discussions, issues, or prior decisions
+STAGE-017's core spec (PROJ-005). Framed 2026-11-11 as a general public writer; re-scoped
+2026-11-20 from onyx's requirements, `monorail-000/DEC-075` (an external input, referenced
+here, never in `depends_on`), as amended by onyx's answer `monorail-000/DEC-076`. DEC-071 fixes v1's scope and API shape, DEC-073 the framing
+rule (tags over sensor-order samples, cut only at the `ActiveArea` edge). STAGE-013's
+test-only writer (`tests/support/dng_writer.rs`, SPEC-057) is the clean-room starting point.
 
 ## Goal
 
-1–2 sentences. Unambiguous. If you can't write the goal in two
-sentences, split the spec.
+Behind the `write` feature, write one monochrome u16 sensor plane, unchanged, with the
+caller's levels, opcode-list bytes, framing, orientation, masked areas and the
+required `UniqueCameraModel` (DEC-071 §3a; a missing or empty one is an
+`ErrorKind::CallerError`), as an
+uncompressed little-endian DNG into a caller buffer sized by a prior query, with typed
+errors, a `max_pixels` budget, and identical bytes for identical input. Prove it by
+round trip on the held Monochrom files at all three framings and by dnglab, exiftool and
+`dng_validate` acceptance, with a fuzz target over the options and geometry.
 
 ## Inputs
 
@@ -133,11 +140,11 @@ job in **build** is to make these pass.
 
 ## Non-Goals
 
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
-
-- ...
+- EXIF block and XMP placement (SPEC-081); previews (SPEC-082).
+- Compression, float, CFA, tiles, big-endian (DEC-071 §4).
+- Applying, stripping or rewriting any opcode list; cropping or rotating samples beyond
+  the `ActiveArea` edge (DEC-073).
+- A release (a separate release spec after the stage).
 
 ## Notes for the Implementer
 
