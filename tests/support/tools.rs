@@ -247,10 +247,10 @@ pub fn sensor_reading_tags(group: &str) -> Vec<String> {
 /// Everything `exiftool` says about one sensor IFD, typed to compare
 /// directly against `irradiance::ifd::Sensor` ([`diff`]).
 ///
-/// The four required fields (`width`..`photometric`) are always
-/// single-valued on this corpus and stay plain `u32` — a missing one is a
-/// hard [`ToolError::Parse`] in [`reading_from_fields`], not a state `diff`
-/// needs to reason about. Every optional field is a [`ToolValue`]
+/// The five required fields (`width`..`photometric`) stay plain `u32` — a
+/// missing or multi-valued one is a hard [`ToolError::Parse`] in
+/// [`reading_from_fields`] (`SPEC-084`), not a state `diff` needs to reason
+/// about. Every optional field is a [`ToolValue`]
 /// (`SPEC-010`): absent, unreadable (present but the wrong shape, raw values
 /// kept), or a parsed value — never collapsed to `Option<T>` before `diff`
 /// gets to see which one it was.
@@ -283,21 +283,27 @@ pub fn exiftool_reading(path: &Path, group: &str) -> Result<ToolReading, ToolErr
 /// (the real tool) and the tier-A fixture test (AC5), so the red-proof
 /// exercises the exact parsing code a real run would use.
 ///
-/// `req` truncates a multi-valued reading to its head (`.first()`) — kept,
-/// because every required tag here is genuinely single-valued on this
-/// corpus (`BitsPerSample`'s own doc comment on [`Sensor`] says the same:
-/// "the first value; monochrome planes have exactly one"). `SPEC-010`'s
-/// truncation fix (`SPEC-005/FU-2`, AC4) is scoped to the OPTIONAL fields,
-/// via [`tri_state`]: a multi-valued `BlackLevel` is `Unreadable`, not
-/// silently `Value` of its first element.
+/// Each required tag (`ImageWidth` .. `PhotometricInterpretation`) must
+/// carry exactly one value (`SPEC-084` AC2). A present tag with zero or more
+/// than one value is a [`ToolError::Parse`] naming the tag and the raw values,
+/// never truncated to its head: the same "do not keep a truncated head" rule
+/// [`tri_state`] applies to the optional fields (`SPEC-010`, `DEC-014`). An
+/// absent required tag is a [`ToolError::Parse`] saying so.
 pub fn reading_from_fields(fields: &[Field]) -> Result<ToolReading, ToolError> {
     let req = |tag: &str| -> Result<u32, ToolError> {
-        values_for(fields, tag)
-            .and_then(|v| v.first().copied())
-            .ok_or_else(|| ToolError::Parse {
+        match values_for(fields, tag).map(Vec::as_slice) {
+            Some([value]) => Ok(*value),
+            Some(values) => Err(ToolError::Parse {
+                tool: "exiftool",
+                message: format!(
+                    "{tag} is required to be single-valued but exiftool reported {values:?}"
+                ),
+            }),
+            None => Err(ToolError::Parse {
                 tool: "exiftool",
                 message: format!("{tag} is required but exiftool reported it absent"),
-            })
+            }),
+        }
     };
     // A single-valued optional tag: `Value` only for exactly one element —
     // AC4, `a_multivalued_reading_does_not_truncate_to_its_head`.

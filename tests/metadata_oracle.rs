@@ -697,6 +697,61 @@ fn a_multivalued_reading_does_not_truncate_to_its_head() {
     );
 }
 
+/// Column index of `BitsPerSample` in [`FIXTURE_LINE`] (a required tag).
+const COL_BITS_PER_SAMPLE: usize = 2;
+
+/// [`reading_with_column`] without the `expect`: the raw result of
+/// `reading_from_fields`, so a refusal can be asserted on.
+fn try_reading_with_column(
+    column: usize,
+    replacement: &str,
+) -> Result<tools::ToolReading, tools::ToolError> {
+    let mut columns: Vec<&str> = FIXTURE_LINE.trim_end_matches('\n').split('\t').collect();
+    *columns
+        .get_mut(column)
+        .expect("column index must be within the fixture line") = replacement;
+    let line = columns.join("\t");
+    let tags = tools::sensor_reading_tags("SubIFD");
+    let fields = tools::parse_fields(&tags, &line).expect("fixture-derived line parses");
+    tools::reading_from_fields(&fields)
+}
+
+#[test]
+fn a_multivalued_required_tag_does_not_truncate_to_its_head() {
+    // SPEC-084 AC2, closing what SPEC-005/FU-2 and SPEC-010/FU-2 left open:
+    // the OPTIONAL fields refuse a truncated head (above); the REQUIRED ones
+    // used `.first()` and kept it. A three-valued BitsPerSample (an RGB
+    // preview IFD's shape) must be refused, naming the tag and its values.
+    match try_reading_with_column(COL_BITS_PER_SAMPLE, "16 16 16") {
+        Err(tools::ToolError::Parse { tool, message }) => {
+            assert_eq!(tool, "exiftool");
+            assert!(
+                message.contains("BitsPerSample"),
+                "the refusal must name the tag, got: {message}"
+            );
+            assert!(
+                message.contains("[16, 16, 16]"),
+                "the refusal must carry the raw values, got: {message}"
+            );
+        }
+        other => panic!("a three-valued BitsPerSample must be ToolError::Parse, got {other:?}"),
+    }
+
+    // The same fields with one value still read.
+    let reading = try_reading_with_column(COL_BITS_PER_SAMPLE, "16")
+        .expect("a single-valued BitsPerSample reads");
+    assert_eq!(reading.bits_per_sample, 16);
+
+    // An absent required tag is still the existing absent error.
+    match try_reading_with_column(COL_BITS_PER_SAMPLE, "-") {
+        Err(tools::ToolError::Parse { message, .. }) => assert!(
+            message.contains("BitsPerSample") && message.contains("absent"),
+            "an absent required tag keeps its absent error, got: {message}"
+        ),
+        other => panic!("an absent BitsPerSample must be ToolError::Parse, got {other:?}"),
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SPEC-010 AC5, tier B — reconcile the frozen fixture (SPEC-005/FU-4): both
 // halves of the tier-A literal above — the hand-typed `fixture_sensor()`

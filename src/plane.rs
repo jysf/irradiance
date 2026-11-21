@@ -1891,6 +1891,85 @@ pub(crate) fn check_strip_shape(
 mod tests {
     use super::*;
 
+    /// SPEC-084 AC3: one hand-computed case per `SUPPORTED_BITS` depth,
+    /// through `unpack_packed` (both `DEC-008` paths). The table's depth set
+    /// is compared with the constant itself, so a depth added to (or removed
+    /// from) `SUPPORTED_BITS` without a row here fails.
+    #[test]
+    fn every_supported_bit_depth_is_exercised() {
+        struct Case {
+            bits: u32,
+            order: ByteOrder,
+            bytes: &'static [u8],
+            want: &'static [u16],
+        }
+        let cases = [
+            // Byte-aligned path. At 8 bits the order is unobservable.
+            Case {
+                bits: 8,
+                order: ByteOrder::Little,
+                bytes: &[0x01, 0x02, 0x03, 0x04],
+                want: &[1, 2, 3, 4],
+            },
+            Case {
+                bits: 8,
+                order: ByteOrder::Big,
+                bytes: &[0x01, 0x02, 0x03, 0x04],
+                want: &[1, 2, 3, 4],
+            },
+            // MSB-first bitstream: 0xABC, 0xDEF (one whole 3-byte group).
+            Case {
+                bits: 12,
+                order: ByteOrder::Little,
+                bytes: &[0xAB, 0xCD, 0xEF],
+                want: &[2748, 3567],
+            },
+            // MSB-first bitstream: one whole 7-byte group of four samples.
+            Case {
+                bits: 14,
+                order: ByteOrder::Little,
+                bytes: &[0x00, 0x04, 0x00, 0x20, 0x00, 0xFF, 0xFF],
+                want: &[1, 2, 3, 16383],
+            },
+            // Byte-aligned path. At 16 bits the order is observable.
+            Case {
+                bits: 16,
+                order: ByteOrder::Little,
+                bytes: &[0x34, 0x12],
+                want: &[4660],
+            },
+            Case {
+                bits: 16,
+                order: ByteOrder::Big,
+                bytes: &[0x12, 0x34],
+                want: &[4660],
+            },
+        ];
+
+        // (a) The table covers exactly the constant's depths.
+        let mut table: Vec<u32> = cases.iter().map(|c| c.bits).collect();
+        table.sort_unstable();
+        table.dedup();
+        let mut supported = SUPPORTED_BITS.to_vec();
+        supported.sort_unstable();
+        supported.dedup();
+        assert_eq!(
+            table, supported,
+            "every SUPPORTED_BITS depth needs a row here, and every row a supported depth"
+        );
+
+        // (b) Each case decodes to its hand-computed samples.
+        for case in &cases {
+            let mut dst = vec![0u16; case.want.len()];
+            unpack_packed(case.bytes, case.bits, case.order, &mut dst).unwrap();
+            assert_eq!(
+                dst, case.want,
+                "{}-bit {:?} bytes {:02X?}",
+                case.bits, case.order, case.bytes
+            );
+        }
+    }
+
     #[test]
     fn pow2_matches_the_naive_definition() {
         for n in 0..=8u32 {

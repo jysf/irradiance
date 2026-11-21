@@ -74,14 +74,14 @@ worktrees=""
 if command -v git >/dev/null 2>&1 \
     && listing=$(git -C "$script_root" worktree list --porcelain 2>/dev/null); then
     # A worktree whose directory is gone (prunable) has nothing to write
-    # into; its recorded path is kept as it is. So is one whose directory
+    # into; its recorded path is still refused. So is one whose directory
     # exists but cannot be entered (SPEC-083): under set -e a failed cd here
     # used to end the script with no message of its own.
     worktrees=$(printf '%s\n' "$listing" | sed -n 's/^worktree //p' \
         | while IFS= read -r wt; do
             if [ -d "$wt" ]; then
                 (cd "$wt" 2>/dev/null && pwd -P) || {
-                    echo "sdk-stage2: cannot enter worktree $wt; refusing its recorded path as it is" >&2
+                    echo "sdk-stage2: cannot enter worktree $wt; keeping its recorded path as a refused location" >&2
                     printf '%s\n' "$wt"
                 }
             else

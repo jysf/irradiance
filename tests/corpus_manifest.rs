@@ -511,3 +511,57 @@ fn manifest_rejects_a_malformed_preview_pin() {
         .expect_err("a negative offset must be rejected");
     assert!(err.contains("offset"), "got: {err}");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-084 AC1 — the pre-flight states only what it checked. Tier A: the
+// summary is a pure function of the counts and the two tool probes, so this
+// needs neither a corpus nor either tool.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn the_preflight_does_not_promise_what_it_cannot_see() {
+    const PROMISE: &str = "no tier-B test will skip";
+    let total = 9usize;
+    for missing in [0usize, 1] {
+        for exiftool in [false, true] {
+            for dnglab in [false, true] {
+                let present = total - missing;
+                let lines = corpus::preflight_summary(
+                    present,
+                    total,
+                    exiftool,
+                    dnglab,
+                    corpus::CORPUS_DIR_ENV,
+                );
+                let case =
+                    format!("missing={missing} exiftool={exiftool} dnglab={dnglab}: {lines:?}");
+
+                let promised = lines.iter().any(|l| l.contains(PROMISE));
+                let honest = missing == 0 && exiftool && dnglab;
+                assert_eq!(
+                    promised, honest,
+                    "the promise must appear exactly when nothing can skip — {case}"
+                );
+
+                for (tool, on_path) in [("exiftool", exiftool), ("dnglab", dnglab)] {
+                    let named = lines.iter().any(|l| {
+                        l.contains(tool) && l.contains("not on PATH") && l.contains("SKIP")
+                    });
+                    assert_eq!(
+                        named, !on_path,
+                        "{tool} must be named in a SKIP line exactly when it is absent — {case}"
+                    );
+                }
+
+                let missing_line = lines
+                    .iter()
+                    .any(|l| l.contains("MISSING") && l.contains(corpus::CORPUS_DIR_ENV));
+                assert_eq!(
+                    missing_line,
+                    missing > 0,
+                    "a missing corpus file keeps the MISSING line naming the env var — {case}"
+                );
+            }
+        }
+    }
+}

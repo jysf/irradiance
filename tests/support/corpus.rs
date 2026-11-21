@@ -322,6 +322,69 @@ fn opt_int(table: &toml::Value, key: &str, at: &str) -> Result<Option<u64>, Stri
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Pre-flight summary
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The tier-B oracle tests that skip when `exiftool` is not on PATH
+/// (measured at SPEC-084 design, 2026-11-21).
+const NEEDS_EXIFTOOL: &str = "metadata_oracle, colour_metadata_oracle, dng_writer";
+
+/// The tier-B oracle tests that skip when `dnglab` is not on PATH.
+const NEEDS_DNGLAB: &str = "metadata_oracle, colour_metadata_oracle, dng_writer, develop, \
+                            perceptual_oracle, plane_oracle, warp";
+
+/// The summary lines `corpus-status` prints after its per-file lines
+/// (`SPEC-084` AC1). Pure: the caller does the probing (the same
+/// `tools::exiftool_available` / `tools::dnglab_available` the tier-B tests
+/// skip on), so the test needs neither a corpus nor either tool.
+///
+/// This is the only place the sentence "no tier-B test will skip" is
+/// written, and it is written only when every corpus file is present **and**
+/// both tools are on PATH. A tier-B test skips on any of the three, so the
+/// pre-flight may not promise otherwise.
+pub fn preflight_summary(
+    present: usize,
+    total: usize,
+    exiftool: bool,
+    dnglab: bool,
+    corpus_env: &str,
+) -> Vec<String> {
+    let missing = total.saturating_sub(present);
+    let mut lines = Vec::new();
+
+    if missing == 0 {
+        lines.push(format!("corpus: {present}/{total} present"));
+    } else {
+        lines.push(format!(
+            "corpus: {present}/{total} present, {missing} MISSING — tier-B tests over \
+             those file(s) will SKIP. Set ${corpus_env} to point at your corpus."
+        ));
+    }
+
+    for (tool, on_path, needs) in [
+        ("exiftool", exiftool, NEEDS_EXIFTOOL),
+        ("dnglab", dnglab, NEEDS_DNGLAB),
+    ] {
+        if on_path {
+            lines.push(format!("tools:  present  {tool} on PATH"));
+        } else {
+            lines.push(format!(
+                "tools:  SKIP     {tool} not on PATH — the tier-B tests needing it \
+                 ({needs}) will SKIP"
+            ));
+        }
+    }
+
+    if missing == 0 && exiftool && dnglab {
+        lines.push(format!(
+            "corpus: {present}/{total} present, exiftool and dnglab on PATH — \
+             no tier-B test will skip"
+        ));
+    }
+    lines
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Presence and verification
 // ─────────────────────────────────────────────────────────────────────────────
 
