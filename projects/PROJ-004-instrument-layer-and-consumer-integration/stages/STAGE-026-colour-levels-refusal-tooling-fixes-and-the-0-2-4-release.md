@@ -107,10 +107,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-080 (shipped on 2026-11-20) [S] Colour levels refusal (FU-1), designed 2026-11-20: the four colour entries refuse W ≤ B with InvalidLevels reporting B, after the pattern check and before any write (DEC-070 §3, second amendment); no output change, DEVELOP_VERSION stays 7; sdk-stage2.sh refuses an output dir inside any worktree (via git); just validate parses feedback/ front matter and checks status
 
-The release spec is minted with `just new-release-spec` when SPEC-080 has shipped, as
-SPEC-077 was for 0.2.3.
+- [ ] SPEC-083 (build) [S] irradiance 0.2.4 release, designed 2026-11-21: semver clean against crates.io 0.2.3 (202 pass, no update required); one newly refused input (colour W ≤ B) and one changed error field (PerPosition reports the largest black); DEVELOP_VERSION 6 → 7; the two SPEC-080 verify script fixes; two-phase cut, the user tags and publishes
 
-**Count:** 1 shipped / 0 active / 0 pending
+**Count:** 1 shipped / 1 active / 0 pending
 
 ## Design Notes
 
