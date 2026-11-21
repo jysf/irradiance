@@ -63,7 +63,27 @@ out=$3
 # The output directory must not be inside the repository: SDK bytes are never
 # committed (DEC-069 §6). Its absolute path is resolved WITHOUT creating
 # anything, so a refused in-repo path leaves no directory behind (SPEC-079).
-repo=$(cd "$(dirname "$0")/.." && pwd -P)
+#
+# "The repository" is every worktree of it, found through git (SPEC-080): run
+# from one worktree, the main checkout and every other worktree are refused
+# too. Each path from `git worktree list --porcelain` is resolved with pwd -P.
+# Without git, or outside a git checkout, the fallback is the script-relative
+# root alone, and the script says so on stderr.
+script_root=$(cd "$(dirname "$0")/.." && pwd -P)
+worktrees=""
+if command -v git >/dev/null 2>&1 \
+    && listing=$(git -C "$script_root" worktree list --porcelain 2>/dev/null); then
+    # A worktree whose directory is gone (prunable) has nothing to write
+    # into; its recorded path is kept as it is.
+    worktrees=$(printf '%s\n' "$listing" | sed -n 's/^worktree //p' \
+        | while IFS= read -r wt; do
+            if [ -d "$wt" ]; then (cd "$wt" && pwd -P); else printf '%s\n' "$wt"; fi
+        done)
+fi
+if [ -z "$worktrees" ]; then
+    echo "sdk-stage2: git is unavailable or this is not a git checkout; refusing only the script-relative root ($script_root)" >&2
+    worktrees=$script_root
+fi
 if [ -d "$out" ]; then
     out_abs=$(cd "$out" && pwd -P)
 elif [ -e "$out" ]; then
@@ -73,9 +93,15 @@ else
     [ -d "$parent" ] || die "the output directory's parent does not exist: $parent"
     out_abs=$(cd "$parent" && pwd -P)/$(basename "$out")
 fi
-case "$out_abs/" in
-    "$repo"/*) die "output directory is inside the repository ($repo): $out_abs" ;;
-esac
+# A here-document, not a pipe, so die exits the script and not a subshell.
+while IFS= read -r repo; do
+    [ -n "$repo" ] || continue
+    case "$out_abs/" in
+        "$repo"/*) die "output directory is inside the repository ($repo): $out_abs" ;;
+    esac
+done <<EOF
+$worktrees
+EOF
 mkdir -p "$out_abs" || die "cannot create output directory: $out_abs"
 
 # Rewrite the single IFD entry for tag 51009 (OpcodeList2, type UNDEFINED) to

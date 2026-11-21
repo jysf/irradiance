@@ -661,12 +661,19 @@ pub enum Error {
         orientation: u32,
     },
 
-    /// `SPEC-014`. `BlackLevel >= WhiteLevel`, so normalization has no valid
-    /// range to map onto.
+    /// `SPEC-014`. The black `B` is at or above the white `W`, so
+    /// normalization has no valid range to map onto. `B` is the black the
+    /// develop applies, or the maximum of them when `BlackLevel` holds a
+    /// pattern: the mono path checks it under
+    /// [`develop::BlackLevels::PerPosition`] (`DEC-070` §3), and the colour
+    /// develop entry points in [`color`] check it on every pattern shape
+    /// (`SPEC-080`, `DEC-070` §3, second amendment). `W` is that path's white.
     InvalidLevels {
-        /// `BlackLevel`, resolved (0 if absent).
+        /// `B`: `BlackLevel`, resolved (0 if absent), or the maximum value of
+        /// a black pattern.
         black_level: u32,
-        /// `WhiteLevel`, resolved (`2^BitsPerSample - 1` if absent).
+        /// `W`: `WhiteLevel`, resolved (`2^BitsPerSample - 1` if absent).
+        /// The colour path takes the first `WhiteLevel` value.
         white_level: u32,
     },
 
