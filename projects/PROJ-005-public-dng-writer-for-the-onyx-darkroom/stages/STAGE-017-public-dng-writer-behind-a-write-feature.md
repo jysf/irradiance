@@ -142,7 +142,8 @@ DEC-055 governs the crate layout: the writer stays in the crate behind a feature
 DEC-071 fixes v1's scope, DEC-072 the EXIF offset contract, DEC-073 the framing rule.
 All three are `proposed` until jysf accepts them. onyx agreed to all three in
 `monorail-000/DEC-076` and its two asks (descriptive tags, explicit XMP) are folded into
-DEC-071. `diamond-exif` has still to confirm DEC-072 before SPEC-081 leaves design.
+DEC-071. `diamond-exif` accepted DEC-072's contract in `diamond-exif/DEC-015`
+(2026-11-21); DEC-072 was amended the same day so a GPS-only block is valid.
 
 The requirement source is `monorail-000/DEC-075`. It is an external input: specs
 reference it in prose, never in `depends_on`.
@@ -165,8 +166,11 @@ preview and EXIF/XMP specs are in. SPEC-061 keeps its ID and is re-scoped to the
 ### External inputs (not `depends_on`)
 - `monorail-000/DEC-075`: the requirements.
 - `monorail-000/DEC-076`: onyx's answer to this framing, amending DEC-075.
+- `monorail-000/DEC-077`: onyx's choice of the GPS-only block (DEC-072's 2026-11-21
+  amendment) and how `mono-core` prepares the writer's inputs.
 - `diamond-exif`'s block serialiser: SPEC-081 is testable with a hand-built block, but
-  DEC-072 needs `diamond-exif` to agree before SPEC-081 leaves design.
+  `diamond-exif` accepted DEC-072 in `diamond-exif/DEC-015` (2026-11-21); its builder is
+  `diamond-exif/SPEC-025`, not yet built.
 
 ### Enables
 - onyx Darkroom v1's Linear DNG export; later crustyimg RAW-in/DNG-out.
