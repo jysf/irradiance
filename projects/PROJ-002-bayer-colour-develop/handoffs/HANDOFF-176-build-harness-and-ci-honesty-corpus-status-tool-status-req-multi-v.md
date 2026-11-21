@@ -58,7 +58,7 @@ handback:
   pr: 298
   completed_at: 2026-11-21               # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit, from transcript 3cd2d69c-b494-4704-b5d2-2d67be4e4ed3.jsonl (52 unique message.ids, all claude-opus-5-5, no subagents): input 109 + cache-creation 128,696 (1-hour) + cache-read 7,525,974 + output 25,031 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Re-sum at ship."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-21
 ---
 
 # HANDOFF-176: Harness and CI honesty: corpus-status tool status, req multi-value refusal, SUPPORTED_BITS enumeration, blocking macOS leg

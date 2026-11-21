@@ -6,19 +6,19 @@
 task:
   id: SPEC-084
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,46 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: null
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-176
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 8953639
+      estimated_usd: 6.60
+      duration_minutes: 20
+      recorded_at: 2026-11-21
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (59 unique message.ids, all claude-opus-5-5, no subagents): input 123 + cache-creation 137,361 (1-hour) + cache-read 8,782,714 + output 33,441 (max per message), opus-5-5 rates. The handback floor was 7,679,810 and $5.68. PR 298, build commit 2419b34, seven mutants red, CI 22 of 22."
+    - cycle: verify
+      handoff: HANDOFF-177
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 5390712
+      estimated_usd: 4.20
+      duration_minutes: 25
+      recorded_at: 2026-11-21
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (41 unique message.ids, all claude-opus-5-5, no subagents): input 85 + cache-creation 100,444 (1-hour) + cache-read 5,267,597 + output 22,586, opus-5-5 rates. APPROVED at 42890c2, no verify fix; handback carried into PR 298 by fast-forward to 951ee28. Nine mutants red (two new). Two nits: the hand-written tool lists in preflight_summary, and the complete-corpus count printed on two lines. The handback floor was 4,004,160 and $3.17."
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-11-21
+      notes: "Un-metered main-loop orchestration (frame in PR 296, design in PR 297); counted at stage grain in STAGE-014's orchestration_cost, not split per spec."
+    - cycle: ship
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-11-21
+      notes: "Un-metered main-loop ship; counted at stage grain in STAGE-014's orchestration_cost."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 14344351
+    estimated_usd: 10.80
+    session_count: 4
+shipped_at: 2026-11-21
 ---
 
 # SPEC-084: Harness and CI honesty: corpus-status tool status, req multi-value refusal, SUPPORTED_BITS enumeration, blocking macOS leg
@@ -276,34 +311,27 @@ is why the old AC4 was dropped; nothing here touches it.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
-
 1. **What would I do differently next time?**
-   — <answer>
+   — Re-measure inherited outlines before framing, as this one did. Of the four
+   STAGE-005 outlines, one had been made obsolete by a later decision (DEC-029) and one
+   was half overtaken; framing from the old text would have specced a test for an error
+   that no longer exists.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No template change. The one gap both cold sessions named, the hand-written
+   `NEEDS_EXIFTOOL` / `NEEDS_DNGLAB` lists in `preflight_summary`, is recorded as
+   signal `preflight-tool-lists-are-hand-written` (watch, low priority).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. The two verify nits are below a spec: the tool lists (the signal above) and
+   the complete-corpus count printed on two lines, to fold into any later edit of
+   `preflight_summary`.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — design
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — none (contributor-facing only). Before, `just test` promised "no tier-B test will
+   skip" with exiftool or dnglab missing, a multi-valued required tag was silently
+   truncated, and a new bit depth needed no test; after, each of those fails or is
+   named, and the macOS arm64 determinism leg blocks again.

@@ -58,7 +58,7 @@ handback:
   pr: 298
   completed_at: 2026-11-21         # YYYY-MM-DD
   notes: "Floor, taken live before the handback commit, from transcript eccda050-37dc-4827-82bf-4ae01132914a.jsonl: 32 unique message ids, all claude-opus-5-5, no subagents. Re-sum at ship. Approved at 42890c2; no verify fix was needed."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-21
 ---
 
 # HANDOFF-177: Harness and CI honesty: corpus-status tool status, req multi-value refusal, SUPPORTED_BITS enumeration, blocking macOS leg

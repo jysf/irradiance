@@ -102,9 +102,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-056 (shipped on 2026-11-11) — [M] 0.2.1 housekeeping: refuse unreadable OpcodeLists (DEC-053), guard the Sensor-taking stage primitives + public check, rustdoc private links + doc gate, nested-cargo tests honour CARGO_TARGET_DIR
 
-- [~] SPEC-084 (design) [S] Harness and CI honesty: corpus-status tool status, req multi-value refusal, SUPPORTED_BITS enumeration, blocking macOS leg
+- [x] SPEC-084 (shipped on 2026-11-21) — [S] Harness and CI honesty: corpus-status tool status, req multi-value refusal, SUPPORTED_BITS enumeration, blocking macOS leg. PR 298; verify approved first round; 14.34M tokens / $10.80 build plus verify
 
-**Count:** 1 shipped / 1 active / 0 pending
+**Count:** 2 shipped / 0 active / 0 pending
 
 > **Second batch, framed 2026-11-21.** The four [XS] harness outlines moved here
 > from PROJ-001 STAGE-005 at PROJ-001's close (2026-11-11), measured at git
