@@ -147,7 +147,7 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [ ] STAGE-008 (in progress) — Colour transform + output: white balance, illuminant-interpolated colour matrix, D50→D65, display encode, **ColorChecker ΔE** oracle. SPEC-033 and SPEC-034 shipped; SPEC-035 (the ΔE oracle, DEC-054) is **blocked on the maintainer's ColorChecker shot** and is the last open piece of PROJ-002's thesis
 - [x] STAGE-010 (shipped 2026-11-11) — Downstream consumer API: validate-before-allocate, error kinds, determinism, and the **0.2.0** release (added after framing, from the pre-0.2.0 review, DEC-045)
 - [x] STAGE-012 (shipped 2026-11-09) — Colour-develop ActiveArea-origin correctness, active-area crop, and demosaic performance (added after framing; SPEC-047..051)
-- [ ] STAGE-014 (proposed) — 0.2.x maintenance: SPEC-056 (0.2.1 housekeeping) shipped; four [XS] harness outlines carried from PROJ-001 STAGE-005 remain unwritten and do not gate anything
+- [ ] STAGE-014 (proposed) — 0.2.x maintenance: SPEC-056 (0.2.1 housekeeping) shipped; SPEC-084 (harness and CI honesty, framed 2026-11-21) bundles three of the four harness outlines carried from PROJ-001 STAGE-005 with two PROJ-004 carry-overs
 
 **Count:** 4 shipped / 1 active / 1 pending
 
