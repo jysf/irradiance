@@ -47,12 +47,14 @@ byte order (little-endian, DEC-071 §4). IFD0, the strips, the XMP packet and an
 preview follow it.
 
 - **What the caller hands over:** the block bytes, plus the offsets **inside the
-  block** of the Exif IFD (required when a block is given) and the GPS IFD (optional).
+  block** of the Exif IFD and of the GPS IFD. Each offset is optional, but a block
+  must come with **at least one** of them; a block with neither is a
+  `CallerError` (amended 2026-11-21, below).
   Every offset stored inside the block is already absolute, computed by `diamond-exif`
   for a block that starts at file offset 8. The Interoperability IFD pointer lives
   inside the Exif IFD and is the block's business.
 - **What the writer does:** copies the block verbatim, writes `ExifIFD` (0x8769) and
-  `GPSInfo` (0x8825) in IFD0 as `8 + offset`, and checks only what it needs to stay
+  `GPSInfo` (0x8825) in IFD0 as `8 + offset`, each only when its offset is given, and checks only what it needs to stay
   well-formed: the block length fits in the file's offset range, the declared IFD
   offsets are inside the block and even (TIFF word alignment), and the block length
   is padded to even before IFD0. It does not parse, walk or rebase the block.
@@ -72,11 +74,27 @@ preview follow it.
   written: base 8, little-endian, final absolute offsets including the Interop pointer,
   `diamond-exif` reporting the in-block offsets of the Exif IFD (always) and the GPS IFD
   (when present).
-- **`diamond-exif`: agreed in principle**, `diamond-exif/DEC-015` (proposed, as
-  relayed by onyx on 2026-11-20): base-first, a size query, then a write at an even
-  caller-chosen base with final offsets, so `mono-core` passes this DEC's base and
-  nobody rebases. SPEC-081's design re-checks `diamond-exif/DEC-015` once it is
-  accepted, including that it emits little-endian for a big-endian source.
+- **`diamond-exif`: agreed**, `diamond-exif/DEC-015` (accepted, 2026-11-21), with the
+  builder in `diamond-exif/SPEC-025` (not built yet):
+  - a size query, then a write at a caller-given base with final absolute offsets,
+    the Interop pointer included; base 8 and little-endian are supported, and a
+    big-endian source is re-serialised element by element, not copied;
+  - it reports the in-block offsets of the Exif IFD and, when present, the GPS IFD;
+  - the block length is always even, so the writer's padding before IFD0 is a no-op.
+    The writer keeps the padding, because it does not trust a caller's length;
+  - the same source, options and base give the same bytes, and `diamond-exif` reads
+    its own output back before returning it;
+  - the MakerNote is always left out, so in v1 no MakerNote survives an export.
+
+## Amendment 2026-11-21: the Exif IFD offset is optional
+
+`diamond-exif` pointed out that a source with a GPS IFD and no Exif IFD gives a
+GPS-only block, which the contract as first written refused. onyx chose the same in
+`monorail-000/DEC-077` item 1 (jysf). Chosen: **both offsets
+are optional, and a block needs at least one.** Rejected: `diamond-exif` writing an
+empty Exif IFD (a fabricated IFD in every such file, only to satisfy the writer), and
+`mono-core` dropping the block (loses GPS for no reason). The writer's checks are
+unchanged for each offset it is given. `diamond-exif/DEC-014` follows this choice.
 
 ## Context
 
@@ -117,19 +135,22 @@ preview follow it.
   needs `diamond-exif` to re-serialise, which it does anyway when it builds a block.
   The layout is frozen at "header, block, IFD0" until a DEC changes it.
 - **Neutral:** a MakerNote survives only if `diamond-exif` can place it for offset 8;
-  that remains its call (`monorail-000/DEC-075` item 5).
+  that remains its call (`monorail-000/DEC-075` item 5). In v1 it never does: its
+  serialiser always leaves the MakerNote out.
 
 ## Validation
 
 - SPEC-081: a hand-built block (Exif IFD, GPS IFD, Interop IFD) written through the
   writer reads back through exiftool with the same values; the red-proof shifts the
-  base by 2 and exiftool's values change or fail.
-- `diamond-exif` confirms its serialiser can target a fixed base and byte order before
-  SPEC-081 leaves design. If it cannot, this DEC is revisited before build.
+  base by 2 and exiftool's values change or fail. A GPS-only block writes only
+  `GPSInfo` and reads back; a block with neither offset is refused.
+- `diamond-exif` confirmed the fixed base and byte order (`diamond-exif/DEC-015`,
+  accepted 2026-11-21).
 
 ## References
 
 - Related specs: SPEC-081
 - Related decisions: DEC-071
-- External: `monorail-000/DEC-075` item 5; `diamond-exif`'s block serialiser
-  (requested by monorail-000, not yet built)
+- External: `monorail-000/DEC-075` item 5; `monorail-000/DEC-076` item 1;
+  `monorail-000/DEC-077` item 1; `diamond-exif/DEC-014`, `diamond-exif/DEC-015` and `diamond-exif/SPEC-025` (the block
+  serialiser, not yet built)

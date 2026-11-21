@@ -94,13 +94,14 @@ opaque XMP packet. DEC-072 fixes the offset contract: the block is built for a f
 tags (`Make`, `Model`, `LocalizedCameraModel`, `Artist`, `Copyright`, `DateTime`,
 `Software`, `CameraSerialNumber`) as typed ASCII options (DEC-071 §3a);
 `UniqueCameraModel` is required and lands with the options struct in SPEC-061.
-`diamond-exif` confirmed the base-first contract in its own `diamond-exif/DEC-015`
-(proposed): a size query, then a write at an even caller-chosen base with final offsets.
+`diamond-exif` accepted the contract in `diamond-exif/DEC-015` (2026-11-21), so this
+spec no longer waits on it. DEC-072's 2026-11-21 amendment makes both IFD offsets
+optional, with at least one required, so a GPS-only block is valid.
 
 ## Goal
 
 Extend the writer's options with an optional EXIF block (with the in-block offsets of its
-Exif and GPS IFDs), an optional XMP packet and the eight optional descriptive tags; place
+Exif and GPS IFDs, each optional, at least one given), an optional XMP packet and the eight optional descriptive tags; place
 the block at the fixed base, write `ExifIFD`/`GPSInfo`, `XMLPacket` and the descriptive
 tags, check only bounds and alignment for the block and ASCII form for the tags. Prove
 that exiftool reads the same values from the written file as from the block's source and
