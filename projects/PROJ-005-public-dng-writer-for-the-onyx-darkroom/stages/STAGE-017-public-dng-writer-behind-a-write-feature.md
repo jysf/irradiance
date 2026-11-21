@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-017                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -130,16 +130,18 @@ this writer as an external gate, together with `diamond-exif`'s EXIF block seria
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-061 (frame) [M] Public `write` feature core: mono u16 uncompressed writer into a caller buffer, size query, options struct, framing and orientation as tags, levels/opcode pass-through, caller MaskedAreas, required `UniqueCameraModel` (`CallerError` if absent), `Error::kind()`, max_pixels, determinism, fuzz target, round-trip + dnglab/exiftool/dng_validate acceptance
-- [ ] SPEC-081 (frame) [S] EXIF block, XMP and IFD0 descriptive tags: opaque block at the fixed base offset with ExifIFD/GPSInfo pointers (DEC-072), XMLPacket, typed ASCII `Make`/`Model`/`LocalizedCameraModel`/`Artist`/`Copyright`/`DateTime`/`Software`/`CameraSerialNumber` (DEC-071 §3a), exiftool parity on a hand-built block, red-proof
+- [~] SPEC-061 (build, HANDOFF-175) [M] Public `write` feature core: mono u16 uncompressed writer into a caller buffer, size query, options struct, framing and orientation as tags, levels/opcode pass-through, caller MaskedAreas, required `UniqueCameraModel` (`CallerError` if absent), `Error::kind()`, max_pixels, determinism, fuzz target, round-trip + dnglab/exiftool/dng_validate acceptance
+- [ ] SPEC-081 (frame) [S] EXIF block, XMP and IFD0 descriptive tags: opaque block at the fixed base offset with ExifIFD/GPSInfo pointers (DEC-072), XMLPacket, typed ASCII `Make`/`Model`/`LocalizedCameraModel`/`Artist`/`Copyright`/`DateTime`/`Software`/`CameraSerialNumber` (DEC-071 §3a), the rendering hints `BaselineExposure`/`BaselineNoise`/`BaselineSharpness`/`LinearResponseLimit` (DEC-074), exiftool parity on a hand-built block, red-proofs
 - [ ] SPEC-082 (frame) [S] Optional caller JPEG preview stored as a reduced-resolution subfile, read back by irradiance's preview accessors (DEC-057) and accepted by dng_validate
 
-**Count:** 0 shipped / 0 active / 3 pending
+**Count:** 0 shipped / 1 active / 2 pending
 
 ## Design Notes
 
 DEC-055 governs the crate layout: the writer stays in the crate behind a feature.
 DEC-071 fixes v1's scope, DEC-072 the EXIF offset contract, DEC-073 the framing rule.
+SPEC-061's design (2026-11-21) added DEC-075 (layout and validation rules) and DEC-074
+(the rendering-hint tags, which land in SPEC-081), both proposed.
 All three are `proposed` until jysf accepts them. onyx agreed to all three in
 `monorail-000/DEC-076` and its two asks (descriptive tags, explicit XMP) are folded into
 DEC-071. `diamond-exif` accepted DEC-072's contract in `diamond-exif/DEC-015`

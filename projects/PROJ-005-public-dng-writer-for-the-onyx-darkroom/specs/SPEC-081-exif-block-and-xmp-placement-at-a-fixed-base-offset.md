@@ -36,7 +36,7 @@ handoff:
   created_at: null
 
 references:
-  decisions: [DEC-071, DEC-072]
+  decisions: [DEC-071, DEC-072, DEC-074, DEC-075]
   constraints: [no-panics-on-untrusted-input, library-not-application, provenance-recorded-per-algorithm, oracle-must-be-shown-red]
   related_specs: [SPEC-061]
 
@@ -101,7 +101,8 @@ optional, with at least one required, so a GPS-only block is valid.
 ## Goal
 
 Extend the writer's options with an optional EXIF block (with the in-block offsets of its
-Exif and GPS IFDs, each optional, at least one given), an optional XMP packet and the eight optional descriptive tags; place
+Exif and GPS IFDs, each optional, at least one given), an optional XMP packet, the eight optional descriptive tags and DEC-074's four optional
+rendering hints; place
 the block at the fixed base, write `ExifIFD`/`GPSInfo`, `XMLPacket` and the descriptive
 tags, check only bounds and alignment for the block and ASCII form for the tags. Prove
 that exiftool reads the same values from the written file as from the block's source and
