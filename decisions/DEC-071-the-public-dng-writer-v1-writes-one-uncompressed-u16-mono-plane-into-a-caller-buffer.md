@@ -22,9 +22,9 @@ created_at: 2026-11-20
 supersedes: null
 superseded_by: null
 
-status: proposed                     # drafted at STAGE-017 re-frame; onyx agreed (monorail-000/DEC-076) with two asks folded in as §2 and §3a; jysf accepts at PR review
+status: accepted                     # onyx agreed (monorail-000/DEC-076) with two asks folded in as §2 and §3a; accepted by jysf 2026-11-21
 
-deciders: [claude]                   # proposal; jysf accepts or amends at review
+deciders: [jysf, claude]             # drafted by claude; accepted by jysf 2026-11-21
 
 affected_scope:
   - src/dng/write.rs
@@ -77,12 +77,14 @@ larger:
      stamps the time itself, because output must be deterministic;
    - `UniqueCameraModel` is **required**: DNG requires it in every file, and
      `dng_validate`'s behaviour without it is confirmed by SPEC-061's design probe. A
-     write without it, or with it empty, fails with an error whose `Error::kind()` is
+     write without it, with it empty, or with it only spaces, fails with an error whose `Error::kind()` is
      `ErrorKind::CallerError` (DEC-051), checked before any output byte is written. The
      writer never invents one; `mono-core` always supplies one (the source's value, or
      Make + Model). The other eight are optional, and an absent field writes no tag, so
      a caller's strip policy (for example, no serial number) is simply a field left
-     empty;
+     empty. No case accepts a missing one: DNG requires the tag in every file, and
+     editors key camera profiles on it, so a placeholder or a writer-made default
+     would bind a file to the wrong profile;
    - `LocalizedCameraModel` is ASCII in v1 like the rest. DNG also allows it as UTF-8
      bytes; a non-ASCII value is a `CallerError`, so the caller leaves it out rather
      than the export failing. Widening it to UTF-8 is a later, additive change;
