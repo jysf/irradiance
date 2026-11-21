@@ -37,8 +37,10 @@ black level differs by position, on the colour and mono `PerPosition` paths.
   when the colour white (the first `WhiteLevel` value) is at or below the largest black
   the plane applies, for a scalar `BlackLevel`, a 2×2 or smaller pattern and a larger
   pattern alike, as mono `BlackLevels::PerPosition` already did. The input is refused
-  before anything is written; it used to develop to an all-zero image. No file that
-  developed before changes output, and `DEVELOP_VERSION` stays `"7"`.
+  before anything is written; it used to develop to an all-zero image. The check runs
+  before the `GainMap`, CFA and colour-matrix checks, so such an input that also fails
+  one of those now returns `InvalidLevels` where 0.2.3 returned the later error. No file
+  that developed before changes output, and `DEVELOP_VERSION` stays `"7"`.
 
 ## [0.2.3] - 2026-11-19
 

@@ -92,6 +92,12 @@ This spec ends prep-complete. The user tags and runs `cargo publish`, as for 0.2
   - **Same refusal, different field value:** mono `BlackLevels::PerPosition` refused the
     same inputs in 0.2.3 (any black at or above white), but `InvalidLevels::black_level`
     now reports the **largest** black instead of the first offending one (SPEC-078).
+  - **Already refused, different error (found at verify, HANDOFF-174):** the colour
+    levels check runs before the `GainMap`, CFA and colour-matrix checks. A colour input
+    with `W ≤ B` that also fails one of those checks returned that later error in 0.2.3,
+    such as `NotAColorFilterArray` or `MissingColorCalibration`, and now returns
+    `InvalidLevels`. Measured on the Canon with its white set to 1000, by a scratch
+    probe crate against crates.io 0.2.3 and the candidate.
   - **Output changes:** colour develops and mono `PerPosition` develops of a file whose
     blacks differ by position now scale by white minus the largest black. In the held
     corpus: the Canon EOS 5D Mark III, Pixel 3a and Pixel 4a on those paths. Every
@@ -184,6 +190,14 @@ irradiance`.
   written. 0.2.3 developed such a file to an all-zero image without an error. Colour now
   refuses what mono `PerPosition` refuses; the mono default `FirstValue` checks its
   first black only, as before. No held file is affected.
+- **A colour input that was already refused for another reason may now report
+  `InvalidLevels` instead.** The levels check runs before the `GainMap`, CFA and
+  colour-matrix checks. So if a colour input has its white at or below its largest black
+  and also fails one of those later checks, 0.2.4 returns `InvalidLevels`. 0.2.3 returned
+  the later error: `MalformedOpcodeParams` or `TooManyGainMaps` for its `GainMap`s,
+  `NotAColorFilterArray`, `UnsupportedCfaPattern` or `MissingColorCalibration`. The
+  errors that come before the levels check, such as `UnsupportedRequiredOpcode` and the
+  buffer and geometry errors, are unchanged.
 - **Mono `PerPosition`'s `InvalidLevels` reports the largest black.** It refuses the
   same inputs as 0.2.3 (any black at or above white), but `black_level` now holds the
   largest black in the pattern instead of the first offending one.
@@ -256,6 +270,12 @@ the largest black there.
   wording caution holds: the notes say colour refuses what mono `PerPosition` refuses and
   that `FirstValue` checks its first black only. The CHANGELOG's SPEC-080 entry said "as
   the mono path already did"; it now names mono `BlackLevels::PerPosition`.
+- **Added at verify (HANDOFF-174):** the build's notes and CHANGELOG missed one changed
+  result. A colour input with `W ≤ B` that 0.2.3 refused with a later error, such as
+  `NotAColorFilterArray` or `MissingColorCalibration`, now gets `InvalidLevels`. It is
+  now a Behaviour changes line and a CHANGELOG sentence. The `[cut]` smoke probe in
+  pre-flight item 5 is also reworded: `Sensor` is `#[non_exhaustive]`, so the probe
+  changes a parsed sensor's white rather than building one with a struct literal.
 
 ## Release cut is two-phase
 
@@ -323,8 +343,10 @@ the largest black there.
   - `[cut]`: in a clean-host probe crate:
     - develop the Canon EOS 5D Mark III and the Pixel 4a with `develop_color_into`; each
       returns `Ok` with the expected dimensions;
-    - a hand-built colour sensor with white at or below its black returns
-      `Error::InvalidLevels`.
+    - the Canon's parsed `Sensor` with `white_levels` set to `vec![1000]`, below its
+      largest black 2048, returns `Error::InvalidLevels { black_level: 2048,
+      white_level: 1000 }` from `develop_color_into`. `Sensor` is `#[non_exhaustive]`,
+      so change a parsed one rather than build one with a struct literal.
 - [ ] **6. Rollback / uninstall** — `[cut]`.
   - **Withdraw:** `cargo yank --version 0.2.4`, and dependents on `"0.2"` fall back to
     0.2.3. `cargo yank --undo --version 0.2.4` reverses it.
