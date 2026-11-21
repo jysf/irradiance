@@ -113,6 +113,11 @@ What the implementer will produce.
 Testable outcomes. Each must map to at least one test. Cover happy
 path, error cases, edge cases.
 
+**Pre-register every numeric threshold.** A tolerance, bound or score an AC
+checks is written here at design, with its falsifier, before the build measures
+anything. A measured number outside it is reported, never fixed by widening the
+bound (signal `pre-register-the-tolerance`).
+
 - [ ] Criterion 1 (testable)
 - [ ] Criterion 2 (testable)
 - [ ] Criterion 3 (testable)

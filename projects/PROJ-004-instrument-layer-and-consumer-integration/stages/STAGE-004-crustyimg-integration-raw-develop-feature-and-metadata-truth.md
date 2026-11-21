@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-004                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: cancelled                  # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -105,6 +105,17 @@ parses.
 - crustyimg's 16-bit pipeline and its linear-light resize defect — both recorded in crustyimg's own backlog
 - `crustyimg-lab`
 - Broadening `irradiance`'s published scope to a second camera — DEC-028 reverses the original "wait for a second camera" publish-wait: 0.1.0 is published now, honestly scoped. What is out of scope here is *widening* that scope, not the publish itself.
+
+## Cancelled (2026-11-21, at the PROJ-004 close)
+
+**Superseded by crustyimg's own STAGE-056** (crustyimg PROJ-016), which owns every item in
+this stage's scope: the `raw-develop` feature, the `Image` adapter, `SourceContainer::RawDeveloped`,
+`source_format` truthfulness, orientation and EXIF passthrough, and `develop_version`
+plumbing. None of it is irradiance code. irradiance's side, a consumable and truthful
+dependency, is done: 0.2.4 is on crates.io (2026-11-21), so crustyimg can depend on a
+registry version and stay publishable. Any API need that comes up from STAGE-056 arrives as
+a new irradiance request. The maintainer chose this ending on 2026-11-21. The two outlines
+below were never written.
 
 ## Spec Backlog
 

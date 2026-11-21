@@ -58,12 +58,13 @@ signals:
     summary: "State a numeric acceptance threshold — and its falsifier — in writing BEFORE measuring anything."
     evidence: "SPIKE-001 Q5 (N=1); DEC-054 / SPEC-035 design, 2026-11-11 (N=2). Original: SPIKE-001 Q5: >=85 and 'a missing warp must land far below 85' were both written down before the first score was computed; both survived. N=1."
     bar: "N=3"
-    status: watch
+    status: codified
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-11-11
+    last_touched: 2026-11-21
     raised_by: claude
     notes: |
+      ══ PROJ-004 CLOSE, 2026-11-21: CODIFIED at N=4. Third and fourth instances: SPEC-060 pre-registered its dng_validate bounds (gain step <= 1 and >= 99.9% exact; end to end <= 8; no gain <= 5, signed) from the DEC-069 probe before the build measured anything, and SPEC-078 pre-registered AC4 from the DEC-070 probe; both specs said a number outside the bound is reported, never fixed by widening it, and both verifies checked the bounds against the design PR, not the build branch. projects/_templates/spec.md Acceptance Criteria now carries a pre-registration line. ══
       ══ PROJ-001 CLOSE, 2026-11-11: REVIEWED — watch, N=2 ══
       Second instance: DEC-054 (SPEC-035 ColorChecker oracle) pre-registers its
       bound (mean dE00 <= 6, max <= 15) AND its falsifier (unity-WB / matrix-swap
@@ -119,9 +120,10 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-18
-    last_touched: 2026-11-11
+    last_touched: 2026-11-21
     raised_by: claude
     notes: |
+      ══ PROJ-004 CLOSE, 2026-11-21: STANDING RISK, watch. Re-asked: no regression reached main because CI could not see the corpus or the SDK. Every PROJ-004 verify ran the tier-B corpus suite locally, and SPEC-060/078/079/080/083 also ran the env-gated dng_validate cross-check (SPEC-079 made it fail, not skip, when switched on without inputs). Kept per DEC-003 and DEC-069 section 6; no action. ══
       ══ PROJ-001 CLOSE, 2026-11-11: STANDING RISK — watch ══
       Re-asked the close question: no regression is known to have reached main
       because CI could not see the corpus. Every recent verify (STAGE-010/012 waves)
@@ -428,9 +430,10 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-21
-    last_touched: 2026-11-11
+    last_touched: 2026-11-21
     raised_by: human
     notes: |
+      ══ PROJ-004 CLOSE, 2026-11-21: REVIEWED, watch. FU-N ids kept carrying findings across sessions all through PROJ-004 (SPEC-078 verify FU-1 became SPEC-080; its FU-2 became a SPEC-079 test; SPEC-080 verify follow-ups became SPEC-083 build work). Still effective; the template write-up is still not done. Defer: write it up when the template next takes a handoff change. ══
       ══ PROJ-001 CLOSE, 2026-11-11: REVIEWED — watch ══
       Still carrying its weight: the PROJ-002 waves used FU-N ids across
       build -> verify -> follow-up spec (e.g. the SPEC-054 verify follow-ups became
@@ -720,9 +723,10 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-08-22
-    last_touched: 2026-11-06
+    last_touched: 2026-11-21
     raised_by: claude
     notes: |
+      ══ PROJ-004 CLOSE, 2026-11-21: ACKNOWLEDGED RISK, watch. CI still uses dtolnay/rust-toolchain@stable with deny-warnings; no new-lint red in PROJ-004 (the large_const_arrays case was a code change, not drift). Mitigation unchanged: pin the toolchain or downgrade the lint if it bites. ══
       ══ PROJ-003 CLOSE, 2026-11-06: ACKNOWLEDGED RISK — watch ══
       CI runs deny-warnings on a floating stable toolchain, so a new lint in a future
       stable can turn CI red with no code change. Accepted as a known, low-cost-to-fix
@@ -1027,9 +1031,10 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-09-05
-    last_touched: 2026-11-06
+    last_touched: 2026-11-21
     raised_by: claude
     notes: |
+      ══ PROJ-004 CLOSE, 2026-11-21: REVIEWED, watch at N=1. No second instance in PROJ-004. ══
       ══ PROJ-003 CLOSE, 2026-11-06: REVIEWED — kept at watch (N=1) ══
       Still N=1 (SPEC-015). Below its N=3 bar. Gate fix lets a watch lesson stand
       without blocking close. Watch for a second instance.
@@ -1250,9 +1255,10 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-11-01
-    last_touched: 2026-11-06
+    last_touched: 2026-11-21
     raised_by: claude
     notes: |
+      ══ PROJ-004 CLOSE, 2026-11-21: REVIEWED, watch, with a candidate third instance. STAGE-013 built the clean-room test DNG writer once, and every later PROJ-004 fixture (GainMap, black-level patterns, MaskedAreas, the colour levels refusal) was a few lines on it. That is the build-the-foundation-once shape, but a fixture writer rather than a kernel oracle, so it is not counted as the same outcome. Decide at the next project close if a cleaner third instance appears. ══
       ══ PROJ-003 CLOSE, 2026-11-06: REVIEWED — kept at watch (N=2) ══
       PROJ-003 reused a bit-exact oracle harness in the same spirit (STAGE-009's
       entropy-front-end foundation, STAGE-011's dnglab oracle under SPEC-044), which
@@ -1456,9 +1462,10 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-11-06
-    last_touched: 2026-11-06
+    last_touched: 2026-11-21
     raised_by: claude
     notes: |
+      ══ PROJ-004 CLOSE, 2026-11-21: REVIEWED, watch at N=1. No code review was scaffolded in PROJ-004. ══
       The scaffold was needed because the cloud ultrareview caps the diff (8,000
       lines) and the full baseline-to-main range was 14,995 lines (mostly spec /
       handoff / timeline markdown). Narrowing to code was right; cherry-picking the
@@ -1699,12 +1706,13 @@ signals:
     summary: "Spec and handoff filenames generated from long titles approach the 255-byte filename limit, so tools that add a suffix or copy the tree (cargo semver-checks' baseline checkout) fail with 'File name too long'."
     evidence: "N=1, STAGE-021 2026-11-16. SPEC-073's build ran cargo semver-checks --baseline-rev v0.2.1, which clones the repo and crashed on one handoff filename; the build worked around it with --baseline-root on a git archive of the tag."
     bar: null
-    status: watch
+    status: done
     disposition_at: project-close
     first_flagged: 2026-11-18
-    last_touched: 2026-11-18
+    last_touched: 2026-11-21
     raised_by: claude
     notes: |
+      ══ PROJ-004 CLOSE, 2026-11-21: DONE. SPEC-074 (STAGE-022) cut the 83 legacy names to the 60-character slug cap and added the 150-byte name-length CI gate; just semver-check uses the crates.io baseline (DEC-067), so the long-name clone no longer runs. ══
       Candidate fix: cap the slug new-spec and new-handoff derive from a title (for
       example 60 characters). Carried to the PROJ-004 brief as an [XS] follow-up.
 
@@ -1734,9 +1742,10 @@ signals:
     status: watch
     disposition_at: project-close
     first_flagged: 2026-11-18
-    last_touched: 2026-11-18
+    last_touched: 2026-11-21
     raised_by: claude
     notes: |
+      ══ PROJ-004 CLOSE, 2026-11-21: DEFER WITH TRIGGER MET. The revisit trigger (capacity returns) is met: the macOS arm64 determinism leg passed on PR 287 and recent PRs. Schedule, in the next project, an XS change restoring the leg as blocking (drop continue-on-error), then mark this done. Until then, read that leg on any kernel or determinism-hash PR. ══
       Mitigated: the macOS determinism leg is `continue-on-error`, so a missing runner
       no longer fails CI; the ubuntu leg still gates. Cost of the mitigation: a real arm64
       divergence would show as a failed but non-blocking leg, so read that leg's result
@@ -1794,12 +1803,13 @@ signals:
     summary: "`just validate` parses front matter only under projects/ and decisions/, so feedback/ and docs/ front matter is never checked, and an AC that says 'validate parses it' is unenforced."
     evidence: "N=1, 2026-11-20: SPEC-079's AC6 asked validate to parse the monorail feedback file; the builder and the verifier each parsed it by hand instead."
     bar: null
-    status: watch
+    status: done
     disposition_at: project-close
     first_flagged: 2026-11-20
-    last_touched: 2026-11-20
+    last_touched: 2026-11-21
     raised_by: claude
     notes: |
+      ══ PROJ-004 CLOSE, 2026-11-21: DONE. SPEC-080 added feedback/ to the parse gate with a status vocabulary check, and SPEC-083 made it tolerate CRLF and quotes and refuse a leading BOM. docs/ files carry no front matter, so nothing there needs parsing. ══
       Candidate fix: add feedback/ (and any docs/ file with front matter) to validate's
       parse set. Small; decide at the PROJ-004 close whether to carry it.
   - id: release-notes-diff-every-changed-refusal-and-what-it-preempts
