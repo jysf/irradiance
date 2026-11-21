@@ -106,8 +106,8 @@ semver-urgent `#[non_exhaustive]`.
    exposes is a maintainer call that depends on where SPEC-035 and the colour-geometry
    work land. The crate docs, README and CHANGELOG must say exactly what the surface is.
 4. **Then, order TBD:** **PROJ-004** (instrument layer — starts with the opcode-inventory
-   spike, which also covers the `GainMap` deferred out of PROJ-003), **PROJ-005** (now
-   unblocked — SPEC-033/034 shipped), and the **adoption push** (an `image`-crate adapter +
+   spike, which also covers the `GainMap` deferred out of PROJ-003), **PROJ-006**, the
+   mono mixer (now unblocked — SPEC-033/034 shipped), and the **adoption push** (an `image`-crate adapter +
    outreach to zenraw/oculante, `DEC-028`).
 5. Any M10 / M11 / Q3 Monochrom conformance claim waits for real Tier-B files and
    their rows in `docs/conformance-matrix.md`.
@@ -247,7 +247,13 @@ A bounded `SPIKE-NNN` on the held Q2M files (and the rest of the corpus):
   median over ~32 columns **removes banding or injects its own row noise** (and
   whether smoothing in y is then needed — which contradicts "zero blur").
 
-## PROJ-005 — Post-WB spectral monochrome mixer (Bayer → mono) · *unblocked — SPEC-033/034 shipped*
+## PROJ-006 — Post-WB spectral monochrome mixer (Bayer → mono) · *unblocked — SPEC-033/034 shipped*
+
+> **Renumbered 2026-11-21 (was PROJ-005).** This plan was never created under
+> `projects/`, so when the public DNG writer left PROJ-004 the ID tool gave it
+> PROJ-005. The mixer is PROJ-006 by the maintainer's call. The ID tool reads only
+> `projects/`, so create this project before any other, or it will hand PROJ-006 out
+> again.
 
 A scene-linear monochrome formation for **colour** Bayer DNGs (Leica Q2/Q3,
 M10/M11, SL2/SL3) — the PROJ-002 bridge for the monochrome app.
