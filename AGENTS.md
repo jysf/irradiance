@@ -13,7 +13,15 @@ Instructions for any AI agent working in this repository. Read this file first, 
   files and develops them into images — bytes in, pixels and metadata out.
 - **Primary stakeholders:** the maintainer (jysf); `crustyimg` as the first
   consumer; Rust imaging projects currently forced onto copyleft RAW crates.
-- **Active project:** `PROJ-001` — Monochrome DNG develop, end to end.
+- **Projects (as of 2026-11-21):**
+  - `PROJ-001` (monochrome develop), `PROJ-003` (lossless-JPEG planes) and `PROJ-004`
+    (instrument layer and consumer integration) are **shipped**.
+  - `PROJ-002` (Bayer colour develop) is still `active`; its remaining work, the
+    ColorChecker ΔE oracle (SPEC-035), is blocked on capturing the chart.
+  - `PROJ-005` (public DNG writer for onyx's Darkroom v1) is **proposed** and being
+    framed.
+  - The live release is **irradiance 0.2.4** on crates.io (2026-11-21).
+  - Each project's `brief.md` is the source of truth; check `status:` there.
 
 See `.repo-context.yaml` for structured metadata.
 
@@ -199,10 +207,10 @@ borrowed band as soon as it has one.
   adopting it needs a `DEC-*` like any other dependency.
 - **Linter / Formatter:** `cargo clippy` (0.1.97) and `cargo fmt` (rustfmt 1.9.0).
   `cargo-deny` (0.19.9) enforces the licence policy.
-- **Hosting:** crates.io eventually — **not during PROJ-001**
-  (`STAGE-004`, out of scope: publishing waits for a second camera).
-  crustyimg consumes it as a **path dependency** behind a `raw-develop`
-  cargo feature until then.
+- **Hosting:** crates.io, published since 0.1.0 (DEC-028); 0.2.4 is the live
+  version. Releases are two-phase release specs: the build preps, the maintainer
+  tags and runs `cargo publish`. crustyimg can depend on a registry version; its
+  `raw-develop` integration is tracked in crustyimg's own STAGE-056.
 - **CI:** GitHub Actions, `.github/workflows/ci.yml`. Carries the
   language-agnostic `cost-data` + `decisions-index` gates plus the Rust jobs
   `SPEC-001` wired: `fmt --check`, `clippy -D warnings`, `test`,
@@ -643,16 +651,20 @@ snippet (`DEC-009`).
 │   └── SPIKE-001-…-oracle-discriminate.md
 ├── projects/
 │   ├── _templates/                    # Shared templates (spec, stage, handoff, spike, patch, …)
-│   └── PROJ-001-monochrome-dng-develop/
-│       ├── brief.md
-│       ├── stages/                    # STAGE-001 … STAGE-004
-│       ├── specs/                     # SPEC-001 … SPEC-005 (STAGE-001, framed)
+│   ├── PROJ-001-monochrome-dng-develop/              # shipped
+│   ├── PROJ-002-bayer-colour-develop/                # active (SPEC-035 blocked on a chart)
+│   ├── PROJ-003-compressed-planes-lossless-jpeg/     # shipped
+│   ├── PROJ-004-instrument-layer-and-consumer-integration/  # shipped 2026-11-20
+│   └── PROJ-005-public-dng-writer-for-the-onyx-darkroom/    # proposed
+│       ├── brief.md                   # each project: brief, stages/, specs/ (+ done/), handoffs/
+│       ├── stages/
+│       ├── specs/
 │       │   └── done/
 │       └── handoffs/
 ├── Cargo.toml                         # edition 2021, rust-version 1.90, [lib] + [[bin]] irr
 ├── deny.toml                          # cargo-deny permissive-only allow-list
 ├── src/
-│   ├── lib.rs                         #   the public API — bytes in, pixels + metadata out (no decode yet)
+│   ├── lib.rs                         #   the public API — bytes in, pixels + metadata out
 │   └── bin/irr.rs                     #   internal dev/oracle binary; NOT a product surface
 ├── tests/
 │   └── corpus/
@@ -706,13 +718,11 @@ advances to `design`. At stage close, record **how many outlines survived
 unchanged** (Stage-Level Reflection) — that's how you learn whether framing this
 far ahead pays for your work, rather than assuming it does.
 
-> **Repo-specific: do not `just frame-stage STAGE-001` before SPIKE-001 lands.**
-> Every stage in PROJ-001 is designed test-first against facts the spike is
-> supposed to *establish* — the corpus, the verified oracle contract, measured
-> LOC replacing the stage-file estimates. Framing first would be framing ahead of
-> what is knowable, and the outlines would go stale before the first one reaches
-> design. SPIKE-001 also lists 11 open questions whose answers change the spec
-> breakdown.
+> **History (PROJ-001): framing waited on SPIKE-001.** Every PROJ-001 stage was
+> designed test-first against facts the spike had to *establish*: the corpus, the
+> verified oracle contract, measured LOC replacing the stage-file estimates.
+> Framing first would have been framing ahead of what was knowable. The same rule
+> applies to any project whose specs depend on a spike's answers.
 
 Projects and stages have lighter lifecycles (not full cycles):
 
@@ -722,8 +732,8 @@ Projects and stages have lighter lifecycles (not full cycles):
   happening *within* an `active` project — `requirements | design | build | test |
   blocked` (a suggested **open** set; extend it, e.g. `spike`). It says *what kind
   of work is going on now* without abusing `status` or making the project look
-  stalled. PROJ-001 currently sits at `status: proposed` /
-  `activity: requirements`; it moves to `activity: spike` when SPIKE-001 starts.
+  stalled. For example, PROJ-002 sits at `status: active` / `activity: design`
+  while its last spec waits on a ColorChecker capture.
   `validate` warns on an unrecognized value but never fails.
 - **Stage status:** `proposed | active | shipped | cancelled | on_hold`
 
@@ -1505,8 +1515,9 @@ library's version number has to signal compatibility to consumers (DEC-007;
 DEC-000). That app version lives in git tags; the top-level `VERSION` file is
 template provenance (0.6.38), not the app's version (see `docs/versioning.md`).
 
-⚠ **Do not publish to crates.io during PROJ-001** — `STAGE-004` puts it
-explicitly out of scope; it waits for a second camera.
+**Publishing is the maintainer's.** A release spec's build stops prep-complete; the
+maintainer merges the Phase-1 PR, confirms the manifest shows the new version, tags,
+and runs `cargo publish` (the release-spec template's Phase 2).
 
 ---
 
@@ -1655,7 +1666,7 @@ you mean.
 - Camera coverage + corpus policy: `/docs/conformance-matrix.md`
 - Provenance ledger (every algorithm's source + licence): `/docs/provenance-ledger.md`
 - Licence policy + cargo-deny wiring: `/docs/license-policy.md`
-- What we're building: `/projects/PROJ-001-monochrome-dng-develop/brief.md`
+- What we're building: the briefs under `/projects/` (PROJ-005, the public DNG writer, is next; PROJ-002's ColorChecker oracle is blocked on a chart)
 - Open exploration: `/spikes/`
 
 **Process**
