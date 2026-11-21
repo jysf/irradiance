@@ -22,9 +22,9 @@ created_at: 2026-11-20
 supersedes: null
 superseded_by: null
 
-status: proposed                     # drafted at STAGE-017 re-frame; onyx agreed (monorail-000/DEC-076) with two asks folded in as §2 and §3a; jysf accepts at PR review
+status: accepted                     # jysf, 2026-11-21, in the STAGE-017 framing conversation
 
-deciders: [claude]                   # proposal; jysf accepts or amends at review
+deciders: [jysf, claude]
 
 affected_scope:
   - src/dng/write.rs
