@@ -143,10 +143,13 @@ so the whole wave bootstraps without native NEF parsing or SOF-3 decompression.
 Format: `- [status] STAGE-ID — one-line summary`
 
 - [x] STAGE-006 (shipped 2026-10-30) — CFA sensor model: identify + parse Bayer DNGs, unpack the mosaic, verify the plane bit-exact vs `dnglab`
-- [ ] STAGE-007 (active) — Demosaic: clean-room **Hamilton-Adams** (NOT MHC — patent, DEC-031), mosaic → camera-space linear RGB, bit-exact analytic-fixture oracle (real-image perceptual deferred to STAGE-008's ΔE); SPEC-030 bilinear baseline shipped
-- [ ] STAGE-008 (framed) — Colour transform + output: white balance (AsShotNeutral), illuminant-interpolated colour matrix (ForwardMatrix/ColorMatrix), D50→D65, display encode (tone/DEC-025), **ColorChecker ΔE** oracle — the last PROJ-002 stage
+- [x] STAGE-007 (shipped 2026-11-01) — Demosaic: clean-room **Hamilton-Adams** (NOT MHC — patent, DEC-031), mosaic → camera-space linear RGB, bit-exact analytic-fixture oracle; SPEC-030/031/032
+- [ ] STAGE-008 (in progress) — Colour transform + output: white balance, illuminant-interpolated colour matrix, D50→D65, display encode, **ColorChecker ΔE** oracle. SPEC-033 and SPEC-034 shipped; SPEC-035 (the ΔE oracle, DEC-054) is **blocked on the maintainer's ColorChecker shot** and is the last open piece of PROJ-002's thesis
+- [x] STAGE-010 (shipped 2026-11-11) — Downstream consumer API: validate-before-allocate, error kinds, determinism, and the **0.2.0** release (added after framing, from the pre-0.2.0 review, DEC-045)
+- [x] STAGE-012 (shipped 2026-11-09) — Colour-develop ActiveArea-origin correctness, active-area crop, and demosaic performance (added after framing; SPEC-047..051)
+- [ ] STAGE-014 (proposed) — 0.2.x maintenance: SPEC-056 (0.2.1 housekeeping) shipped; four [XS] harness outlines carried from PROJ-001 STAGE-005 remain unwritten and do not gate anything
 
-**Count:** 1 shipped / 0 active / 2 pending
+**Count:** 4 shipped / 1 active / 1 pending
 
 Each stage ends at a **stopping point** where the maintainer reviews before the
 next begins. Effort estimates live in each stage file.

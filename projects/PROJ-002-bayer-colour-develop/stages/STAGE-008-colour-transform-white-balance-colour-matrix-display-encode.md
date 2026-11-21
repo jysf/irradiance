@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-008                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
