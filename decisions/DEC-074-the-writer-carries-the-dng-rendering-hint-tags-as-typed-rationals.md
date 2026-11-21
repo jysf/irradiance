@@ -57,6 +57,16 @@ optional typed values, written verbatim, and never invents them:
   EXIF block).
 - They land in SPEC-081, with the other typed IFD0 tags.
 
+## Agreement
+
+onyx agreed in `monorail-000/DEC-078` item 1 (2026-11-21). `mono-core` reads each tag
+from the source's IFD0 through irradiance's own reader (`Container::ifd0`, `Ifd::entry`,
+`Container::rationals`, all in 0.2.2) and passes it exactly as stored. A tag the source
+lacks is left out, so the DNG default applies. A malformed source value (a zero
+denominator, or a RATIONAL past `i32::MAX`, which `Container::rationals` refuses) is left
+out and noted in the export's provenance, so `mono-core` never sends a value the writer
+refuses. onyx's export spec adds a fixture with a non-default `BaselineExposure`.
+
 ## Context
 
 At SPEC-061's design probe (2026-11-21), the held PENTAX K-3 III Monochrome has
@@ -97,4 +107,4 @@ framing already expresses.
 
 - Related specs: SPEC-061 (probe), SPEC-081 (lands it)
 - Related decisions: DEC-071, DEC-073
-- External: `monorail-000/DEC-075`, `monorail-000/DEC-076`
+- External: `monorail-000/DEC-075`, `monorail-000/DEC-076`, `monorail-000/DEC-078`

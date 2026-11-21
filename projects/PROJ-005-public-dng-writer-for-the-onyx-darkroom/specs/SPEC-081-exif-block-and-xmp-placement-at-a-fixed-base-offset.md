@@ -97,6 +97,9 @@ tags (`Make`, `Model`, `LocalizedCameraModel`, `Artist`, `Copyright`, `DateTime`
 `diamond-exif` accepted the contract in `diamond-exif/DEC-015` (2026-11-21), so this
 spec no longer waits on it. DEC-072's 2026-11-21 amendment makes both IFD offsets
 optional, with at least one required, so a GPS-only block is valid.
+onyx agreed to DEC-074 in `monorail-000/DEC-078` item 1: `mono-core` reads the four
+rendering hints through `Container::rationals` (which returns `Rational { num: i32,
+den: i32 }`) and leaves out a tag that is absent or malformed.
 
 ## Goal
 
@@ -165,6 +168,17 @@ is unobservable leaves a mutant the build's suite cannot see (signal
 
 Gotchas, style preferences, reuse opportunities. Keep short — the full
 context graph lives in the handoff file.
+
+- **Preflight parity.** onyx's export sheet calls `written_len` once per framing and
+  disables a framing it refuses (`monorail-000/DEC-078` item 2). Every check this spec
+  adds (block bounds and offsets, XMP, ASCII tags, rational denominators) must run in
+  `written_len` too, in the same order as `write_into`, as SPEC-061 §3 promises; extend
+  SPEC-061's agreement fuzz property and AC4-style tests to the new fields.
+- **Hint value type.** Design decides between irradiance's `Rational` (what `mono-core`
+  already holds) and per-tag signed/unsigned pairs. With `Rational`, a negative numerator
+  or denominator in one of the three RATIONAL tags must be a `CallerError`, since it
+  cannot be written as the unsigned type; it cannot come from a RATIONAL source read
+  through `Container::rationals`.
 
 ---
 
