@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-014                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -102,7 +102,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-056 (shipped on 2026-11-11) — [M] 0.2.1 housekeeping: refuse unreadable OpcodeLists (DEC-053), guard the Sensor-taking stage primitives + public check, rustdoc private links + doc gate, nested-cargo tests honour CARGO_TARGET_DIR
 
-- [ ] SPEC-084 (frame) [S] Harness and CI honesty: corpus-status tool status, req multi-value refusal, SUPPORTED_BITS enumeration, blocking macOS leg
+- [~] SPEC-084 (design) [S] Harness and CI honesty: corpus-status tool status, req multi-value refusal, SUPPORTED_BITS enumeration, blocking macOS leg
 
 **Count:** 1 shipped / 1 active / 0 pending
 
