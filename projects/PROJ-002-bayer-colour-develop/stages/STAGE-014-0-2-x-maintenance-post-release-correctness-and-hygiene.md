@@ -102,17 +102,31 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-056 (shipped on 2026-11-11) — [M] 0.2.1 housekeeping: refuse unreadable OpcodeLists (DEC-053), guard the Sensor-taking stage primitives + public check, rustdoc private links + doc gate, nested-cargo tests honour CARGO_TARGET_DIR
 
-- [ ] (not yet written) [XS] `corpus-status` states only what it checked — from PROJ-001 STAGE-005 (SPEC-016 pre-rescope AC1; measurements at git 3238dcb)
-- [ ] (not yet written) [XS] `req()`'s single-value assumption is enforced, not documented — from STAGE-005 (SPEC-016 pre-rescope AC2; carries SPEC-005/FU-2, SPEC-010/FU-2)
-- [ ] (not yet written) [XS] `SUPPORTED_BITS` cannot outrun its tests — from STAGE-005 (SPEC-016 pre-rescope AC3; carries SPEC-012/FU-1)
-- [ ] (not yet written) [XS] plane fuzz seeds reach `SampleExceedsWhiteLevel` — from STAGE-005 (SPEC-016 pre-rescope AC4; carries SPEC-012/FU-2)
+- [ ] SPEC-084 (frame) [S] Harness and CI honesty: corpus-status tool status, req multi-value refusal, SUPPORTED_BITS enumeration, blocking macOS leg
 
-**Count:** 1 shipped / 4 active / 0 pending
+**Count:** 1 shipped / 1 active / 0 pending
 
-> The four [XS] harness outlines moved here from PROJ-001 STAGE-005 at PROJ-001's
-> close (2026-11-11). Their measurements are from git 3238dcb; re-measure before
-> designing. They are candidates for one bundled harness spec after SPEC-056, and
-> they do not gate 0.2.1.
+> **Second batch, framed 2026-11-21.** The four [XS] harness outlines moved here
+> from PROJ-001 STAGE-005 at PROJ-001's close (2026-11-11), measured at git
+> 3238dcb. Re-measured at `main` 2026-11-21, before framing:
+> - **AC1 still holds.** `examples/corpus-status.rs` prints "no tier-B test will
+>   skip" when every corpus file is present, and never checks for `exiftool` or
+>   `dnglab`; without them, the tier-B oracle tests still skip.
+> - **AC2 still holds.** `reading_from_fields` in `tests/support/tools.rs` keeps
+>   `req`'s `.first()` and its doc comment still justifies the truncation.
+> - **AC3 partly overtaken.** `tests/determinism.rs` now has 8-bit and 12-bit
+>   cases, so the two depths are exercised; nothing yet fails when a depth is added
+>   to `SUPPORTED_BITS` (private, in `src/plane.rs`) without a test. Re-run the
+>   delete-a-depth mutant at design.
+> - **AC4 dropped, obsolete.** DEC-029 made a sample above `WhiteLevel` legal, so
+>   `SampleExceedsWhiteLevel` no longer exists and there is nothing for the plane
+>   fuzz seeds to reach.
+>
+> Two PROJ-004 carry-overs join them: restoring the macOS arm64 determinism leg as
+> blocking (the PROJ-004 close found the runner trigger met; the leg passed on PR
+> 287), and the `sdk-stage2.sh` warning wording. One [S] spec, not five: each item is
+> a few lines, and a spec cycle costs more than any one of them. No `src` behaviour
+> change, no `DEVELOP_VERSION` bump, no release.
 
 ## Design Notes
 
