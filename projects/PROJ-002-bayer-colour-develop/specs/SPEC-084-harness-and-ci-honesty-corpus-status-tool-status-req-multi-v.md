@@ -6,7 +6,7 @@
 task:
   id: SPEC-084
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -32,13 +32,13 @@ repo:
 
 handoff:
   from_agent: claude-opus-5-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5-5        # filled when HANDOFF is created (any agent — see docs/porting.md)
+  created_at: 2026-11-21
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
+  decisions: [DEC-003, DEC-008, DEC-014, DEC-029]
   constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  related_specs: [SPEC-005, SPEC-010, SPEC-012, SPEC-016, SPEC-083]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -52,7 +52,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-014's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "infrastructure: every harness claim STAGE-014 inherited is backed by a check that fails when it stops being true"
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -76,11 +76,6 @@ cost:
 ---
 
 # SPEC-084: Harness and CI honesty: corpus-status tool status, req multi-value refusal, SUPPORTED_BITS enumeration, blocking macOS leg
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-084]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
 
 ## Context
 
@@ -119,52 +114,139 @@ changes.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:**
+  - `examples/corpus-status.rs`: the pre-flight `just test` prints first. Its
+    "no tier-B test will skip" line checks the corpus only.
+  - `tests/support/corpus.rs`: shared by the example (`#[path]`) and
+    `tests/corpus_manifest.rs`; the new summary function goes here.
+  - `tests/support/tools.rs`: `exiftool_available()`, `dnglab_available()` (the
+    probes the tier-B tests already use to skip), `reading_from_fields` and its `req`
+    closure (around line 286), `tri_state` (the optional fields' shape, DEC-014).
+  - `tests/metadata_oracle.rs`: the existing tier-A fixture tests that call
+    `reading_from_fields` (around line 519 and 574); the new `req` test sits beside them.
+  - `src/plane.rs`: `SUPPORTED_BITS` (line 171, private), `unpack_packed` (the
+    DEC-008 dispatcher: byte-aligned for 8/16, MSB-first bitstream for 12/14), and the
+    `mod tests` block at the end of the file.
+  - `.github/workflows/ci.yml`: the `determinism` job, its `continue-on-error`
+    (line 181) and the comment above it (lines 172 to 177).
+  - `scripts/sdk-stage2.sh`: lines 76 to 85, the unenterable-worktree branch.
+  - `guidance/signals.yaml`: `macos-arm64-runner-unavailable`.
+- **Measured at design (2026-11-21, `main` after PR 296):**
+  - Both tools are installed on the maintainer's machine; neither is in CI. Tests
+    that skip without `exiftool`: `metadata_oracle`, `colour_metadata_oracle`,
+    `dng_writer` (one test). Without `dnglab`: those three plus `develop`,
+    `perceptual_oracle`, `plane_oracle`, `warp`.
+  - No corpus **sensor** IFD reports a multi-valued `ImageWidth`, `ImageHeight`,
+    `BitsPerSample`, `Compression` or `PhotometricInterpretation`. Only the RGB
+    preview IFDs (`BitsPerSample` `8 8 8`) do, and the oracle never reads those
+    (`exiftool -n` over all nine corpus files, groups IFD0, SubIFD, SubIFD1,
+    SubIFD2). So the stricter `req` must leave the live metadata oracle green.
+  - The macOS arm64 determinism leg passed on the last 8 CI runs (main and four
+    PR branches, through PR 296).
 
 ## Outputs
 
-What the implementer will produce.
-
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+- **Files modified:**
+  - `tests/support/corpus.rs`: a pure function
+    `pub fn preflight_summary(present: usize, total: usize, exiftool: bool, dnglab: bool, corpus_env: &str) -> Vec<String>`
+    returning the summary lines. It is the only place the "no tier-B test will skip"
+    sentence is written.
+  - `examples/corpus-status.rs`: includes `tests/support/tools.rs` by `#[path]`
+    (as it already does `corpus.rs`), probes with `tools::exiftool_available()` and
+    `tools::dnglab_available()`, and prints `preflight_summary`'s lines in place of
+    its own two `println!`s. The per-file lines and the `sdk-stage2` line are unchanged.
+  - `tests/corpus_manifest.rs`: the AC1 test.
+  - `tests/support/tools.rs`: `req` accepts exactly one value; a present tag with
+    zero or more than one value is `ToolError::Parse` naming the tag and the raw
+    values. The doc comment above `reading_from_fields` drops the justification of
+    truncation and states the rule.
+  - `tests/metadata_oracle.rs`: the AC2 test.
+  - `src/plane.rs`: the AC3 unit test in the existing `mod tests`. No non-test
+    line in `src/` changes.
+  - `.github/workflows/ci.yml`: delete `continue-on-error` from `determinism`, and
+    replace the six-line comment with one or two lines saying the macOS leg is
+    blocking again as of this spec (signal `macos-arm64-runner-unavailable`, closed).
+  - `scripts/sdk-stage2.sh`: the message becomes
+    `sdk-stage2: cannot enter worktree $wt; keeping its recorded path as a refused location`,
+    and the comment's "kept as it is" becomes "still refused".
+  - `guidance/signals.yaml`: `macos-arm64-runner-unavailable` to `status: done`,
+    `last_touched` set, a dated note naming SPEC-084 and its PR.
+- **New flags / options:** none.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
+No numeric tolerance is checked here. The one count, the macOS leg's 8 of 8 recent
+green runs, is evidence for AC4, recorded at design, not a bound.
 
-**Pre-register every numeric threshold.** A tolerance, bound or score an AC
-checks is written here at design, with its falsifier, before the build measures
-anything. A measured number outside it is reported, never fixed by widening the
-bound (signal `pre-register-the-tolerance`).
+- [ ] **AC1, the pre-flight states only what it checked.** `preflight_summary`
+      contains the sentence "no tier-B test will skip" if and only if
+      `present == total` **and** `exiftool` **and** `dnglab`. Whenever a tool is
+      false, a line names that tool as not on PATH and says the tests needing it will
+      SKIP. A missing corpus file keeps today's MISSING line with the env var name.
+      `corpus-status` prints these lines, using the same two probes the tests use.
+- [ ] **AC2, `req` enforces its single-value assumption.** A required tag with more
+      than one value makes `reading_from_fields` return `Err(ToolError::Parse)` whose
+      message names the tag and the values; a one-value tag still reads; an absent one
+      is still the existing absent error. The live `metadata_oracle` stays green on
+      the corpus (measured above: no sensor IFD is multi-valued).
+- [ ] **AC3, `SUPPORTED_BITS` cannot outrun its tests.** A unit test holds one
+      hand-computed case per depth and asserts (a) the set of depths in its table
+      equals the set in `SUPPORTED_BITS`, enumerated from the constant, and (b) each
+      case unpacks through `unpack_packed` to its expected samples. Adding a depth to
+      the constant without a row fails (a); removing one fails (a); breaking a depth's
+      decode fails (b).
+- [ ] **AC4, the macOS determinism leg blocks again.** `determinism` has no
+      `continue-on-error`; the build PR's CI shows the macOS leg run and pass; the
+      signal is `done`.
+- [ ] **AC5, `sdk-stage2.sh`'s warning says what it does.** The exact message in
+      Outputs; `bash -n` and `shellcheck` (if installed) clean; no other line of the
+      script changes behaviour.
+- [ ] **AC6, every check is watched red.** For AC1, AC2 and AC3, apply the fault
+      the criterion names and show the new test failing, then restore it: file
+      changed, compiled, and output changed. Mutants, at minimum:
+      - AC1: `preflight_summary` ignores `exiftool` (prints the sentence when it is false).
+      - AC1: `preflight_summary` ignores `dnglab`.
+      - AC2: `req` back to `.first()`.
+      - AC3(a): add `10` to `SUPPORTED_BITS` (array length 5).
+      - AC3(a): delete the 14-bit row from the test table.
+      - AC3(b): flip one expected sample in the 12-bit row, or break `low12`.
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+      AC4 and AC5 have no meaningful mutant (a runner outage cannot be staged; a
+      message has no falsifier); record them as such.
+- [ ] **AC7, gates.** `just test`, `just lint-ci`, `just validate`, `just doc-check`
+      and the rest of the gate list the build runs, named; `cargo test --no-fail-fast`
+      totals; the tier-B suites run with `IRRADIANCE_CORPUS_DIR` set and both tools
+      present (the metadata oracle in particular, for AC2); CI green on the PR head.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+- **`tests/corpus_manifest.rs`**
+  - `the_preflight_does_not_promise_what_it_cannot_see`: over all eight
+    (missing in {0, 1}) by exiftool by dnglab combinations, asserts the sentence
+    appears only for (0, true, true), and that each false tool is named in a SKIP
+    line. Tier A: no corpus, no tool.
+- **`tests/metadata_oracle.rs`**
+  - `a_multivalued_required_tag_does_not_truncate_to_its_head`: fields with
+    `BitsPerSample` `[16, 16, 16]` and the other required tags single-valued give
+    `Err(ToolError::Parse)` naming `BitsPerSample`; the same fields with `[16]` give
+    `bits_per_sample == 16`. Tier A.
+- **`src/plane.rs` (`mod tests`)**
+  - `every_supported_bit_depth_is_exercised`, cases (hand-computed at design):
+    - 8-bit, either order, bytes `01 02 03 04` to `[1, 2, 3, 4]`
+    - 12-bit, bytes `AB CD EF` to `[2748, 3567]` (`0xABC`, `0xDEF`, MSB-first)
+    - 14-bit, bytes `00 04 00 20 00 FF FF` to `[1, 2, 3, 16383]` (one whole 7-byte group)
+    - 16-bit little-endian `34 12` to `[4660]`, and big-endian `12 34` to `[4660]`
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+    The depth-set assertion compares sorted, deduplicated depths from the table with
+    `SUPPORTED_BITS`, so the 16-bit row's two byte orders count once.
 
-**Rule-clause map.** When this spec implements a `DEC-*` rule, map every clause
-of it (each malformed class, each entry point, each numeric path) to a named
-test above, and say which code path that test must reach. Name the path where the
-clause changes the output, not just one that runs it: a clause tested only where it
-is unobservable leaves a mutant the build's suite cannot see (signal
-`every-rule-clause-maps-to-a-reachable-test`).
+**Rule-clause map.** DEC-008's two paths: the byte-aligned path (8, 16; both byte
+orders at 16, where order is observable) and the bitstream path (12, 14, through
+`unpack_groups12`/`unpack_groups14`, the path a whole group reaches) each have a row
+above. DEC-014's tri-state is unchanged for optional fields; AC2 brings `req` to the
+same "do not keep a truncated head" rule, and its test reaches `reading_from_fields`,
+the code a live `exiftool_reading` runs. DEC-029 (a sample above WhiteLevel is legal)
+is why the old AC4 was dropped; nothing here touches it.
 
 ## Non-Goals
 
@@ -178,8 +260,17 @@ is unobservable leaves a mutant the build's suite cannot see (signal
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- Commit-message bodies in this repo are plain prose: no code tokens. PR bodies may
+  have them.
+- `corpus-status` runs before the suite, and `cargo test` hides a passing test's
+  output; that is why the summary has to be printed by the example, and tested as a
+  pure function.
+- Keep `preflight_summary` free of I/O so the test needs neither tool. The example
+  does the probing.
+- Don't make the tools required or install them in CI. CI keeps skipping the tier-B
+  suites; it just stops being told nothing will skip.
+- The AC3 test lives in `src/plane.rs` because `SUPPORTED_BITS` is private; don't
+  make it `pub` to test it from `tests/`.
 
 ---
 
