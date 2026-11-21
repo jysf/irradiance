@@ -83,6 +83,23 @@ SPEC-061's writer (`irradiance::dng::write`, feature `write`) follows these rule
    for `unpack_into`, applied to the writer). The IFD entry table is a fixed-size array.
    A `write_to_vec` convenience allocates exactly the output.
 
+## Agreement
+
+onyx agreed in `monorail-000/DEC-078` items 2 to 4 (2026-11-21):
+
+- **§5:** before it shows the export sheet, `mono-core` calls `written_len` once per
+  framing and disables any framing refused with `UnsupportedOpcodeForFraming`, giving the
+  reason. Full sensor always stays available. This relies on `written_len` running every
+  check `write_into` runs except the `dst` length, in the same order, with the same
+  error (SPEC-061 §3, AC4, the fuzz agreement property). The preflight must use the
+  options that framing would really be written with. An earlier check fails first: for
+  example, masked areas at a cutting framing give `InvalidWriteInput` before the opcode
+  walk.
+- **§6:** `mono-core` passes masked areas only at full sensor, so the `CallerError` can
+  only be a `mono-core` bug.
+- **§4, §7, §8:** nothing new. `mono-core` passes `max_pixels` and the source's
+  `Orientation`, and it logs `InvalidWriteInput` as a `mono-core` bug.
+
 ## Context
 
 These are the choices SPEC-061's design had to make that DEC-071 to DEC-073 leave open.
@@ -122,3 +139,4 @@ to the crop instead changed 95% of the render, by up to 64,441 codes.
 
 - Related specs: SPEC-061, SPEC-081, SPEC-082
 - Related decisions: DEC-016, DEC-051, DEC-055, DEC-069, DEC-071, DEC-072, DEC-073
+- External: `monorail-000/DEC-078`

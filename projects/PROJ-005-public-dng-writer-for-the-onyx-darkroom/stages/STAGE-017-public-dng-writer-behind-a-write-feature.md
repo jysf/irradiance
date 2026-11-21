@@ -95,6 +95,9 @@ this writer as an external gate, together with `diamond-exif`'s EXIF block seria
 | `monorail-000/DEC-076` 3: caller masked list agreed, empty for the Q2M | DEC-071 §6 | SPEC-061 |
 | `monorail-000/DEC-076` 4 (widened): `Make`, `Model`, `UniqueCameraModel`, `LocalizedCameraModel`, `Artist`, `Copyright`, `DateTime`, `Software`, `CameraSerialNumber` as typed ASCII options; `UniqueCameraModel` required (`CallerError` if absent) | DEC-071 §3a | SPEC-061 (options struct + `UniqueCameraModel`), SPEC-081 (the other eight) |
 | `monorail-000/DEC-076` 5: XMP packet in v1 | DEC-071 §2 | SPEC-081 |
+| `monorail-000/DEC-078` 1: `mono-core` supplies the four rendering hints, read through irradiance's `Container::rationals`; a malformed source value is left out | DEC-074 | SPEC-081 |
+| `monorail-000/DEC-078` 2: export-sheet preflight calls `written_len` per framing and disables a framing refused with `UnsupportedOpcodeForFraming` | DEC-075 §5, §7 | SPEC-061 (already: `written_len` runs every `write_into` check but `dst` length), SPEC-081 (keeps that parity for its new fields) |
+| `monorail-000/DEC-078` 3, 4: masked areas only at full sensor; budget, orientation, verbatim lists and error handling need nothing new | DEC-075 §6, §8, §4, §7 | SPEC-061 |
 
 ## Success Criteria
 
@@ -170,6 +173,7 @@ preview and EXIF/XMP specs are in. SPEC-061 keeps its ID and is re-scoped to the
 - `monorail-000/DEC-076`: onyx's answer to this framing, amending DEC-075.
 - `monorail-000/DEC-077`: onyx's choice of the GPS-only block (DEC-072's 2026-11-21
   amendment) and how `mono-core` prepares the writer's inputs.
+- `monorail-000/DEC-078`: onyx's agreement to DEC-074 and DEC-075 (2026-11-21).
 - `diamond-exif`'s block serialiser: SPEC-081 is testable with a hand-built block, but
   `diamond-exif` accepted DEC-072 in `diamond-exif/DEC-015` (2026-11-21); its builder is
   `diamond-exif/SPEC-025`, not yet built.
