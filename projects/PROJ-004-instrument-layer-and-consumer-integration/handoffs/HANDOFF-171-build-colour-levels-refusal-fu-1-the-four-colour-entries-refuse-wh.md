@@ -58,7 +58,7 @@ handback:
   pr: 283
   completed_at: 2026-11-20         # YYYY-MM-DD
   notes: "Floor taken before the handback commit: 85 message ids, opus-5-5 only, no subagents, 1-hour cache writes. Re-sum at ship."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-20
 ---
 
 # HANDOFF-171: BUILD: colour levels refusal and two tooling fixes (SPEC-080)
@@ -133,7 +133,10 @@ merged.** Cut `claude/spec-080-build` from that `origin/main`.
 
 ---
 
-## Handback` section below.** An unfilled handback is an
+## Return Criteria — how to hand back
+
+**Completing this handoff means filling in the `handback:` front-matter block
+above AND the `## Handback` section below.** An unfilled handback is an
 incomplete cycle, and `just handback-sync` will tell the orchestrator so.
 
 On success:

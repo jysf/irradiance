@@ -58,7 +58,7 @@ handback:
   pr: 283
   completed_at: 2026-11-20  # YYYY-MM-DD
   notes: "APPROVED at 71e5758 (PR 283 head). Floor taken before the commit from transcript 9a5f7349-ad15-4fd7-812c-812b69377011.jsonl, 54 message ids, no subagents; re-sum at ship. Pushed by refspec because worktree monorail-000-backlog-f34c1a holds the branch."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-20
 ---
 
 # HANDOFF-172: VERIFY: colour levels refusal and two tooling fixes (SPEC-080)
@@ -165,7 +165,10 @@ its `status`.
 
 ---
 
-## Handback` section below.** An unfilled handback is an
+## Return Criteria — how to hand back
+
+**Completing this handoff means filling in the `handback:` front-matter block
+above AND the `## Handback` section below.** An unfilled handback is an
 incomplete cycle, and `just handback-sync` will tell the orchestrator so.
 
 On success:

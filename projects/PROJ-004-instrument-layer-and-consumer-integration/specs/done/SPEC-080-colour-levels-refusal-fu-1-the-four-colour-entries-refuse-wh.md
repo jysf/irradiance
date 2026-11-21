@@ -6,19 +6,19 @@
 task:
   id: SPEC-080
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 15000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-171
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 16362371
+      estimated_usd: 11.38
+      duration_minutes: 25
+      recorded_at: 2026-11-20
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (90 unique message.ids, all claude-opus-5-5, no subagents): input 184 + cache-creation 187,351 (1-hour) + cache-read 16,117,149 + output 57,687 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Covers the throwaway-refusal sweep (only the pre-approved unit test went red), the colour_range helper on all three branches, tests/colour_levels.rs, five mutants, the script and validate changes and the PR. The handback floor was 15,197,942 and $10.66."
+    - cycle: verify
+      handoff: HANDOFF-172
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 10741219
+      estimated_usd: 7.72
+      duration_minutes: 95
+      recorded_at: 2026-11-20
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (64 unique message.ids, all claude-opus-5-5, no subagents): input 145 + cache-creation 151,520 (1-hour) + cache-read 10,552,254 + output 37,300, opus-5-5 rates. APPROVED at 71e5758 (PR 283 head), handback carried into PR 283 by fast-forward. Eight mutants all red (three of the builder re-run with matching counts, five new). Five non-blocking follow-ups: validate status CR/quote/BOM handling, sdk-stage2 silent exit on an unenterable worktree, DEC-070 second-amendment wording vs mono FirstValue, the AC3 control on one entry only, the broken handoff-template heading. The handback floor was 8,706,914 and $6.33."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 27103590
+    estimated_usd: 19.10
+    session_count: 2
+shipped_at: 2026-11-20
 ---
 
 # SPEC-080: Colour levels refusal (FU-1): the four colour entries refuse WhiteLevel at or below the maximum applied black with Error::InvalidLevels before writing, as mono PerPosition does; DEC-070 §3 amended again; no pin moves. Plus the two SPEC-079 tooling follow-ups: sdk-stage2.sh finds the repo through git, and just validate parses feedback/ front matter
@@ -241,34 +262,38 @@ with no change to any file that develops today; and the two tooling gaps are clo
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
+*Appended during **ship**.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Name the exact malformation a fixture uses when an AC tests ordering. AC3's "a
+   malformed `GainMap`" read most obviously as a truncated list, which the
+   required-processing check refuses earlier, so it could not show levels come before
+   gains; the builder found a well-framed list with bad parameters. The bundle took
+   about 27.1M tokens against a 15M estimate: M, not S. The four-entries-by-four-branches
+   matrix, the sentinel checks and eight mutants are most of it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — DEC-070 §3's second amendment was corrected at ship: colour now refuses what mono
+   `PerPosition` refuses, but mono's default `FirstValue` checks its first black, so the
+   two are not identical there. Separately, the "broken template heading" both cycles
+   reported was the orchestrator's own handoff-filling script, which matched the first
+   "## Handback" text instead of the heading and dropped three lines of Return Criteria
+   in seven handoffs (HANDOFF-161, 162, 168 to 172). Restored at ship; the template itself
+   is fine.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. Two small script fixes from the verify go to STAGE-026's release spec:
+   `validate` should strip a trailing CR and quotes from a feedback `status` and handle a
+   leading BOM, and `sdk-stage2.sh` should print a message instead of exiting silently on
+   a worktree directory it cannot enter.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — build
+   *(AC3's ordering fixture, ambiguous in the design and corrected by the builder. The
+   verify found no defect in the change.)*
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — A caller developing a malformed colour DNG whose white is at or below its largest
+   black gets `Error::InvalidLevels { black_level, white_level }` on all four colour
+   entries, where 0.2.3 returned an all-zero image without error; every file that
+   develops today is byte-identical and `DEVELOP_VERSION` stays 7.
