@@ -89,7 +89,7 @@ SPEC-080 ships.** The colour path refuses too. On all four colour entries,
 when `W ≤ B`, where `B` is the maximum black the path applies (DEC-070 §1) and `W` is the
 colour path's own resolved white. That covers the slot path, the general pattern path and
 the scalar `BlackLevel` with no pattern. It is checked after `InvalidBlackLevelPattern` and
-before any write, so mono and colour refuse the same malformed levels with the same error.
+before any write. The colour path now refuses what mono `PerPosition` refuses, with the same error. (Mono's default, `FirstValue`, checks its first black, not the maximum, so it is not identical to colour there; shipped in SPEC-080, 2026-11-20.)
 No file that develops today changes output, so `DEVELOP_VERSION` stays 7. A file that
 developed to all zeros is now refused; the release notes name it.
 

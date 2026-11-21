@@ -134,7 +134,10 @@ merged.** Cut `claude/spec-060-build` from that `origin/main`.
   own transcript (`basis: transcript`, found by your scratchpad UUID, deduped by
   `message.id`, opus-5-5 rates), and fill the `## Handback` section below.
 
-## Handback` section below.** An unfilled handback is an
+## Return Criteria — how to hand back
+
+**Completing this handoff means filling in the `handback:` front-matter block
+above AND the `## Handback` section below.** An unfilled handback is an
 incomplete cycle, and `just handback-sync` will tell the orchestrator so.
 
 On success:

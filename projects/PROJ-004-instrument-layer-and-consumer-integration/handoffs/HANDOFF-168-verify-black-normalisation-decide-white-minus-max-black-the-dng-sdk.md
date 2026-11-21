@@ -208,7 +208,10 @@ Canon stage-2 reference, with a new Canon cross-check.
 
 ---
 
-## Handback` section below.** An unfilled handback is an
+## Return Criteria — how to hand back
+
+**Completing this handoff means filling in the `handback:` front-matter block
+above AND the `## Handback` section below.** An unfilled handback is an
 incomplete cycle, and `just handback-sync` will tell the orchestrator so.
 
 On success:

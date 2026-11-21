@@ -105,15 +105,26 @@ and would otherwise be carried out of PROJ-004.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-080 (build) [S] Colour levels refusal (FU-1), designed 2026-11-20: the four colour entries refuse W ≤ B with InvalidLevels reporting B, after the pattern check and before any write (DEC-070 §3, second amendment); no output change, DEVELOP_VERSION stays 7; sdk-stage2.sh refuses an output dir inside any worktree (via git); just validate parses feedback/ front matter and checks status
+- [x] SPEC-080 (shipped on 2026-11-20) [S] Colour levels refusal (FU-1), designed 2026-11-20: the four colour entries refuse W ≤ B with InvalidLevels reporting B, after the pattern check and before any write (DEC-070 §3, second amendment); no output change, DEVELOP_VERSION stays 7; sdk-stage2.sh refuses an output dir inside any worktree (via git); just validate parses feedback/ front matter and checks status
 
 The release spec is minted with `just new-release-spec` when SPEC-080 has shipped, as
 SPEC-077 was for 0.2.3.
 
-**Count:** 0 shipped / 1 active / 0 pending
+**Count:** 1 shipped / 0 active / 0 pending
 
 ## Design Notes
 
+- **Carried from SPEC-080's verify (2026-11-20), for the release spec.**
+  - `scripts/validate.sh`: strip a trailing CR and surrounding quotes from a feedback
+    `status` before the vocabulary check, and treat a leading UTF-8 BOM as part of the
+    `---` test (or refuse it loudly).
+  - `scripts/sdk-stage2.sh`: a worktree directory that exists but cannot be entered makes
+    the script exit under `set -e` with no message; add a fallback that says why.
+  - Release-notes wording: colour now refuses what mono `PerPosition` refuses. Mono's
+    default `FirstValue` checks its first black, not the maximum, so don't claim the two
+    are identical.
+- **IDs.** PR 284 (PROJ-005's STAGE-017 re-frame) holds SPEC-081, SPEC-082 and DEC-071 to
+  DEC-073. Mint the release spec after checking open PRs, so it does not collide.
 - **Order.** The refusal spec ships first; the release spec follows it, so the release
   carries both behaviour changes.
 - **Semver.** 0.2.3 was a patch under DEC-052's precedent for behaviour fixes. A new refusal
