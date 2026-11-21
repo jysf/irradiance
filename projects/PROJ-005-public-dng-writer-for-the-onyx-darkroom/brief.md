@@ -53,7 +53,7 @@ roadmap: []
 > `proposed` until accepted.
 >
 > The ID is the next free one. `docs/future-plans.md` uses "PROJ-005" for the spectral
-> monochrome mixer, which was never minted; that plan takes a later number.
+> monochrome mixer, which was never minted; that plan is now PROJ-006 (2026-11-21).
 
 ## What This Project Is
 
