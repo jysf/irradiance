@@ -58,7 +58,7 @@ handback:
   pr: null
   completed_at: 2026-11-20               # YYYY-MM-DD
   notes: "APPROVED at 5a53497, which is PR 287 head 91119b9 plus the verify setup fe2deec and the verify doc fix 5a53497. src and Cargo.toml are byte-identical to 91119b9. The merge the tag goes on must include 5a53497. FLOOR, from transcript 7b54cae4-4d37-4044-b912-30dbc61a9e65.jsonl, 55 unique message ids, all claude-opus-5-5, no subagents: input 109, cache-creation 177,357 (1-hour), cache-read 10,393,891, output 30,211 (max per message). Opus-5-5 rates: in 5, out 25 per M; cache read 0.1x, 1-hour write 2x. The handback commit and push turns are not in it, so re-sum at ship. Duration is a wall-clock estimate."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-20
 ---
 
 # HANDOFF-174: VERIFY: irradiance 0.2.4 release prep, Phase 1 (SPEC-083)

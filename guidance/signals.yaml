@@ -1802,3 +1802,17 @@ signals:
     notes: |
       Candidate fix: add feedback/ (and any docs/ file with front matter) to validate's
       parse set. Small; decide at the PROJ-004 close whether to carry it.
+  - id: release-notes-diff-every-changed-refusal-and-what-it-preempts
+    type: lesson
+    summary: "A release design lists every input whose result changes since the last tag: new refusals, changed error fields, changed output, and the existing errors a new refusal now runs before. semver-checks sees none of these, and the notes otherwise miss one."
+    evidence: "N=2. 0.2.3 (SPEC-077, STAGE-024): the verify found the notes missed malformed or too many optional GainMaps, which 0.2.2 skipped unread and 0.2.3 refuses. 0.2.4 (SPEC-083, STAGE-026): the design's Err( diff found the new colour refusal and the changed PerPosition field, but the verify found the new check also pre-empts the GainMap, CFA and matrix errors, so a W <= B input that 0.2.3 refused with one of those now gets InvalidLevels."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-21
+    last_touched: 2026-11-21
+    raised_by: claude
+    notes: |
+      Candidate codification at N=3: a release-spec template line under Release Scope
+      asking for the changed-input list, including error precedence, with a probe run
+      against the published previous version (as SPEC-083's verify did).

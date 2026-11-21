@@ -15,13 +15,15 @@
 task:
   id: SPEC-083
   type: release                    # epic | story | task | bug | chore | release
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
+  verify_verdict: approved
+  verify_rounds: [approved]
 
 project:
   id: PROJ-004
@@ -49,11 +51,32 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 15000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-173
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 13321062
+      estimated_usd: 9.39
+      duration_minutes: 75
+      recorded_at: 2026-11-20
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (80 unique message.ids, all claude-opus-5-5, no subagents): input 165 + cache-creation 168,109 (1-hour) + cache-read 13,106,435 + output 46,353 (max per message), opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Covers the two script fixes, semver, the bump, the CHANGELOG promotion, the release notes, the corpus/SDK/timing evidence, the package checks, the pre-flight and waiting on CI. The handback floor was 11,402,847 and $8.14."
+    - cycle: verify
+      handoff: HANDOFF-174
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 12812540
+      estimated_usd: 9.31
+      duration_minutes: 45
+      recorded_at: 2026-11-20
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (64 unique message.ids, all claude-opus-5-5, no subagents): input 127 + cache-creation 192,356 (1-hour) + cache-read 12,576,239 + output 43,818, opus-5-5 rates. APPROVED at 5a53497: PR 287 head plus a docs-only fix naming the colour error-precedence change the notes missed (measured with a probe against crates.io 0.2.3), and the pre-flight probe reworded for the non_exhaustive Sensor; carried into PR 287 by fast-forward. The handback floor was 10,601,568 and $7.73."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 26133602
+    estimated_usd: 18.70
+    session_count: 2
+shipped_at: 2026-11-21
 ---
 
 # SPEC-083: irradiance 0.2.4 release: DNG-conformant black normalisation and the colour levels refusal
@@ -387,34 +410,54 @@ the largest black there.
 
 ## Cut Record
 
-*One line, appended after Phase 2 by whoever runs the cut.* The user-facing
-outcome now live, plus the upgrade/clean-install check that confirms the
-publish landed — the one line a review or work-log would quote. E.g.
-*"v0.4.0→v0.5.0 `brew upgrade` clean; MCP-install now first-class; prod DB
-opened, 189 entries intact."* If the release is pure infra with no user-facing
-change, say so — a real, greppable outcome, not a blank.
+v0.2.3 → **v0.2.4 published 2026-11-21** (crates.io, by the user, 04:40 UTC; not yanked;
+checksum `f82142672b9a5444…`). Tag `v0.2.4` (annotated) points at `ef37e6b`, the PR 287
+merge, which holds the verify's `5a53497` notes fix; the published `.crate`'s
+`.cargo_vcs_info.json` `git.sha1` is `ef37e6b97550d44709a5a919ef4b057c205dc23e`, the tagged
+commit. docs.rs reports `doc_status: true`. A first attempt tagged `v0.2.4` on `4f4e7bd`
+(the SPEC-083 design merge, still 0.2.3) before PR 287 was merged; `cargo publish` refused
+(0.2.3 already exists), nothing was uploaded, and the user deleted that tag locally and on
+GitHub before re-tagging. Clean-host checks, run by the orchestrator in a scratch crate on
+`irradiance = "=0.2.4"` from crates.io: it built clean; `develop_color_into` returns `Ok`
+on the Canon 5D Mark III (5760×3840) and the Pixel 4a (4016×3008); the Canon's parsed
+sensor with `white_levels = [1000]` returns `InvalidLevels { black_level: 2048,
+white_level: 1000 }` with the output untouched; `DEVELOP_VERSION` is `7`. DNG-conformant
+black normalisation and the colour levels refusal are now on crates.io.
 
 ---
 
 ## Reflection
 
-*Appended during **ship**. Four questions, short answers.*
+*Appended during **ship**.*
 
-1. **What would I do differently next release?**
-   — <answer>
+1. **What would I do differently next time?**
+   — Diff not only the new refusals but the errors each new refusal now pre-empts. The
+   design's `Err(` sweep found the colour `W ≤ B` refusal and the changed `PerPosition`
+   field, but not that the new check runs before the `GainMap`, CFA and matrix checks, so a
+   `W ≤ B` input that 0.2.3 refused with one of those now gets `InvalidLevels`. The verify
+   caught it with a probe against crates.io 0.2.3. That is the second release running
+   (0.2.3 too) where a changed refusal reached the verify. The bundle took about 26.1M
+   tokens against a 15M estimate: M.
 
-2. **Does any template, constraint, or decision need updating?** (e.g. a new
-   pre-flight category to add to this template)
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`. See `docs/signals.md`.>
+2. **Does any template, constraint, or decision need updating?**
+   — The lesson reaches N=2 and is recorded as a watch signal. Separately, the Phase 2
+   runbook's step 1 assumed the Phase-1 PR was merged; the first tag landed on the design
+   merge. A "confirm `Cargo.toml` shows the new version before tagging" step would have
+   caught it; it is now in the release-spec template's Phase 2 text.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. The verify's FU-3 (the `sdk-stage2.sh` warning wording) is a one-line scripts
+   nit, carried to the next project.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(A release-phase `escaped` defect means a pre-flight category above was
-   missing or skipped — grow the checklist.)*
+4. **Where was the worst defect caught?**
+   — verify
+   *(The release notes missed the colour error-precedence change; fixed in `5a53497`
+   before the tag. The misplaced first tag was a cut-time slip, caught by `cargo publish`
+   refusing, with nothing uploaded.)*
+
+5. **What can a user do now that they couldn't before?**
+   — A crates.io user on `irradiance = "0.2"` gets, with `cargo update`, black
+   normalisation that matches the DNG specification and Adobe `dng_validate` within one
+   code (from up to 6) on files whose black differs by position, and a typed
+   `InvalidLevels` instead of an all-black image for a colour file whose white is at or
+   below its black.

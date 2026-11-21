@@ -58,7 +58,7 @@ handback:
   pr: 287
   completed_at: 2026-11-20         # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit, from transcript 513c6d52-92fb-4ab1-901f-78e88167ea9e.jsonl (71 unique message.ids, all claude-opus-5-5, no subagents): input 143 + cache-creation 158,659 (1-hour) + cache-read 11,206,149 + output 37,896 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Re-sum at ship." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-20
 ---
 
 # HANDOFF-173: BUILD: irradiance 0.2.4 release prep, Phase 1 (SPEC-083)
