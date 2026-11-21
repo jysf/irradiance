@@ -102,7 +102,10 @@ gated by a human/coordinator. Structure it so the reversible work lands first:
   normal PR.
 - **Phase 2 — irreversible cut (human/coordinator-gated):** create the tag and
   publish to each channel, only after Phase 1 merges. The spec ships
-  **"prep-complete, cut-deferred."**
+  **"prep-complete, cut-deferred."** Before tagging, confirm the checked-out tree
+  is the merged Phase-1 commit: the version in the manifest is the new one. A tag
+  cut on the commit before the merge points at the old version (irradiance 0.2.4's
+  first attempt).
 
 ## Release Pre-Flight
 

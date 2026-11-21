@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-026                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-20
-shipped_at: null
+shipped_at: 2026-11-21
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -46,7 +46,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 65062260
+      estimated_usd: 40.49
+      recorded_at: 2026-11-21
+      notes: "Stage orchestration, measured from the orchestrator transcript (session 2b783e6b, claude-opus-5-5) from the user's 'Close after merge' message at 2026-11-20T18:29Z (the PROJ-004 close attempt that became this stage) through this close: 161 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus list rates (input 384 + cache-creation 563,721 (1-hour) + cache-read 64,392,159 + output 105,996); no subagents. Covers the PROJ-004 close dry run and the finish-or-move discussion, the DNG-writer discussion and the move of STAGE-017 to a new PROJ-005, framing STAGE-026, designing SPEC-080 and SPEC-083, four handoffs, two builds and two verifies dispatched, three verify-base fast-forwards, two ships, the misplaced-tag recovery, the clean-host smoke on the published 0.2.4, and this close. A FLOOR: the final messages after the measurement are not in it."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -107,9 +112,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-080 (shipped on 2026-11-20) [S] Colour levels refusal (FU-1), designed 2026-11-20: the four colour entries refuse W ≤ B with InvalidLevels reporting B, after the pattern check and before any write (DEC-070 §3, second amendment); no output change, DEVELOP_VERSION stays 7; sdk-stage2.sh refuses an output dir inside any worktree (via git); just validate parses feedback/ front matter and checks status
 
-- [ ] SPEC-083 (build) [S] irradiance 0.2.4 release, designed 2026-11-21: semver clean against crates.io 0.2.3 (202 pass, no update required); one newly refused input (colour W ≤ B) and one changed error field (PerPosition reports the largest black); DEVELOP_VERSION 6 → 7; the two SPEC-080 verify script fixes; two-phase cut, the user tags and publishes
+- [x] SPEC-083 (shipped on 2026-11-21) [S] irradiance 0.2.4 release, designed 2026-11-21: semver clean against crates.io 0.2.3 (202 pass, no update required); one newly refused input (colour W ≤ B) and one changed error field (PerPosition reports the largest black); DEVELOP_VERSION 6 → 7; the two SPEC-080 verify script fixes; two-phase cut, the user tags and publishes
 
-**Count:** 1 shipped / 1 active / 0 pending
+**Count:** 2 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -145,16 +150,41 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes.
+  - SPEC-080 (PR 283): the four colour develop entries refuse `W ≤ B` with
+    `InvalidLevels`, as mono `PerPosition` does; no output changed; `just validate` parses
+    `feedback/`; `sdk-stage2.sh` refuses any git worktree.
+  - SPEC-083 (PR 287): **irradiance 0.2.4 published to crates.io on 2026-11-21**, tag
+    `v0.2.4` on `ef37e6b`, docs.rs green, clean-host smoke passed. DEC-070's
+    DNG-conformant black normalisation and the colour refusal are now on the registry.
+- **How many specs did it actually take?** 2, as planned (one outline plus the release spec
+  minted after it).
+- **How many outlines survived unchanged?** 1 of 1. SPEC-080's scope held.
+- **Cost.** SPEC-080 27.10M tokens / $19.10 (estimate 15M, actual M); SPEC-083 26.13M /
+  $18.70 (estimate 15M, actual M); orchestration 65.06M / $40.49 (floor, and it includes the
+  PROJ-005 writer move). About $78.29 for the stage.
+- **What changed between starting and shipping?** The stage began as a PROJ-004 close that
+  `close-project` refused; the user chose to finish PROJ-004's work and moved the public DNG
+  writer to a new PROJ-005 once onyx named Darkroom v1 as its consumer. The release design
+  missed one changed result (the colour error precedence), caught by the verify; the first
+  tag landed on the pre-merge commit and was replaced before anything was published.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Codified: the release-spec template's Phase 2 text now says to confirm the checked-out
+    manifest shows the new version before tagging.
+  - Watch: a release design diffs every changed refusal, including the errors a new refusal
+    now pre-empts (N=2).
 - **Signals dispositioned at this close?**
-  - <note what codified / what's still watch + its N>
+  - New `watch` at N=2: `release-notes-diff-every-changed-refusal-and-what-it-preempts`
+    (0.2.3, 0.2.4).
+  - `a-changed-formula-lists-every-assertion-it-moves`: N=2, no new instance (SPEC-080's
+    throwaway-refusal sweep found only the pre-approved test). Left `watch`.
+  - `a-designed-mutant-must-be-able-to-fail-on-its-fixture`: N=1. SPEC-080's AC3 fixture
+    ambiguity is a near relative (a fixture that could not reach the path it tested) but
+    not the same outcome, so not counted. Left `watch`.
+  - `validate-does-not-parse-feedback-or-docs`: resolved by SPEC-080 for `feedback/`;
+    `docs/` has no front matter to parse. Disposition at the PROJ-004 close.
+  - The other open `watch` lessons were walked; none has a new instance.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - No; both are recorded above.
+- **Carried to the next project:** the `sdk-stage2.sh` warning wording nit (SPEC-083 verify
+  FU-3).
