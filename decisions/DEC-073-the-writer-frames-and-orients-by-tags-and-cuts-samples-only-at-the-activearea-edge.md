@@ -22,9 +22,9 @@ created_at: 2026-11-20
 supersedes: null
 superseded_by: null
 
-status: proposed                     # push-back on monorail-000/DEC-075; onyx agreed (monorail-000/DEC-076 item 2); jysf accepts at PR review
+status: accepted                     # push-back on monorail-000/DEC-075; onyx agreed (monorail-000/DEC-076 item 2); accepted by jysf 2026-11-21
 
-deciders: [claude]
+deciders: [jysf, claude]             # drafted by claude; accepted by jysf 2026-11-21
 
 affected_scope:
   - src/dng/write.rs

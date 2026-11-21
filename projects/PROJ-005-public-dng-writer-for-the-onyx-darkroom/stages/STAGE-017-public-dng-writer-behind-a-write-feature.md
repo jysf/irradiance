@@ -140,7 +140,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 DEC-055 governs the crate layout: the writer stays in the crate behind a feature.
 DEC-071 fixes v1's scope, DEC-072 the EXIF offset contract, DEC-073 the framing rule.
-All three are `proposed` until jysf accepts them. onyx agreed to all three in
+All three were accepted by jysf on 2026-11-21. onyx agreed to all three in
 `monorail-000/DEC-076` and its two asks (descriptive tags, explicit XMP) are folded into
 DEC-071. `diamond-exif` has still to confirm DEC-072 before SPEC-081 leaves design.
 

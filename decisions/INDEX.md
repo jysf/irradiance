@@ -79,7 +79,7 @@ Regenerate after adding or superseding one; `just decisions-index --check` fails
 | [DEC-070](DEC-070-black-normalisation-scales-by-white-minus-the-maximum-black-as-the-dng-specification-defines.md) | black normalisation scales by white minus the maximum black, as the DNG specification defines | 0.95 | accepted | PROJ-004 | — |
 | [DEC-071](DEC-071-the-public-dng-writer-v1-writes-one-uncompressed-u16-mono-plane-into-a-caller-buffer.md) | The public DNG writer v1 writes one uncompressed, u16, monochrome plane into a caller buffer, and nothing else | 0.75 | accepted | PROJ-005 | — |
 | [DEC-072](DEC-072-the-exif-block-is-built-for-a-fixed-base-offset-and-the-writer-never-rebases-it.md) | The EXIF block is built for a fixed base offset, and the writer never rebases it | 0.7 | accepted | PROJ-005 | — |
-| [DEC-073](DEC-073-the-writer-frames-and-orients-by-tags-and-cuts-samples-only-at-the-activearea-edge.md) | The writer frames and orients by tags, and cuts samples only at the ActiveArea edge | 0.7 | proposed | PROJ-005 | — |
+| [DEC-073](DEC-073-the-writer-frames-and-orients-by-tags-and-cuts-samples-only-at-the-activearea-edge.md) | The writer frames and orients by tags, and cuts samples only at the ActiveArea edge | 0.7 | accepted | PROJ-005 | — |
 
 ## Superseded
 
