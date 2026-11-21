@@ -22,9 +22,9 @@ created_at: 2026-11-20
 supersedes: null
 superseded_by: null
 
-status: proposed                     # drafted at STAGE-017 re-frame; onyx agreed (monorail-000/DEC-076) with two asks folded in as §2 and §3a; jysf accepts at PR review
+status: accepted                     # jysf, 2026-11-21, in the STAGE-017 framing conversation
 
-deciders: [claude]                   # proposal; jysf accepts or amends at review
+deciders: [jysf, claude]
 
 affected_scope:
   - src/dng/write.rs
@@ -75,8 +75,10 @@ larger:
      the size query cannot overflow. Anything else is a typed error;
    - `DateTime` must also have TIFF's form, `YYYY:MM:DD HH:MM:SS`. The writer never
      stamps the time itself, because output must be deterministic;
-   - `UniqueCameraModel` is **required**: DNG requires it in every file, and
-     `dng_validate`'s behaviour without it is confirmed by SPEC-061's design probe. A
+   - `UniqueCameraModel` is **required**: DNG requires it in every file. SPEC-061's
+     design probe (2026-11-21) found that `dng_validate` 1.7.1 accepts a file without it,
+     or with it empty, but prints `Missing or invalid UniqueCameraModel`; the writer's
+     acceptance bar is no warnings, so this is a refusal here, not a warning. A
      write without it, or with it empty, fails with an error whose `Error::kind()` is
      `ErrorKind::CallerError` (DEC-051), checked before any output byte is written. The
      writer never invents one; `mono-core` always supplies one (the source's value, or
@@ -109,12 +111,13 @@ larger:
      output. A `Vec<u8>` convenience may wrap the pair.
    - **One plain options struct**, `#[non_exhaustive]` with a `Default` (DEC-052,
      DEC-058 pattern): framing, orientation, masked areas, opcode-list bytes,
-     preview bytes, EXIF block, XMP bytes, the levels, the descriptive tags (§3a),
-     and `max_pixels`.
+     preview bytes, EXIF block, XMP bytes, the levels and the descriptive tags (§3a).
    - **Errors** are new `Error` variants classified by `Error::kind()` (DEC-051),
      wildcard-free.
    - **Pixel budget.** The caller's `max_pixels` (DEC-050) is checked before any
-     size arithmetic that could overflow and before any allocation.
+     size arithmetic that could overflow and before any allocation. SPEC-061's design
+     passes it as an argument, as `plane::validate` does, rather than as an options
+     field (DEC-075 §8).
    - **Deterministic and stateless.** The same plane and options give the same bytes
      on every run and machine: no timestamps, no unordered maps, no global state, no
      padding left uninitialised. No panics on any caller input.

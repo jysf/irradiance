@@ -22,9 +22,9 @@ created_at: 2026-11-20
 supersedes: null
 superseded_by: null
 
-status: proposed                     # onyx agreed (monorail-000/DEC-076 item 1); needs jysf's acceptance and diamond-exif's confirmation
+status: accepted                     # jysf, 2026-11-21, in the STAGE-017 framing conversation
 
-deciders: [claude]                   # proposal; jysf and diamond-exif agree or amend
+deciders: [jysf, claude]
 
 affected_scope:
   - src/dng/write.rs
