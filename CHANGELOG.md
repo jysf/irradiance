@@ -8,6 +8,15 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-20
+
+Black levels now follow the DNG specification and Adobe's SDK, and a colour file whose
+white is at or below its black is refused instead of developing to black (PROJ-004,
+STAGE-025 and STAGE-026). A compatible patch release over 0.2.3: no public item was
+added, removed or changed, there is no new dependency or feature, and the MSRV stays
+1.90. `DEVELOP_VERSION` goes from `"6"` to `"7"`; output changes only for a file whose
+black level differs by position, on the colour and mono `PerPosition` paths.
+
 ### Changed
 
 - **Black normalisation scales by white minus the maximum black** (SPEC-078, STAGE-025,
@@ -27,9 +36,9 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   and both threaded entries now return `Error::InvalidLevels { black_level, white_level }`
   when the colour white (the first `WhiteLevel` value) is at or below the largest black
   the plane applies, for a scalar `BlackLevel`, a 2×2 or smaller pattern and a larger
-  pattern alike, as the mono path already did. The input is refused before anything is
-  written; it used to develop to an all-zero image. No file that developed before changes
-  output, and `DEVELOP_VERSION` stays `"7"`.
+  pattern alike, as mono `BlackLevels::PerPosition` already did. The input is refused
+  before anything is written; it used to develop to an all-zero image. No file that
+  developed before changes output, and `DEVELOP_VERSION` stays `"7"`.
 
 ## [0.2.3] - 2026-11-19
 
