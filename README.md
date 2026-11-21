@@ -39,7 +39,7 @@ It is deliberately a **library, not an application**
 - **Edition 2021**, MSRV `1.90` (the measured floor; the true floor is lower
   but unmeasured — see [`Cargo.toml`](Cargo.toml)).
 
-> **Status:** early (0.2.3, on crates.io). Uncompressed **monochrome** and
+> **Status:** early (0.2.4, on crates.io). Uncompressed **monochrome** and
 > **Bayer** DNG develop work end to end. Sensor planes stored as strips or
 > **tiles**, uncompressed or `Compression 7` (lossless-JPEG, SOF-3), decode
 > bit-exact through the public `plane::unpack_into`, and can be split into
@@ -48,9 +48,12 @@ It is deliberately a **library, not an application**
 > an allocation-free develop with caller-owned scratch, and zero-copy access to
 > embedded previews. 0.2.3 applies `OpcodeList2` `GainMap`s on both develop
 > paths, so the Google Pixel 3a, 4a and 7 Pro DNGs develop, and reads a
-> fractional `BlackLevel` and a colour `BlackLevelRepeatDim` correctly. Size
-> the plane buffer with `plane::validate` first: it checks the layout and your
-> own pixel budget before you allocate. See
+> fractional `BlackLevel` and a colour `BlackLevelRepeatDim` correctly. 0.2.4
+> scales a file whose black differs by position by white minus the largest
+> black, as the DNG specification and Adobe's SDK do, and refuses a colour file
+> whose white is at or below that black. Size the plane buffer with
+> `plane::validate` first: it checks the layout and your own pixel budget
+> before you allocate. See
 > [tested DNG modes](#tested-dng-modes), [`CHANGELOG.md`](CHANGELOG.md) and
 > [Scope](#scope-and-roadmap).
 
@@ -282,8 +285,10 @@ waves:
   options, caller-owned scratch, plane units, and faster packed and
   lossless-JPEG decodes. Shipped in 0.2.3: `OpcodeList2` `GainMap`s (the tiled
   Pixel DNGs develop), fractional and colour per-pattern black levels, and
-  `Sensor::masked_areas`. Still ahead: a clean-room DNG writer and
-  optical-black instruments.
+  `Sensor::masked_areas`. Shipped in 0.2.4: black normalisation by white minus
+  the largest black, and the colour refusal of white at or below it. The public
+  clean-room DNG writer moved to `PROJ-005`; optical-black instruments are
+  parked until a caller needs them.
 
 Intentionally **not** implemented yet (by design, not omission): lossless-JPEG
 component layouts other than `Nf = 1` and `Nf = 2`, compressions other than `1` and `7`,

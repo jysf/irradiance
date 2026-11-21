@@ -8,3 +8,11 @@ Cycle prompts live in `prompts/SPEC-083-<cycle>.md`.
 ## Instructions
 
 _(Timeline will be populated as the architect writes each cycle's prompt.)_
+
+- [x] build (HANDOFF-173, claude-opus-5-5, 2026-11-20): the two script fixes, semver
+  check clean (202 of 202), version 0.2.4, CHANGELOG promoted, release notes, tier-B
+  evidence, package guards, pre-flight `[now]` halves and every gate, on candidate
+  `04593ce`. No tag, no publish.
+- [x] verify (HANDOFF-174, claude-opus-5-5, 2026-11-20): APPROVED at `5a53497`, which is PR
+  #287 head `91119b9` plus one verify doc fix naming the colour error-precedence change
+  (FU-1) and rewording the `[cut]` smoke probe (FU-2). src byte-identical to `91119b9`.

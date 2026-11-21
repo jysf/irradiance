@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-20
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-083
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 11402847           # REAL combined count — what cost-audit reads
+  estimated_usd: 8.14              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 75
+  branch: claude/spec-083-build
+  pr: 287
+  completed_at: 2026-11-20         # YYYY-MM-DD
+  notes: "FLOOR taken before the handback commit, from transcript 513c6d52-92fb-4ab1-901f-78e88167ea9e.jsonl (71 unique message.ids, all claude-opus-5-5, no subagents): input 143 + cache-creation 158,659 (1-hour) + cache-read 11,206,149 + output 37,896 (max per message). USD at opus-5-5 list rates (in 5, out 25 per MTok; cache read x0.10, 1-hour cache write x2.0). Re-sum at ship." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -149,43 +149,126 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
+*Filled in by the receiving agent (builder, claude-opus-5-5).*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-083-build`, https://github.com/jysf/irradiance/pull/287
+  - `46e5858`: the two script fixes;
+  - `04593ce`: the prep (version, CHANGELOG, README). This is the candidate the evidence ran on;
+  - `beaae7b`: the release notes, internal record, pre-flight and timeline line;
+  - then this handback.
+- **Completed at:** 2026-11-20
+- **All acceptance criteria met?** yes: build work 1 to 9. CI had started (22 checks pending)
+  when this handback was written.
+- **No tag, no publish:** `git tag -l v0.2.4` is empty.
+
+**Semver, verbatim** (`cargo-semver-checks 0.51.0`, `just semver-check`, crates.io 0.2.3 baseline,
+after the bump):
+
+```
+Checking irradiance v0.2.3 -> v0.2.4 (minor change)
+ Checked [   0.010s] 202 checks: 202 pass, 58 skip
+ Summary no semver update required
+```
+
+The pre-bump run at `46e5858` and the `--all-features` run gave the same result. There was
+nothing to accept.
+
+**Release notes against the "every input whose result changes" list:**
+- Newly refused colour input (W ≤ max B, `InvalidLevels` before any write; 0.2.3 gave an all-zero
+  image): yes, under Behaviour changes.
+- Mono `PerPosition`, the same refusal, `black_level` now the largest black: yes, under Behaviour
+  changes, plus one line under Breaking for a caller that matches the exact field.
+- Output changes (Canon, 3a, 4a on colour and `PerPosition`; uniform-black files and
+  `FirstValue` byte-identical): yes, under Behaviour changes and Changed.
+- `DEVELOP_VERSION` 6 → 7: yes.
+- Wording caution: the notes say colour refuses what mono `PerPosition` refuses, and that
+  `FirstValue` checks its first black only. The CHANGELOG's SPEC-080 entry said "as the mono path
+  already did"; it now names `BlackLevels::PerPosition`.
+- The headline's "within one code before the GainMap" is limited to the three held files whose
+  blacks differ by position. The Pixel 7 Pro (2 codes, fractional black) is listed as a known
+  limitation.
+
+**SDK numbers.** A fresh `sdk-stage2.sh` run into the scratchpad wrote 7 TIFFs; their sha256s equal
+SPEC-079's. Δ is SDK minus ours, and every figure equals HANDOFF-168's table digit for digit:
+- no gain: Canon 1 / 99.5663%, 4a 1 / 99.7911%, 3a 1 / 99.8536%, 7 Pro 2 / 28.3471%;
+- end to end: 4a 4 / 99.7729%, 3a 4 / 99.8210%, 7 Pro 4 / 28.3394%;
+- gain step: 1 on all three, at 99.9794%, 99.9672% and 99.9664%.
+
+**Timings** (Apple M4 Pro, release, medians in ms):
+- unpack: 9.9 on 1 thread, 1.4 on 8;
+- ljpeg: K-3 III 100.5, Typ 246 87.3, Pixel 4a 58.8;
+- orient, warp-free: O1 85, O5 98, O8 143;
+- orient, post-warp: O1 570, O8 609.
+
+**Package.** The dry run was clean and ran in a detached scratch worktree, without
+`--allow-dirty`:
+- 19 files: `.cargo_vcs_info.json`, `Cargo.lock`, `Cargo.toml`, `Cargo.toml.orig`, both licences,
+  `README.md` and the 12 `src/` files;
+- the list is identical to the published 0.2.3 `.crate`'s `tar -tz` list;
+- sha1 `04593ce3044b0bd62878bfb0fbee3c3914d21961`;
+- no self dev-dependency.
+
+**Script-fix scenarios.** Each ran on a scratchpad `git archive` copy (validate) or a scratch
+repo (sdk-stage2), old script against new.
+- CRLF with a bare `status: open`. Old: rejected, `status(='open^M', expected one of …)`.
+  New: green.
+- `status: "open"`. Old: rejected (`'"open"'`). New: green.
+- `status: 'open'`. Old: rejected (`''open''`). New: green.
+- BOM then `---`. Old: green but silently not parsed (9 feedback, not 10). New: rejected,
+  "feedback file starts with a UTF-8 BOM before its '---'; remove the BOM so its front matter is
+  parsed".
+- `status: "closed"`, and a CRLF `closed`. Rejected by both, naming `closed`.
+- A worktree that exists but can't be entered (mode 000). Old: exits 1 with only the shell's
+  "cd: … Permission denied" and nothing from sdk-stage2. New: "sdk-stage2: cannot enter worktree
+  …; refusing its recorded path as it is", then the run continues.
+- An output path inside that worktree. New: "cannot enter the output directory's parent: …",
+  exit 1.
+- Note: on the real feedback files a CRLF status never showed the bug, because the inline
+  `# open | addressed | deferred` comment pushes the CR out of `$2`. Only a bare value shows it.
+
+**Gates.** All green:
+- `just test` (790 / 0 / 1);
+- `lint-ci` (clippy 0.1.98 pinned), `lint-no-allow`, `lint-fuzz`, `fmt-check`;
+- `validate` (376 parsed, 9 feedback);
+- `doc-check` (2 surfaces, 0 warnings), `deny`, `deny-fuzz`, `msrv` (1.90.0);
+- `cost-audit`, `gate-audit` (13 scripts), `name-length-check` (895 paths);
+- `decisions-index --check` (70), `semver-check`, `package-targets-check`.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 11,402,847. Input 143, 1-hour cache write 158,659, cache read
+  11,206,149, output 37,896. This floor was taken before the handback commit; re-sum at ship.
+- **Estimated USD:** 8.14 at opus-5-5 rates.
+- **Duration (minutes):** ~75
+- **Source of the number:** transcript `513c6d52-92fb-4ab1-901f-78e88167ea9e.jsonl`, found by the
+  scratchpad UUID. It is deduped by `message.id` (71 ids), taking the largest `output_tokens`.
+  There were no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - For the BOM case, I chose "refuse it loudly" over "treat it as front matter". Parsing it would
+    have meant changing the shared `_lib.sh` parser.
+  - The sdk-stage2 fix also covers an unenterable output directory or parent, the same
+    silent-exit shape.
+  - The README roadmap line said "Still ahead: a clean-room DNG writer". It now says the writer
+    moved to PROJ-005 and that optical black is parked, per the PROJ-004 brief.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - None new. The broken template heading that HANDOFF-171 and 172 reported is not in this
+    handoff.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little. The verify's CRLF repro didn't show up on the real files, because of the
+   inline comment, and it took one extra loop to see why.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. Running the dry run in a detached scratch worktree kept the dry run clean while the
+   spec was still being edited.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I'd commit the release notes with the prep, so the timing stamp isn't `-dirty`.
