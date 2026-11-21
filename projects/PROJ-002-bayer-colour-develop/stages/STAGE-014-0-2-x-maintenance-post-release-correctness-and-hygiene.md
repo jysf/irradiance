@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-014                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-11
-shipped_at: null
+shipped_at: 2026-11-21
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -51,7 +51,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 18370956
+      estimated_usd: 12.83
+      recorded_at: 2026-11-21
+      notes: "Second batch only, measured from the orchestrator transcript (session 2b783e6b, claude-opus-5-5) from the user's request to frame the STAGE-014 bundle at 2026-11-21T20:33Z through the SPEC-084 ship: 90 unique message.ids, deduped by message.id with the max output per message, priced per component at Opus 5.5 list rates (input 206 + cache-creation 240,400 (1-hour) + cache-read 18,074,835 + output 55,515); no subagents. Covers re-measuring the four inherited outlines, the frame (PR 296), the SPEC-084 design (PR 297), dispatching and checking the cold build and verify, the fast-forward, the ship (PR 299) and this close. A FLOOR: the final messages after the measurement are not in it. The first batch (SPEC-056, 2026-11-11) was orchestrated in another session and is not measured here; its spec cost is on SPEC-056."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -148,21 +153,31 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. The first batch
+  (SPEC-056) closed 0.2.0's documented correctness gaps and was released as 0.2.1. The
+  second batch (SPEC-084) cleared the inherited harness debt and two PROJ-004
+  carry-overs. No pixel output changed, and `DEVELOP_VERSION` was not bumped.
+- **How many specs did it actually take?** Two: SPEC-056 [M] and SPEC-084 [S]. The
+  four [XS] outlines carried from PROJ-001 became one spec, and one of them was dropped.
+- **How many outlines survived unchanged?** 0 of 4 as written. Re-measured on `main`
+  before framing: two still held, one was half overtaken (`SUPPORTED_BITS`), and one
+  was obsolete (`SampleExceedsWhiteLevel`, removed by DEC-029). They were reframed as
+  one bundle, and that bundle's scope then held from frame to ship.
+- **What changed between starting and shipping?** The stage was framed as 0.2.1
+  maintenance and closed as a home for small hygiene work that the PROJ-004 close
+  carried over.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - None codified. Re-measuring inherited outlines before framing paid off here; it is
+    an application of `probe-the-hard-assumption-at-frame-time`, not a new rule.
+- **Signals dispositioned at this close?** All 17 `watch` signals with
+  `disposition_at: stage-close` were walked. None gained same-outcome evidence from
+  this stage, so none reached its bar, and all stay `watch`.
+  - `probe-the-hard-assumption-at-frame-time`: applied, not violated (the re-measure
+    found the obsolete outline). It stays `watch`; a note was added.
+  - `preflight-tool-lists-are-hand-written` (new at SPEC-084's ship, process-debt):
+    stays `watch`, low priority.
+  - `macos-arm64-runner-unavailable` was closed (`done`) by SPEC-084.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - No. SPEC-084's verify found no defect, and the two nits are recorded.
+- **Cost.** SPEC-084: 14.34M / $10.80. Second-batch orchestration: 18.37M / $12.83
+  (floor). Together about 32.7M / $23.63. SPEC-056's spec cost is on its own record.

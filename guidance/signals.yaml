@@ -1167,9 +1167,10 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-10-30
-    last_touched: 2026-11-18
+    last_touched: 2026-11-21
     raised_by: claude
     notes: |
+      ══ STAGE-014 CLOSE, 2026-11-21: walked, stays watch, APPLIED not violated. Re-measuring four inherited outlines on main before framing found one obsolete (DEC-029 removed its error) and one half overtaken; framing from the old text would have specced dead work. ══
       ══ STAGE-012 CLOSE, 2026-11-09: DEFERRED, still N=1 — APPLIED, not violated. ══
       No frame-time corpus-probe miss: STAGE-012's geometry/perf assumptions were
       already named by the pyirradiance benchmark. Positive application — SPEC-051's
