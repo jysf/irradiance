@@ -320,18 +320,41 @@ done < <(find "${REPO_ROOT}/projects" "$(decisions_dir)" -type f -name '*.md' 2>
 # after prose as an example. A file with no front matter is not a target, as
 # in every other scope. Its top-level `status` must be one of the template's
 # vocabulary; anything else is an offender, named.
+#
+# SPEC-083: the status read drops a trailing CR (a CRLF file) and one pair of
+# matching surrounding quotes, so `status: "open"` and a CRLF `status: open`
+# both read as open, as YAML reads them. A file whose first line is a UTF-8
+# BOM followed by `---` is REFUSED, named, rather than parsed: the front-matter
+# parser and every awk reader here look for `---` at byte 0, so such a file
+# would otherwise be skipped silently and its status never checked.
 VALID_FEEDBACK_STATUS=" open addressed deferred "
 feedback_parsed=0
 while IFS= read -r f; do
     [ -n "$f" ] || continue
     [ "$(basename "$f")" = _template.md ] && continue
+    if [ "$(head -c 3 "$f" | od -An -tx1 | tr -d '[:space:]')" = efbbbf ]; then
+        if [ "$(head -n 1 "$f" | tail -c +4 | tr -d '[:space:]')" = "---" ]; then
+            fbname=$(basename "$f" .md)
+            off_names+=("$fbname"); off_problems+=(" utf8-bom-before-front-matter")
+            off_kinds+=("feedback"); off_messages+=("")
+            [ "$JSON_OUT" = 1 ] || printf "  %-52s invalid: feedback file starts with a UTF-8 BOM before its '---'; remove the BOM so its front matter is parsed\n" "$fbname"
+            offenders=$((offenders + 1))
+        fi
+        continue
+    fi
     [ "$(head -n 1 "$f" | tr -d '[:space:]')" = "---" ] || continue
     parse_targets+=("$f")
     feedback_parsed=$((feedback_parsed + 1))
-    fb_status=$(awk '
+    fb_status=$(awk -v q="'" '
         NR == 1 { next }
         /^---[[:space:]]*$/ { exit }
-        /^status:/ { print $2; exit }
+        /^status:/ {
+            v = $2
+            sub(/\r$/, "", v)
+            a = substr(v, 1, 1); z = substr(v, length(v), 1)
+            if (length(v) >= 2 && a == z && (a == "\"" || a == q)) v = substr(v, 2, length(v) - 2)
+            print v; exit
+        }
     ' "$f")
     case "$VALID_FEEDBACK_STATUS" in
         *" ${fb_status:-∅} "*) : ;;

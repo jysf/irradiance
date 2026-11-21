@@ -74,10 +74,19 @@ worktrees=""
 if command -v git >/dev/null 2>&1 \
     && listing=$(git -C "$script_root" worktree list --porcelain 2>/dev/null); then
     # A worktree whose directory is gone (prunable) has nothing to write
-    # into; its recorded path is kept as it is.
+    # into; its recorded path is kept as it is. So is one whose directory
+    # exists but cannot be entered (SPEC-083): under set -e a failed cd here
+    # used to end the script with no message of its own.
     worktrees=$(printf '%s\n' "$listing" | sed -n 's/^worktree //p' \
         | while IFS= read -r wt; do
-            if [ -d "$wt" ]; then (cd "$wt" && pwd -P); else printf '%s\n' "$wt"; fi
+            if [ -d "$wt" ]; then
+                (cd "$wt" 2>/dev/null && pwd -P) || {
+                    echo "sdk-stage2: cannot enter worktree $wt; refusing its recorded path as it is" >&2
+                    printf '%s\n' "$wt"
+                }
+            else
+                printf '%s\n' "$wt"
+            fi
         done)
 fi
 if [ -z "$worktrees" ]; then
@@ -85,13 +94,14 @@ if [ -z "$worktrees" ]; then
     worktrees=$script_root
 fi
 if [ -d "$out" ]; then
-    out_abs=$(cd "$out" && pwd -P)
+    out_abs=$(cd "$out" 2>/dev/null && pwd -P) || die "cannot enter the output directory: $out"
 elif [ -e "$out" ]; then
     die "output path exists and is not a directory: $out"
 else
     parent=$(dirname "$out")
     [ -d "$parent" ] || die "the output directory's parent does not exist: $parent"
-    out_abs=$(cd "$parent" && pwd -P)/$(basename "$out")
+    parent_abs=$(cd "$parent" 2>/dev/null && pwd -P) || die "cannot enter the output directory's parent: $parent"
+    out_abs=$parent_abs/$(basename "$out")
 fi
 # A here-document, not a pipe, so die exits the script and not a subshell.
 while IFS= read -r repo; do
