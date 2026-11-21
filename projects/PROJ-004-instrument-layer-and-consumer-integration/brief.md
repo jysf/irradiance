@@ -4,7 +4,7 @@
 
 project:
   id: PROJ-004
-  status: proposed
+  status: shipped
   activity: requirements
   priority: medium
   target_ship: null
@@ -13,9 +13,9 @@ repo:
   id: irradiance
 
 created_at: 2026-11-11
-shipped_at: null
+shipped_at: 2026-11-20
 
-closed_reason: null
+closed_reason: shipped
 
 value:
   thesis: >
@@ -42,21 +42,39 @@ value:
     - "Optical-black modes need an opcode/masked-column inventory spike first (docs/future-plans.md); without it Stage B is guesswork"
 
 value_realized:
-  thesis_held: null
-  signals_observed: []
-  evidence: null
-  notes: null
+  thesis_held: partly
+  signals_observed:
+    - "Preview-slice accessors (SPEC-062), WarpRect::lerp with warp_alpha (SPEC-064) and the two framing modes (SPEC-063) shipped with analytic oracles and red-proofs; caller scratch (SPEC-065) gives a zero-allocation mono develop"
+    - "Every new API is zero-I/O and caller-allocated, and no runtime dependency was added across four releases (0.2.1 to 0.2.4)"
+    - "The three held Pixel DNGs decode bit-exact against dnglab as tiled planes (SPEC-058) and their mandatory OpcodeList2 GainMaps are applied (SPEC-059), matching Adobe dng_validate within 1 code at the gain step (SPEC-060)"
+    - "A clean-room DNG writer builds every fixture the oracles need (STAGE-013, SPEC-057); its public write form moved to PROJ-005 with a named consumer"
+  evidence: >
+    Four of six success signals were met. The instrument and develop surface
+    onyx/monorail asked for shipped and was released (0.2.2), along with phone
+    DNG support, a dng_validate-conformant black normalisation (DEC-070) and
+    the colour levels refusal (0.2.3, 0.2.4). The two crustyimg signals were
+    not observed: that work lives in crustyimg's STAGE-056, which is still
+    proposed, so STAGE-004 was cancelled as superseded. The public writer's
+    acceptance signal moved to PROJ-005.
+  notes: >
+    The thesis named two consumers. One, onyx/monorail, drove almost every
+    stage and got what it asked for; the other, crustyimg, never scheduled its
+    side, so the integration signals depended on another repo's calendar, as
+    the brief's first risk predicted. Next time, score a consumer-gated signal
+    against that consumer's schedule at frame time, not at close. Two framed
+    pieces lost their caller mid-project (the ADU histogram moved to onyx,
+    optical black was parked); waiting for a named caller, as the risks asked,
+    avoided building them speculatively.
 
 roadmap: []
 ---
 
 # PROJ-004: Instrument layer and consumer integration
 
-> **PROPOSED. Not yet framed.** This project was created at PROJ-001's close
-> (2026-11-11) so STAGE-004 (crustyimg integration) has an owner after PROJ-001
-> ships. Run Prompt 1a/1b (project frame + brief) before any stage here goes
-> active. The detailed plan for the instrument layer is in
-> `docs/future-plans.md` § PROJ-004.
+> **CLOSED 2026-11-20 (shipped, thesis partly held).** 12 stages shipped, STAGE-004
+> cancelled as superseded by crustyimg's STAGE-056, STAGE-017 (the public DNG writer)
+> moved to PROJ-005. Created at PROJ-001's close (2026-11-11) so STAGE-004 had an owner;
+> see the Project-Level Reflection below.
 
 ## What This Project Is
 
@@ -116,7 +134,7 @@ Order agreed with the maintainer 2026-11-11: writer → tiled reader → GainMap
 - [x] STAGE-025 (shipped 2026-11-20) — Black normalisation vs the DNG SDK, and PROJ-004 close-out. SPEC-078 (PR 276): DEC-070 scales black normalisation by white minus the maximum black (DNG 1.7.1 ch. 5, the SDK agrees) on the colour path and mono `PerPosition`; the Canon and Pixel 3a/4a go from up to 6 codes off `dng_validate` to within 1; `FirstValue` and uniform-black files byte-identical; `DEVELOP_VERSION` 7; DEC-070 §3 amended (colour stays total). SPEC-079 (PR 279): IFD-walking `sdk-stage2.sh`, a cross-check that fails when switched on without inputs, the SDK licence finding in the ledger, the monorail triage record addressed, the FU-2 fixture gap closed. 59.70M / $42.67 in specs, $70.36 with orchestration. The last PROJ-004 stage; FU-1 (a colour levels refusal), STAGE-017 and STAGE-004 move to the next project at close.
 - [x] STAGE-026 (shipped 2026-11-21) — Colour levels refusal, tooling fixes and the 0.2.4 release. SPEC-080 (PR 283): the four colour entries refuse WhiteLevel at or below the maximum applied black with `InvalidLevels`, no output change; `just validate` parses `feedback/`; `sdk-stage2.sh` refuses any worktree. SPEC-083 (PR 287): **irradiance 0.2.4 published to crates.io 2026-11-21** (tag `v0.2.4` on `ef37e6b`, docs.rs green, clean-host smoke passed), carrying DEC-070 and the refusal. 53.23M / $37.80 in specs, $78.29 with orchestration.
 - [→] STAGE-017 — moved to PROJ-005 (public DNG writer for the onyx Darkroom) on 2026-11-20, with SPEC-061. onyx needs DNG writing for its Darkroom v1, not its Sensor Inspector; moved so PROJ-004 can close.
-- [ ] STAGE-004 (proposed) — crustyimg integration: `raw-develop` feature, adapter, metadata truthfulness (moved from PROJ-001 2026-11-11; implemented crustyimg-side as its PROJ-016/STAGE-056)
+- [–] STAGE-004 (cancelled 2026-11-21) — crustyimg integration: `raw-develop` feature, adapter, metadata truthfulness (moved from PROJ-001 2026-11-11). Superseded by crustyimg's own PROJ-016/STAGE-056, which owns all of it; irradiance's side is a published dependency (0.2.4 on crates.io).
 - [x] STAGE-018 (shipped 2026-11-12) — Instrument layer A: preview slice accessors (SPEC-062 shipped, DEC-057; 25.00M / $18.87, verify punch list fixed in PR 209). It is first in the order agreed with monorail-000 / onyx-000 on 2026-11-12. The ADU histogram/zones and bad-pixel listing from future-plans Stage A are not planned here. onyx computes the histogram itself (onyx DEC-010), so crustyimg STAGE-062 is the only possible caller left.
 - [ ] (parked) — Instrument layer B: optical black. Its only named caller, the onyx / Monochrom app, now computes the optical-black reductions itself (onyx DEC-010, 2026-11-12). Revisit only if irradiance's own develop needs optical-black-based black subtraction.
 - [x] (framed as STAGE-023 / SPEC-075) — ~~`MaskedAreas` pass-through~~: read DNG tag 50830 into a new `Sensor` field, rectangles verbatim, no strip naming, no develop change. onyx request 5, item 8 in `feedback/2026-11-11-monorail-000-requests.md`. No held DNG has the tag, so fixtures come from the SPEC-057 writer. Fits STAGE-014 (0.2.x maintenance) or beside Stage C. `[XS]`/`[S]`.
@@ -128,7 +146,7 @@ Order agreed with the maintainer 2026-11-11: writer → tiled reader → GainMap
 
 Spec chain: SPEC-057 → (SPEC-058, SPEC-059, SPEC-061); SPEC-060 depends on SPEC-058 + SPEC-059.
 
-**Count:** 12 shipped / 0 active / 1 pending (+1 parked) (+1 moved to PROJ-005)
+**Count:** 12 shipped / 0 active / 0 pending (+1 cancelled, +1 parked, +1 moved to PROJ-005)
 
 Consumer requests feeding the unframed stages: `feedback/2026-11-11-monorail-000-requests.md` (triaged; nothing minted).
 
@@ -144,12 +162,36 @@ Consumer requests feeding the unframed stages: `feedback/2026-11-11-monorail-000
 
 ## Project-Level Reflection
 
-*Filled in when status moves to shipped.*
-
-- **Did we deliver the outcome in "What This Project Is"?** <yes/no + notes>
-- **How many stages did it actually take?** <number, compare to plan>
-- **What changed between starting and shipping?** <one or two sentences>
+- **Did we deliver the outcome in "What This Project Is"?** Partly, and the part that
+  landed is the bigger one. The instrument layer onyx/monorail asked for shipped: preview
+  slices, develop options with framing and `warp_alpha`, caller scratch, CFA-as-mono,
+  `MaskedAreas`, unit-level unpack and the kernel speed-ups. So did work the brief only
+  hinted at: tiled planes, Pixel `GainMap`s cross-checked against Adobe's `dng_validate`,
+  black-level correctness, and black normalisation that follows the DNG specification.
+  All of it is on crates.io across 0.2.1 to 0.2.4. The crustyimg integration did not land
+  here: STAGE-004 was cancelled as superseded by crustyimg's own STAGE-056.
+- **How many stages did it actually take?** 12 shipped (STAGE-013, 015, 016, 018 to 026),
+  plus one cancelled (STAGE-004), one moved (STAGE-017, the public writer, to PROJ-005) and
+  one parked (optical black). The brief began with STAGE-004 and three unframed instrument
+  stages; the rest came from monorail-000's requests, the Pixel files, releases and their
+  follow-ups. 24 specs shipped.
+- **What changed between starting and shipping?** The consumer. The brief expected
+  crustyimg to pull the work; in practice onyx/monorail's 2026-11-11 request set the order
+  of STAGE-018 to 023, and its Darkroom v1 is now the named caller for the writer. Two
+  framed items lost their caller and were not built (the ADU histogram, optical black).
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
+  - Codified at this close: the spec template's Acceptance Criteria now says to
+    pre-register every numeric threshold (`pre-register-the-tolerance`, N=4).
+  - Codified in-project: the rule-clause map in the spec template (STAGE-016), the
+    check-the-version-before-tagging line in the release template (STAGE-026).
+  - Still watch: list every assertion a formula change moves (N=2); release notes diff
+    every changed refusal and the errors it pre-empts (N=2); a designed mutant must be
+    able to fail on its fixture (N=1).
 - **What did we defer to the next project?**
-  - <one-line items>
+  - The public DNG writer: STAGE-017 and SPEC-061 are in PROJ-005, re-framed from onyx's
+    Darkroom v1 requirements (PR 284).
+  - Restoring the macOS arm64 determinism leg as blocking, now that runners are back
+    (`macos-arm64-runner-unavailable`, trigger met).
+  - The `sdk-stage2.sh` warning wording nit (SPEC-083 verify FU-3).
+  - `BlackLevelDeltaH/V` (DEC-070 §5), and a non-integral `BlackLevel` above `i32::MAX`.
+  - The parked optical-black stage, if irradiance's own develop ever needs it.
