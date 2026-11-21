@@ -80,8 +80,8 @@ Regenerate after adding or superseding one; `just decisions-index --check` fails
 | [DEC-071](DEC-071-the-public-dng-writer-v1-writes-one-uncompressed-u16-mono-plane-into-a-caller-buffer.md) | The public DNG writer v1 writes one uncompressed, u16, monochrome plane into a caller buffer, and nothing else | 0.75 | accepted | PROJ-005 | — |
 | [DEC-072](DEC-072-the-exif-block-is-built-for-a-fixed-base-offset-and-the-writer-never-rebases-it.md) | The EXIF block is built for a fixed base offset, and the writer never rebases it | 0.7 | accepted | PROJ-005 | — |
 | [DEC-073](DEC-073-the-writer-frames-and-orients-by-tags-and-cuts-samples-only-at-the-activearea-edge.md) | The writer frames and orients by tags, and cuts samples only at the ActiveArea edge | 0.7 | accepted | PROJ-005 | — |
-| [DEC-074](DEC-074-the-writer-carries-the-dng-rendering-hint-tags-as-typed-rationals.md) | The writer carries DNG's rendering-hint tags as typed rationals | 0.85 | proposed | PROJ-005 | — |
-| [DEC-075](DEC-075-the-public-writer-lays-out-one-ifd0-and-one-strip-and-refuses-a-shifting-opcodelist1.md) | The public writer lays out one IFD0 and one strip, and refuses an OpcodeList1 a cut would shift | 0.8 | proposed | PROJ-005 | — |
+| [DEC-074](DEC-074-the-writer-carries-the-dng-rendering-hint-tags-as-typed-rationals.md) | The writer carries DNG's rendering-hint tags as typed rationals | 0.85 | accepted | PROJ-005 | — |
+| [DEC-075](DEC-075-the-public-writer-lays-out-one-ifd0-and-one-strip-and-refuses-a-shifting-opcodelist1.md) | The public writer lays out one IFD0 and one strip, and refuses an OpcodeList1 a cut would shift | 0.8 | accepted | PROJ-005 | — |
 
 ## Superseded
 

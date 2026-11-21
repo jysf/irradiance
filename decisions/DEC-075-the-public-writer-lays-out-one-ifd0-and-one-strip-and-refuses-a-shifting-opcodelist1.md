@@ -22,9 +22,9 @@ created_at: 2026-11-21
 supersedes: null
 superseded_by: null
 
-status: proposed                     # SPEC-061 design; jysf accepts at the design PR
+status: accepted                     # jysf, 2026-11-21, at the SPEC-061 design PR
 
-deciders: [claude]
+deciders: [jysf, claude]
 
 affected_scope:
   - src/dng/**
