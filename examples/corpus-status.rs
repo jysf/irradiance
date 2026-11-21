@@ -21,6 +21,10 @@
 
 #[path = "../tests/support/corpus.rs"]
 mod corpus;
+// SPEC-084: the same two probes the tier-B tests skip on, so the summary
+// states the tool status it actually checked.
+#[path = "../tests/support/tools.rs"]
+mod tools;
 
 use corpus::{CorpusRoot, Manifest, Status};
 
@@ -53,14 +57,14 @@ fn main() -> std::process::ExitCode {
 
     let total = manifest.files.len();
     let present = total - missing;
-    if missing == 0 {
-        println!("corpus: {present}/{total} present — no tier-B test will skip");
-    } else {
-        println!(
-            "corpus: {present}/{total} present, {missing} MISSING — tier-B tests over \
-             those file(s) will SKIP. Set ${} to point at your corpus.",
-            corpus::CORPUS_DIR_ENV
-        );
+    for line in corpus::preflight_summary(
+        present,
+        total,
+        tools::exiftool_available(),
+        tools::dnglab_available(),
+        corpus::CORPUS_DIR_ENV,
+    ) {
+        println!("{line}");
     }
 
     // SPEC-060: the optional Adobe dng_validate cross-check

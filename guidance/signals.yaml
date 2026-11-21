@@ -1739,12 +1739,13 @@ signals:
     summary: "GitHub's hosted macOS arm64 runners were unavailable: the determinism macOS leg was cancelled after about 15 minutes without a runner on every run on 2026-11-18, turning CI red with no test having run."
     evidence: "N=3, 2026-11-18: main 8189855 and 9c3349e, PR 256's pull_request run; annotation 'The job was not acquired by Runner of type hosted even after multiple attempts' plus GitHub's notice of macOS arm64 capacity constraints."
     bar: null
-    status: watch
+    status: done
     disposition_at: project-close
     first_flagged: 2026-11-18
     last_touched: 2026-11-21
     raised_by: claude
     notes: |
+      ══ DONE 2026-11-21, SPEC-084 (STAGE-014), its build PR: the determinism job's continue-on-error is deleted, so the macOS arm64 leg blocks again. Evidence at design: the leg passed on the last 8 CI runs through PR 296. ══
       ══ PROJ-004 CLOSE, 2026-11-21: DEFER WITH TRIGGER MET. The revisit trigger (capacity returns) is met: the macOS arm64 determinism leg passed on PR 287 and recent PRs. Schedule, in the next project, an XS change restoring the leg as blocking (drop continue-on-error), then mark this done. Until then, read that leg on any kernel or determinism-hash PR. ══
       Mitigated: the macOS determinism leg is `continue-on-error`, so a missing runner
       no longer fails CI; the ubuntu leg still gates. Cost of the mitigation: a real arm64
