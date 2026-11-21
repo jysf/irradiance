@@ -22,7 +22,7 @@ created_at: 2026-11-20
 supersedes: null
 superseded_by: null
 
-status: proposed                     # needs jysf's acceptance and diamond-exif's agreement
+status: proposed                     # onyx agreed (monorail-000/DEC-076 item 1); needs jysf's acceptance and diamond-exif's confirmation
 
 deciders: [claude]                   # proposal; jysf and diamond-exif agree or amend
 
@@ -57,10 +57,23 @@ preview follow it.
   offsets are inside the block and even (TIFF word alignment), and the block length
   is padded to even before IFD0. It does not parse, walk or rebase the block.
 - **The writer exposes the base**, as a public constant and as a function of the
-  options that returns it, so a later layout change is a visible, versioned change and
-  not a silent break of `diamond-exif`'s output.
+  options that returns it. `mono-core` reads the base from there and passes it to
+  `diamond-exif`; it never hard-codes 8 (`monorail-000/DEC-076` item 1). Changing the
+  base's value, or making it depend on the options, is a **breaking change**: it needs
+  a DEC amending this one and a semver-major release (pre-1.0, a minor bump), and the
+  release notes name it. A test pins the constant to 8 so the change cannot happen
+  by accident.
 - **No block** means no pointer tags; IFD0 then starts at offset 8. The file is still
   a valid DNG.
+
+## Agreement
+
+- **onyx: agreed**, `monorail-000/DEC-076` item 1 (2026-11-20), on the contract as
+  written: base 8, little-endian, final absolute offsets including the Interop pointer,
+  `diamond-exif` reporting the in-block offsets of the Exif IFD (always) and the GPS IFD
+  (when present).
+- **`diamond-exif`: pending.** onyx has asked it to confirm it can target a fixed base
+  and byte order. SPEC-081 does not leave design without that confirmation.
 
 ## Context
 

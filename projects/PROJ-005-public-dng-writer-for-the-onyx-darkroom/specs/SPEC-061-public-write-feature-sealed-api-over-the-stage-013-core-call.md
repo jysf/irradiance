@@ -86,14 +86,15 @@ cost:
 
 STAGE-017's core spec (PROJ-005). Framed 2026-11-11 as a general public writer; re-scoped
 2026-11-20 from onyx's requirements, `monorail-000/DEC-075` (an external input, referenced
-here, never in `depends_on`). DEC-071 fixes v1's scope and API shape, DEC-073 the framing
+here, never in `depends_on`), as amended by onyx's answer `monorail-000/DEC-076`. DEC-071 fixes v1's scope and API shape, DEC-073 the framing
 rule (tags over sensor-order samples, cut only at the `ActiveArea` edge). STAGE-013's
 test-only writer (`tests/support/dng_writer.rs`, SPEC-057) is the clean-room starting point.
 
 ## Goal
 
 Behind the `write` feature, write one monochrome u16 sensor plane, unchanged, with the
-caller's levels, opcode-list bytes, framing, orientation and masked areas, as an
+caller's levels, opcode-list bytes, framing, orientation, masked areas and the
+required `UniqueCameraModel` (DEC-071 §3a), as an
 uncompressed little-endian DNG into a caller buffer sized by a prior query, with typed
 errors, a `max_pixels` budget, and identical bytes for identical input. Prove it by
 round trip on the held Monochrom files at all three framings and by dnglab, exiftool and

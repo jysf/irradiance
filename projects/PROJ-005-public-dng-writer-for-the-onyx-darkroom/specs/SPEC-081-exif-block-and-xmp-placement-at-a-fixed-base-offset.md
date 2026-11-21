@@ -75,7 +75,7 @@ cost:
     session_count: 0
 ---
 
-# SPEC-081: EXIF block and XMP placement at a fixed base offset
+# SPEC-081: EXIF block, XMP and IFD0 descriptive tags (EXIF block at a fixed base offset)
 
 > **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
 > siblings can declare `depends_on:` on it. Capture **scope** (Context /
@@ -89,15 +89,19 @@ never in `depends_on`) has `diamond-exif` build the source's Exif/GPS/Interop IF
 ready-made block and irradiance place it, write the IFD0 pointer tags, and carry an
 opaque XMP packet. DEC-072 fixes the offset contract: the block is built for a fixed base
 (file offset 8, little-endian) and the writer never parses or rebases it. DEC-072 needs
-`diamond-exif`'s agreement before this spec leaves design.
+`diamond-exif`'s confirmation before this spec leaves design; onyx agreed to it in
+`monorail-000/DEC-076` item 1. `monorail-000/DEC-076` item 4 adds IFD0's descriptive tags
+(`Make`, `Model`, `Artist`, `Copyright`, `DateTime`, `Software`) as typed ASCII options
+(DEC-071 §3a); `UniqueCameraModel`, the seventh, is required and lands in SPEC-061.
 
 ## Goal
 
 Extend the writer's options with an optional EXIF block (with the in-block offsets of its
-Exif and GPS IFDs) and an optional XMP packet; place the block at the fixed base, write
-`ExifIFD`/`GPSInfo` and `XMLPacket`, and check only bounds and alignment. Prove that
-exiftool reads the same values from the written file as from the block's source, with a
-red-proof that a shifted base is caught.
+Exif and GPS IFDs), an optional XMP packet and the six optional descriptive tags; place
+the block at the fixed base, write `ExifIFD`/`GPSInfo`, `XMLPacket` and the descriptive
+tags, check only bounds and alignment for the block and ASCII form for the tags. Prove
+that exiftool reads the same values from the written file as from the block's source and
+the options, with a red-proof that a shifted base is caught.
 
 ## Inputs
 
@@ -147,7 +151,10 @@ is unobservable leaves a mutant the build's suite cannot see (signal
 
 - Building, filtering or rebasing EXIF; MakerNote handling (all `diamond-exif`'s).
 - Interpreting or validating XMP contents.
-- Any change to IFD0 structural tags (SPEC-061; DEC-071 §3).
+- Any change to IFD0 structural tags (SPEC-061; DEC-071 §3); any way for a descriptive
+  field to name a tag number.
+- Reading descriptive values from a source file (`mono-core` does that with
+  `diamond-exif`'s reader).
 
 ## Notes for the Implementer
 

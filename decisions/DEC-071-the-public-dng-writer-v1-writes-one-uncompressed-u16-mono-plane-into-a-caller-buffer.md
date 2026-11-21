@@ -22,7 +22,7 @@ created_at: 2026-11-20
 supersedes: null
 superseded_by: null
 
-status: proposed                     # drafted at STAGE-017 re-frame; accepted by jysf at PR review
+status: proposed                     # drafted at STAGE-017 re-frame; onyx agreed (monorail-000/DEC-076) with two asks folded in as §2 and §3a; jysf accepts at PR review
 
 deciders: [claude]                   # proposal; jysf accepts or amends at review
 
@@ -53,13 +53,32 @@ larger:
    returns the input samples bit for bit.
 2. **Pass-through bytes.** `OpcodeList3` (and, if the caller supplies them,
    `OpcodeList1`/`OpcodeList2`) is written verbatim. The writer never applies or
-   rewrites an opcode list. The XMP packet and the EXIF block are opaque caller bytes
-   (the EXIF placement contract is DEC-072).
+   rewrites an opcode list. Two more opaque caller payloads are in v1 (SPEC-081):
+   - **XMP:** an optional packet written verbatim as IFD0 tag 700 (`XMLPacket`,
+     type BYTE). The writer does not parse or validate it beyond its length. This is
+     where onyx records each export's provenance (`monorail-000/DEC-075` item 5,
+     confirmed in `monorail-000/DEC-076` item 5).
+   - **EXIF block:** an optional Exif/GPS/Interop block, placed per DEC-072.
 3. **Structural tags are the writer's alone.** Every IFD0 structural tag
    (dimensions, `BitsPerSample`, `PhotometricInterpretation`, strip layout,
    `DNGVersion`, levels, `ActiveArea`, `DefaultCrop*`, `Orientation`, `MaskedAreas`,
-   the EXIF/GPS pointers) is computed from the plane and the options. No caller byte
-   blob can supply or override one.
+   the EXIF/GPS pointers, `XMLPacket`'s placement) is computed from the plane and the
+   options. No caller byte blob can supply or override one.
+3a. **Descriptive tags are typed options** (`monorail-000/DEC-076` item 4). `Make`,
+   `Model`, `UniqueCameraModel`, `Artist`, `Copyright`, `DateTime` and `Software` live
+   in IFD0, not in the Exif block, so the caller supplies them as typed fields, never
+   as bytes:
+   - each is an ASCII string field, validated before any write: printable ASCII only
+     (0x20 to 0x7E), no NUL (the writer appends the terminator), and a length bound so
+     the size query cannot overflow. Anything else is a typed error;
+   - `DateTime` must also have TIFF's form, `YYYY:MM:DD HH:MM:SS`. The writer never
+     stamps the time itself, because output must be deterministic;
+   - `UniqueCameraModel` is **required**: DNG requires it and `dng_validate` rejects a
+     file without it (to be confirmed by SPEC-061's design probe). A write without it
+     is a typed error, not a silent default. The other six are optional, and an absent
+     field writes no tag;
+   - these fields map to fixed tag numbers inside the writer. No field can name a tag,
+     so none can set or override a structural tag.
 4. **Encoding.** Compression 1 (uncompressed), strips, one fixed byte order
    (little-endian), `BitsPerSample` 16. No float, no lossy, no tiles, no CFA plane
    in v1. Lossless compression (Compression 7 or deflate) is a later spec on request.
@@ -70,7 +89,9 @@ larger:
    masked" check; that judgement is the caller's (`monorail-000/DEC-075` O3). The
    options carry an explicit, possibly empty, list of masked rectangles. The writer
    validates their geometry (inside the plane, outside `ActiveArea`) and writes the
-   tag only when the list is non-empty.
+   tag only when the list is non-empty. onyx agreed in `monorail-000/DEC-076` item 3:
+   `mono-core` runs its own masked check and passes the list, which is empty for the
+   Q2M.
 7. **API shape.**
    - **Memory in, memory out.** No paths, no `std::io` in the core.
    - **Size query, then write.** A function returns the exact output length for a
@@ -79,7 +100,8 @@ larger:
      output. A `Vec<u8>` convenience may wrap the pair.
    - **One plain options struct**, `#[non_exhaustive]` with a `Default` (DEC-052,
      DEC-058 pattern): framing, orientation, masked areas, opcode-list bytes,
-     preview bytes, EXIF block, XMP bytes, the levels, and `max_pixels`.
+     preview bytes, EXIF block, XMP bytes, the levels, the descriptive tags (§3a),
+     and `max_pixels`.
    - **Errors** are new `Error` variants classified by `Error::kind()` (DEC-051),
      wildcard-free.
    - **Pixel budget.** The caller's `max_pixels` (DEC-050) is checked before any
@@ -93,8 +115,11 @@ larger:
 STAGE-017 was framed on 2026-11-11 as a general public writer (mono and CFA, strips
 and tiles, both byte orders) waiting for a named consumer. onyx (`monorail-000`,
 the same app suite as "monorail") became that consumer on 2026-11-20 and answered the
-six questions in PROJ-005's brief with `monorail-000/DEC-075`. That record is an
-external input, not a dependency: it is referenced, never put in `depends_on`.
+six questions in PROJ-005's brief with `monorail-000/DEC-075`. onyx then answered
+this framing in `monorail-000/DEC-076` (which amends DEC-075): it agreed to §6 and to
+DEC-072 and DEC-073, and asked for §3a (descriptive tags) and for XMP to be explicit
+(§2). Both records are external inputs, not dependencies: they are referenced, never
+put in `depends_on`.
 
 ## Alternatives Considered
 
@@ -118,7 +143,8 @@ external input, not a dependency: it is referenced, never put in `depends_on`.
 - **Positive:** a small public surface, testable in one spec, that onyx can wrap
   without new boundaries.
 - **Negative:** CFA, tiles, compression and big-endian are each a later spec. A
-  consumer wanting them waits.
+  consumer wanting them waits. A `Default` options struct cannot write a file on its
+  own, because `UniqueCameraModel` has no default.
 - **Neutral:** the test-only writer stays in `tests/support` for fixtures; whether the
   public writer shares its code is SPEC-061's design call.
 
@@ -136,4 +162,4 @@ external input, not a dependency: it is referenced, never put in `depends_on`.
 - Related decisions: DEC-016, DEC-050, DEC-051, DEC-052, DEC-055, DEC-057, DEC-058,
   DEC-072, DEC-073
 - External: `monorail-000/DEC-075` (onyx Darkroom v1's writer requirements, accepted
-  2026-11-20)
+  2026-11-20); `monorail-000/DEC-076` (onyx's answer to this framing, 2026-11-20)

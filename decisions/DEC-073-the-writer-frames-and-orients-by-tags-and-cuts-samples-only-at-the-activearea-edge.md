@@ -22,7 +22,7 @@ created_at: 2026-11-20
 supersedes: null
 superseded_by: null
 
-status: proposed                     # a push-back on monorail-000/DEC-075; needs jysf's and onyx's agreement
+status: proposed                     # push-back on monorail-000/DEC-075; onyx agreed (monorail-000/DEC-076 item 2); jysf accepts at PR review
 
 deciders: [claude]
 
@@ -66,6 +66,17 @@ margin is in the samples for a reader that wants it, not in the default view.
   coordinate frame before the table above is final. Any opcode whose coordinates are
   not active-area-relative is refused for the framing that would break it, not
   silently rewritten.
+
+## Agreement
+
+onyx agreed in `monorail-000/DEC-076` item 2 (2026-11-20), for Linear DNG only: its
+TIFF and PNG exports still cut to the framing. It accepts that a Standard-crop file is
+larger and opens uncropped in a reader that ignores `DefaultCrop`.
+
+onyx answered from a summary that did not include the refusal clause above: **a write
+can fail** if SPEC-061's probe finds an `OpcodeList3` opcode whose coordinates are not
+active-area-relative, at the framing that would break it. onyx should know this before
+SPEC-061's design fixes it.
 
 ## Context
 

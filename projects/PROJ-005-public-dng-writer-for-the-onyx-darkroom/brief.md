@@ -108,7 +108,7 @@ Format: `- [status] STAGE-ID — one-line summary`
 ### Depends on
 - PROJ-004 STAGE-013: the clean-room writer core and its verification plan (shipped).
 - PROJ-004 STAGE-025: the local `dng_validate` reference (DEC-069 §6), for acceptance.
-- External input (not a dependency): onyx's answers, `monorail-000/DEC-075`.
+- External inputs (not dependencies): onyx's answers, `monorail-000/DEC-075`, and its answer to the STAGE-017 framing, `monorail-000/DEC-076`.
 
 ### Enables
 - onyx Darkroom v1's DNG output; crustyimg RAW-in/DNG-out.

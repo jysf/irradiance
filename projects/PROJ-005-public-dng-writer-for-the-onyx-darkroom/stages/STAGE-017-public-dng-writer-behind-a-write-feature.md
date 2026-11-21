@@ -26,7 +26,7 @@ value_contribution:
   delivers:
     - "A public writer behind the `write` cargo feature (DEC-055, DEC-071): size query, then a write into a caller `&mut [u8]`; one `#[non_exhaustive]` options struct; `Error::kind()` errors; a `max_pixels` budget checked first; identical bytes for identical input. The default build is unchanged."
     - "Framing (full sensor, full active area, standard crop) and orientation written as tags over sensor-order samples (DEC-073), so a verbatim `OpcodeList3` stays correct"
-    - "Opaque EXIF block placement at a fixed base offset with IFD0 pointer tags (DEC-072), and an opaque XMP packet"
+    - "Opaque EXIF block placement at a fixed base offset with IFD0 pointer tags (DEC-072), an opaque XMP packet (IFD0 tag 700), and IFD0's descriptive tags as typed, ASCII-validated options (DEC-071 §3a)"
     - "An optional caller-encoded JPEG preview as a reduced-resolution subfile"
     - "Output that round-trips bit-exact through irradiance and is accepted by dnglab, exiftool and Adobe dng_validate"
     - "A provenance row: written from the Adobe DNG specification and TIFF 6.0 only"
@@ -90,6 +90,11 @@ this writer as an external gate, together with `diamond-exif`'s EXIF block seria
 | 4: no float | DEC-071 §4 | — |
 | 5 / O4: opaque EXIF block placed, pointers written, offsets fixed; opaque XMP; IFD0 structural tags the writer's own | DEC-072, DEC-071 §3 | SPEC-081 (EXIF, XMP), SPEC-061 (structural tags) |
 | 6: memory in/out, size query + caller buffer, plain options, `Error::kind()`, budget before allocation, no panics, no global state | DEC-071 §7 | SPEC-061 |
+| `monorail-000/DEC-076` 1: EXIF contract agreed; base read from irradiance's public constant | DEC-072 | SPEC-081 |
+| `monorail-000/DEC-076` 2: framing as tags agreed (Linear DNG only) | DEC-073 | SPEC-061 |
+| `monorail-000/DEC-076` 3: caller masked list agreed, empty for the Q2M | DEC-071 §6 | SPEC-061 |
+| `monorail-000/DEC-076` 4: `Make`, `Model`, `UniqueCameraModel`, `Artist`, `Copyright`, `DateTime`, `Software` as typed options | DEC-071 §3a | SPEC-061 (`UniqueCameraModel`, required), SPEC-081 (the other six) |
+| `monorail-000/DEC-076` 5: XMP packet in v1 | DEC-071 §2 | SPEC-081 |
 
 ## Success Criteria
 
@@ -125,8 +130,8 @@ this writer as an external gate, together with `diamond-exif`'s EXIF block seria
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-061 (frame) [M] Public `write` feature core: mono u16 uncompressed writer into a caller buffer, size query, options struct, framing and orientation as tags, levels/opcode pass-through, caller MaskedAreas, `Error::kind()`, max_pixels, determinism, fuzz target, round-trip + dnglab/exiftool/dng_validate acceptance
-- [ ] SPEC-081 (frame) [S] EXIF block and XMP placement: opaque block at the fixed base offset with ExifIFD/GPSInfo pointers (DEC-072), XMLPacket, exiftool parity on a hand-built block, red-proof
+- [ ] SPEC-061 (frame) [M] Public `write` feature core: mono u16 uncompressed writer into a caller buffer, size query, options struct, framing and orientation as tags, levels/opcode pass-through, caller MaskedAreas, required `UniqueCameraModel`, `Error::kind()`, max_pixels, determinism, fuzz target, round-trip + dnglab/exiftool/dng_validate acceptance
+- [ ] SPEC-081 (frame) [S] EXIF block, XMP and IFD0 descriptive tags: opaque block at the fixed base offset with ExifIFD/GPSInfo pointers (DEC-072), XMLPacket, typed ASCII `Make`/`Model`/`Artist`/`Copyright`/`DateTime`/`Software` (DEC-071 §3a), exiftool parity on a hand-built block, red-proof
 - [ ] SPEC-082 (frame) [S] Optional caller JPEG preview stored as a reduced-resolution subfile, read back by irradiance's preview accessors (DEC-057) and accepted by dng_validate
 
 **Count:** 0 shipped / 0 active / 3 pending
@@ -135,9 +140,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 DEC-055 governs the crate layout: the writer stays in the crate behind a feature.
 DEC-071 fixes v1's scope, DEC-072 the EXIF offset contract, DEC-073 the framing rule.
-All three are `proposed` until jysf accepts them; DEC-072 and DEC-073 also need
-onyx's (and, for DEC-072, `diamond-exif`'s) agreement, since they answer or push back
-on `monorail-000/DEC-075`.
+All three are `proposed` until jysf accepts them. onyx agreed to all three in
+`monorail-000/DEC-076` and its two asks (descriptive tags, explicit XMP) are folded into
+DEC-071. `diamond-exif` has still to confirm DEC-072 before SPEC-081 leaves design.
 
 The requirement source is `monorail-000/DEC-075`. It is an external input: specs
 reference it in prose, never in `depends_on`.
@@ -159,6 +164,7 @@ preview and EXIF/XMP specs are in. SPEC-061 keeps its ID and is re-scoped to the
 
 ### External inputs (not `depends_on`)
 - `monorail-000/DEC-075`: the requirements.
+- `monorail-000/DEC-076`: onyx's answer to this framing, amending DEC-075.
 - `diamond-exif`'s block serialiser: SPEC-081 is testable with a hand-built block, but
   DEC-072 needs `diamond-exif` to agree before SPEC-081 leaves design.
 
