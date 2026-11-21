@@ -64,19 +64,28 @@ larger:
    `DNGVersion`, levels, `ActiveArea`, `DefaultCrop*`, `Orientation`, `MaskedAreas`,
    the EXIF/GPS pointers, `XMLPacket`'s placement) is computed from the plane and the
    options. No caller byte blob can supply or override one.
-3a. **Descriptive tags are typed options** (`monorail-000/DEC-076` item 4). `Make`,
-   `Model`, `UniqueCameraModel`, `Artist`, `Copyright`, `DateTime` and `Software` live
-   in IFD0, not in the Exif block, so the caller supplies them as typed fields, never
-   as bytes:
+3a. **Descriptive tags are typed options** (`monorail-000/DEC-076` item 4, as widened
+   on 2026-11-20 after `diamond-exif` raised the same gap). `Make`, `Model`,
+   `UniqueCameraModel`, `LocalizedCameraModel`, `Artist`, `Copyright`, `DateTime`,
+   `Software` and `CameraSerialNumber` live in IFD0, not in the Exif block, so the
+   caller supplies them as typed fields, never as bytes. `diamond-exif` does not hand
+   the writer IFD0 entries to merge (that option was rejected in `monorail-000/DEC-076`):
    - each is an ASCII string field, validated before any write: printable ASCII only
      (0x20 to 0x7E), no NUL (the writer appends the terminator), and a length bound so
      the size query cannot overflow. Anything else is a typed error;
    - `DateTime` must also have TIFF's form, `YYYY:MM:DD HH:MM:SS`. The writer never
      stamps the time itself, because output must be deterministic;
-   - `UniqueCameraModel` is **required**: DNG requires it and `dng_validate` rejects a
-     file without it (to be confirmed by SPEC-061's design probe). A write without it
-     is a typed error, not a silent default. The other six are optional, and an absent
-     field writes no tag;
+   - `UniqueCameraModel` is **required**: DNG requires it in every file, and
+     `dng_validate`'s behaviour without it is confirmed by SPEC-061's design probe. A
+     write without it, or with it empty, fails with an error whose `Error::kind()` is
+     `ErrorKind::CallerError` (DEC-051), checked before any output byte is written. The
+     writer never invents one; `mono-core` always supplies one (the source's value, or
+     Make + Model). The other eight are optional, and an absent field writes no tag, so
+     a caller's strip policy (for example, no serial number) is simply a field left
+     empty;
+   - `LocalizedCameraModel` is ASCII in v1 like the rest. DNG also allows it as UTF-8
+     bytes; a non-ASCII value is a `CallerError`, so the caller leaves it out rather
+     than the export failing. Widening it to UTF-8 is a later, additive change;
    - these fields map to fixed tag numbers inside the writer. No field can name a tag,
      so none can set or override a structural tag.
 4. **Encoding.** Compression 1 (uncompressed), strips, one fixed byte order

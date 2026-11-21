@@ -93,7 +93,7 @@ this writer as an external gate, together with `diamond-exif`'s EXIF block seria
 | `monorail-000/DEC-076` 1: EXIF contract agreed; base read from irradiance's public constant | DEC-072 | SPEC-081 |
 | `monorail-000/DEC-076` 2: framing as tags agreed (Linear DNG only) | DEC-073 | SPEC-061 |
 | `monorail-000/DEC-076` 3: caller masked list agreed, empty for the Q2M | DEC-071 §6 | SPEC-061 |
-| `monorail-000/DEC-076` 4: `Make`, `Model`, `UniqueCameraModel`, `Artist`, `Copyright`, `DateTime`, `Software` as typed options | DEC-071 §3a | SPEC-061 (`UniqueCameraModel`, required), SPEC-081 (the other six) |
+| `monorail-000/DEC-076` 4 (widened): `Make`, `Model`, `UniqueCameraModel`, `LocalizedCameraModel`, `Artist`, `Copyright`, `DateTime`, `Software`, `CameraSerialNumber` as typed ASCII options; `UniqueCameraModel` required (`CallerError` if absent) | DEC-071 §3a | SPEC-061 (options struct + `UniqueCameraModel`), SPEC-081 (the other eight) |
 | `monorail-000/DEC-076` 5: XMP packet in v1 | DEC-071 §2 | SPEC-081 |
 
 ## Success Criteria
@@ -130,8 +130,8 @@ this writer as an external gate, together with `diamond-exif`'s EXIF block seria
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-061 (frame) [M] Public `write` feature core: mono u16 uncompressed writer into a caller buffer, size query, options struct, framing and orientation as tags, levels/opcode pass-through, caller MaskedAreas, required `UniqueCameraModel`, `Error::kind()`, max_pixels, determinism, fuzz target, round-trip + dnglab/exiftool/dng_validate acceptance
-- [ ] SPEC-081 (frame) [S] EXIF block, XMP and IFD0 descriptive tags: opaque block at the fixed base offset with ExifIFD/GPSInfo pointers (DEC-072), XMLPacket, typed ASCII `Make`/`Model`/`Artist`/`Copyright`/`DateTime`/`Software` (DEC-071 §3a), exiftool parity on a hand-built block, red-proof
+- [ ] SPEC-061 (frame) [M] Public `write` feature core: mono u16 uncompressed writer into a caller buffer, size query, options struct, framing and orientation as tags, levels/opcode pass-through, caller MaskedAreas, required `UniqueCameraModel` (`CallerError` if absent), `Error::kind()`, max_pixels, determinism, fuzz target, round-trip + dnglab/exiftool/dng_validate acceptance
+- [ ] SPEC-081 (frame) [S] EXIF block, XMP and IFD0 descriptive tags: opaque block at the fixed base offset with ExifIFD/GPSInfo pointers (DEC-072), XMLPacket, typed ASCII `Make`/`Model`/`LocalizedCameraModel`/`Artist`/`Copyright`/`DateTime`/`Software`/`CameraSerialNumber` (DEC-071 §3a), exiftool parity on a hand-built block, red-proof
 - [ ] SPEC-082 (frame) [S] Optional caller JPEG preview stored as a reduced-resolution subfile, read back by irradiance's preview accessors (DEC-057) and accepted by dng_validate
 
 **Count:** 0 shipped / 0 active / 3 pending

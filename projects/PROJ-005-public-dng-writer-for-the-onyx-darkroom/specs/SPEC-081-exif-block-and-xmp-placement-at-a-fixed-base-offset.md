@@ -90,14 +90,17 @@ ready-made block and irradiance place it, write the IFD0 pointer tags, and carry
 opaque XMP packet. DEC-072 fixes the offset contract: the block is built for a fixed base
 (file offset 8, little-endian) and the writer never parses or rebases it. DEC-072 needs
 `diamond-exif`'s confirmation before this spec leaves design; onyx agreed to it in
-`monorail-000/DEC-076` item 1. `monorail-000/DEC-076` item 4 adds IFD0's descriptive tags
-(`Make`, `Model`, `Artist`, `Copyright`, `DateTime`, `Software`) as typed ASCII options
-(DEC-071 §3a); `UniqueCameraModel`, the seventh, is required and lands in SPEC-061.
+`monorail-000/DEC-076` item 1. `monorail-000/DEC-076` item 4 (widened) adds IFD0's descriptive
+tags (`Make`, `Model`, `LocalizedCameraModel`, `Artist`, `Copyright`, `DateTime`,
+`Software`, `CameraSerialNumber`) as typed ASCII options (DEC-071 §3a);
+`UniqueCameraModel` is required and lands with the options struct in SPEC-061.
+`diamond-exif` confirmed the base-first contract in its own `diamond-exif/DEC-015`
+(proposed): a size query, then a write at an even caller-chosen base with final offsets.
 
 ## Goal
 
 Extend the writer's options with an optional EXIF block (with the in-block offsets of its
-Exif and GPS IFDs), an optional XMP packet and the six optional descriptive tags; place
+Exif and GPS IFDs), an optional XMP packet and the eight optional descriptive tags; place
 the block at the fixed base, write `ExifIFD`/`GPSInfo`, `XMLPacket` and the descriptive
 tags, check only bounds and alignment for the block and ASCII form for the tags. Prove
 that exiftool reads the same values from the written file as from the block's source and

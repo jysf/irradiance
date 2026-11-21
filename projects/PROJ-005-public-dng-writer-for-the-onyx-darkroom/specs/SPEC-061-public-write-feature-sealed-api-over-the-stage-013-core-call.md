@@ -94,7 +94,8 @@ test-only writer (`tests/support/dng_writer.rs`, SPEC-057) is the clean-room sta
 
 Behind the `write` feature, write one monochrome u16 sensor plane, unchanged, with the
 caller's levels, opcode-list bytes, framing, orientation, masked areas and the
-required `UniqueCameraModel` (DEC-071 §3a), as an
+required `UniqueCameraModel` (DEC-071 §3a; a missing or empty one is an
+`ErrorKind::CallerError`), as an
 uncompressed little-endian DNG into a caller buffer sized by a prior query, with typed
 errors, a `max_pixels` budget, and identical bytes for identical input. Prove it by
 round trip on the held Monochrom files at all three framings and by dnglab, exiftool and

@@ -72,8 +72,11 @@ preview follow it.
   written: base 8, little-endian, final absolute offsets including the Interop pointer,
   `diamond-exif` reporting the in-block offsets of the Exif IFD (always) and the GPS IFD
   (when present).
-- **`diamond-exif`: pending.** onyx has asked it to confirm it can target a fixed base
-  and byte order. SPEC-081 does not leave design without that confirmation.
+- **`diamond-exif`: agreed in principle**, `diamond-exif/DEC-015` (proposed, as
+  relayed by onyx on 2026-11-20): base-first, a size query, then a write at an even
+  caller-chosen base with final offsets, so `mono-core` passes this DEC's base and
+  nobody rebases. SPEC-081's design re-checks `diamond-exif/DEC-015` once it is
+  accepted, including that it emits little-endian for a big-endian source.
 
 ## Context
 
