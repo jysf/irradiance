@@ -33,6 +33,13 @@
 //!
 //! What the proof does **not** establish: that code in a module carrying its
 //! own `#[allow(...)]` is covered. It pins the policy at the crate root.
+//! Nor do the lints see every panic: a standard-library call can still panic
+//! on its own preconditions (a length mismatch in `copy_from_slice`, a zero
+//! `step_by`), so each such call is guarded by an explicit check before it.
+//! Fuzzing samples inputs rather than covering them all, and a failed
+//! allocation aborts the process rather than returning an [`Error`]; bound
+//! plane size up front with your own `max_pixels` budget in
+//! [`plane::validate`].
 //!
 //! See constraint `no-panics-on-untrusted-input` in `guidance/constraints.yaml`
 //! and AGENTS.md §11/§12.

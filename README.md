@@ -32,10 +32,18 @@ It is deliberately a **library, not an application**
   pixels. The `irr` binary in this repo is an internal dev/oracle tool and is
   **not** part of the public API.
 - **`#![forbid(unsafe_code)]`.**
-- **Panic-free on untrusted input** — RAW is attacker-influenced binary data.
-  Every fallible read on a parse/decode path returns a typed
-  [`Error`](src/lib.rs) instead of panicking, enforced by five `deny`-level
-  clippy lints and a red-proof CI job (`DEC-009`), not just by review.
+- **Designed not to panic on untrusted input** — RAW is attacker-influenced
+  binary data. Every fallible read on a parse/decode path returns a typed
+  [`Error`](src/lib.rs) instead of panicking. Five `deny`-level clippy lints
+  (`unwrap_used`, `expect_used`, `indexing_slicing`, `panic`,
+  `arithmetic_side_effects`) and a red-proof CI job (`DEC-009`) keep those
+  panic sources out of library code, and fuzz targets exercise the parsers.
+  What that does not prove: a standard-library call can still panic on its
+  own preconditions (each such call is guarded by a check before it, not by
+  a lint), fuzzing samples inputs rather than covering them all, and a failed
+  allocation aborts the process rather than returning an error. Call
+  `plane::validate` with your own `max_pixels` budget first, so an oversized
+  plane is refused before anything is allocated for it.
 - **Edition 2021**, MSRV `1.90` (the measured floor; the true floor is lower
   but unmeasured — see [`Cargo.toml`](Cargo.toml)).
 
