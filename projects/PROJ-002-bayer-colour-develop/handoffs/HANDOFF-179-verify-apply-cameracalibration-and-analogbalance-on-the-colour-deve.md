@@ -58,7 +58,7 @@ handback:
   pr: null                         # verify returns a verdict; PR 306 is under review
   completed_at: 2026-11-22         # YYYY-MM-DD
   notes: "APPROVED at 2267a34 (PR 306 head). FLOOR taken before the handback commit, from transcript 1e544d8e-4a30-4c65-b85b-b51b11836719.jsonl (78 unique message.ids, all claude-opus-5-5, no subagents): input 160 + cache-creation 220,944 (1-hour) + cache-read 15,707,163 + output 58,094. Re-sum at ship." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-22
 ---
 
 # HANDOFF-179: VERIFY: apply CameraCalibration and AnalogBalance on the colour develop (SPEC-085)
