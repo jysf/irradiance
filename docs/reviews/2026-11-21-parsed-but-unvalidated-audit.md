@@ -15,6 +15,10 @@
   the Tier-B corpus with `exiftool` and `irr` (built with `--features irr`).
   Each fix spec should start with the repro, which then doubles as its red-proof
   (`oracle-must-be-shown-red`).
+- **Limit:** the audit read the code, not every `DEC`. One row (mono develop
+  of a CFA-declared plane, §2c) was listed as a gap in the first draft. Review
+  corrected it, because `SPEC-066` / `DEC-061` make it intended behaviour.
+  Check a gap against the decisions log before turning it into a spec.
 - **Scope widened on purpose:** the same failure also happens when a tag is
   *never read at all* but changes what the pixels mean. That case is listed
   separately (§3). The PR 301 bug `CFALayout ignored` was exactly that shape
@@ -109,7 +113,7 @@ Key. **D** = discriminator (an enum-like value that selects behaviour).
 | `DefaultCropOrigin` / `DefaultCropSize` | N | `resolve_geometry` | Zero size or outside the active area is `InvalidDefaultCrop`. Refused. **Malformed (including a fractional `RATIONAL`) → §1.** |
 | `Orientation` | D | `resolve_geometry`, `1..=8` | Anything else is `UnsupportedOrientation`. Refused. **Malformed → §1.** |
 | `MaskedAreas` | N | `masked_areas`, passed through only | Not consumed by develop. No pixel effect. |
-| **`PhotometricInterpretation` on the mono path** | D | **none:** `develop_core` `:1661` never looks at `photometric` or `color_filter` | `develop_into` on a Bayer (`32803`) sensor returns `Ok(())` with the mosaic rendered as grey (a checkerboard). `FixBadPixelsConstant`'s neighbour average also mixes colours. The colour path has the mirror-image guard (`NotAColorFilterArray`). The mono path has none. |
+| `PhotometricInterpretation` on the mono path | D | **by design, not a gap** (`SPEC-066`, `DEC-061`; `src/develop.rs` module docs, "CFA planes develop here too") | `develop_core` does not read `photometric` or `color_filter`, so a CFA-declared plane develops as monochrome. That is the documented "CFA as mono" option: converted mono and IR cameras keep writing `CFAPattern` and Photometric 32803 after the filter is removed. Choosing demosaic or mono is the caller's decision. *Corrected after review: the first draft listed this as a gap (rank 3).* |
 
 ### 2d. Colour (`src/color.rs`)
 
@@ -130,7 +134,7 @@ Key. **D** = discriminator (an enum-like value that selects behaviour).
 | `WarpRectilinear` `N` | D | length must be exactly `4 + 48N + 16` | `N = 0` fails the length check. **`N` is not checked against "1 or the number of planes".** That is harmless on one plane, since K1 is used. |
 | `WarpRectilinear` `kr`, `kt`, `cx`, `cy` | N | finite (PR 301); `kt != 0` gives `UnsupportedWarpTangentialTerms` | **Finite but degenerate values are accepted**, for example `kr0 = 0` (everything samples the centre) or `cx = 1e300`. Under the default-crop framing the sampler clamps to the edge (`bilinear_sample` `src/warp.rs:226`), which gives a flat or smeared image with `Ok(())`. `FullActiveArea` refuses an off-image centre (`full_active_area_admits`). Only reachable with a hostile file. |
 | `FixBadPixelsConstant` `Constant` | N | the length must be 8 | Any value is meaningful. Safe. |
-| `FixBadPixelsConstant` `BayerPhase` | D | **not validated (0..3), and ignored** | Applied only on the mono path, where there is no mosaic, so ignoring it is correct. It would matter only with the §2c mono-on-CFA gap. |
+| `FixBadPixelsConstant` `BayerPhase` | D | **not validated (0..3), and ignored** | Applied only on the mono path, where there is no mosaic, so ignoring it is correct. On a CFA-declared plane developed as mono (by design, §2c), the plane is CFA-removed, so there is no mosaic phase to honour either. |
 | `GainMap` `Top/Left/Bottom/Right` | N | `prepare` `:691` | An empty area means the whole image (`DEC-069`). An area past the image is clipped. Safe. |
 | `GainMap` `Plane` | D | `prepare` | **`Plane ≥ 1` on a one-plane image silently applies to nothing.** A mandatory correction then counts as "applied". Arguably right (there is no such plane), but it is not reported. |
 | `GainMap` `Planes`, `MapPlanes`, `RowPitch`, `ColPitch`, `MapPointsV/H` | D | `parse_gain_map_params` `:500` (non-zero, exact length) | Refused (`MalformedOpcodeParams`). `MapPlanes > Planes` is legal and handled. |
@@ -167,7 +171,7 @@ fixes for the exact PR 301 class broken out.
 |---|---|---|---|
 | **1** | `CameraCalibration1/2` and `AnalogBalance` never read (§3) | **The only gap confirmed live on a held file.** The Pixel 7 Pro colour-develops with `Ok` and its blue calibration (0.34 / 0.57) unapplied. The 4a and 5D III carry smaller calibrations. The `SPEC-035` ColorChecker oracle would catch this once a chart is captured. Until then, nothing does. | S–M (apply: two matrix products on the existing colour path, plus the signature rule) |
 | **2** | Malformed interpretation tags silently become defaults (§1) | One systemic hole. It covers black, white, active area, crop and orientation, and it **re-opens PR 301's two CFA fixes** through a malformed tag. The fix pattern already exists (`DEC-053`). No held file trips it today (`malformed_tags` is empty on the Pixel 7 Pro, corpus-checked), so it is ranked for breadth, not for a known live hit. | M (one spec, one new `Error` variant, per-path tag sets) |
-| **3** | Mono develop accepts a Bayer plane (§2c) | Any consumer that calls `develop_into` on whatever `sensor()` returns gets a grey checkerboard and `Ok(())`. The colour path already has the mirror-image guard. | S (refuse when `color_filter.is_some()` or `photometric != 34892`, unless an explicit option says otherwise) |
+| ~~3~~ | ~~Mono develop accepts a Bayer plane~~ | **Withdrawn after review:** this is intended behaviour (`SPEC-066` / `DEC-061`, the "CFA as mono" option, §2c). Refusing it would lock out converted mono and IR cameras. | — |
 | **4** | `LinearizationTable` never read (§3) | Wrong tone across the whole range, and `Ok(())`. It plausibly affects older Leica mono files, but is unverified in the corpus. Refusing is one tag check. Applying it is a small spec: a LUT before levels. | S (refuse) / M (apply) |
 | **4b** | `DNGBackwardVersion` never read (§3) | The spec-defined "you don't understand this file" guard. It generalises the opcode-version fix to the whole file. Every held file declares 1.1–1.4, so a refusal above 1.7 breaks nothing in the corpus. | S |
 | **5** | `SampleFormat` never read (§3) | Rare, but completely wrong pixels when it happens (16-bit float read as integer). | S (refuse when not 1) |
@@ -185,14 +189,16 @@ fixes for the exact PR 301 class broken out.
   correctness fix on real files, independent of the refusals below. It needs a
   `DEC` for the signature rule and a red-proof (develop the Pixel 7 Pro with the
   calibration forced to identity, and show the result differs).
-- **Spec A, "refuse what we cannot honour" (ranks 4-refuse, 4b, 5, 7-refuse, 10):**
+- **Spec A, "refuse what we cannot honour" (ranks 4-refuse, 4b, 5, 6, 7-refuse, 10):**
   read each tag's presence or value in `sensor()` and refuse at develop with
   typed errors. All are the same shape, and one red-proof fixture can carry
-  each tag.
+  each tag. Rank 6 (the Compression 7 `P` versus `BitsPerSample` check) is a
+  decode-time gate rather than a develop-time one, but it is the same
+  one-line refusal shape.
 - **Spec B, "malformed interpretation tags refuse at develop" (rank 2):**
   generalise `DEC-053` and amend `DEC-012`'s rationale.
-- **Spec C, "mono develop refuses a CFA plane" (rank 3):** plus rank 6 if
-  convenient, since both are one-line gates on the develop entry.
+- *(The first draft's Spec C, "mono develop refuses a CFA plane", is dropped
+  along with rank 3.)*
 - **Later, by demand:** applying `LinearizationTable` and `BlackLevelDelta*`
   instead of refusing them. Ranks 8, 9 and 11 can ride along with whichever
   spec touches the file.
@@ -201,9 +207,9 @@ Each new `Error` variant goes at the **end** of the enum (cargo-semver-checks),
 with an `Error::kind()` arm and the `tests/error_kind.rs` counts updated
 (`DEC-051`).
 
-## 5. Side finding: a stale doc note
+## 5. Side finding: a stale doc note — resolved in PR 302
 
-`docs/conformance-matrix.md` (Pixel row) says the Pixel 7 Pro *"carries a
+`docs/conformance-matrix.md` (Pixel row) said the Pixel 7 Pro *"carries a
 malformed `BlackLevel` (50714)"*. Since `DEC-068`, that fractional `RATIONAL`
 reads and rounds to 1024. `irr ifd` reports `malformed_tags []` (corpus-checked).
-The note should be corrected in the next doc touch.
+**Resolved:** PR 302 corrects the note.
