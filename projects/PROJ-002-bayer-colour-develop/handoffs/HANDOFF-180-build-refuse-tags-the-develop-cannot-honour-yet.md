@@ -58,7 +58,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/309
   completed_at: 2026-11-22         # YYYY-MM-DD
   notes: "Floor, summed live from this session's transcript (ad9e0a16), build plus the verify punch-list fix, 78 messages deduplicated by message.id; in 160, cache creation 220,412, cache read 15,550,093, out 67,748. The punch-list fix is 2,886,509 of it (about $1.85). USD at Opus list rates $5/$25 per MTok with 1-hour cache writes; re-sum after the session for the final figure. Duration is the transcript's timestamp span."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-22
 ---
 
 # HANDOFF-180: Refuse tags the develop cannot honour yet
