@@ -370,6 +370,15 @@ fn refusal_rows() -> Vec<Row> {
             field_holds: |s| s.sample_format == Some(vec![2]),
         },
         Row {
+            // DEC-077 §2 honours only "every value 1". Added at verify
+            // (HANDOFF-181): with one value per row above, a check that
+            // honoured "any value 1" survived every test.
+            name: "b2: SampleFormat = [1, 3]",
+            modify: |d| add(d, shorts(SAMPLE_FORMAT, &[1, 3])),
+            expected: Expected::Tag(SAMPLE_FORMAT),
+            field_holds: |s| s.sample_format == Some(vec![1, 3]),
+        },
+        Row {
             name: "c: LinearizationTable = identity",
             modify: |d| {
                 let identity: Vec<u16> = (0..=u16::MAX).collect();

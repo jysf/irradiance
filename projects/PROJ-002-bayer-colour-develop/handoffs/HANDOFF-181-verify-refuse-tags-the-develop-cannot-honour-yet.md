@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-22
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-086
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
+  verdict: punch-list                    # verify handoffs: approved | punch-list | rejected
+  basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 7653140               # REAL combined count — what cost-audit reads
+  estimated_usd: 6.05              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 8
+  branch: claude/spec-086-verify-base
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  completed_at: 2026-11-22               # YYYY-MM-DD
+  notes: "PUNCH LIST: P1 src, interleave factors read through scalar() so count 0 or [1, 2] develops Ok without a malformed record; P2 tests, SampleFormat [1, 3] row added on this branch (mutant v5 survived without it). Tokens are a floor taken before the handback commit."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -201,43 +201,198 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
+*Filled in by the receiving agent (cold verify, HANDOFF-181).*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-086-verify-base` (no PR, as instructed). Reviewed PR 309's
+  head `258eee9`; the spec judged as designed on `origin/main` (PR 308).
+- **Completed at:** 2026-11-22
+- **All acceptance criteria met?** No, narrowly. AC1 to AC9 pass as written, but DEC-077 §1's
+  read contract is not met for the two interleave factors (punch list P1), and one DEC-077
+  §2 clause ("every value 1") had no test (P2, fixed here, tests only).
+- **For `verify`:** ⚠ **PUNCH LIST** (one `src/` item, one test item already on this branch).
+
+### Punch list
+
+- **P1 (`src/ifd.rs`, for the build branch).** `RowInterleaveFactor` and
+  `ColumnInterleaveFactor` are read through `scalar()`, which keeps only the first value and
+  accepts BYTE, UNDEFINED and RATIONAL. So a factor written with count 0 reads as absent,
+  and one written `[1, 2]` reads as 1. Neither is recorded in `malformed_tags`, and both
+  develop with `Ok`. Probed on a scratch copy: count 0 gives `row_interleave_factor: None`,
+  `malformed_tags: []`, `develop_into` `Ok(())`; `[1, 2]` gives `Some(1)`, `[]`, `Ok(())`.
+  DEC-077 §1 says SHORT or LONG, one value, with a malformed value recorded and then
+  refused by §2. Fix: read both factors with a single-value reader (SHORT or LONG,
+  count exactly 1, otherwise an error that `cost_the_field` records). Add count-0 and
+  count-2 cases for both tags to `ac6_a_malformed_unhonoured_tag_is_refused`. That is
+  red today and green after the fix. `SubTileBlockSize` goes through `array::<2>`, which already
+  records a wrong count; its loose type acceptance is harmless because only exactly `[1, 1]`
+  is honoured. Hostile or hand-made files only: no held file carries either tag.
+- **P2 (tests, done on this branch).** Mutant v5 below ("any value is 1" instead of
+  "every value is 1") survived every test, because each `SampleFormat` fixture had one
+  value. Added row "b2: `SampleFormat` = [1, 3]" to `refusal_rows()` in
+  `tests/unhonoured_tags.rs`. It is green on the real code and red on v5 ("b2 … on
+  DevelopInto: expected Tag(339), got Ok(())"). The row also feeds AC4 (the field holds
+  `[1, 3]`, the plane is unchanged). The orchestrator should carry this commit onto
+  `feat/spec-086-unhonoured-tags` with P1.
+
+### Rulings
+
+- **Malformed `DNGVersion` with no `DNGBackwardVersion` (item 2): acceptable for SPEC-086,
+  not on the punch list.** DEC-077 §2 names only a malformed *backward* version as a refusal,
+  and says "when both are absent there is no check". Treating an unreadable `DNGVersion`
+  like an absent one follows DEC-012's interpretation default, and no held file is
+  affected. Refusing it would change the decision, not fix the build. Follow-up: SPEC-087's
+  general malformed rule should refuse it as `UnsupportedTag { tag: 50706 }`, matching
+  50707, because the file's version is then unknown. It should also add 50706 to
+  `unhonoured_tag_name`.
+- **Read strictness (item 4): all accepted.**
+  - `SampleFormat` SHORT only: TIFF 6.0 says SHORT. A LONG one is recorded malformed and
+    refused, which I probed (`malformed_tags: [339]`, `UnsupportedTag { tag: 339 }`). Being strict
+    here only turns a strange file into a typed refusal, never into wrong pixels.
+  - `SampleFormat` count not tied to `SamplesPerPixel`: accepted, because "every value 1"
+    makes a count mismatch harmless. P2 now pins "every".
+  - `LinearizationTable` SHORT and non-empty: count 0 is recorded malformed and refused
+    (probed). Either reading refuses, because presence alone refuses. Malformed is the
+    more honest field state.
+  - Versions BYTE × 4: as DEC-077 §1 and the DNG tag definition say.
+  - Deltas accepting RATIONAL as well as SRATIONAL: accepted. Only an exact all-zero vector
+    is honoured. A RATIONAL above `i32::MAX` errors and is refused, and a zero
+    denominator is malformed before any division. Leniency cannot reach a wrong-pixel `Ok`.
+
+### Evidence by item
+
+1. **Every entry refuses before writing.** Each of the nine AC1 entries reaches
+   `check_required_processing` as its first statement: `develop_core` (mono, both mono
+   entries and `develop_with_into`); `check_colour_required_processing`, the first line of the
+   four colour entries (the threaded ones before `colour_band_plan`) and of
+   `to_srgb_linear_into`; and the first line of both demosaic entries. `develop_with_into` is
+   not in AC1's list but shares `develop_core`. The opcode primitives (`apply_gain_maps`,
+   `apply_fix_bad_pixels_constant`, `apply_warp_into`) are not develop entries, and nothing
+   changed for them. The sentinel is asserted on every entry and every row. Mutant (h) went red
+   on the sentinel ("a: SampleFormat = 3 on DevelopColorIntoThreaded: dst (and scratch)
+   must be untouched"). Nit: the scratch half of the `develop_with_scratch_into` sentinel
+   is vacuous, because `scratch_len` is 0 with no opcode lists.
+2. **Version guard.** `[u8; 4]` compares lexicographically, byte by byte from the first. AC2
+   develops 1.7.1.0, row i refuses 1.7.1.1, and mutant (c) (`>=`) is red. The default is
+   `[a, b, 0, 0]` from `DNGVersion`, and mutants v1 and v2 (the wrong bytes zeroed) are red on
+   AC3. I have **no local copy of the DNG 1.7.1.0 specification**. My recollection agrees
+   that the default is `DNGVersion` with the last two bytes zeroed, but I did not verify the
+   wording.
+3. **Tag table.** Each refused value, honoured no-op and malformed (ASCII) case is
+   exercised on every entry or on AC6's two entries, and the honoured outputs compare
+   byte-identical, including f32 as bits. Ascending order: row j (written in descending
+   order in the file) and row k. Mutants v3 and v4 are red.
+4. **Strictness.** See Rulings, and P1.
+5. **No hostile-input panics.** The new reads go through `uints`, `rationals` and `payload`,
+   which bound `count` by `MAX_TAG_VALUES` before allocating. Probed: a `LinearizationTable`
+   with count `u32::MAX` is recorded malformed (`TagTooLarge`) and refused, with no panic.
+   A zero delta denominator is checked before the division. `lint-no-allow` (forbidding
+   unwrap, expect, indexing, panic and arithmetic side effects in the lib) is green. The
+   `ifd` fuzz target calls `container.sensor()`, so it now exercises all nine reads, and
+   the `develop` and `plane` targets reach the new checks.
+6. **Decode-time precision.** `check_precision` sits right after `check_strip_shape` on the
+   strip path (`decode_unit`, shared by `unpack_into`, `unpack_unit_into` and
+   `PlaneDecoder::unpack_unit_into`) and on the tile path (`decode_tile_row`). AC5 covers
+   the three paths × strip and tile × both byte orders × both directions. Mutants (g) and v7
+   (the strip only) are red on the tile case. `validate` and `units` never parse a frame
+   header, and neither does the shape check, so leaving them alone is consistent with
+   DEC-077 §3.
+7. **Metadata and plane reads.** AC4 checks `sensor()`, the field values and the `unpack_into`
+   samples for every row on both fixtures. On a copy of the M Monochrom Typ 246 file with
+   `DNGBackwardVersion` rewritten to 1.8.0.0 (exiftool), `irr ifd` and `irr unpack` exit 0,
+   and `irr develop` exits 1 with "DNG backward version 1.8.0.0 is newer than 1.7.1.0, the
+   newest this library reads".
+8. **Nothing held changes.** `just test` with the corpus exits 0: 836 passed, 0 failed,
+   12/12 corpus files present, and only the two SDK cross-checks skip. That matches the
+   build's count. `git diff origin/main -- tests/` touches only the two new files and
+   `error_kind.rs`. `DEVELOP_VERSION` is `"8"`. Independent re-scan (`exiftool -a -G1 -n`,
+   every sub-IFD): no held file has `LinearizationTable`, `BlackLevelDelta*`,
+   `SubTileBlockSize` or either interleave factor. `SampleFormat` appears only on the D300S
+   (sensor SubIFD `1`). The largest `DNGBackwardVersion` is 1.4.0.0. The M Monochrom has
+   `DNGVersion` 1.0.0.0 and no backward version. A SOF-3 header scan of every DNG:
+   the Pixels 3a, 4a and 7 Pro have P = 16 (192 frames each) with BitsPerSample 16, the
+   Typ 246 has 12/12, and the K-3 III has 14/14.
+9. **Errors.** The three variants are appended after `UnsupportedCfaPlaneColor`, in DEC-077 §4's
+   order, with explicit `kind()` arms (no wildcard). `error_kind.rs`: 75 / 17 / 26 / 32,
+   green. DEC-051 has the paragraph. `Display`: named for all eight tags, with "tag" as the
+   fallback. Nit: for a malformed `DNGBackwardVersion` the text "changes what the samples
+   mean and is not applied yet" is not accurate. It could be reworded alongside P1.
+10. **Mutants.** See the table below. 16 mutants after a green control: 15 red, and v5
+    survived until P2.
+11. **Files outside the plan.** `src/color.rs` and `src/develop.rs` gain exactly the nine `None`
+    fields, in their test-only `Sensor` literals. Across `tests/` and `src/`, the only removed
+    lines are the old counts (72, 24, 31), an import line and a match arm, each re-added in
+    extended form. No assertion was weakened.
+12. **Release surface.** The CHANGELOG `[Unreleased]` entries (Added: the fields, constants
+    and variants; Changed: the develop refusals and the decode-time precision) are accurate.
+    `semver-check`: 202 pass, "no semver update required".
+13. **Build cost.** I re-summed the build's transcript
+    (`ad9e0a16-….jsonl`, deduped by `message.id`). It comes to 14,241,449 tokens over a
+    12.5-minute span (21:59 to 22:11 UTC). That is consistent with the reported
+    12,951,904 floor, which left out the handback commit's messages. The duration is
+    plausible: this verify's own full-corpus `just test` plus 16 mutant builds took about
+    the same time on this machine.
+14. **Gates.** All exit 0: `just test` (corpus), `lint-ci`, `lint-no-allow`, `fmt-check`,
+    `validate`, `doc-check`, `cost-audit`, `gate-audit`, `name-length-check`,
+    `decisions-index --check` and `semver-check`. `fmt-check` and `lint-ci` were re-run after
+    the P2 test edit.
+
+**Mutant table** (control first; each mutant in its own `git archive` copy with its own
+`CARGO_TARGET_DIR`, running `unhonoured_tags` and `ljpeg_precision_binding`):
+
+| Mutant | Red on | First failure message |
+|---|---|---|
+| control | — | green (7 + 3) |
+| (a) check not called | ac1 ×2, ac3, ac6 | DNGVersion 1.8.0.0 on DevelopInto: got `Ok(())` |
+| (b) `SampleFormat` 3 honoured | ac1 ×2 | row a / row j wrong tag |
+| (c) `>=` | ac2 | 1.7.1.0 on DevelopInto refused |
+| (d) default ignores `DNGVersion` | ac3 | DNGVersion 1.8.0.0: got `Ok(())` |
+| (e) malformed refusal dropped | ac6 | 339 as ASCII: got `Ok(())` |
+| (f) zero-delta exemption dropped | ac2 | all-zero BlackLevelDeltaH refused |
+| (g) precision check removed | ac5 | P16/BPS12 strip `UnpackInto`: got `Ok` |
+| (h) write before the check, threaded colour | ac1 ×2, ac3 | sentinel on DevelopColorIntoThreaded |
+| v1 default keeps byte 3 (`[a, b, c, 0]`) | ac3 | 1.7.9.9 refused as `[1, 7, 9, 0]` |
+| v2 default zeroes byte 2 (`[a, 0, 0, 0]`) | ac3 | 1.8.0.0: got `Ok(())` |
+| v3 version guard after the tag set | ac1 order | row k: got `UnsupportedTag { 50712 }` |
+| v4 tag set descending | ac1 order | row j: got `UnsupportedTag { 51157 }` |
+| v5 `SampleFormat` honoured when **any** value is 1 | **survived**, red after P2 | b2: got `Ok(())` |
+| v6 delta refusal reads only the first entry | ac1 | row d: got `Ok(())` |
+| v7 precision on the strip path only | ac5 | tiled P16/BPS12: got `Ok` |
+| v8 malformed `DNGBackwardVersion` not refused | ac6 | count 3: got `Ok(())` |
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 7,653,140 (a floor: measured just before the handback commit,
+  so the commit and report turns are not in it).
+- **Estimated USD:** 6.05 (input 95, cache creation 136,714, cache read 7,478,414, output 37,917; Opus 5.5 at $5 / $25 per MTok,
+  1-hour cache writes at 2×).
+- **Duration (minutes):** 8 (transcript timestamp span).
+- **Source of the number:** this session's transcript
+  (`16fda036-1e4a-4623-a3af-c3b20b11da7e.jsonl`, matched by the scratchpad UUID), deduped by
+  `message.id` keeping the largest `output_tokens`, per `docs/cost-tracking.md`. No subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none by the verifier. The build's five deviations are ruled on
+  above: all accepted, with P1 as a gap the build did not list.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - P1 (punch list, `src/`).
+  - SPEC-087: refuse a malformed `DNGVersion` when no backward version is present
+    (`UnsupportedTag { tag: 50706 }`), and name 50706 in `Display`.
+  - Nits, not blocking: the vacuous scratch sentinel, and the 50707 `Display` wording.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing slowed me much. DEC-077 §1 lists the types but not the counts for the scalar
+   tags, which is how P1 slipped past design and build.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-012's "present, shaped wrong" applies to a scalar's count. The shared `scalar()`
+   reader does not record it, so every new scalar tag that a refusal depends on needs a strict reader.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Probe the readers with odd counts (0, 2, `u32::MAX`) before running mutants. It was the
+   cheapest check and it found the only `src/` gap.
