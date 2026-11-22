@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-22
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-085
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 33190077           # REAL combined count — what cost-audit reads
+  estimated_usd: 22.58             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 25
+  branch: feat/spec-085-camera-calibration
+  pr: https://github.com/jysf/irradiance/pull/306
+  completed_at: 2026-11-22         # YYYY-MM-DD
+  notes: "Floor, summed live from this session's transcript (1a2ce1b4), 120 messages deduplicated by message.id; in 247, cache creation 325,538, cache read 32,746,605, out 117,687. USD at Opus list rates $5/$25 per MTok with 1-hour cache writes; re-sum after the session for the final figure. Duration is the transcript's timestamp span."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -238,8 +238,7 @@ If you cannot complete the task:
 
 ### Execution notes
 
-- **Branch / PR:** `feat/spec-085-camera-calibration`, cut from `origin/main` at `7b28fc7`
-  (the design PR 305 merged). The PR link is in the front matter.
+- **Branch / PR:** `feat/spec-085-camera-calibration` (cut from `origin/main` at `7b28fc7`), https://github.com/jysf/irradiance/pull/306
 - **Completed at:** 2026-11-22
 - **All acceptance criteria met?** Yes. Two assertions outside the pre-approved list
   had to change. I stopped and reported them, and the orchestrator approved both before
@@ -338,11 +337,11 @@ own copy of the tree with its own `CARGO_TARGET_DIR`.
 
 ### Cost self-report
 
-- **Tokens (total):** see `handback.tokens_total`. Re-summed from this session's own
+- **Tokens (total):** 33,190,077 (a floor, summed while the session was live). Re-summed from this session's own
   transcript, deduplicated by `message.id`, taking each message's largest
   `output_tokens`. There were no subagents.
-- **Estimated USD:** see the front matter.
-- **Duration (minutes):** see the front matter.
+- **Estimated USD:** 22.58, priced per component.
+- **Duration (minutes):** 25, the transcript's timestamp span.
 - **Source of the number:** the transcript (`basis: transcript`).
 
 ### Drift and new artifacts
