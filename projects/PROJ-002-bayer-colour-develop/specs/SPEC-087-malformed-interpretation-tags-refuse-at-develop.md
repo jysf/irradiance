@@ -99,6 +99,14 @@ empty on the held files), so it is ranked for breadth, not for a live hit.
 
 `depends_on: [SPEC-086]` is about ordering (the shared `Error` tail), not content.
 
+**Carried in from SPEC-085 (shipped 2026-11-22).** Decide at design whether this spec
+also covers a dual-illuminant file with a singular `ColorMatrix1/2`, or a singular
+applied `CameraCalibration1/2`, that the converged weight never uses. Since DEC-076 §5
+such a file develops (the loop starts at D50 and inverts only the product at the
+weight it lands on), and is refused only when the weight needs the singular product.
+So whether it develops depends on the scene. Refuse it outright, or keep the SDK's
+behaviour; see SPEC-085's build ruling and the CHANGELOG entry.
+
 ## Goal
 
 A malformed interpretation tag that a develop path consumes refuses at that

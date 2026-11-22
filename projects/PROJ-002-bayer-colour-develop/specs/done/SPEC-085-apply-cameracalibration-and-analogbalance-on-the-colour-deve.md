@@ -6,19 +6,19 @@
 task:
   id: SPEC-085
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,46 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 30000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-178
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 41789158
+      estimated_usd: 29.10
+      duration_minutes: 34
+      recorded_at: 2026-11-22
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (163 unique message.ids, all claude-opus-5-5, no subagents): input 337 + cache-creation 458,141 (1-hour) + cache-read 41,173,673 + output 157,007, opus-5-5 rates. Includes the verify follow-up turn (89b752a, 4089630). The handback floors were 33,190,077 / $22.58 for the build and 4,124,123 / $3.99 for the follow-ups. Duration is the two active turns (25 + 9), not the 177-minute transcript span with its idle wait. PR 306."
+    - cycle: verify
+      handoff: HANDOFF-179
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 17119033
+      estimated_usd: 12.24
+      duration_minutes: 23
+      recorded_at: 2026-11-22
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (82 unique message.ids, all claude-opus-5-5, no subagents): input 168 + cache-creation 225,871 (1-hour) + cache-read 16,830,567 + output 62,427, opus-5-5 rates. APPROVED at 2267a34 with four follow-ups (tests and CHANGELOG wording), all closed on PR 306 before ship; handback carried into PR 306 by cherry-pick. AC4 reproduced exactly (6/6/1/2/5 codes, bound 12). The handback floor was 15,986,361 and $11.52."
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-11-22
+      notes: "Un-metered main-loop orchestration (frame in PR 304, design with the SDK probe in PR 305); counted at stage grain in STAGE-027's orchestration_cost, not split per spec."
+    - cycle: ship
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-11-22
+      notes: "Un-metered main-loop ship; counted at stage grain in STAGE-027's orchestration_cost."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 58908191
+    estimated_usd: 41.34
+    session_count: 4
+shipped_at: 2026-11-22
 ---
 
 # SPEC-085: Apply CameraCalibration and AnalogBalance on the colour develop (DEC-076)
@@ -375,34 +410,31 @@ DEC-076 clause maps to a test on the path where it changes the output:
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
-
 1. **What would I do differently next time?**
-   — <answer>
+   — Probe before trusting a decision's attribution to the oracle. DEC-034 recorded a
+   fixed 3-pass loop as "dng_sdk's iteration count" for months; the design-time SDK probe
+   found it was not, and that the loop was half the Pixel 7 Pro's error. A one-hour probe
+   at design turned an "apply the calibration" spec into the right fix. Also, the build
+   ran about twice its 30M estimate (41.8M true, 33.2M floor): the six Pixel colour
+   re-pins and the SDK lane each cost more than budgeted.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — DEC-034's pass count is amended by DEC-076 §5 (done at design). The verify's FU-1
+   and FU-2 show a recurring test-design gap: a Tier-A fixture that only exercises the
+   capped or degenerate branch (the loop hit pass 30; the white balance ½, 1, ½ made two
+   formulas equal). Both closed before ship with red-proofs; not yet a recurring-lesson
+   signal (N=1 spec).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. Whether a dual file with a singular `ColorMatrix` or calibration that
+   the converged weight never uses should develop or be refused is routed to SPEC-087
+   (already framed). Emulating the SDK's Robertson CCT and Bradford clipping to close the
+   last 1 to 7 codes stays deferred (DEC-076 alternatives) until SPEC-035's ΔE says it
+   matters.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?** — design
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?** — A Pixel 7 Pro DNG now develops
+   to within 6 codes of Adobe's DNG SDK colour (it was 1,160 codes off, because the camera
+   calibration was ignored and the illuminant weight stopped after 3 passes); every held
+   colour file is within 7 codes, gated at 12.

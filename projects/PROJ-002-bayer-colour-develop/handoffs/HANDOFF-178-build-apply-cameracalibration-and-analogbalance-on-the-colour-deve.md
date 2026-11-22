@@ -58,7 +58,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/306
   completed_at: 2026-11-22         # YYYY-MM-DD
   notes: "Floor, summed live from this session's transcript (1a2ce1b4), 120 messages deduplicated by message.id; in 247, cache creation 325,538, cache read 32,746,605, out 117,687. USD at Opus list rates $5/$25 per MTok with 1-hour cache writes; re-sum after the session for the final figure. Duration is the transcript's timestamp span."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-22
 ---
 
 # HANDOFF-178: BUILD: apply CameraCalibration and AnalogBalance on the colour develop (SPEC-085)
