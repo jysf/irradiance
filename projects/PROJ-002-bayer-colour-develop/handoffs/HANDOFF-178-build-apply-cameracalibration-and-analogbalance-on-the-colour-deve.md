@@ -389,3 +389,62 @@ own copy of the tree with its own `CARGO_TARGET_DIR`.
 3. **If you did this task again, what would you do differently?**
    Grep every pin of the weight and every degenerate-input case before writing code, so
    the stop-and-report lands at the start instead of after the build.
+
+### Verify follow-ups (after HANDOFF-179 approved)
+
+HANDOFF-179 (the cold verify, `face7e4`) approved PR 306 with four follow-ups. All four
+landed in `89b752a`. Only tests and the CHANGELOG changed: no `src/` behaviour, no bound
+widened, nothing re-pinned.
+
+- **FU-1, the tolerance stop.**
+  - `ac2f_the_loop_stops_by_tolerance_well_before_30_passes` runs on the Nikon D300S
+    dual-illuminant tags with their own `AsShotNeutral`, over a 64×64 frame.
+  - The reference stops by tolerance at pass 9. The test pins xy (0.3530156291392405,
+    0.34551698155535704) and g 0.6954583018786118, and asserts that the API develops at
+    that weight.
+  - It also asserts that a tolerance 10× looser or 10× tighter stops on a different pass
+    and develops to different codes.
+  - The old test still pins the pass-30 midpoint. It is renamed
+    `ac2f_the_loop_ends_on_the_midpoint_…` and now asserts 30 passes, ended not by
+    tolerance.
+  - The reference loop became `ref_neutral_to_xy(sensor, tolerance)`.
+- **FU-2, ForwardMatrix identity bit-identity.**
+  - `ac3_an_identity_calibration_keeps_the_rational_white_balance_on_the_fm_path` uses an
+    `AsShotNeutral` red of 32263125/46358789. For that value `den/num` and `1/(num/den)`
+    differ in the last bit.
+  - The pixels (r, 0, 0) for r = 3, 9, 15, 21 were found by search to sit on a rounding
+    boundary.
+  - The test asserts that the reference can see the difference, and that the
+    identity-calibrated API is byte-identical to the uncalibrated one and to DEC-033's
+    `D` from the rationals.
+- **FU-3, CHANGELOG wording.** The entry now says:
+  - a singular `ColorMatrix` develops only when the converged weight never uses it;
+  - it is still refused when the weight needs it, for example when `ColorMatrix1` is the
+    higher-temperature illuminant;
+  - a singular applied calibration whose product goes unused also develops now;
+  - whether to refuse these files is left to SPEC-087.
+- **FU-4, calibrated f32.** `a_calibrated_f32_develop_equals_the_reference_to_the_bit`
+  compares the f32 entry, single-threaded and threaded, on both the ForwardMatrix and the
+  ColorMatrix path, with non-diagonal `CC_1`/`CC_2` and a tilted `AB`. The expected value
+  is `to_linear_f32_into` of the independent reference's `u16` develop, compared to the
+  bit, which is the existing f32 tests' tolerance.
+
+**Red-proofs.** Each mutant was applied to `src/color.rs`, run against `color_oracle`, then
+reverted, with a green control run first.
+
+| Mutant | Goes red on |
+|---|---|
+| (j) tolerance 10× looser | `ac2f_the_loop_stops_by_tolerance…` (Tier A now; before this, only the Tier-B pins) |
+| (j2) tolerance 10× tighter | `ac2f_the_loop_stops_by_tolerance…` |
+| (n) FM identity shortcut removed | `ac3_an_identity_calibration_keeps_the_rational_white_balance…` (it survived the whole suite before) |
+| (l1) f32 entry on the uncalibrated transform | `a_calibrated_f32_develop_equals_the_reference…` and the AC3 refusal row |
+
+**Gates.** All green:
+- `just test` with the corpus (exit 0, 43 `color_oracle` tests);
+- `lint-ci`, `lint-no-allow`, `fmt-check`.
+
+**Extra cost.** 4,124,123 tokens: input 54, cache creation 120,179 (1-hour), cache read
+3,972,071 and output 31,819. That is about $3.99 at opus-5-5 rates over about 9 minutes. It
+is summed from this session's transcript after the follow-up request arrived, and is a
+floor taken before this note's commit. Add it to the `tokens_total` above when re-summing
+at ship.
