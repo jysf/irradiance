@@ -191,6 +191,13 @@ pub(crate) fn scale_bounds(warp: &WarpRect) -> (f64, f64) {
     (min, max)
 }
 
+/// Whether every coefficient and the optical centre of `warp` is finite.
+fn is_finite(warp: &WarpRect) -> bool {
+    warp.kr.iter().chain(warp.kt.iter()).all(|v| v.is_finite())
+        && warp.cx.is_finite()
+        && warp.cy.is_finite()
+}
+
 /// `DEC-059` §3: whether `warp` (already lerped) can be applied over the
 /// whole active area with no sample clamped. True exactly when every
 /// coefficient and the optical centre are finite, `0 ≤ cx, cy ≤ 1`, and
@@ -202,9 +209,7 @@ pub(crate) fn scale_bounds(warp: &WarpRect) -> (f64, f64) {
 ///
 /// Every comparison is written so a NaN refuses.
 pub(crate) fn full_active_area_admits(warp: &WarpRect, bounds: (f64, f64)) -> bool {
-    let finite = warp.kr.iter().chain(warp.kt.iter()).all(|v| v.is_finite())
-        && warp.cx.is_finite()
-        && warp.cy.is_finite();
+    let finite = is_finite(warp);
     let centre_inside = (0.0..=1.0).contains(&warp.cx) && (0.0..=1.0).contains(&warp.cy);
     let (min, max) = bounds;
     finite && centre_inside && min >= 0.0 && max <= 1.0
@@ -329,6 +334,8 @@ fn source_coord(
 ///
 /// - [`Error::WarpSourceWrongLength`] / [`Error::WarpDestWrongLength`] if
 ///   `src`/`dst` do not hold exactly `width * height` samples.
+/// - [`Error::NonFiniteWarpCoefficients`] if any coefficient or the optical
+///   centre is NaN or infinite (checked before the identity shortcut).
 /// - [`Error::UnsupportedWarpTangentialTerms`] if `warp.kt != [0.0, 0.0]`.
 pub fn apply_warp_into(
     warp: &WarpRect,
@@ -359,6 +366,10 @@ pub fn apply_warp_into(
             expected,
             actual: dst.len(),
         });
+    }
+
+    if !is_finite(warp) {
+        return Err(Error::NonFiniteWarpCoefficients);
     }
 
     if is_identity(warp) {
@@ -447,6 +458,35 @@ mod tests {
             matches!(err, Error::UnsupportedWarpTangentialTerms { .. }),
             "{err:?}"
         );
+    }
+
+    #[test]
+    fn non_finite_warp_is_refused_not_resampled_to_black() {
+        let src = vec![100u16, 200, 300, 400];
+        for bad in [f64::NAN, f64::INFINITY] {
+            let mut warps = Vec::new();
+            for i in 0..4 {
+                let mut w = identity_warp();
+                w.kr[i] = bad;
+                warps.push(w);
+            }
+            let mut w = identity_warp();
+            w.cx = bad;
+            warps.push(w);
+            let mut w = identity_warp();
+            w.cy = bad;
+            warps.push(w);
+            for warp in warps {
+                let mut dst = vec![7u16; 4];
+                let err = apply_warp_into(&warp, 2, 2, &src, &mut dst)
+                    .expect_err("non-finite warp must be refused");
+                assert!(
+                    matches!(err, Error::NonFiniteWarpCoefficients),
+                    "{warp:?}: {err:?}"
+                );
+                assert_eq!(dst, vec![7u16; 4], "nothing written on refusal");
+            }
+        }
     }
 
     #[test]

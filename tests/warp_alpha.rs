@@ -796,7 +796,7 @@ fn passing_warps_develop_under_full_active_area() {
 #[test]
 fn each_bounds_clause_refuses() {
     // (label, kr, cx, cy): each fails exactly one clause of DEC-059 §3.
-    let cases: [(&str, [f64; 4], f64, f64); 7] = [
+    let cases: [(&str, [f64; 4], f64, f64); 5] = [
         ("f < 0", [-0.5, 0.0, 0.0, 0.0], 0.5, 0.5),
         // f(0) = f(1) = 0.9, but f(0.5) = 1.05: a corner-only check misses it.
         ("interior peak", [0.9, 0.6, -0.6, 0.0], 0.5, 0.5),
@@ -811,8 +811,6 @@ fn each_bounds_clause_refuses() {
         ),
         ("cx outside", L1021223_KR, 1.5, 0.5),
         ("cy outside", L1021223_KR, 0.5, -0.1),
-        ("NaN kr1", [0.999, f64::NAN, 0.0, 0.0], 0.5, 0.5),
-        ("infinite kr3", [0.999, 0.0, 0.0, f64::INFINITY], 0.5, 0.5),
     ];
     for (label, kr, cx, cy) in cases {
         let sensor = warped_sensor(kr, [0.0, 0.0], cx, cy);
@@ -830,6 +828,28 @@ fn each_bounds_clause_refuses() {
             "{label}: got {err:?}"
         );
         assert_eq!(err.kind(), ErrorKind::Unsupported, "{label}");
+    }
+
+    // A non-finite coefficient or centre never reaches the bounds check: the
+    // opcode parser refuses it as malformed, under every framing (the
+    // standard crop used to resample it to black without an error).
+    let non_finite: [(&str, [f64; 4], f64, f64); 4] = [
+        ("NaN kr1", [0.999, f64::NAN, 0.0, 0.0], 0.5, 0.5),
+        ("infinite kr3", [0.999, 0.0, 0.0, f64::INFINITY], 0.5, 0.5),
+        ("NaN kr0", [f64::NAN, 0.0, 0.0, 0.0], 0.5, 0.5),
+        ("NaN cx", L1021223_KR, f64::NAN, 0.5),
+    ];
+    for (label, kr, cx, cy) in non_finite {
+        let sensor = warped_sensor(kr, [0.0, 0.0], cx, cy);
+        let src = distinct_plane(&sensor);
+        for framing in [Framing::FullActiveArea, Framing::StandardCrop] {
+            let err = refused(label, &sensor, &src, &opts(framing, 1.0));
+            assert!(
+                matches!(err, Error::MalformedOpcodeParams { id: 1, .. }),
+                "{label} {framing:?}: got {err:?}"
+            );
+            assert_eq!(err.kind(), ErrorKind::Corrupt, "{label}");
+        }
     }
 
     // The interior peak is reported as the scale it really reaches.

@@ -49,7 +49,11 @@
 //! fixtures cover BGGR (an unverified phase path is a `measurement-over-generalised`
 //! trap — STAGE-007 Design Notes). A CFA that is not a 2×2 Bayer (an X-Trans
 //! 6×6, a non-Bayer layout) is [`crate::Error::UnsupportedCfaPattern`], a later
-//! stage's work.
+//! stage's work. So is a staggered `CFALayout` (anything but 1,
+//! [`crate::Error::UnsupportedCfaLayout`]) and a `CFAPlaneColor` other than
+//! `[0, 1, 2]` ([`crate::Error::UnsupportedCfaPlaneColor`]): `CFAPattern`'s
+//! values are colour codes, read directly, and the colour matrices assume RGB
+//! plane order.
 //!
 //! # Border policy — phase-preserving reflect
 //!
@@ -109,6 +113,14 @@ use std::sync::{Mutex, PoisonError};
 use crate::ifd::{active_area_origin, Cfa, Sensor};
 use crate::Error;
 
+/// `CFALayout` 1: a rectangular (or square) photosite grid, the DNG default
+/// and the only geometry this demosaic interpolates.
+const CFA_LAYOUT_RECTANGULAR: u32 = 1;
+
+/// `CFAPlaneColor` `[0, 1, 2]`: planes in R, G, B order, the DNG default and
+/// the order the colour matrices are applied in.
+const RGB_PLANE_COLOR: [u8; 3] = [0, 1, 2];
+
 /// A photosite's colour, as the `CFAPattern` colour indices name them
 /// (`0 = Red`, `1 = Green`, `2 = Blue`; `src/ifd.rs`'s [`Cfa`] doc).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,32 +144,55 @@ struct BayerPhase {
 }
 
 impl BayerPhase {
-    /// Validate a [`Cfa`] as a 2×2 Bayer mosaic and read its phase, or `None`
-    /// if it is not the RGGB family (`repeat_dim != [2, 2]`, the wrong colour
-    /// multiset, or greens that are not diagonal).
+    /// Validate a [`Cfa`] as a rectangular 2×2 Bayer mosaic with RGB plane
+    /// order and read its phase.
     ///
-    /// The colour of each position is resolved through `CFAPlaneColor`
-    /// (`plane_color[pattern[i]]`), falling back to the pattern index itself
-    /// when `plane_color` is the DNG default `[0, 1, 2]` identity or absent —
-    /// so both corpus files (default plane colour) and a file that spells the
-    /// mapping out read the same.
-    fn from_cfa(cfa: &Cfa) -> Option<BayerPhase> {
+    /// `CFAPattern` values are TIFF/EP **colour codes** (`0 = Red`,
+    /// `1 = Green`, `2 = Blue`), so each position's colour is read from the
+    /// pattern directly. `CFAPlaneColor` does not change what colour a
+    /// photosite sampled; it says which colour each output plane holds, and so
+    /// how the colour matrices' columns are ordered. The colour pipeline
+    /// assumes R, G, B plane order, so any other `CFAPlaneColor` is refused
+    /// rather than rendered with swapped channels.
+    ///
+    /// # Errors
+    ///
+    /// In this order:
+    ///
+    /// - [`Error::UnsupportedCfaPattern`] if it is not the RGGB family
+    ///   (`repeat_dim != [2, 2]`, the wrong colour multiset, or greens that
+    ///   are not diagonal);
+    /// - [`Error::UnsupportedCfaLayout`] if `CFALayout` is not 1
+    ///   (rectangular): layouts 2–9 place the photosites on staggered
+    ///   positions that rectangular neighbour interpolation would misread;
+    /// - [`Error::UnsupportedCfaPlaneColor`] if `CFAPlaneColor` is not
+    ///   `[0, 1, 2]`.
+    fn from_cfa(cfa: &Cfa) -> Result<BayerPhase, Error> {
+        let pattern_error = || Error::UnsupportedCfaPattern {
+            repeat_dim: cfa.repeat_dim,
+            pattern: cfa.pattern.clone(),
+        };
+        let phase = Self::from_pattern(cfa).ok_or_else(pattern_error)?;
+        if cfa.layout != CFA_LAYOUT_RECTANGULAR {
+            return Err(Error::UnsupportedCfaLayout { layout: cfa.layout });
+        }
+        if cfa.plane_color != RGB_PLANE_COLOR {
+            return Err(Error::UnsupportedCfaPlaneColor {
+                plane_color: cfa.plane_color.clone(),
+            });
+        }
+        Ok(phase)
+    }
+
+    /// The pattern half of [`BayerPhase::from_cfa`]: `None` unless
+    /// `CFAPattern` is a 2×2 RGGB-family mosaic.
+    fn from_pattern(cfa: &Cfa) -> Option<BayerPhase> {
         if cfa.repeat_dim != [2, 2] || cfa.pattern.len() != 4 {
             return None;
         }
 
         let colour_at_slot = |slot: usize| -> Option<Colour> {
-            let plane_idx = *cfa.pattern.get(slot)?;
-            // plane_color maps a plane index to a colour index; for the DNG
-            // default [0, 1, 2] this is the identity, so the pattern value IS
-            // the colour. Fall back to the pattern value when the mapping is
-            // absent or does not cover this index.
-            let colour_idx = cfa
-                .plane_color
-                .get(usize::from(plane_idx))
-                .copied()
-                .unwrap_or(plane_idx);
-            match colour_idx {
+            match *cfa.pattern.get(slot)? {
                 0 => Some(Colour::Red),
                 1 => Some(Colour::Green),
                 2 => Some(Colour::Blue),
@@ -228,7 +263,9 @@ impl BayerPhase {
 /// - [`Error::NotAColorFilterArray`] if `sensor.color_filter` is `None` (a
 ///   monochrome plane has nothing to demosaic).
 /// - [`Error::UnsupportedCfaPattern`] if the CFA is not a 2×2 Bayer of the
-///   RGGB family.
+///   RGGB family, then [`Error::UnsupportedCfaLayout`] for a `CFALayout`
+///   other than 1, then [`Error::UnsupportedCfaPlaneColor`] for a
+///   `CFAPlaneColor` other than `[0, 1, 2]`.
 /// - [`Error::DemosaicSourceWrongLength`] if `src.len() != width * height`.
 /// - [`Error::RgbBufferWrongLength`] if `dst.len() != width * height * 3`.
 ///
@@ -247,10 +284,7 @@ pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<()
         .color_filter
         .as_ref()
         .ok_or(Error::NotAColorFilterArray)?;
-    let phase = BayerPhase::from_cfa(cfa).ok_or_else(|| Error::UnsupportedCfaPattern {
-        repeat_dim: cfa.repeat_dim,
-        pattern: cfa.pattern.clone(),
-    })?;
+    let phase = BayerPhase::from_cfa(cfa)?;
 
     let width = sensor.width;
     let height = sensor.height;
@@ -508,8 +542,7 @@ pub(crate) fn is_supported_bayer(sensor: &Sensor) -> bool {
     sensor
         .color_filter
         .as_ref()
-        .and_then(BayerPhase::from_cfa)
-        .is_some()
+        .is_some_and(|cfa| BayerPhase::from_cfa(cfa).is_ok())
 }
 
 /// Rows of halo a band develops beyond each side of its own rows (`DEC-044`):
@@ -704,7 +737,9 @@ fn u32_from(v: usize) -> u32 {
 /// # Errors
 ///
 /// - [`Error::NotAColorFilterArray`] if `sensor.color_filter` is `None`.
-/// - [`Error::UnsupportedCfaPattern`] if the CFA is not a 2×2 RGGB-family Bayer.
+/// - [`Error::UnsupportedCfaPattern`] if the CFA is not a 2×2 RGGB-family
+///   Bayer, then [`Error::UnsupportedCfaLayout`] /
+///   [`Error::UnsupportedCfaPlaneColor`] (see [`demosaic_into`]).
 /// - whatever `setup` returns ([`crate::color`] builds the colour matrix there,
 ///   so [`Error::MissingColorCalibration`] surfaces **after** the CFA check,
 ///   matching the pre-fuse error order).
@@ -729,10 +764,7 @@ where
         .color_filter
         .as_ref()
         .ok_or(Error::NotAColorFilterArray)?;
-    let phase = BayerPhase::from_cfa(cfa).ok_or_else(|| Error::UnsupportedCfaPattern {
-        repeat_dim: cfa.repeat_dim,
-        pattern: cfa.pattern.clone(),
-    })?;
+    let phase = BayerPhase::from_cfa(cfa)?;
 
     // Build the per-pixel sink (and, inside it, the colour matrix) only after
     // the CFA is validated, so a missing-calibration error surfaces after an

@@ -732,7 +732,9 @@ pub enum Error {
     /// contents do not match what that opcode's own parameter layout
     /// requires. `WarpRectilinear`'s `N` (coefficient-set count) implies an
     /// exact byte length (`4 + 48*N + 16`, DNG 1.7.0.0 §6.4.1); a declared
-    /// `DataSize` that disagrees is this error, not a guess.
+    /// `DataSize` that disagrees is this error, not a guess. So is a
+    /// `WarpRectilinear` coefficient or optical centre that is NaN or
+    /// infinite: applied, it would silently resample every pixel to black.
     MalformedOpcodeParams {
         /// The opcode ID whose parameters were malformed.
         id: u32,
@@ -1086,6 +1088,48 @@ pub enum Error {
         /// `stage2.len()` as given.
         actual: usize,
     },
+
+    /// A **mandatory** opcode (DNG `Flags` bit 0 unset) whose header declares
+    /// a DNG specification version newer than this reader supports (1.7.1.0).
+    /// DNG 1.7.0.0 p.105: a reader must not process an opcode version newer
+    /// than it understands, so even a recognized ID is not applied — an
+    /// optional one is skipped, a mandatory one is this error.
+    UnsupportedOpcodeVersion {
+        /// The opcode ID.
+        id: u32,
+        /// The declared `DNGSpecVersion`, its four bytes read big-endian
+        /// (`0x0103_0000` = 1.3.0.0).
+        version: u32,
+    },
+
+    /// [`warp::apply_warp_into`] was given an [`opcode::WarpRect`] with a NaN
+    /// or infinite coefficient or optical centre. The opcode parser never
+    /// yields one (it is [`Error::MalformedOpcodeParams`] there), so this is
+    /// a hand-built or hand-edited warp; resampling with it would silently
+    /// write black.
+    NonFiniteWarpCoefficients,
+
+    /// [`demosaic::demosaic_into`]'s [`ifd::Cfa`] has a `CFALayout` other
+    /// than 1 (rectangular). Layouts 2–9 (DNG 1.7.0.0 p.26) put alternate rows
+    /// or columns at half-pixel offsets; the bilinear baseline interpolates on
+    /// a rectangular grid and would misplace every neighbour, so a staggered
+    /// layout is refused rather than rendered wrong. Checked after
+    /// [`Error::UnsupportedCfaPattern`].
+    UnsupportedCfaLayout {
+        /// `CFALayout` as found.
+        layout: u32,
+    },
+
+    /// [`demosaic::demosaic_into`]'s [`ifd::Cfa`] has a `CFAPlaneColor`
+    /// other than `[0, 1, 2]`. `CFAPattern` already names each photosite's
+    /// colour; `CFAPlaneColor` orders the planes, and so the colour matrices'
+    /// columns. The colour pipeline assumes R, G, B plane order, so another
+    /// order is refused rather than developed with swapped channels. Checked
+    /// after [`Error::UnsupportedCfaLayout`].
+    UnsupportedCfaPlaneColor {
+        /// `CFAPlaneColor` as found.
+        plane_color: Vec<u8>,
+    },
 }
 
 /// Why a preview IFD's bytes are not returned as one slice (`SPEC-062`,
@@ -1402,10 +1446,21 @@ impl fmt::Display for Error {
                     "gain-map stage-2 image holds {actual} sample(s), expected {expected}"
                 )
             }
+            Error::NonFiniteWarpCoefficients => f.write_str(
+                "WarpRectilinear has a NaN or infinite coefficient or optical centre",
+            ),
             Error::UnsupportedMandatoryOpcode { id } => {
                 write!(
                     f,
                     "opcode {id} is unrecognized and not marked optional (DNG Flags bit 0)"
+                )
+            }
+            Error::UnsupportedOpcodeVersion { id, version } => {
+                let [a, b, c, d] = version.to_be_bytes();
+                write!(
+                    f,
+                    "opcode {id} declares DNG version {a}.{b}.{c}.{d}, newer than this reader \
+                     supports, and is not marked optional (DNG Flags bit 0)"
                 )
             }
             Error::UnsupportedRequiredOpcode { list, id } => {
@@ -1480,6 +1535,20 @@ impl fmt::Display for Error {
                     f,
                     "CFA pattern {pattern:?} with repeat_dim {repeat_dim:?} is not a supported \
                      2x2 Bayer (RGGB-family) mosaic"
+                )
+            }
+            Error::UnsupportedCfaLayout { layout } => {
+                write!(
+                    f,
+                    "CFALayout {layout} is not supported (only 1, a rectangular grid, is \
+                     demosaiced)"
+                )
+            }
+            Error::UnsupportedCfaPlaneColor { plane_color } => {
+                write!(
+                    f,
+                    "CFAPlaneColor {plane_color:?} is not supported (only [0, 1, 2], RGB plane \
+                     order)"
                 )
             }
             Error::DemosaicSourceWrongLength { expected, actual } => {
@@ -1640,7 +1709,8 @@ impl Error {
             | Error::RgbBufferWrongLength { .. }
             | Error::ColorSourceWrongLength { .. }
             | Error::LjpegPlaneWrongLength { .. }
-            | Error::InvalidWarpAlpha { .. } => ErrorKind::CallerError,
+            | Error::InvalidWarpAlpha { .. }
+            | Error::NonFiniteWarpCoefficients => ErrorKind::CallerError,
 
             // Well-formed input this library does not decode. A non-TIFF or a
             // TIFF with no RAW sensor IFD is "not a file I read", and a file
@@ -1655,11 +1725,14 @@ impl Error {
             | Error::UnsupportedPreviewLayout { .. }
             | Error::UnsupportedOrientation { .. }
             | Error::UnsupportedMandatoryOpcode { .. }
+            | Error::UnsupportedOpcodeVersion { .. }
             | Error::UnsupportedRequiredOpcode { .. }
             | Error::UnsupportedWarpTangentialTerms { .. }
             | Error::UnsupportedWarpedFullActiveArea { .. }
             | Error::NotAColorFilterArray
             | Error::UnsupportedCfaPattern { .. }
+            | Error::UnsupportedCfaLayout { .. }
+            | Error::UnsupportedCfaPlaneColor { .. }
             | Error::MissingColorCalibration
             | Error::LjpegUnsupportedProcess { .. }
             | Error::LjpegUnsupportedComponentCount { .. }

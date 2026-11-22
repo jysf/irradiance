@@ -345,7 +345,8 @@ pub fn to_srgb_linear_into(
 ///   (`DEC-070` §3), reporting `B` and `W`, before any write.
 /// - [`Error::MalformedOpcodeParams`] `{ id: 9, .. }` or [`Error::TooManyGainMaps`]
 ///   for `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069` §3), before any write.
-/// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] for a
+/// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] /
+///   [`Error::UnsupportedCfaLayout`] / [`Error::UnsupportedCfaPlaneColor`] for a
 ///   non-CFA plane or an unsupported mosaic, or [`Error::MissingColorCalibration`]
 ///   if the colour matrix cannot be built — in that order (CFA before matrix).
 ///
@@ -437,6 +438,7 @@ fn develop_color_u16_with<N: Fn(u32, u32) -> u16>(
 /// - [`Error::MalformedOpcodeParams`] `{ id: 9, .. }` or [`Error::TooManyGainMaps`]
 ///   for `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069` §3), before any write.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] /
+///   [`Error::UnsupportedCfaLayout`] / [`Error::UnsupportedCfaPlaneColor`] /
 ///   [`Error::MissingColorCalibration`], in that order (CFA before matrix).
 ///
 /// Never panics.

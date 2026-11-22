@@ -53,7 +53,7 @@ use std::num::NonZeroU32;
 use corpus::{CorpusRoot, Manifest};
 use dng_writer::{write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload};
 use irradiance::ifd::{ByteOrder, Container, Sensor, TAG_ROWS_PER_STRIP};
-use irradiance::plane::{units, unpack_into, unpack_unit_into};
+use irradiance::plane::{units, unpack_into, unpack_unit_into, PlaneDecoder};
 use tiff::Order;
 
 struct Counting;
@@ -287,6 +287,22 @@ fn unit_allocations(sensor: &Sensor, order: ByteOrder, file: &[u8], rows: u32) -
             unpack_unit_into(sensor, order, file, u, &mut plane[at..at + k]).expect("unit");
         }
     });
+    // The same decode through a decoder built once: building it and every
+    // unit decode allocate nothing either.
+    let (decoder_allocs, ()) = count(|| {
+        let decoder = PlaneDecoder::new(sensor, order, file).expect("decoder");
+        for u in &all {
+            let at = u.row_start as usize * width;
+            let k = u.samples(sensor.width).unwrap();
+            decoder
+                .unpack_unit_into(u, &mut plane[at..at + k])
+                .expect("unit");
+        }
+    });
+    assert_eq!(
+        decoder_allocs, decode_allocs,
+        "the decoder path allocated more"
+    );
     // Error paths: a wrong-length band.
     let u = last.unwrap();
     let (err_allocs, ()) = count(|| {
