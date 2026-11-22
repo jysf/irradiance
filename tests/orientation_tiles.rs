@@ -298,7 +298,10 @@ fn assert_same(label: &str, w: u32, got: &[u16], want: &[u16]) {
 
 #[test]
 fn every_orientation_matches_an_independent_gather() {
-    assert_eq!(DEVELOP_VERSION, "7", "DEC-070 bumps DEVELOP_VERSION to 7");
+    assert_eq!(
+        DEVELOP_VERSION, "8",
+        "DEC-070 bumps DEVELOP_VERSION to 7, DEC-076 to 8"
+    );
     for (crop_w, crop_h) in CROPS {
         let shape = Shape::around(crop_w, crop_h);
         let src = distinct_plane(&shape);

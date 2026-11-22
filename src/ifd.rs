@@ -188,6 +188,24 @@ pub const TAG_FORWARD_MATRIX_1: u16 = 50964;
 /// DNG 1.7 §Chapter 4: `ForwardMatrix2` — 9 SRATIONAL, for illuminant 2. Tag
 /// `0xC715`. Likewise absent on the Nikon.
 pub const TAG_FORWARD_MATRIX_2: u16 = 50965;
+/// DNG 1.7 §Chapter 4: `CameraCalibration1` — 9 SRATIONAL, the per-camera
+/// calibration for illuminant 1 (`XYZtoCamera = AB · CC · CM`). Tag `0xC623`.
+/// Applied by the colour develop under the signature rule (`SPEC-085`, `DEC-076`).
+pub const TAG_CAMERA_CALIBRATION_1: u16 = 50723;
+/// DNG 1.7 §Chapter 4: `CameraCalibration2` — 9 SRATIONAL, for illuminant 2.
+/// Tag `0xC624`.
+pub const TAG_CAMERA_CALIBRATION_2: u16 = 50724;
+/// DNG 1.7 §Chapter 4: `AnalogBalance` — N RATIONAL (one per plane colour), the
+/// analog gain already applied to the raw values. Tag `0xC627`, adjacent to
+/// `AsShotNeutral`'s `0xC628`.
+pub const TAG_ANALOG_BALANCE: u16 = 50727;
+/// DNG 1.7 §Chapter 4: `CameraCalibrationSignature` — ASCII or BYTE, names the
+/// calibration `CameraCalibration1/2` belong to. Tag `0xC6F3`.
+pub const TAG_CAMERA_CALIBRATION_SIGNATURE: u16 = 50931;
+/// DNG 1.7 §Chapter 4: `ProfileCalibrationSignature` — ASCII or BYTE, names the
+/// calibration the camera profile was made against. Tag `0xC6F4`. The
+/// calibration applies only when the two signatures are equal (`DEC-076` §2).
+pub const TAG_PROFILE_CALIBRATION_SIGNATURE: u16 = 50932;
 
 /// DNG 1.7: `PhotometricInterpretation = LinearRaw`. The sensor plane *is* the
 /// image; there is no CFA to demosaic (`docs/measured-q2m-dng.md`).
@@ -200,6 +218,9 @@ pub const PHOTOMETRIC_CFA: u32 = 32803;
 
 // TIFF 6.0 §2, "Types". Only the ones this module reads as integers are named.
 const TYPE_BYTE: u16 = 1;
+/// TIFF 6.0 §2: 8-bit bytes holding 7-bit ASCII, NUL-terminated. Read only by
+/// the calibration-signature reader (`SPEC-085`).
+const TYPE_ASCII: u16 = 2;
 const TYPE_SHORT: u16 = 3;
 const TYPE_LONG: u16 = 4;
 /// TIFF 6.0 §2: two `LONG`s, numerator then denominator. `SPEC-007` —
@@ -835,6 +856,26 @@ pub struct Sensor {
     pub calibration_illuminant_1: Option<u32>,
     /// DNG `CalibrationIlluminant2` (tag 50779): the second illuminant's code.
     pub calibration_illuminant_2: Option<u32>,
+    /// DNG `CameraCalibration1` (tag 50723): the 9 SRATIONAL per-camera
+    /// calibration for illuminant 1, stored verbatim. The colour develop applies
+    /// it when the two calibration signatures match (`SPEC-085`, `DEC-076` §2).
+    /// Interpretation-class (`DEC-012`): a malformed tag costs this field alone
+    /// and is recorded in `malformed_tags`.
+    pub camera_calibration_1: Option<Vec<Rational>>,
+    /// DNG `CameraCalibration2` (tag 50724): the calibration for illuminant 2.
+    pub camera_calibration_2: Option<Vec<Rational>>,
+    /// DNG `AnalogBalance` (tag 50727): one RATIONAL gain per plane colour,
+    /// stored verbatim. Applied by the colour develop with no signature gate;
+    /// absent means `(1, 1, 1)` (`DEC-076` §2).
+    pub analog_balance: Option<Vec<Rational>>,
+    /// DNG `CameraCalibrationSignature` (tag 50931): the bytes as written (ASCII
+    /// or BYTE), cut at the first NUL. Any other field type is malformed
+    /// (`DEC-012`).
+    pub camera_calibration_signature: Option<Vec<u8>>,
+    /// DNG `ProfileCalibrationSignature` (tag 50932): as
+    /// `camera_calibration_signature`. When the two differ (an absent one
+    /// counting as empty), the develop does not apply `CameraCalibration1/2`.
+    pub profile_calibration_signature: Option<Vec<u8>>,
     /// DNG `BlackLevel` (tag 50714) as the **full per-channel array** — e.g.
     /// `[2047, 2047, 2047, 2048]` on the Canon, `[0]` on the Nikon. Empty when
     /// absent. `black_level` above keeps the first-value scalar the monochrome
@@ -922,6 +963,11 @@ impl Sensor {
             as_shot_neutral: None,
             calibration_illuminant_1: None,
             calibration_illuminant_2: None,
+            camera_calibration_1: None,
+            camera_calibration_2: None,
+            analog_balance: None,
+            camera_calibration_signature: None,
+            profile_calibration_signature: None,
             black_levels: Vec::new(),
             black_levels_exact: Vec::new(),
             white_levels: Vec::new(),
@@ -2063,6 +2109,45 @@ impl<'a> Container<'a> {
         Self::cost_the_field(self.rationals(entry).map(Some), tag, malformed)
     }
 
+    /// A calibration signature read from `IFD0`, or `None` when `IFD0` or the
+    /// tag is absent (`SPEC-085`, `DEC-076` §1). Same interpretation-class
+    /// contract as [`Container::ifd0_rationals`]: a present tag of any type but
+    /// `ASCII`/`BYTE`, or one whose payload cannot be read, costs the field.
+    fn ifd0_signature(&self, tag: u16, malformed: &mut Vec<u16>) -> Option<Vec<u8>> {
+        let entry = self.ifd0()?.entry(tag)?;
+        Self::cost_the_field(self.signature_bytes(entry).map(Some), tag, malformed)
+    }
+
+    /// An `ASCII` or `BYTE` entry's bytes as written, cut at the first NUL
+    /// (`SPEC-085`). Any other field type is [`Error::UnexpectedFieldType`];
+    /// `count` is capped by [`MAX_TAG_VALUES`] and the payload is read through
+    /// the bounds-checked [`Container::payload`], as [`Container::rationals`] does.
+    fn signature_bytes(&self, entry: &Entry) -> Result<Vec<u8>, Error> {
+        match entry.field_type {
+            TYPE_ASCII | TYPE_BYTE => {}
+            other => {
+                return Err(Error::UnexpectedFieldType {
+                    tag: entry.tag,
+                    field_type: other,
+                })
+            }
+        }
+        let count =
+            usize::try_from(entry.count).map_err(|_| Error::ValueOverflow { tag: entry.tag })?;
+        if count > MAX_TAG_VALUES {
+            return Err(Error::TagTooLarge {
+                tag: entry.tag,
+                count: entry.count,
+                limit: MAX_TAG_VALUES,
+            });
+        }
+        let bytes = self.payload(entry)?;
+        // `split` always yields at least one piece: the bytes before the first
+        // NUL, or all of them when there is none.
+        let text = bytes.split(|&b| b == 0).next().unwrap_or_default();
+        Ok(text.to_vec())
+    }
+
     /// A colour SHORT scalar (a DNG LightSource code) read from `IFD0`, or
     /// `None` (`SPEC-026`). Same interpretation-class contract as
     /// [`Container::ifd0_rationals`]: an absent tag is `None` (via `scalar`'s
@@ -2293,6 +2378,15 @@ impl<'a> Container<'a> {
             self.ifd0_scalar(TAG_CALIBRATION_ILLUMINANT_1, &mut malformed);
         let calibration_illuminant_2 =
             self.ifd0_scalar(TAG_CALIBRATION_ILLUMINANT_2, &mut malformed);
+        // `SPEC-085` (`DEC-076` §1): the calibration the colour develop applies,
+        // from `IFD0` with the same interpretation-class contract.
+        let camera_calibration_1 = self.ifd0_rationals(TAG_CAMERA_CALIBRATION_1, &mut malformed);
+        let camera_calibration_2 = self.ifd0_rationals(TAG_CAMERA_CALIBRATION_2, &mut malformed);
+        let analog_balance = self.ifd0_rationals(TAG_ANALOG_BALANCE, &mut malformed);
+        let camera_calibration_signature =
+            self.ifd0_signature(TAG_CAMERA_CALIBRATION_SIGNATURE, &mut malformed);
+        let profile_calibration_signature =
+            self.ifd0_signature(TAG_PROFILE_CALIBRATION_SIGNATURE, &mut malformed);
 
         // Interpretation: the FULL per-channel WhiteLevel array, from THIS
         // sensor IFD (the levels are `[SubIFD]`, measured). The scalar
@@ -2377,6 +2471,11 @@ impl<'a> Container<'a> {
             as_shot_neutral,
             calibration_illuminant_1,
             calibration_illuminant_2,
+            camera_calibration_1,
+            camera_calibration_2,
+            analog_balance,
+            camera_calibration_signature,
+            profile_calibration_signature,
             black_levels,
             black_levels_exact,
             white_levels,
@@ -2827,6 +2926,186 @@ mod tests {
         assert!(s.malformed_tags.contains(&TAG_COLOR_MATRIX_1));
         // The file did not error, and an unrelated field is intact.
         assert_eq!(s.width, 4);
+    }
+
+    // ── calibration (SPEC-085 AC1, DEC-076 §1) ──────────────────────────────
+
+    /// A diagonal calibration as `n/10000` SRATIONALs (the Pixel 4a's shape).
+    const CC1: &[(i32, i32)] = &[
+        (10235, 10000),
+        (0, 10000),
+        (0, 10000),
+        (0, 10000),
+        (10000, 10000),
+        (0, 10000),
+        (0, 10000),
+        (0, 10000),
+        (9555, 10000),
+    ];
+    /// A non-diagonal calibration, signed entries included.
+    const CC2: &[(i32, i32)] = &[
+        (10340, 10000),
+        (-120, 10000),
+        (0, 10000),
+        (35, 10000),
+        (10000, 10000),
+        (0, 10000),
+        (0, 10000),
+        (-7, 10000),
+        (9764, 10000),
+    ];
+    const AB: &[(u32, u32)] = &[(11, 10), (1, 1), (9, 10)];
+
+    fn rationals_of(pairs: &[(i32, i32)]) -> Vec<Rational> {
+        pairs
+            .iter()
+            .map(|&(num, den)| Rational { num, den })
+            .collect()
+    }
+
+    #[test]
+    fn the_five_calibration_tags_read_on_a_writer_fixture() {
+        // Both byte orders. The camera signature is ASCII and the profile
+        // signature BYTE, both external and NUL-terminated, so both field types
+        // and the NUL cut are exercised on the same file.
+        for big in [false, true] {
+            let b = Build::new(big, 8);
+            let mut entries = sensor(&b);
+            entries.push((TAG_CAMERA_CALIBRATION_1, TYPE_SRATIONAL, 9, 400));
+            entries.push((TAG_CAMERA_CALIBRATION_2, TYPE_SRATIONAL, 9, 480));
+            entries.push((TAG_ANALOG_BALANCE, TYPE_RATIONAL, 3, 560));
+            entries.push((TAG_CAMERA_CALIBRATION_SIGNATURE, TYPE_ASCII, 10, 600));
+            entries.push((TAG_PROFILE_CALIBRATION_SIGNATURE, TYPE_BYTE, 10, 620));
+            let cc1 = b.srational_bytes(CC1);
+            let cc2 = b.srational_bytes(CC2);
+            let ab = b.rational_bytes(AB);
+            let data = b
+                .ifd(8, &entries, 0)
+                .data_at(400, &cc1)
+                .data_at(480, &cc2)
+                .data_at(560, &ab)
+                .data_at(600, b"com.adobe\0")
+                .data_at(620, b"com.adobe\0")
+                .done();
+
+            let s = Container::parse(&data).unwrap().sensor().unwrap();
+            assert_eq!(s.camera_calibration_1, Some(rationals_of(CC1)));
+            assert_eq!(s.camera_calibration_2, Some(rationals_of(CC2)));
+            assert_eq!(
+                s.analog_balance,
+                Some(vec![
+                    Rational { num: 11, den: 10 },
+                    Rational { num: 1, den: 1 },
+                    Rational { num: 9, den: 10 },
+                ])
+            );
+            assert_eq!(
+                s.camera_calibration_signature.as_deref(),
+                Some(&b"com.adobe"[..])
+            );
+            assert_eq!(
+                s.profile_calibration_signature.as_deref(),
+                Some(&b"com.adobe"[..])
+            );
+            assert!(s.malformed_tags.is_empty(), "{:?}", s.malformed_tags);
+        }
+    }
+
+    #[test]
+    fn a_signature_is_cut_at_its_first_nul_inline_or_without_one() {
+        // Inline (count 3 ≤ 4 bytes): "ab\0" reads "ab". A BYTE signature with
+        // no NUL at all reads whole, and bytes after an embedded NUL are dropped.
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.push((
+            TAG_CAMERA_CALIBRATION_SIGNATURE,
+            TYPE_ASCII,
+            3,
+            b.bytes_word([b'a', b'b', 0, 0]),
+        ));
+        entries.push((TAG_PROFILE_CALIBRATION_SIGNATURE, TYPE_BYTE, 6, 600));
+        let data = b.ifd(8, &entries, 0).data_at(600, b"xy\0zzz").done();
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(s.camera_calibration_signature.as_deref(), Some(&b"ab"[..]));
+        assert_eq!(s.profile_calibration_signature.as_deref(), Some(&b"xy"[..]));
+
+        let b = Build::new(true, 8);
+        let mut entries = sensor(&b);
+        entries.push((
+            TAG_CAMERA_CALIBRATION_SIGNATURE,
+            TYPE_BYTE,
+            4,
+            b.bytes_word(*b"wxyz"),
+        ));
+        let data = b.ifd(8, &entries, 0).done();
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(
+            s.camera_calibration_signature.as_deref(),
+            Some(&b"wxyz"[..])
+        );
+        assert_eq!(s.profile_calibration_signature, None);
+        assert!(s.malformed_tags.is_empty());
+    }
+
+    #[test]
+    fn a_wrong_typed_calibration_tag_costs_its_field_not_the_file() {
+        // Each tag present with a type it may not have: the calibrations and
+        // AnalogBalance as LONG, the signatures as SHORT and as UNDEFINED. Every
+        // one is `None` and recorded, and the file still reads (`DEC-012`).
+        let b = Build::new(false, 8);
+        let mut entries = sensor(&b);
+        entries.push((TAG_CAMERA_CALIBRATION_1, TYPE_LONG, 9, 400));
+        entries.push((TAG_CAMERA_CALIBRATION_2, TYPE_SHORT, 9, 440));
+        entries.push((TAG_ANALOG_BALANCE, TYPE_LONG, 3, 480));
+        entries.push((
+            TAG_CAMERA_CALIBRATION_SIGNATURE,
+            TYPE_SHORT,
+            2,
+            b.two_shorts_word(97, 98),
+        ));
+        entries.push((
+            TAG_PROFILE_CALIBRATION_SIGNATURE,
+            TYPE_UNDEFINED,
+            2,
+            b.bytes_word([b'a', b'b', 0, 0]),
+        ));
+        let longs = b.longs_bytes(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let data = b
+            .ifd(8, &entries, 0)
+            .data_at(400, &longs)
+            .data_at(440, &longs)
+            .data_at(480, &longs)
+            .done();
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(s.camera_calibration_1, None);
+        assert_eq!(s.camera_calibration_2, None);
+        assert_eq!(s.analog_balance, None);
+        assert_eq!(s.camera_calibration_signature, None);
+        assert_eq!(s.profile_calibration_signature, None);
+        for tag in [
+            TAG_CAMERA_CALIBRATION_1,
+            TAG_CAMERA_CALIBRATION_2,
+            TAG_ANALOG_BALANCE,
+            TAG_CAMERA_CALIBRATION_SIGNATURE,
+            TAG_PROFILE_CALIBRATION_SIGNATURE,
+        ] {
+            assert!(s.malformed_tags.contains(&tag), "{tag} not recorded");
+        }
+        assert_eq!(s.width, 4);
+    }
+
+    #[test]
+    fn absent_calibration_tags_are_none_not_malformed() {
+        let b = Build::new(false, 8);
+        let entries = sensor(&b);
+        let data = b.ifd(8, &entries, 0).done();
+        let s = Container::parse(&data).unwrap().sensor().unwrap();
+        assert_eq!(s.camera_calibration_1, None);
+        assert_eq!(s.camera_calibration_2, None);
+        assert_eq!(s.analog_balance, None);
+        assert_eq!(s.camera_calibration_signature, None);
+        assert_eq!(s.profile_calibration_signature, None);
+        assert!(s.malformed_tags.is_empty());
     }
 
     #[test]

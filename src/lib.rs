@@ -179,7 +179,12 @@ use core::fmt;
 /// the colour develop and on mono [`develop::BlackLevels::PerPosition`]. Output changes
 /// only for a file whose blacks differ by position; every mono default develop
 /// is unchanged.
-pub const DEVELOP_VERSION: &str = "7";
+///
+/// `"8"`: SPEC-085 (`DEC-076`) applies `AnalogBalance` and, under the
+/// calibration-signature rule, `CameraCalibration1/2` on the colour develop,
+/// and runs the `NeutralToXY` illuminant weight to convergence. Colour output
+/// changes on every dual-illuminant file; mono output does not.
+pub const DEVELOP_VERSION: &str = "8";
 
 /// libFuzzer entry for the SOF-3 lossless-JPEG decoder (`ljpeg::decode_into`,
 /// one- or two-component — `SPEC-046`) — `SPEC-038`, `DEC-036`.

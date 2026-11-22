@@ -261,7 +261,10 @@ fn default_is_first_value_and_pins_hold() {
         BlackLevels::FirstValue
     );
     assert_eq!(BlackLevels::default(), BlackLevels::FirstValue);
-    assert_eq!(DEVELOP_VERSION, "7", "DEC-070 bumps DEVELOP_VERSION to 7");
+    assert_eq!(
+        DEVELOP_VERSION, "8",
+        "DEC-070 bumps DEVELOP_VERSION to 7, DEC-076 to 8"
+    );
 
     // On a tier-A plane with a real pattern, `develop_into` is the
     // first-value develop: every photosite takes `BlackLevel[0]`.

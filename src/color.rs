@@ -35,15 +35,41 @@
 //! colour temperature. When both calibrations are present (and both illuminant
 //! codes are known), this module finds the scene interpolation weight
 //! `g ∈ [0, 1]` from `AsShotNeutral` by the DNG reciprocal-temperature
-//! `NeutralToXY` method — a fixed 3-iteration loop that interpolates
-//! `CM(g) = (1−g)·CM1 + g·CM2`, maps the camera neutral through `inv(CM(g))` to
-//! an XYZ white, takes its chromaticity, derives its CCT by **McCamy's cubic**
-//! (a polynomial, so the whole weight stays `+ − × ÷` only), and re-derives `g`
-//! by mired interpolation between the two `CalibrationIlluminant` CCTs. The
-//! matrices are then lerped at the converged `g` (`FM(g)` when both forward
-//! matrices are present, else `inv(CM(g))`) and `cam2xyz` built from them exactly
-//! as the single-illuminant path does. The weight is computed **once per image**,
-//! off the per-pixel path. See `interpolation_weight`.
+//! `NeutralToXY` method, run **to convergence** (`DEC-076` §5, which replaced
+//! `DEC-034`'s fixed 3 passes): from the D50 chromaticity, each pass derives the
+//! CCT of the current `xy` by **McCamy's cubic** (a polynomial, so the whole
+//! weight stays `+ − × ÷` only), the mired weight `g` between the two
+//! `CalibrationIlluminant` CCTs, and the next `xy` from the camera neutral
+//! mapped through `inv(X(g))`, `X(g) = (1−g)·X1 + g·X2` (below). It stops when
+//! `|Δx| + |Δy| < 1e-7`, or after 30 passes at the midpoint of the last two. The
+//! matrices are then lerped at the final `g` (`FM(g)` when both forward matrices
+//! are present, else `inv(X(g))`) and `cam2xyz` built from them exactly as the
+//! single-illuminant path does. The weight is computed **once per image**, off
+//! the per-pixel path. See `scene_weight`.
+//!
+//! # Camera calibration (`SPEC-085`, `DEC-076`)
+//!
+//! The DNG camera model is `XYZtoCamera = AB · CC · CM`: `AnalogBalance` (`AB`,
+//! a diagonal; absent is the identity) and `CameraCalibration1/2` (`CC_i`) sit
+//! in front of each `ColorMatrix`. `AB` always applies. `CC_1/2` apply only
+//! when `CameraCalibrationSignature` equals `ProfileCalibrationSignature`, an
+//! absent signature counting as empty; otherwise they are the identity.
+//!
+//! - **ColorMatrix path:** fold per illuminant, `X_i = AB · CC_i · CM_i`, and
+//!   lerp the **products** (Adobe's DNG SDK form); `X(g)` takes `CM`'s place.
+//! - **ForwardMatrix path:** `K(g) = AB · lerp(CC_1, CC_2, g)`, the reference
+//!   neutral `R = inv(K(g)) · AsShotNeutral`, and
+//!   `cam2xyz = FM(g) · diag(1/R) · inv(K(g))`. For a diagonal `K` this equals
+//!   `FM(g) · D` in real arithmetic, so there the calibration acts only through
+//!   `g`.
+//! - **Identity:** when `AB · CC_i` is exactly the identity the fold is skipped
+//!   and the ForwardMatrix path keeps `D` from the rationals, so a file without
+//!   a calibration (or with an identity one) takes the same arithmetic as
+//!   before, to the bit.
+//!
+//! Only what is used is checked (`DEC-076` §3): `CC_1` whenever the rule
+//! applies it, `CC_2` only when the dual-illuminant path also runs. See
+//! `resolve_calibration`.
 //!
 //! When the interpolation preconditions are not met — no `ColorMatrix2`, a
 //! missing or unknown `CalibrationIlluminant`, `T1 == T2`, or a degenerate step
@@ -100,7 +126,9 @@
 //! # Panic policy (`no-panics-on-untrusted-input`)
 //!
 //! A zero-denominator required rational, an absent or ill-shaped
-//! `AsShotNeutral`/`ForwardMatrix`/`ColorMatrix`, a singular `ColorMatrix`, and
+//! `AsShotNeutral`/`ForwardMatrix`/`ColorMatrix`, a singular `ColorMatrix`, an
+//! ill-shaped applied `CameraCalibration` or `AnalogBalance`, a singular
+//! calibration or a non-positive reference neutral (`DEC-076` §3), and
 //! an off-gamut or saturated mix are typed errors ([`Error::MissingColorCalibration`])
 //! or clamped values — never a panic and never a NaN written to `dst`. Wrong
 //! buffer lengths are [`Error::ColorSourceWrongLength`] / [`Error::RgbBufferWrongLength`].
@@ -111,7 +139,11 @@
 //! camera→XYZ) is the Adobe DNG Specification; the sRGB primaries are
 //! IEC 61966-2-1; `B` is the Bradford chromatic-adaptation transform
 //! (`D50 → D65`). All three are public standards — provenance **class 1**, no
-//! implementation read. See `docs/provenance-ledger.md`.
+//! implementation read. The calibration (`SPEC-085`) is the specification's
+//! Chapter 6 model (class 1); the signature rule's absent-as-empty, the lerp of
+//! the folded products and the convergent `NeutralToXY` loop were settled by
+//! reading Adobe DNG SDK 1.7.1's `dng_color_spec.cpp` (class 4, no code copied).
+//! See `docs/provenance-ledger.md`.
 
 use crate::demosaic::{
     develop_color_fused, develop_rows_banded, is_supported_bayer, run_row_bands,
@@ -246,7 +278,9 @@ const MCCAMY_C0: f64 = 5520.33;
 /// - [`Error::RgbBufferWrongLength`] if `dst.len() != width·height·3`.
 /// - [`Error::MissingColorCalibration`] if `sensor` carries no usable
 ///   `ForwardMatrix1`/`ColorMatrix1`, no `AsShotNeutral`, a zero-denominator
-///   required rational, or a non-invertible `ColorMatrix`.
+///   required rational, a non-invertible `ColorMatrix`, or an applied
+///   `CameraCalibration` / `AnalogBalance` that is ill-shaped, singular, or
+///   gives a non-positive reference neutral (`DEC-076` §3).
 ///
 /// Never panics: lengths are checked before any write, every matrix entry is a
 /// guarded division, and the quantize clamps before rounding.
@@ -348,7 +382,9 @@ pub fn to_srgb_linear_into(
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] /
 ///   [`Error::UnsupportedCfaLayout`] / [`Error::UnsupportedCfaPlaneColor`] for a
 ///   non-CFA plane or an unsupported mosaic, or [`Error::MissingColorCalibration`]
-///   if the colour matrix cannot be built — in that order (CFA before matrix).
+///   if the colour matrix cannot be built, an unusable applied
+///   `CameraCalibration` / `AnalogBalance` included (`DEC-076` §3) — in that
+///   order (CFA before matrix).
 ///
 /// Never panics.
 pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
@@ -439,7 +475,8 @@ fn develop_color_u16_with<N: Fn(u32, u32) -> u16>(
 ///   for `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069` §3), before any write.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] /
 ///   [`Error::UnsupportedCfaLayout`] / [`Error::UnsupportedCfaPlaneColor`] /
-///   [`Error::MissingColorCalibration`], in that order (CFA before matrix).
+///   [`Error::MissingColorCalibration`] (an unusable applied `CameraCalibration`
+///   / `AnalogBalance` included, `DEC-076` §3), in that order (CFA before matrix).
 ///
 /// Never panics.
 pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> Result<(), Error> {
@@ -913,20 +950,22 @@ fn pixel_count(sensor: &Sensor) -> Result<u64, Error> {
 }
 
 /// Build the single camera-linear-RGB → linear-sRGB matrix `M = C · cam2xyz`
-/// from `sensor`'s colour metadata (`DEC-033`, `DEC-034`): `C = S · B`
-/// (committed), `D = diag(1/asn)`, and `cam2xyz` from the illuminant-interpolated
-/// calibration — `FM(g) · D` (both forward matrices present) else
-/// `inv(CM(g)) · D` — at the scene weight `g` from [`interpolation_weight`]. When
-/// interpolation does not apply (`g` is `None`), `cam2xyz` is built from
-/// illuminant 1 alone (`FM1 · D`, else `inv(CM1) · D`), **byte-identical to
-/// `SPEC-033`**.
+/// from `sensor`'s colour metadata (`DEC-033`, `DEC-034`, `DEC-076`):
+/// `C = S · B` (committed), and `cam2xyz` from the calibration at the scene
+/// weight `g` ([`scene_weight`]), or from illuminant 1 alone when interpolation
+/// does not apply. `AnalogBalance` and, under the signature rule,
+/// `CameraCalibration1/2` are folded in ([`resolve_calibration`]); an exactly
+/// identity calibration takes today's arithmetic, so its output is unchanged
+/// to the bit.
 ///
 /// # Errors
 ///
 /// [`Error::MissingColorCalibration`] if `AsShotNeutral` is absent / ill-shaped
 /// / non-positive, neither `ForwardMatrix1` nor `ColorMatrix1` is present and
-/// well-shaped, a required rational has a zero denominator, or the
-/// (interpolated) `ColorMatrix` is singular.
+/// well-shaped, a required rational has a zero denominator, an applied
+/// calibration or `AnalogBalance` is ill-shaped (`DEC-076` §3), the folded
+/// `ColorMatrix` or the calibration `K` is singular, or the ForwardMatrix
+/// path's reference neutral has a non-positive component.
 fn build_camera_to_srgb_linear(sensor: &Sensor) -> Result<[[f64; 3]; 3], Error> {
     let asn = sensor
         .as_shot_neutral
@@ -934,55 +973,145 @@ fn build_camera_to_srgb_linear(sensor: &Sensor) -> Result<[[f64; 3]; 3], Error> 
         .ok_or(Error::MissingColorCalibration)?;
     let wb = wb_diagonal(asn)?;
 
-    // `SPEC-034`: the scene interpolation weight (DNG `NeutralToXY`, `DEC-034`),
-    // found once per image. `None` ⇒ the single-illuminant fallback, which is
-    // byte-identical to `SPEC-033` (the regression guard).
-    let cam2xyz = match interpolation_weight(sensor) {
-        Some(g) => cam_to_xyz_interpolated(sensor, &wb, asn, g)?,
-        None => cam_to_xyz_single_illuminant(sensor, &wb, asn)?,
+    // `SPEC-034`'s preconditions decide whether the dual-illuminant path runs;
+    // that in turn decides whether `CameraCalibration2` is used, and so checked
+    // (`DEC-076` §3).
+    let dual = dual_illuminant(sensor);
+    let calibration = resolve_calibration(sensor, dual.is_some())?;
+
+    // The scene weight (`NeutralToXY` to convergence, `DEC-076` §5), found once
+    // per image. `None` ⇒ the single-illuminant path.
+    let weighted = dual
+        .as_ref()
+        .and_then(|d| scene_weight(d, &calibration, asn).map(|g| (d, g)));
+    let cam2xyz = match weighted {
+        Some((d, g)) => cam_to_xyz_interpolated(sensor, &wb, asn, &calibration, d, g)?,
+        None => cam_to_xyz_single_illuminant(sensor, &wb, asn, &calibration)?,
     };
 
     let c = mat_mul(SRGB_FROM_XYZ_D65, BRADFORD_D50_TO_D65);
     Ok(mat_mul(c, cam2xyz))
 }
 
-/// The single-illuminant `cam2xyz` — illuminant 1 only, exactly as `SPEC-033`:
-/// `FM1 · D` when `ForwardMatrix1` is present and well-shaped, else
-/// `inv(CM1) · D`, else [`Error::MissingColorCalibration`]. This is the fallback
-/// [`build_camera_to_srgb_linear`] takes when interpolation does not apply, and
-/// it is byte-identical to the shipped `SPEC-033` result (a single-calibration
-/// sensor is unchanged — the regression guard).
+/// The 3×3 identity: an absent `AnalogBalance` or calibration, and the test for
+/// "the calibration changes nothing" (`DEC-076` §4).
+const IDENTITY: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+/// The camera calibration the develop applies (`DEC-076` §2–3): `AB` as a
+/// diagonal, `CC_1`/`CC_2` after the signature rule (the identity when it says
+/// no or the tag is absent), and the folded `K_i = AB · CC_i`.
+struct Calibration {
+    ab: [[f64; 3]; 3],
+    cc1: [[f64; 3]; 3],
+    cc2: [[f64; 3]; 3],
+    k1: [[f64; 3]; 3],
+    k2: [[f64; 3]; 3],
+}
+
+/// Resolve [`Calibration`] from `sensor` (`DEC-076` §2–3).
+///
+/// - `AnalogBalance` is not gated: absent is the identity, present must be 3
+///   rationals with positive numerators and denominators.
+/// - `CameraCalibration1/2` apply only when `CameraCalibrationSignature` equals
+///   `ProfileCalibrationSignature`, an absent signature counting as empty.
+/// - Only what is used is checked: `CameraCalibration1` whenever the rule
+///   applies, `CameraCalibration2` only when it applies **and** `dual` (the
+///   dual-illuminant path runs). A used calibration must be 9 rationals with
+///   non-zero denominators; absent, it is the identity.
+///
+/// Anything else is [`Error::MissingColorCalibration`], before any write.
+fn resolve_calibration(sensor: &Sensor, dual: bool) -> Result<Calibration, Error> {
+    let ab = match sensor.analog_balance.as_deref() {
+        None => IDENTITY,
+        Some([r, g, b]) => [
+            [positive_rational(r)?, 0.0, 0.0],
+            [0.0, positive_rational(g)?, 0.0],
+            [0.0, 0.0, positive_rational(b)?],
+        ],
+        Some(_) => return Err(Error::MissingColorCalibration),
+    };
+    let camera: &[u8] = sensor
+        .camera_calibration_signature
+        .as_deref()
+        .unwrap_or_default();
+    let profile: &[u8] = sensor
+        .profile_calibration_signature
+        .as_deref()
+        .unwrap_or_default();
+    let applies = camera == profile;
+    let used = |tag: Option<&Vec<Rational>>, used: bool| -> Result<[[f64; 3]; 3], Error> {
+        match tag {
+            Some(entries) if used => matrix_from_rationals(entries),
+            _ => Ok(IDENTITY),
+        }
+    };
+    let cc1 = used(sensor.camera_calibration_1.as_ref(), applies)?;
+    let cc2 = used(sensor.camera_calibration_2.as_ref(), applies && dual)?;
+    Ok(Calibration {
+        ab,
+        cc1,
+        cc2,
+        k1: mat_mul(ab, cc1),
+        k2: mat_mul(ab, cc2),
+    })
+}
+
+/// `num/den` for a rational both of whose parts are positive, else
+/// [`Error::MissingColorCalibration`] (an `AnalogBalance` gain, `DEC-076` §3).
+fn positive_rational(r: &Rational) -> Result<f64, Error> {
+    if r.num <= 0 || r.den <= 0 {
+        return Err(Error::MissingColorCalibration);
+    }
+    Ok(f64::from(r.num) / f64::from(r.den))
+}
+
+/// The folded `X = K · CM` (`DEC-076` §4), or `CM` itself when `K` is exactly
+/// the identity, so an identity calibration is byte-identical to none.
+fn fold(k: [[f64; 3]; 3], cm: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    if k == IDENTITY {
+        cm
+    } else {
+        mat_mul(k, cm)
+    }
+}
+
+/// The single-illuminant `cam2xyz` — illuminant 1 only (`SPEC-033`, `DEC-076`
+/// §4): the ForwardMatrix path with `K = AB · CC_1` when `ForwardMatrix1` is
+/// present and well-shaped, else `CA · inv(AB · CC_1 · CM_1)`, else
+/// [`Error::MissingColorCalibration`]. With an identity calibration this is
+/// byte-identical to `SPEC-033` (the regression guard). `CameraCalibration2` is
+/// never read here.
 fn cam_to_xyz_single_illuminant(
     sensor: &Sensor,
     wb: &[[f64; 3]; 3],
     asn: &[Rational],
+    calibration: &Calibration,
 ) -> Result<[[f64; 3]; 3], Error> {
     if let Some(fm1) = sensor.forward_matrix_1.as_ref() {
         let fm = matrix_from_rationals(fm1)?;
-        Ok(mat_mul(fm, *wb))
+        let k = (calibration.k1 != IDENTITY).then_some(calibration.k1);
+        fm_path_cam_to_xyz(fm, wb, asn, k)
     } else if let Some(cm1) = sensor.color_matrix_1.as_ref() {
-        let cm = matrix_from_rationals(cm1)?;
-        let inv_cm = inv(cm).ok_or(Error::MissingColorCalibration)?;
-        cm_path_cam_to_xyz(&inv_cm, asn)
+        let x = fold(calibration.k1, matrix_from_rationals(cm1)?);
+        let inv_x = inv(x).ok_or(Error::MissingColorCalibration)?;
+        cm_path_cam_to_xyz(&inv_x, asn)
     } else {
         Err(Error::MissingColorCalibration)
     }
 }
 
-/// The interpolated `cam2xyz` at a known scene weight `g` (`SPEC-034`). Uses the
-/// **ForwardMatrix path** — `FM(g) · D`, `FM(g) = lerp(FM1, FM2, g)` — only when
-/// **both** `ForwardMatrix1` and `ForwardMatrix2` are present and well-shaped (an
-/// FM pair maps white-balanced camera values to XYZ(D50) directly, `SPEC-033`);
-/// an FM at only one illuminant (or an ill-shaped one) is no usable pair, so it
-/// falls to the **ColorMatrix path** — `inv(CM(g)) · D`, `CM(g) = lerp(CM1, CM2, g)`.
-/// `CM1`/`CM2` are present and well-shaped here ([`interpolation_weight`] checked
-/// them to obtain `g`); a singular interpolated `CM(g)` is
-/// [`Error::MissingColorCalibration`] — `SPEC-033`'s structure at the
-/// interpolated matrix, never a divide by zero.
+/// The interpolated `cam2xyz` at a known scene weight `g` (`SPEC-034`,
+/// `DEC-076` §4). The **ForwardMatrix path**, `FM(g) = lerp(FM1, FM2, g)` with
+/// `K(g) = AB · lerp(CC_1, CC_2, g)`, runs only when **both** forward matrices
+/// are present and well-shaped; otherwise the **ColorMatrix path** inverts the
+/// lerp of the folded products, `X(g) = lerp(AB·CC_1·CM_1, AB·CC_2·CM_2, g)`
+/// (the SDK's form). A singular `X(g)` is [`Error::MissingColorCalibration`].
 fn cam_to_xyz_interpolated(
     sensor: &Sensor,
     wb: &[[f64; 3]; 3],
     asn: &[Rational],
+    calibration: &Calibration,
+    dual: &DualIlluminant,
     g: f64,
 ) -> Result<[[f64; 3]; 3], Error> {
     if let (Some(fm1), Some(fm2)) = (
@@ -991,25 +1120,55 @@ fn cam_to_xyz_interpolated(
     ) {
         if let (Ok(f1), Ok(f2)) = (matrix_from_rationals(fm1), matrix_from_rationals(fm2)) {
             let fm = lerp_matrix(f1, f2, g);
-            return Ok(mat_mul(fm, *wb));
+            let k = if calibration.k1 == IDENTITY && calibration.k2 == IDENTITY {
+                None
+            } else {
+                Some(mat_mul(
+                    calibration.ab,
+                    lerp_matrix(calibration.cc1, calibration.cc2, g),
+                ))
+            };
+            return fm_path_cam_to_xyz(fm, wb, asn, k);
         }
     }
 
-    let cm1 = matrix_from_rationals(
-        sensor
-            .color_matrix_1
-            .as_ref()
-            .ok_or(Error::MissingColorCalibration)?,
-    )?;
-    let cm2 = matrix_from_rationals(
-        sensor
-            .color_matrix_2
-            .as_ref()
-            .ok_or(Error::MissingColorCalibration)?,
-    )?;
-    let cm = lerp_matrix(cm1, cm2, g);
-    let inv_cm = inv(cm).ok_or(Error::MissingColorCalibration)?;
-    cm_path_cam_to_xyz(&inv_cm, asn)
+    let x = lerp_matrix(
+        fold(calibration.k1, dual.cm1),
+        fold(calibration.k2, dual.cm2),
+        g,
+    );
+    let inv_x = inv(x).ok_or(Error::MissingColorCalibration)?;
+    cm_path_cam_to_xyz(&inv_x, asn)
+}
+
+/// `cam2xyz` for the **ForwardMatrix** path (`DEC-076` §4, DNG spec ch. 6).
+/// With no calibration (`k` is `None`) it is `DEC-033`'s `FM · D`, `D` built from
+/// the `AsShotNeutral` rationals. With a calibration `K` it takes the reference
+/// neutral `R = inv(K) · AsShotNeutral` and returns `FM · diag(1/R) · inv(K)`.
+///
+/// [`Error::MissingColorCalibration`] if `K` is singular or any component of
+/// `R` is not positive.
+fn fm_path_cam_to_xyz(
+    fm: [[f64; 3]; 3],
+    wb: &[[f64; 3]; 3],
+    asn: &[Rational],
+    k: Option<[[f64; 3]; 3]>,
+) -> Result<[[f64; 3]; 3], Error> {
+    let Some(k) = k else {
+        return Ok(mat_mul(fm, *wb));
+    };
+    let inv_k = inv(k).ok_or(Error::MissingColorCalibration)?;
+    let neutral = neutral_vector(asn).ok_or(Error::MissingColorCalibration)?;
+    let [r0, r1, r2] = mul_mat_vec(&inv_k, neutral);
+    if !(r0 > 0.0 && r1 > 0.0 && r2 > 0.0) {
+        return Err(Error::MissingColorCalibration);
+    }
+    let d = [
+        [1.0 / r0, 0.0, 0.0],
+        [0.0, 1.0 / r1, 0.0],
+        [0.0, 0.0, 1.0 / r2],
+    ];
+    Ok(mat_mul(fm, mat_mul(d, inv_k)))
 }
 
 /// Bradford cone-response matrix (XYZ → sharpened RGB), the `M_A` of the
@@ -1055,26 +1214,22 @@ fn cm_path_cam_to_xyz(inv_cm: &[[f64; 3]; 3], asn: &[Rational]) -> Result<[[f64;
     Ok(mat_mul(ca, *inv_cm))
 }
 
-/// Find the scene interpolation weight `g ∈ [0, 1]` by the DNG
-/// reciprocal-temperature `NeutralToXY` method (`DEC-034`), or `None` to signal
-/// the single-illuminant fallback.
-///
-/// Preconditions for interpolation: `ColorMatrix1` **and** `ColorMatrix2` present
-/// and well-shaped, **and** both `CalibrationIlluminant` codes present and known
-/// (in [`ILLUMINANT_CCT`]), with distinct reciprocal temperatures. Then a fixed
-/// **3-iteration** loop (dng_sdk's count), starting `g = 0`:
-/// 1. `CM(g) = (1−g)·CM1 + g·CM2`;
-/// 2. `white = inv(CM(g)) · AsShotNeutral` (the camera neutral's XYZ);
-/// 3. `(x, y)` = its chromaticity;
-/// 4. `T` = [`mccamy_cct`] of `(x, y)`;
-/// 5. `g ← clamp((1/T1 − 1/T) / (1/T1 − 1/T2), 0, 1)`.
-///
-/// `None` whenever a precondition fails or a step is degenerate (a singular
-/// `CM(g)`, an `xy` with sum ≤ 0, a McCamy zero denominator, `T1 == T2`) — the
-/// caller then takes the byte-identical single-illuminant path, never a panic or
-/// a NaN. The whole computation is `f64` `+ − × ÷` only (McCamy is a polynomial)
-/// and runs once per image, off the per-pixel path.
-fn interpolation_weight(sensor: &Sensor) -> Option<f64> {
+/// What the dual-illuminant path needs (`SPEC-034`): both `ColorMatrix`es and
+/// the reciprocal-temperature blend's constants.
+struct DualIlluminant {
+    cm1: [[f64; 3]; 3],
+    cm2: [[f64; 3]; 3],
+    /// `1/T1`.
+    inv_t1: f64,
+    /// `1/T1 − 1/T2`, never zero.
+    denom: f64,
+}
+
+/// The dual-illuminant preconditions (`DEC-034`), or `None` for the
+/// single-illuminant fallback: `ColorMatrix1` **and** `ColorMatrix2` present and
+/// well-shaped, **and** both `CalibrationIlluminant` codes present and known (in
+/// [`ILLUMINANT_CCT`]), with distinct reciprocal temperatures.
+fn dual_illuminant(sensor: &Sensor) -> Option<DualIlluminant> {
     let cm1 = matrix_from_rationals(sensor.color_matrix_1.as_ref()?).ok()?;
     let cm2 = matrix_from_rationals(sensor.color_matrix_2.as_ref()?).ok()?;
     let t1 = cct_of_illuminant(sensor.calibration_illuminant_1?)?;
@@ -1085,18 +1240,75 @@ fn interpolation_weight(sensor: &Sensor) -> Option<f64> {
         // `T1 == T2` (or coincident reciprocals): the mired blend is undefined.
         return None;
     }
-    let neutral = neutral_vector(sensor.as_shot_neutral.as_ref()?)?;
+    Some(DualIlluminant {
+        cm1,
+        cm2,
+        inv_t1,
+        denom,
+    })
+}
 
-    let mut g = 0.0;
-    for _ in 0..3 {
-        let cm = lerp_matrix(cm1, cm2, g);
-        let inv_cm = inv(cm)?; // singular interpolated matrix → fallback
-        let white = mul_mat_vec(&inv_cm, neutral);
-        let (x, y) = xyz_to_xy(white)?; // sum ≤ 0 → fallback
+/// The D50 chromaticity `NeutralToXY` starts from (`DEC-076` §5).
+const D50_XY: (f64, f64) = (0.3457, 0.3585);
+
+/// `NeutralToXY` stops when one pass moves the chromaticity by less than this,
+/// `|Δx| + |Δy|` (`DEC-076` §5).
+const NEUTRAL_TO_XY_TOLERANCE: f64 = 0.0000001;
+
+/// The most passes `NeutralToXY` runs (`DEC-076` §5).
+const NEUTRAL_TO_XY_MAX_PASSES: u32 = 30;
+
+/// The scene interpolation weight `g ∈ [0, 1]` (the weight of illuminant 2) by
+/// the DNG `NeutralToXY` method, run to convergence (`DEC-076` §5, which
+/// replaces `DEC-034`'s fixed 3 passes), or `None` for the single-illuminant
+/// fallback.
+///
+/// From the D50 chromaticity, each pass takes the McCamy CCT `T` of the
+/// current `xy`, the mired weight `g = clamp((1/T1 − 1/T) / (1/T1 − 1/T2), 0, 1)`,
+/// and `next = xy(inv(X(g)) · AsShotNeutral)` with `X(g)` the lerp of the folded
+/// `AB · CC_i · CM_i`. It stops when `|Δx| + |Δy| < 1e-7`, taking `next`; after
+/// 30 passes without converging it takes the midpoint of the last two `xy`. The
+/// weight is read at the final `xy`.
+///
+/// `None` whenever a step is degenerate (a singular `X(g)`, an `xy` with sum
+/// ≤ 0, a McCamy zero denominator, a malformed neutral) — never a panic or a
+/// NaN. The whole computation is `f64` `+ − × ÷` only (McCamy is a polynomial)
+/// and runs once per image, off the per-pixel path.
+fn scene_weight(dual: &DualIlluminant, calibration: &Calibration, asn: &[Rational]) -> Option<f64> {
+    let neutral = neutral_vector(asn)?;
+    let x1 = fold(calibration.k1, dual.cm1);
+    let x2 = fold(calibration.k2, dual.cm2);
+    let weight_at = |(x, y): (f64, f64)| -> Option<f64> {
         let t = mccamy_cct(x, y)?; // zero denominator → fallback
-        g = ((inv_t1 - 1.0 / t) / denom).clamp(0.0, 1.0);
+        Some(((dual.inv_t1 - 1.0 / t) / dual.denom).clamp(0.0, 1.0))
+    };
+
+    let mut last = D50_XY;
+    for pass in 1..=NEUTRAL_TO_XY_MAX_PASSES {
+        let g = weight_at(last)?;
+        let inv_x = inv(lerp_matrix(x1, x2, g))?; // singular X(g) → fallback
+        let mut next = xyz_to_xy(mul_mat_vec(&inv_x, neutral))?; // sum ≤ 0 → fallback
+        if (next.0 - last.0).abs() + (next.1 - last.1).abs() < NEUTRAL_TO_XY_TOLERANCE {
+            last = next;
+            break;
+        }
+        if pass == NEUTRAL_TO_XY_MAX_PASSES {
+            // Not converged: most likely a two-value oscillation, so settle
+            // between the last two estimates.
+            next = ((last.0 + next.0) * 0.5, (last.1 + next.1) * 0.5);
+        }
+        last = next;
     }
-    Some(g)
+    weight_at(last)
+}
+
+/// [`scene_weight`] straight from a `Sensor`, as the build finds it: `None`
+/// when the dual-illuminant preconditions fail or the calibration is unusable.
+#[cfg(test)]
+fn interpolation_weight(sensor: &Sensor) -> Option<f64> {
+    let dual = dual_illuminant(sensor)?;
+    let calibration = resolve_calibration(sensor, true).ok()?;
+    scene_weight(&dual, &calibration, sensor.as_shot_neutral.as_ref()?)
 }
 
 /// The CCT (kelvin) of a `CalibrationIlluminant` / EXIF `LightSource` code from
@@ -1861,6 +2073,11 @@ mod tests {
             as_shot_neutral: meta.as_shot_neutral,
             calibration_illuminant_1: None,
             calibration_illuminant_2: None,
+            camera_calibration_1: None,
+            camera_calibration_2: None,
+            analog_balance: None,
+            camera_calibration_signature: None,
+            profile_calibration_signature: None,
             black_levels: vec![],
             black_levels_exact: vec![],
             white_levels: vec![],
@@ -2351,9 +2568,37 @@ mod tests {
         449.0 * n * n * n + 3525.0 * n * n + 6823.3 * n + 5520.33
     }
 
-    /// A reference NeutralToXY weight (N=3) from the two ColorMatrices, the
-    /// neutral, and the two illuminant CCTs.
-    fn ref_weight(cm1: &[Rational], cm2: &[Rational], asn: &[Rational], t1: f64, t2: f64) -> f64 {
+    /// The reference mired weight of illuminant 2 at a chromaticity.
+    fn ref_weight_at(xy: (f64, f64), inv_t1: f64, denom: f64) -> f64 {
+        ((inv_t1 - 1.0 / ref_mccamy(xy.0, xy.1)) / denom).clamp(0.0, 1.0)
+    }
+
+    /// `xy(inv(CM(g)) · neutral)` for the reference.
+    fn ref_neutral_xy(
+        m1: [[f64; 3]; 3],
+        m2: [[f64; 3]; 3],
+        neutral: [f64; 3],
+        g: f64,
+    ) -> (f64, f64) {
+        let ic = inv(ref_lerp(m1, m2, g)).expect("reference CM(g) invertible");
+        let w = ref_mul_vec(ic, neutral);
+        let sum = w[0] + w[1] + w[2];
+        (w[0] / sum, w[1] / sum)
+    }
+
+    /// A reference NeutralToXY weight from the two ColorMatrices, the neutral,
+    /// and the two illuminant CCTs: `passes == None` runs the SDK 1.7.1 loop to
+    /// convergence (`DEC-076` §5: from D50, at most 30 passes, `|Δx| + |Δy| <
+    /// 1e-7`, else the midpoint of the last two); `Some(3)` runs `DEC-034`'s
+    /// superseded fixed 3 passes from `g = 0`, kept as the contrast.
+    fn ref_weight(
+        cm1: &[Rational],
+        cm2: &[Rational],
+        asn: &[Rational],
+        t1: f64,
+        t2: f64,
+        passes: Option<u32>,
+    ) -> f64 {
         let m1 = reference_matrix(cm1);
         let m2 = reference_matrix(cm2);
         let neutral = [
@@ -2363,18 +2608,27 @@ mod tests {
         ];
         let inv_t1 = 1.0 / t1;
         let denom = inv_t1 - 1.0 / t2;
-        let mut g = 0.0f64;
-        for _ in 0..3 {
-            let cmg = ref_lerp(m1, m2, g);
-            let ic = inv(cmg).expect("reference CM(g) invertible");
-            let w = ref_mul_vec(ic, neutral);
-            let sum = w[0] + w[1] + w[2];
-            let x = w[0] / sum;
-            let y = w[1] / sum;
-            let t = ref_mccamy(x, y);
-            g = ((inv_t1 - 1.0 / t) / denom).clamp(0.0, 1.0);
+        if let Some(n) = passes {
+            let mut g = 0.0f64;
+            for _ in 0..n {
+                g = ref_weight_at(ref_neutral_xy(m1, m2, neutral, g), inv_t1, denom);
+            }
+            return g;
         }
-        g
+        let mut last = (0.3457, 0.3585);
+        for pass in 0..30 {
+            let g = ref_weight_at(last, inv_t1, denom);
+            let mut next = ref_neutral_xy(m1, m2, neutral, g);
+            if (next.0 - last.0).abs() + (next.1 - last.1).abs() < 0.0000001 {
+                last = next;
+                break;
+            }
+            if pass == 29 {
+                next = ((last.0 + next.0) * 0.5, (last.1 + next.1) * 0.5);
+            }
+            last = next;
+        }
+        ref_weight_at(last, inv_t1, denom)
     }
 
     #[test]
@@ -2393,7 +2647,7 @@ mod tests {
         );
 
         let g = interpolation_weight(&sensor).expect("dual calibration interpolates");
-        let g_ref = ref_weight(&cm1, &cm2, &asn, 2856.0, 6504.0);
+        let g_ref = ref_weight(&cm1, &cm2, &asn, 2856.0, 6504.0, None);
 
         // Bit-exact against the independent NeutralToXY re-derivation.
         assert_eq!(
@@ -2403,10 +2657,19 @@ mod tests {
         // A genuine interior blend — not a trivially-clamped endpoint — and the
         // hand-computed value.
         assert!(g > 0.0 && g < 1.0, "expected an interior weight, got {g}");
+        // Re-pinned at SPEC-085 (DEC-076 §5): the converged weight.
         assert!(
-            (g - 0.5202685520213226).abs() < 1e-9,
+            (g - 0.6708871184066116).abs() < 1e-9,
             "weight drifted from the hand-computed value: {g}"
         );
+        // The contrast: DEC-034's fixed 3 passes gave SPEC-034's pinned value,
+        // which the converged loop is not.
+        let g_three = ref_weight(&cm1, &cm2, &asn, 2856.0, 6504.0, Some(3));
+        assert!(
+            (g_three - 0.5202685520213226).abs() < 1e-9,
+            "the 3-pass contrast drifted: {g_three}"
+        );
+        assert!((g - g_three).abs() > 1e-4);
     }
 
     #[test]
@@ -2566,9 +2829,13 @@ mod tests {
         assert!(build_camera_to_srgb_linear(&sensor).is_ok());
 
         // (b) A singular ColorMatrix1 (row 1 = 2·row 0), no ForwardMatrix, with a
-        //     present ColorMatrix2 and illuminants: the weight iteration's first
-        //     inv(CM(0)) = inv(CM1) is singular ⇒ fallback ⇒ the single-illuminant
-        //     path also hits the singular CM1 ⇒ typed error, never a panic.
+        //     present ColorMatrix2 and illuminants. Before SPEC-085 the 3-pass
+        //     loop started at g = 0, inverted the singular CM1, fell back and
+        //     refused. The converged loop (DEC-076 §5) starts at D50 like the
+        //     SDK's, settles at g = 1 and so develops on CM2 alone: the singular
+        //     CM1 is never inverted. Approved behaviour change at SPEC-085's
+        //     build; whether a singular ColorMatrix_i should refuse even when
+        //     unused belongs to SPEC-087. Still never a panic and never a NaN.
         let singular_cm1 =
             matrix_rationals([[10000, 20000, 30000], [20000, 40000, 60000], [0, 0, 10000]]);
         let sensor = dual_sensor(
@@ -2580,10 +2847,9 @@ mod tests {
             Some(ILLUMINANT_A),
             Some(ILLUMINANT_D65),
         );
-        assert!(matches!(
-            build_camera_to_srgb_linear(&sensor),
-            Err(Error::MissingColorCalibration)
-        ));
+        assert_eq!(interpolation_weight(&sensor), Some(1.0));
+        let built = build_camera_to_srgb_linear(&sensor).expect("develops on CM2 alone");
+        assert!(built.iter().flatten().all(|v| v.is_finite()), "{built:?}");
 
         // (c) The chromaticity guard: a non-positive XYZ sum is None, not a divide.
         assert_eq!(xyz_to_xy([-1.0, 0.0, 0.0]), None);

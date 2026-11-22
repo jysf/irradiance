@@ -791,3 +791,260 @@ fn a_missing_tool_skips_loudly_naming_it() {
         other => panic!("expected ToolError::NotOnPath, got {other:?}"),
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-085 AC1 — the calibration tags against exiftool (DEC-076 §1). The three
+// rational tags compare exactly (the same cross-multiplying comparator as the
+// matrices); the two signatures compare as strings. Tier B over the five held
+// colour files, with each comparison perturbed to prove it goes red; Tier A
+// replays the Pixel 7 Pro's and Pixel 4a's real readings.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The five held colour files.
+const CALIBRATION_FILES: [&str; 5] = [
+    "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng",
+    "GOOGLE-PIXEL-3A/IMG_20190918_164153.dng",
+    "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng",
+    "CANON-EOS-5D-MARK-III/5G4A9394.DNG",
+    "NIKON-D300S/_DSC4615.DNG",
+];
+
+/// The IFD0 calibration tags, in exiftool's names and the column order
+/// [`calibration_from_fields`] reads.
+const CALIBRATION_TAGS: [&str; 5] = [
+    "CameraCalibration1",
+    "CameraCalibration2",
+    "AnalogBalance",
+    "CameraCalibrationSig",
+    "ProfileCalibrationSig",
+];
+
+/// exiftool's reading of the calibration tags: the rational tags as decimal
+/// tokens, the signatures as strings, `None` for `-` (absent).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CalibrationReading {
+    camera_calibration_1: Option<Vec<String>>,
+    camera_calibration_2: Option<Vec<String>>,
+    analog_balance: Option<Vec<String>>,
+    camera_signature: Option<String>,
+    profile_signature: Option<String>,
+}
+
+/// Parse one `exiftool -T -n -s3` line of [`CALIBRATION_TAGS`].
+fn calibration_from_fields(line: &str) -> Result<CalibrationReading, ToolError> {
+    let line = line.trim_end_matches('\n');
+    let cols: Vec<&str> = line.split('\t').collect();
+    if cols.len() != CALIBRATION_TAGS.len() {
+        return Err(ToolError::Parse {
+            tool: "exiftool",
+            message: format!(
+                "expected {} tab-separated calibration columns, got {}: {line:?}",
+                CALIBRATION_TAGS.len(),
+                cols.len()
+            ),
+        });
+    }
+    let tokens = |raw: &str| -> Option<Vec<String>> {
+        (raw != "-").then(|| {
+            raw.split(' ')
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+    };
+    let text = |raw: &str| -> Option<String> { (raw != "-").then(|| raw.to_string()) };
+    Ok(CalibrationReading {
+        camera_calibration_1: tokens(cols[0]),
+        camera_calibration_2: tokens(cols[1]),
+        analog_balance: tokens(cols[2]),
+        camera_signature: text(cols[3]),
+        profile_signature: text(cols[4]),
+    })
+}
+
+fn calibration_reading(path: &Path) -> Result<CalibrationReading, ToolError> {
+    let mut args: Vec<String> = vec!["-T".into(), "-n".into(), "-s3".into()];
+    for tag in CALIBRATION_TAGS {
+        args.push(format!("-IFD0:{tag}"));
+    }
+    let output = tools::run_tool("exiftool", &args, path)?;
+    calibration_from_fields(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn compare_signature(
+    field: &'static str,
+    ours: &Option<Vec<u8>>,
+    theirs: &Option<String>,
+) -> Option<Mismatch> {
+    let ours_text = ours
+        .as_ref()
+        .map(|b| String::from_utf8_lossy(b).into_owned());
+    if ours_text == *theirs {
+        None
+    } else {
+        Some(Mismatch {
+            field,
+            ours: format!("{ours_text:?}"),
+            theirs: format!("{theirs:?}"),
+        })
+    }
+}
+
+/// Diff a `Sensor`'s five calibration fields against exiftool's reading.
+fn diff_calibration(sensor: &Sensor, reading: &CalibrationReading) -> Vec<Mismatch> {
+    [
+        compare_matrix(
+            "CameraCalibration1",
+            &sensor.camera_calibration_1,
+            &reading.camera_calibration_1,
+        ),
+        compare_matrix(
+            "CameraCalibration2",
+            &sensor.camera_calibration_2,
+            &reading.camera_calibration_2,
+        ),
+        compare_matrix(
+            "AnalogBalance",
+            &sensor.analog_balance,
+            &reading.analog_balance,
+        ),
+        compare_signature(
+            "CameraCalibrationSig",
+            &sensor.camera_calibration_signature,
+            &reading.camera_signature,
+        ),
+        compare_signature(
+            "ProfileCalibrationSig",
+            &sensor.profile_calibration_signature,
+            &reading.profile_signature,
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+/// Every single-field perturbation of `sensor`'s calibration, named, that the
+/// diff must catch: one rational numerator nudged per present rational tag, a
+/// present signature changed, an absent one made present.
+fn calibration_perturbations(sensor: &Sensor) -> Vec<(&'static str, Sensor)> {
+    let mut out = Vec::new();
+    let nudge = |v: &Option<Vec<Rational>>| -> Option<Vec<Rational>> {
+        v.as_ref().map(|r| {
+            let mut r = r.clone();
+            r[0].num += 1;
+            r
+        })
+    };
+    let resign = |v: &Option<Vec<u8>>| -> Option<Vec<u8>> {
+        match v {
+            Some(b) => Some([b.as_slice(), b"x"].concat()),
+            None => Some(b"x".to_vec()),
+        }
+    };
+    if sensor.camera_calibration_1.is_some() {
+        let mut s = sensor.clone();
+        s.camera_calibration_1 = nudge(&sensor.camera_calibration_1);
+        out.push(("CameraCalibration1", s));
+    }
+    if sensor.camera_calibration_2.is_some() {
+        let mut s = sensor.clone();
+        s.camera_calibration_2 = nudge(&sensor.camera_calibration_2);
+        out.push(("CameraCalibration2", s));
+    }
+    if sensor.analog_balance.is_some() {
+        let mut s = sensor.clone();
+        s.analog_balance = nudge(&sensor.analog_balance);
+        out.push(("AnalogBalance", s));
+    }
+    let mut s = sensor.clone();
+    s.camera_calibration_signature = resign(&sensor.camera_calibration_signature);
+    out.push(("CameraCalibrationSig", s));
+    let mut s = sensor.clone();
+    s.profile_calibration_signature = resign(&sensor.profile_calibration_signature);
+    out.push(("ProfileCalibrationSig", s));
+    out
+}
+
+/// The diff is clean on `sensor`, and every perturbation of it goes red naming
+/// its field.
+fn assert_clean_and_red(label: &str, sensor: &Sensor, reading: &CalibrationReading) {
+    let mismatches = diff_calibration(sensor, reading);
+    assert!(
+        mismatches.is_empty(),
+        "{label}: calibration disagrees with exiftool:\n{}",
+        mismatches
+            .iter()
+            .map(|m| format!("  {m}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    for (field, perturbed) in calibration_perturbations(sensor) {
+        let red = diff_calibration(&perturbed, reading);
+        assert!(
+            red.iter().any(|m| m.field == field),
+            "{label}: perturbing {field} did not turn the diff red: {red:?}"
+        );
+    }
+}
+
+#[test]
+fn calibration_tags_match_exiftool_on_the_held_colour_files() {
+    if !tools::exiftool_available() {
+        eprintln!(
+            "SKIP calibration_tags_match_exiftool_on_the_held_colour_files — exiftool not on PATH"
+        );
+        return;
+    }
+    let root = CorpusRoot::resolve();
+    let mut checked = 0;
+    for manifest_path in CALIBRATION_FILES {
+        let Some((path, sensor)) = colour_sensor_at(&root, manifest_path) else {
+            continue;
+        };
+        let reading = calibration_reading(&path)
+            .unwrap_or_else(|e| panic!("{manifest_path}: exiftool failed: {e}"));
+        assert_clean_and_red(manifest_path, &sensor, &reading);
+        checked += 1;
+    }
+    eprintln!("calibration_tags_match_exiftool_on_the_held_colour_files: {checked}/5 present");
+}
+
+/// The Pixel 7 Pro's and Pixel 4a's real `exiftool -T -n -s3` lines for
+/// [`CALIBRATION_TAGS`] (2026-11-22): no signatures, then both `com.adobe`.
+const PIXEL_7_PRO_CALIBRATION: &str =
+    "0.8594 0 0 0 1 0 0 0 0.3408\t0.6162 0 0 0 1 0 0 0 0.5703\t1 1 1\t-\t-\n";
+const PIXEL_4A_CALIBRATION: &str =
+    "1.0235 0 0 0 1 0 0 0 0.9555\t1.034 0 0 0 1 0 0 0 0.9764\t1 1 1\tcom.adobe\tcom.adobe\n";
+
+#[test]
+fn calibration_oracle_is_clean_on_replayed_readings_and_goes_red_when_perturbed() {
+    let diag = |a: i32, c: i32| matrix([a, 0, 0, 0, 10000, 0, 0, 0, c]);
+    let unity = Some(vec![
+        Rational {
+            num: 1_000_000,
+            den: 1_000_000,
+        };
+        3
+    ]);
+
+    let mut seven = Sensor::test_fixture();
+    seven.camera_calibration_1 = diag(8594, 3408);
+    seven.camera_calibration_2 = diag(6162, 5703);
+    seven.analog_balance = unity.clone();
+    let reading = calibration_from_fields(PIXEL_7_PRO_CALIBRATION).expect("parses");
+    assert_eq!(reading.camera_signature, None);
+    assert_clean_and_red("Pixel 7 Pro (replayed)", &seven, &reading);
+
+    let mut four = Sensor::test_fixture();
+    four.camera_calibration_1 = diag(10235, 9555);
+    four.camera_calibration_2 = diag(10340, 9764);
+    four.analog_balance = unity;
+    four.camera_calibration_signature = Some(b"com.adobe".to_vec());
+    four.profile_calibration_signature = Some(b"com.adobe".to_vec());
+    let reading = calibration_from_fields(PIXEL_4A_CALIBRATION).expect("parses");
+    assert_clean_and_red("Pixel 4a (replayed)", &four, &reading);
+
+    // A malformed line (four columns) is a parse error, not a silent pass.
+    assert!(calibration_from_fields("1\t1\t1\t-\n").is_err());
+}
