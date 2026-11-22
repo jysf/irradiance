@@ -49,15 +49,15 @@ handback:
   status: completed                # completed | blocked | rejected
   agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: punch-list                    # verify handoffs: approved | punch-list | rejected
+  verdict: approved                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 7653140               # REAL combined count — what cost-audit reads
-  estimated_usd: 6.05              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: 8
+  tokens_total: 9951163               # REAL combined count — what cost-audit reads
+  estimated_usd: 7.64              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 18
   branch: claude/spec-086-verify-base
   pr: null
   completed_at: 2026-11-22               # YYYY-MM-DD
-  notes: "PUNCH LIST: P1 src, interleave factors read through scalar() so count 0 or [1, 2] develops Ok without a malformed record; P2 tests, SampleFormat [1, 3] row added on this branch (mutant v5 survived without it). Tokens are a floor taken before the handback commit."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  notes: "Round 1 PUNCH LIST (P1 interleave-factor read, P2 SampleFormat [1, 3] row); round 2 APPROVED at f71f703 after dbc2017 closed both. Tokens cover both rounds, a floor taken before the round-2 commit."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -396,3 +396,53 @@ If you cannot complete the task:
 3. **If you did this task again, what would you do differently?**
    — Probe the readers with odd counts (0, 2, `u32::MAX`) before running mutants. It was the
    cheapest check and it found the only `src/` gap.
+
+---
+
+### Round 2 (2026-11-22): ✅ APPROVED at `f71f703`
+
+The build branch fixed the punch list in `dbc2017` and recorded it in `f71f703`.
+`claude/spec-086-verify-base` now carries `origin/feat/spec-086-unhonoured-tags` through a
+clean merge. Its `src/` and `tests/` are byte-identical to `f71f703`.
+
+- **What moved (`git diff 258eee9 f71f703`).** Only `src/ifd.rs` (the new
+  `single_short_or_long` reader used for both interleave factors, plus their doc comments),
+  `src/lib.rs` (a separate `Display` arm for `UnsupportedTag { tag: 50707 }`, and 50707
+  removed from the name lookup), `tests/unhonoured_tags.rs` (the P2 row, the AC6 cases and a
+  `Display` assertion) and HANDOFF-180's handback. Nothing else changed.
+- **P1 closed.**
+  - The new AC6 cases (count 0 and count 2 for both factors) fail when `tests/` is run
+    against 258eee9's `src/ifd.rs` ("50975 with count 0: malformed_tags [] must name
+    50975"), and they pass on the fix.
+  - An extra probe on the fix, for both tags and on `develop_into` and `develop_color_into`:
+    BYTE 1, RATIONAL 1/1, LONG `[1, 2]`, SHORT count 0, SHORT `[1, 2]` and SHORT with count
+    `u32::MAX` are each recorded in `malformed_tags`, give a `None` field, and refuse
+    `UnsupportedTag` for the right tag with `dst` untouched.
+  - A single LONG 1 develops `Ok`, and a single LONG 2 is read as 2 and refused.
+  - The count is checked before `uints`, so a huge count never reaches an allocation.
+  - The stricter type set (SHORT or LONG only) matches DEC-077 §1.
+- **P2 present and unchanged.** Row b2 is byte-identical to the one in `8c90c4d`.
+  Mutant v5 is still red on it ("b2: SampleFormat = [1, 3] on DevelopInto: expected
+  Tag(339), got Ok(())").
+- **`Display` accurate.** A malformed `DNGBackwardVersion` now reads "DNGBackwardVersion
+  (50707) is malformed, so the file's reader version is unknown". It no longer claims the
+  tag changes what the samples mean, and the test asserts that. The specific arm comes
+  before the general one, so the other tags are unchanged. With 50707 out of the lookup,
+  the lookup is only reached for the seven sample-meaning tags and the "tag" fallback.
+- **Gates.** All exit 0: `just test` with `IRRADIANCE_CORPUS_DIR` (836 passed, 0 failed,
+  12/12 present; same count as round 1, because the new cases sit inside existing tests),
+  `lint-ci`, `lint-no-allow`, `fmt-check`, `validate`, `doc-check` and `semver-check` ("no
+  semver update required").
+- **Method note.** Copies made with `git archive` carry commit-time mtimes. One round-2
+  probe that reused another copy's `CARGO_TARGET_DIR` ran a stale binary (7 tests instead
+  of 8). Every result above comes from a re-run with a fresh target dir per copy and
+  touched sources. The round-1 mutants each had their own target dir from the first build,
+  so they were not affected.
+- **Remaining follow-ups (unchanged, none blocking).** SPEC-087 should refuse a malformed
+  `DNGVersion` when no backward version is present. The scratch half of AC1's sentinel
+  check is vacuous on these fixtures.
+- **Cost.** `tokens_total` is now both rounds re-summed from this session's transcript:
+  9,951,163 (input 119, cache creation 159,021, cache read 9,744,888, output 47,135), about
+  $7.64 at Opus 5.5 rates with 1-hour cache writes. That is round 2 adding about 2.3M over
+  round 1's 7,653,140 floor. It is a floor, taken before this commit. The duration of 18
+  minutes is the whole transcript span, including the idle gap between rounds.
