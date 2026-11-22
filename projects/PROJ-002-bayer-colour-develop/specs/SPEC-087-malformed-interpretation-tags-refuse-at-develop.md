@@ -107,6 +107,13 @@ weight it lands on), and is refused only when the weight needs the singular prod
 So whether it develops depends on the scene. Refuse it outright, or keep the SDK's
 behaviour; see SPEC-085's build ruling and the CHANGELOG entry.
 
+**Carried in from SPEC-086 (shipped 2026-11-22).** A malformed `DNGVersion` (50706) with
+no `DNGBackwardVersion` is recorded in `malformed_tags` and then skipped, so DEC-077's
+version guard does not run. The SPEC-086 verify ruled that correct under DEC-077 as
+written, and asked that this spec refuse it as `UnsupportedTag { tag: 50706 }`, matching
+a malformed 50707, because the file's reader version is then unknown. Give 50706 its own
+`Display` wording, as 50707 has.
+
 ## Goal
 
 A malformed interpretation tag that a develop path consumes refuses at that

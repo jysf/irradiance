@@ -58,7 +58,7 @@ handback:
   pr: null
   completed_at: 2026-11-22               # YYYY-MM-DD
   notes: "Round 1 PUNCH LIST (P1 interleave-factor read, P2 SampleFormat [1, 3] row); round 2 APPROVED at f71f703 after dbc2017 closed both. Tokens cover both rounds, a floor taken before the round-2 commit."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-22
 ---
 
 # HANDOFF-181: VERIFY: refuse tags the develop cannot honour yet (SPEC-086)

@@ -6,19 +6,19 @@
 task:
   id: SPEC-086
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [punch-list, approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,46 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 25000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-180
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 16925255
+      estimated_usd: 12.33
+      duration_minutes: 22
+      recorded_at: 2026-11-22
+      notes: "TRUE cost, re-summed at ship from the whole build worktree transcript dir (82 unique message.ids, all claude-opus-5-5, no subagents): input 168 + cache-creation 224,002 (1-hour) + cache-read 16,630,097 + output 70,988, opus-5-5 rates. Includes the verify punch-list fix (dbc2017, f71f703). The handback floor was 15,838,413. Duration is the active turns (12 build + about 10 fix), not the 51-minute transcript span with its idle wait. PR 309."
+    - cycle: verify
+      handoff: HANDOFF-181
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 10839645
+      estimated_usd: 8.25
+      duration_minutes: 18
+      recorded_at: 2026-11-22
+      notes: "TRUE cost, re-summed at ship from the whole verify worktree transcript dir (63 unique message.ids, all claude-opus-5-5, no subagents): input 127 + cache-creation 164,644 (1-hour) + cache-read 10,623,245 + output 51,629, opus-5-5 rates. Two rounds: round 1 PUNCH LIST at 258eee9 (P1 interleave factors read through scalar(), so count 0 or 2 developed Ok; P2 SampleFormat every-vs-any untested, fixed by the verifier), round 2 APPROVED at f71f703. 16 own mutants, 15 red in round 1, v5 red after P2. Handback carried into PR 309 by fast-forward to 0e6cc72. The handback floor was 9,951,163 and $7.64."
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-11-22
+      notes: "Un-metered main-loop orchestration (design in PR 308, with a corpus exiftool and SOF-3 precision re-measure); counted at stage grain in STAGE-027's orchestration_cost, not split per spec."
+    - cycle: ship
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-11-22
+      notes: "Un-metered main-loop ship; counted at stage grain in STAGE-027's orchestration_cost."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 27764900
+    estimated_usd: 20.58
+    session_count: 4
+shipped_at: 2026-11-22
 ---
 
 # SPEC-086: Refuse tags the develop cannot honour yet
@@ -316,34 +351,31 @@ equality). There is no numeric tolerance in this spec.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
-
 1. **What would I do differently next time?**
-   — <answer>
+   — Name the reader for every scalar tag in the design, not only its type and count.
+   DEC-077 §1 said "SHORT or LONG" for the interleave factors, and the build reached for
+   the existing `scalar()`, which keeps the first of any number of values and treats count
+   0 as absent. So the decision's "one value" never reached the code. The cold verify
+   caught it (P1). A design line such as "read with a count-exactly-1 reader" would have
+   prevented the round.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No decision change: DEC-077 already said one value. Lesson, N=2 with SPEC-085's
+   FU-1/FU-2: a Tier-A fixture that exercises only the easy shape (one `SampleFormat`
+   value, one interleave value) leaves an "every vs any" or "one vs many" mutant alive.
+   Not yet filed as a signal; watch for a third.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. A malformed `DNGVersion` with no `DNGBackwardVersion` is skipped, so the
+   version guard does not run; the verify ruled that acceptable under DEC-077 and routed
+   it to SPEC-087 (written into its Context at this ship). Applying `LinearizationTable`
+   and `BlackLevelDelta*` stays a later spec, by demand.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?** — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?** — A DNG whose tags change what
+   its samples mean (float or signed samples, a linearization table, per-row or
+   per-column black offsets, interleaved or sub-tiled storage, a reader version newer than
+   1.7.1, or a compressed frame whose precision disagrees with its bit depth) used to
+   develop to wrong pixels with `Ok`; it now refuses with a typed error before writing,
+   while all 12 held files still develop byte-identically.
