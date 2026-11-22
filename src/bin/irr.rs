@@ -211,6 +211,23 @@ fn cmd_ifd(args: &[&str]) -> ExitCode {
     println!("as_shot_neutral {:?}", sensor.as_shot_neutral);
     println!("calib_illum1    {:?}", sensor.calibration_illuminant_1);
     println!("calib_illum2    {:?}", sensor.calibration_illuminant_2);
+    println!("camera_calib1   {:?}", sensor.camera_calibration_1);
+    println!("camera_calib2   {:?}", sensor.camera_calibration_2);
+    println!("analog_balance  {:?}", sensor.analog_balance);
+    println!(
+        "camera_cal_sig  {:?}",
+        sensor
+            .camera_calibration_signature
+            .as_deref()
+            .map(String::from_utf8_lossy)
+    );
+    println!(
+        "profile_cal_sig {:?}",
+        sensor
+            .profile_calibration_signature
+            .as_deref()
+            .map(String::from_utf8_lossy)
+    );
     println!("black_levels    {:?}", sensor.black_levels);
     println!("white_levels    {:?}", sensor.white_levels);
     println!("orientation     {:?}", sensor.orientation);

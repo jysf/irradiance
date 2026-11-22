@@ -8,6 +8,36 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Added
+
+- **`Sensor` reads the camera calibration tags** (SPEC-085, STAGE-027, PROJ-002, DEC-076):
+  `camera_calibration_1`, `camera_calibration_2` and `analog_balance` (rationals, verbatim)
+  and `camera_calibration_signature` / `profile_calibration_signature` (the bytes as
+  written, cut at the first NUL), each from IFD0 under DEC-012's contract, with public tag
+  constants `TAG_CAMERA_CALIBRATION_1`, `TAG_CAMERA_CALIBRATION_2`, `TAG_ANALOG_BALANCE`,
+  `TAG_CAMERA_CALIBRATION_SIGNATURE` and `TAG_PROFILE_CALIBRATION_SIGNATURE`. Additive:
+  `Sensor` is `#[non_exhaustive]`.
+
+### Changed
+
+- **The colour develop applies `AnalogBalance` and `CameraCalibration1/2`, and runs the
+  illuminant weight to convergence** (SPEC-085, DEC-076). On all four colour entries and
+  `to_srgb_linear_into`: `AnalogBalance` always, and the calibrations when the camera and
+  profile calibration signatures are equal (an absent one counting as empty), folded into
+  each `ColorMatrix` before the illuminant lerp and into the ForwardMatrix path through
+  the reference neutral, as Adobe's DNG SDK does. The `NeutralToXY` weight now iterates
+  from D50 to convergence (at most 30 passes) instead of a fixed 3. An unusable applied
+  calibration is `Error::MissingColorCalibration`, before any write. Colour output moves
+  on the held Pixel 7 Pro (calibration and loop: 1161 codes off the SDK before, 6 after),
+  Pixel 3a (loop only: 39 to 6), Pixel 4a (both: 23 to 1), Canon EOS 5D Mark III (both:
+  3 to 2) and Nikon D300S (loop only); mono output does not change. `DEVELOP_VERSION` goes
+  from `"7"` to `"8"`.
+- **A dual-illuminant file whose `ColorMatrix1` is singular now develops** (SPEC-085,
+  DEC-076 §5). The converged weight loop starts at D50, as Adobe's SDK does, so when it
+  settles fully on illuminant 2 the singular matrix is never inverted and the develop uses
+  `ColorMatrix2` alone; before, the 3-pass loop inverted `ColorMatrix1` first and the file
+  was refused with `Error::MissingColorCalibration`.
+
 ## [0.2.4] - 2026-11-20
 
 Black levels now follow the DNG specification and Adobe's SDK, and a colour file whose

@@ -337,8 +337,8 @@ fn default_warp_alpha_is_one_and_pins_hold() {
     assert_eq!(default.framing, Framing::StandardCrop);
     assert!(default.apply_orientation);
     assert_eq!(
-        DEVELOP_VERSION, "7",
-        "SPEC-064 does not bump DEVELOP_VERSION; DEC-070 bumps it to 7"
+        DEVELOP_VERSION, "8",
+        "SPEC-064 does not bump DEVELOP_VERSION; DEC-070 bumps it to 7, DEC-076 to 8"
     );
     // An explicit 1.0 is the default value, not merely an equivalent one.
     assert_eq!(opts(Framing::StandardCrop, 1.0), default);

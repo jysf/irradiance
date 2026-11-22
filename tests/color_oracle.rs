@@ -156,8 +156,80 @@ fn ref_mccamy(x: f64, y: f64) -> Option<f64> {
     Some(449.0 * n * n * n + 3525.0 * n * n + 6823.3 * n + 5520.33)
 }
 
-/// Reference scene weight by the DNG NeutralToXY method (`None` ⇒ fallback).
-fn ref_weight(sensor: &Sensor) -> Option<f64> {
+/// The 3×3 identity.
+const I3: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+/// The D50 chromaticity the SDK's `NeutralToXY` starts from (DEC-076 §5).
+const D50_XY: (f64, f64) = (0.3457, 0.3585);
+
+/// Reference `AnalogBalance` as a diagonal; absent is the identity (DEC-076 §2).
+/// Only called on fixtures whose `AnalogBalance` is well-shaped.
+fn ref_ab(sensor: &Sensor) -> [[f64; 3]; 3] {
+    match sensor.analog_balance.as_ref() {
+        None => I3,
+        Some(ab) => {
+            let mut d = [[0.0f64; 3]; 3];
+            for (idx, r) in ab.iter().enumerate().take(3) {
+                d[idx][idx] = f64::from(r.num) / f64::from(r.den);
+            }
+            d
+        }
+    }
+}
+
+/// Reference signature rule (DEC-076 §2): the calibrations apply only when the
+/// camera and profile signatures are equal, an absent one counting as empty.
+fn ref_calibration_applies(sensor: &Sensor) -> bool {
+    let camera: &[u8] = sensor
+        .camera_calibration_signature
+        .as_deref()
+        .unwrap_or(&[]);
+    let profile: &[u8] = sensor
+        .profile_calibration_signature
+        .as_deref()
+        .unwrap_or(&[]);
+    camera == profile
+}
+
+/// Reference `CC_i`: the identity when the rule says no or the tag is absent.
+fn ref_cc(sensor: &Sensor, illuminant: u8) -> [[f64; 3]; 3] {
+    let tag = if illuminant == 1 {
+        sensor.camera_calibration_1.as_ref()
+    } else {
+        sensor.camera_calibration_2.as_ref()
+    };
+    match tag {
+        Some(cc) if ref_calibration_applies(sensor) => matrix_of(cc),
+        _ => I3,
+    }
+}
+
+/// Reference `K_i = AB · CC_i`.
+fn ref_k(sensor: &Sensor, illuminant: u8) -> [[f64; 3]; 3] {
+    mm(ref_ab(sensor), ref_cc(sensor, illuminant))
+}
+
+/// Reference fold `X_i = K_i · CM_i`, left as `CM_i` itself when `K_i` is exactly
+/// the identity (DEC-076 §4: the identity is byte-identical).
+fn ref_fold(k: [[f64; 3]; 3], cm: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    if k == I3 {
+        cm
+    } else {
+        mm(k, cm)
+    }
+}
+
+/// The dual-illuminant inputs the reference weight needs, or `None` when the
+/// preconditions fail (the single-illuminant fallback).
+struct RefDual {
+    x1: [[f64; 3]; 3],
+    x2: [[f64; 3]; 3],
+    inv_t1: f64,
+    denom: f64,
+    neutral: [f64; 3],
+}
+
+fn ref_dual(sensor: &Sensor) -> Option<RefDual> {
     let cm1 = sensor.color_matrix_1.as_ref()?;
     let cm2 = sensor.color_matrix_2.as_ref()?;
     if cm1.len() != 9 || cm2.len() != 9 {
@@ -179,17 +251,75 @@ fn ref_weight(sensor: &Sensor) -> Option<f64> {
         f64::from(asn[1].num) / f64::from(asn[1].den),
         f64::from(asn[2].num) / f64::from(asn[2].den),
     ];
-    let (m1, m2) = (matrix_of(cm1), matrix_of(cm2));
+    Some(RefDual {
+        x1: ref_fold(ref_k(sensor, 1), matrix_of(cm1)),
+        x2: ref_fold(ref_k(sensor, 2), matrix_of(cm2)),
+        inv_t1,
+        denom,
+        neutral,
+    })
+}
+
+/// The mired weight of illuminant 2 at a chromaticity (`None` on a McCamy pole).
+fn ref_weight_at(d: &RefDual, xy: (f64, f64)) -> Option<f64> {
+    let t = ref_mccamy(xy.0, xy.1)?;
+    Some(((d.inv_t1 - 1.0 / t) / d.denom).clamp(0.0, 1.0))
+}
+
+/// `xy(inv(X(g)) · neutral)`, or `None` when `X(g)` is singular or the XYZ sum
+/// is not positive.
+fn ref_neutral_xy(d: &RefDual, g: f64) -> Option<(f64, f64)> {
+    let w = ref_mul_vec(inv(ref_lerp(d.x1, d.x2, g))?, d.neutral);
+    let sum = w[0] + w[1] + w[2];
+    if sum <= 0.0 {
+        return None;
+    }
+    Some((w[0] / sum, w[1] / sum))
+}
+
+/// Reference scene weight by the SDK 1.7.1 `NeutralToXY` loop (DEC-076 §5):
+/// from D50, at most 30 passes, stop when `|Δx| + |Δy| < 1e-7` taking `next`,
+/// else the midpoint of the last two; the weight is read at the final `xy`.
+/// Returns the weight and the number of passes run. `None` ⇒ fallback.
+fn ref_weight_and_passes(sensor: &Sensor) -> Option<(f64, u32)> {
+    let d = ref_dual(sensor)?;
+    let mut last = D50_XY;
+    let mut passes = 0u32;
+    for pass in 0..30u32 {
+        passes = pass + 1;
+        let g = ref_weight_at(&d, last)?;
+        let mut next = ref_neutral_xy(&d, g)?;
+        if (next.0 - last.0).abs() + (next.1 - last.1).abs() < 0.0000001 {
+            last = next;
+            break;
+        }
+        if pass == 29 {
+            next = ((last.0 + next.0) * 0.5, (last.1 + next.1) * 0.5);
+        }
+        last = next;
+    }
+    Some((ref_weight_at(&d, last)?, passes))
+}
+
+/// Reference scene weight (`None` ⇒ fallback).
+fn ref_weight(sensor: &Sensor) -> Option<f64> {
+    ref_weight_and_passes(sensor).map(|(g, _)| g)
+}
+
+/// DEC-034's superseded loop — a fixed 3 passes from `g = 0`, with no
+/// calibration — kept only so SPEC-085 AC2 (f) can assert that the converged
+/// weight is not it.
+fn ref_weight_three_pass(sensor: &Sensor) -> Option<f64> {
+    let cm1 = matrix_of(sensor.color_matrix_1.as_ref()?);
+    let cm2 = matrix_of(sensor.color_matrix_2.as_ref()?);
+    let d = RefDual {
+        x1: cm1,
+        x2: cm2,
+        ..ref_dual(sensor)?
+    };
     let mut g = 0.0f64;
     for _ in 0..3 {
-        let ic = inv(ref_lerp(m1, m2, g))?;
-        let w = ref_mul_vec(ic, neutral);
-        let sum = w[0] + w[1] + w[2];
-        if sum <= 0.0 {
-            return None;
-        }
-        let t = ref_mccamy(w[0] / sum, w[1] / sum)?;
-        g = ((inv_t1 - 1.0 / t) / denom).clamp(0.0, 1.0);
+        g = ref_weight_at(&d, ref_neutral_xy(&d, g)?)?;
     }
     Some(g)
 }
@@ -228,13 +358,44 @@ fn cm_cam2xyz(inv_cm: [[f64; 3]; 3], sensor: &Sensor) -> [[f64; 3]; 3] {
     mm(ca, inv_cm)
 }
 
-/// Reference build of `M = C · cam2xyz`. When the dual-calibration preconditions
-/// hold (`ref_weight` is `Some`), `cam2xyz` is the illuminant-interpolated
-/// `FM(g) · D` (both FMs present) else `inv(CM(g)) · D`; otherwise it is the
-/// SPEC-033 single-illuminant path (`FM1` else `inv(CM1)`).
+/// Reference ForwardMatrix-path `cam2xyz` (DEC-076 §4): today's `FM · D` when
+/// the calibration is exactly the identity, else `FM · diag(1/R) · inv(K)` with
+/// the reference neutral `R = inv(K) · asn`.
+fn fm_cam2xyz(fm: [[f64; 3]; 3], k: Option<[[f64; 3]; 3]>, sensor: &Sensor) -> [[f64; 3]; 3] {
+    let asn = sensor.as_shot_neutral.as_ref().expect("asn");
+    match k {
+        None => mm(fm, wb_of(asn)),
+        Some(k) => {
+            let ik = inv(k).expect("K invertible");
+            let neutral = [
+                f64::from(asn[0].num) / f64::from(asn[0].den),
+                f64::from(asn[1].num) / f64::from(asn[1].den),
+                f64::from(asn[2].num) / f64::from(asn[2].den),
+            ];
+            let r = ref_mul_vec(ik, neutral);
+            let d = [
+                [1.0 / r[0], 0.0, 0.0],
+                [0.0, 1.0 / r[1], 0.0],
+                [0.0, 0.0, 1.0 / r[2]],
+            ];
+            mm(fm, mm(d, ik))
+        }
+    }
+}
+
+/// Reference build of `M = C · cam2xyz` at the reference's own weight.
 fn reference_matrix(sensor: &Sensor) -> [[f64; 3]; 3] {
-    let wb = wb_of(sensor.as_shot_neutral.as_ref().expect("asn"));
-    let cam2xyz = match ref_weight(sensor) {
+    reference_matrix_at(sensor, ref_weight(sensor))
+}
+
+/// Reference build of `M = C · cam2xyz` at a given weight (`None` = the
+/// single-illuminant path). DEC-076 §4: the ColorMatrix path inverts
+/// `X(g) = lerp(AB·CC_1·CM_1, AB·CC_2·CM_2)`; the ForwardMatrix path takes
+/// `K(g) = AB · lerp(CC_1, CC_2)`; an exactly-identity calibration is today's
+/// transform.
+fn reference_matrix_at(sensor: &Sensor, weight: Option<f64>) -> [[f64; 3]; 3] {
+    let (k1, k2) = (ref_k(sensor, 1), ref_k(sensor, 2));
+    let cam2xyz = match weight {
         Some(g) => {
             let fm_pair = match (
                 sensor.forward_matrix_1.as_ref(),
@@ -246,22 +407,31 @@ fn reference_matrix(sensor: &Sensor) -> [[f64; 3]; 3] {
                 _ => None,
             };
             if let Some((f1, f2)) = fm_pair {
-                mm(ref_lerp(f1, f2, g), wb)
+                let k = if k1 == I3 && k2 == I3 {
+                    None
+                } else {
+                    Some(mm(
+                        ref_ab(sensor),
+                        ref_lerp(ref_cc(sensor, 1), ref_cc(sensor, 2), g),
+                    ))
+                };
+                fm_cam2xyz(ref_lerp(f1, f2, g), k, sensor)
             } else {
-                let cm = ref_lerp(
-                    matrix_of(sensor.color_matrix_1.as_ref().expect("cm1")),
-                    matrix_of(sensor.color_matrix_2.as_ref().expect("cm2")),
-                    g,
-                );
-                cm_cam2xyz(inv(cm).expect("interpolated CM invertible"), sensor)
+                let x1 = ref_fold(k1, matrix_of(sensor.color_matrix_1.as_ref().expect("cm1")));
+                let x2 = ref_fold(k2, matrix_of(sensor.color_matrix_2.as_ref().expect("cm2")));
+                cm_cam2xyz(
+                    inv(ref_lerp(x1, x2, g)).expect("interpolated X invertible"),
+                    sensor,
+                )
             }
         }
         None => {
             if let Some(fm1) = sensor.forward_matrix_1.as_ref() {
-                mm(matrix_of(fm1), wb)
+                let k = if k1 == I3 { None } else { Some(k1) };
+                fm_cam2xyz(matrix_of(fm1), k, sensor)
             } else {
-                let cm = matrix_of(sensor.color_matrix_1.as_ref().expect("cm1"));
-                cm_cam2xyz(inv(cm).expect("invertible"), sensor)
+                let x = ref_fold(k1, matrix_of(sensor.color_matrix_1.as_ref().expect("cm1")));
+                cm_cam2xyz(inv(x).expect("invertible"), sensor)
             }
         }
     };
@@ -1705,4 +1875,496 @@ fn hostile_geometry_is_a_typed_error_on_the_colour_path() {
         Err(Error::UnsupportedOrientation { orientation: 9 }) => {}
         other => panic!("expected UnsupportedOrientation, got {other:?}"),
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-085 — CameraCalibration and AnalogBalance (DEC-076). The reference above
+// carries the DEC-076 transform: `X_i = AB · CC_i · CM_i` lerped on the
+// ColorMatrix path, `K(g) = AB · lerp(CC_1, CC_2)` on the ForwardMatrix path, the
+// signature rule, and the convergent NeutralToXY loop. Every fixture asserts the
+// public API equals it to the bit AND that the clause under test moves the
+// output (so a mutant dropping it goes red).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A `num/10000` diagonal calibration `diag(a, 1, c)` (the Pixel shapes).
+fn cc_diag(a: i32, c: i32) -> Vec<Rational> {
+    matrix_rationals([[a, 0, 0], [0, 10000, 0], [0, 0, c]])
+}
+
+/// A non-diagonal calibration: the shape where the ForwardMatrix path's `K` is
+/// observable (for a diagonal `K`, `FM · diag(1/R) · inv(K)` equals `FM · D`).
+fn cc_skew_1() -> Vec<Rational> {
+    matrix_rationals([[10235, -820, 400], [350, 10000, -250], [150, 700, 9555]])
+}
+
+/// A second non-diagonal calibration, different from [`cc_skew_1`].
+fn cc_skew_2() -> Vec<Rational> {
+    matrix_rationals([[9340, 600, -300], [-450, 10000, 500], [-200, -900, 10764]])
+}
+
+/// The identity as the held files write it (`n/10000`).
+fn cc_identity() -> Vec<Rational> {
+    cc_diag(10000, 10000)
+}
+
+/// An `AnalogBalance` of `(1.1, 1, 0.9)`.
+fn ab_tilted() -> Vec<Rational> {
+    vec![
+        Rational { num: 11, den: 10 },
+        Rational { num: 1, den: 1 },
+        Rational { num: 9, den: 10 },
+    ]
+}
+
+/// An `AnalogBalance` of `(1, 1, 1)` as the held files write it.
+fn ab_unity() -> Vec<Rational> {
+    vec![
+        Rational {
+            num: 1_000_000,
+            den: 1_000_000,
+        };
+        3
+    ]
+}
+
+fn sig(text: &str) -> Option<Vec<u8>> {
+    Some(text.as_bytes().to_vec())
+}
+
+/// The sensor without any of the five SPEC-085 tags.
+fn without_calibration(sensor: &Sensor) -> Sensor {
+    let mut s = sensor.clone();
+    s.camera_calibration_1 = None;
+    s.camera_calibration_2 = None;
+    s.analog_balance = None;
+    s.camera_calibration_signature = None;
+    s.profile_calibration_signature = None;
+    s
+}
+
+fn api_to_srgb(sensor: &Sensor, camera_rgb: &[u16]) -> Vec<u16> {
+    let mut dst = vec![0u16; camera_rgb.len()];
+    to_srgb_linear_into(sensor, camera_rgb, &mut dst).expect("valid calibration");
+    dst
+}
+
+/// The single-illuminant ColorMatrix fixture (the Pixel 7 Pro's path).
+fn single_cm_sensor() -> Sensor {
+    let mut s = fixture_sensor(2, 2);
+    s.color_matrix_1 = Some(fixture_cm1());
+    s.as_shot_neutral = Some(asn_half_one_half());
+    s
+}
+
+/// The single-illuminant ForwardMatrix fixture.
+fn single_fm_sensor() -> Sensor {
+    let mut s = single_cm_sensor();
+    s.forward_matrix_1 = Some(forward_matrix_d50());
+    s
+}
+
+/// The dual-illuminant ColorMatrix fixture (A / D65).
+fn dual_cm_sensor() -> Sensor {
+    let mut s = single_cm_sensor();
+    s.color_matrix_2 = Some(fixture_cm2());
+    s.calibration_illuminant_1 = Some(ILLUMINANT_A);
+    s.calibration_illuminant_2 = Some(ILLUMINANT_D65);
+    s
+}
+
+/// The dual-illuminant ForwardMatrix fixture.
+fn dual_fm_sensor() -> Sensor {
+    let mut s = dual_cm_sensor();
+    s.forward_matrix_1 = Some(forward_matrix_d50());
+    s.forward_matrix_2 = Some(forward_matrix_cool());
+    s
+}
+
+/// Assert the API equals the DEC-076 reference to the bit, and that the
+/// calibration moved the output off the uncalibrated render.
+fn assert_calibrated(sensor: &Sensor, what: &str) {
+    let camera_rgb = dual_camera_rgb();
+    let got = api_to_srgb(sensor, &camera_rgb);
+    assert_eq!(
+        got,
+        reference_to_srgb(sensor, &camera_rgb),
+        "{what}: the API must equal the DEC-076 reference to the bit"
+    );
+    assert_ne!(
+        got,
+        api_to_srgb(&without_calibration(sensor), &camera_rgb),
+        "{what}: the calibration must move the output"
+    );
+    assert!(
+        got.iter().any(|&v| v > 0 && v < 65535),
+        "{what}: expected interior output, got {got:?}"
+    );
+}
+
+/// On the ColorMatrix path, a neutral input `c · AsShotNeutral` stays grey.
+fn assert_cm_neutral_is_grey(sensor: &Sensor, what: &str) {
+    // asn = (1/2, 1, 1/2): camera (c/2, c, c/2) for a few even c.
+    let camera_rgb: Vec<u16> = vec![
+        16384, 32768, 16384, 4000, 8000, 4000, 500, 1000, 500, 30000, 60000, 30000,
+    ];
+    let got = api_to_srgb(sensor, &camera_rgb);
+    for &[r, g, b] in got.as_chunks::<3>().0 {
+        let spread = r.max(g).max(b) - r.min(g).min(b);
+        assert!(
+            spread <= 1,
+            "{what}: a neutral input must stay grey, got [{r}, {g}, {b}]"
+        );
+    }
+}
+
+#[test]
+fn ac2a_single_illuminant_colour_matrix_with_a_diagonal_calibration() {
+    let mut s = single_cm_sensor();
+    s.camera_calibration_1 = Some(cc_diag(8594, 3408));
+    assert_calibrated(&s, "AC2 (a)");
+    assert_cm_neutral_is_grey(&s, "AC2 (a)");
+}
+
+#[test]
+fn ac2b_single_illuminant_forward_matrix_with_a_non_diagonal_calibration() {
+    let mut s = single_fm_sensor();
+    s.camera_calibration_1 = Some(cc_skew_1());
+    assert_calibrated(&s, "AC2 (b)");
+    // The K clause is what moved it: today's `FM · D` at this sensor is the
+    // uncalibrated render, already asserted different above. A diagonal
+    // calibration on the same path does NOT move it (the FM-path trap).
+    let mut diagonal = single_fm_sensor();
+    diagonal.camera_calibration_1 = Some(cc_diag(8594, 3408));
+    let camera_rgb = dual_camera_rgb();
+    let got = api_to_srgb(&diagonal, &camera_rgb);
+    assert_eq!(got, reference_to_srgb(&diagonal, &camera_rgb));
+    let delta = got
+        .iter()
+        .zip(api_to_srgb(&without_calibration(&diagonal), &camera_rgb))
+        .map(|(&a, b)| a.abs_diff(b))
+        .max()
+        .unwrap_or(0);
+    assert!(
+        delta <= 1,
+        "a diagonal K on a single-illuminant FM file equals FM · D up to rounding, got {delta}"
+    );
+}
+
+#[test]
+fn ac2c_analog_balance_applies_with_mismatched_signatures_on_both_paths() {
+    // On the FM path a diagonal `K = AB` equals `FM · D` up to rounding when the
+    // weight is fixed, so the FM row is dual: there `AB` moves the weight.
+    for (path, base) in [("CM", single_cm_sensor()), ("FM", dual_fm_sensor())] {
+        let mut s = base;
+        s.analog_balance = Some(ab_tilted());
+        s.camera_calibration_1 = Some(cc_skew_1());
+        s.camera_calibration_2 = Some(cc_skew_2());
+        s.camera_calibration_signature = sig("a");
+        s.profile_calibration_signature = sig("b");
+        let what = format!("AC2 (c) {path}");
+        assert_calibrated(&s, &what);
+
+        let camera_rgb = dual_camera_rgb();
+        let got = api_to_srgb(&s, &camera_rgb);
+        // AB applied: dropping it changes the output.
+        let mut no_ab = s.clone();
+        no_ab.analog_balance = None;
+        assert_ne!(got, api_to_srgb(&no_ab, &camera_rgb), "{what}: AB ignored");
+        // CC not applied: the same file with matching signatures differs.
+        let mut cc_on = s.clone();
+        cc_on.profile_calibration_signature = sig("a");
+        assert_ne!(
+            got,
+            reference_to_srgb(&cc_on, &camera_rgb),
+            "{what}: CC applied"
+        );
+        if path == "CM" {
+            assert_cm_neutral_is_grey(&s, &what);
+        }
+    }
+}
+
+#[test]
+fn ac2d_dual_colour_matrix_lerps_the_folded_products() {
+    let mut s = dual_cm_sensor();
+    s.camera_calibration_1 = Some(cc_diag(8594, 3408));
+    s.camera_calibration_2 = Some(cc_diag(6162, 5703));
+    assert_calibrated(&s, "AC2 (d)");
+    assert_cm_neutral_is_grey(&s, "AC2 (d)");
+
+    // The lerp of the FACTORS, `AB · lerp(CC) · lerp(CM)`, at the same weight is
+    // a different matrix, and the API is not it.
+    let g = ref_weight(&s).expect("dual weight");
+    let factors = {
+        let k = mm(ref_ab(&s), ref_lerp(ref_cc(&s, 1), ref_cc(&s, 2), g));
+        let cm = ref_lerp(matrix_of(&fixture_cm1()), matrix_of(&fixture_cm2()), g);
+        let c = mm(S_SRGB_FROM_XYZ_D65, B_BRADFORD_D50_TO_D65);
+        mm(c, cm_cam2xyz(inv(mm(k, cm)).expect("invertible"), &s))
+    };
+    let camera_rgb = dual_camera_rgb();
+    assert_ne!(
+        api_to_srgb(&s, &camera_rgb),
+        reference_apply(factors, &camera_rgb),
+        "AC2 (d): the products, not the factors, are lerped"
+    );
+}
+
+#[test]
+fn ac2e_dual_forward_matrix_with_non_diagonal_calibrations() {
+    let mut s = dual_fm_sensor();
+    s.camera_calibration_1 = Some(cc_skew_1());
+    s.camera_calibration_2 = Some(cc_skew_2());
+    assert_calibrated(&s, "AC2 (e)");
+}
+
+#[test]
+fn ac2f_the_loop_converges_and_its_weight_is_not_the_three_pass_one() {
+    let s = dual_cm_sensor();
+    let three = ref_weight_three_pass(&s).expect("three-pass weight");
+    let (converged, passes) = ref_weight_and_passes(&s).expect("converged weight");
+    // Both weights, hand-pinned from the reference (SPEC-085 AC2 (f)). The
+    // three-pass one is DEC-034's value, which SPEC-034's unit test pinned.
+    assert!(
+        (three - 0.5202685520213226).abs() < 1e-12,
+        "three-pass weight {three}"
+    );
+    assert!(
+        (converged - CONVERGED_WEIGHT).abs() < 1e-12,
+        "converged weight {converged}"
+    );
+    assert!(
+        passes > 3,
+        "the fixture must need more than 3 passes, ran {passes}"
+    );
+    assert!((converged - three).abs() > 1e-4);
+
+    let camera_rgb = dual_camera_rgb();
+    let got = api_to_srgb(&s, &camera_rgb);
+    assert_eq!(
+        got,
+        reference_apply(reference_matrix_at(&s, Some(converged)), &camera_rgb),
+        "the API develops at the converged weight"
+    );
+    assert_ne!(
+        got,
+        reference_apply(reference_matrix_at(&s, Some(three)), &camera_rgb),
+        "the API must not develop at the three-pass weight"
+    );
+}
+
+/// AC2 (f)'s converged weight for [`dual_cm_sensor`], from the reference loop.
+const CONVERGED_WEIGHT: f64 = 0.6708871184066116;
+
+// ── AC3 — the signature rule, the shapes, the identity ──────────────────────
+
+/// A mosaic fixture on the ColorMatrix path (no ForwardMatrix) with the Pixel
+/// 7 Pro's diagonal calibration, so the signature rule is observable.
+fn cm_mosaic_fixture() -> Sensor {
+    let mut s = fused_fixture(9, 7, &[0, 1, 1, 2]);
+    s.forward_matrix_1 = None;
+    s.color_matrix_1 = Some(fixture_cm1());
+    s.camera_calibration_1 = Some(cc_diag(8594, 3408));
+    s
+}
+
+fn api_develop(sensor: &Sensor, mosaic: &[u16]) -> Vec<u16> {
+    let mut dst = vec![0u16; mosaic.len() * 3];
+    develop_color_into(sensor, mosaic, &mut dst).expect("develops");
+    dst
+}
+
+#[test]
+fn ac3_mismatched_signatures_develop_as_the_uncalibrated_file() {
+    let base = cm_mosaic_fixture();
+    let mosaic = varied_mosaic(9, 7);
+    let uncalibrated = api_develop(&without_calibration(&base), &mosaic);
+    for (camera, profile) in [
+        (sig("a"), sig("b")),
+        (sig("com.adobe"), None),
+        (None, sig("com.adobe")),
+    ] {
+        let mut s = base.clone();
+        s.camera_calibration_signature = camera.clone();
+        s.profile_calibration_signature = profile.clone();
+        assert_eq!(
+            api_develop(&s, &mosaic),
+            uncalibrated,
+            "camera {camera:?} / profile {profile:?}: the calibration must not apply"
+        );
+    }
+}
+
+#[test]
+fn ac3_matching_signatures_develop_as_the_calibrated_reference() {
+    let base = cm_mosaic_fixture();
+    let mosaic = varied_mosaic(9, 7);
+    let uncalibrated = api_develop(&without_calibration(&base), &mosaic);
+    for (camera, profile) in [(None, None), (sig("com.adobe"), sig("com.adobe"))] {
+        let mut s = base.clone();
+        s.camera_calibration_signature = camera.clone();
+        s.profile_calibration_signature = profile.clone();
+        let got = api_develop(&s, &mosaic);
+        assert_eq!(
+            got,
+            reference_develop_color(&s, &mosaic),
+            "camera {camera:?} / profile {profile:?}: the calibrated reference"
+        );
+        assert_ne!(got, uncalibrated, "{camera:?} / {profile:?}: not applied");
+    }
+}
+
+/// Every public colour entry refuses `sensor` with `MissingColorCalibration`
+/// and leaves `dst` untouched.
+fn assert_refused_on_every_entry(sensor: &Sensor, what: &str) {
+    use irradiance::color::{develop_color_f32_into_threaded, develop_color_into_threaded};
+    let mosaic = varied_mosaic(sensor.width, sensor.height);
+    let n = mosaic.len() * 3;
+    let sentinel = 0xABCDu16;
+
+    let mut dst = vec![sentinel; n];
+    let r = to_srgb_linear_into(sensor, &vec![1000u16; n], &mut dst);
+    assert!(
+        matches!(r, Err(Error::MissingColorCalibration)),
+        "{what}: to_srgb {r:?}"
+    );
+    assert!(dst.iter().all(|&v| v == sentinel), "{what}: to_srgb wrote");
+
+    let mut dst = vec![sentinel; n];
+    let r = develop_color_into(sensor, &mosaic, &mut dst);
+    assert!(
+        matches!(r, Err(Error::MissingColorCalibration)),
+        "{what}: u16 {r:?}"
+    );
+    assert!(dst.iter().all(|&v| v == sentinel), "{what}: u16 wrote");
+
+    let mut dst = vec![sentinel; n];
+    let r = develop_color_into_threaded(sensor, &mosaic, &mut dst, 4);
+    assert!(
+        matches!(r, Err(Error::MissingColorCalibration)),
+        "{what}: threaded {r:?}"
+    );
+    assert!(dst.iter().all(|&v| v == sentinel), "{what}: threaded wrote");
+
+    let mut dst = vec![-1.0f32; n];
+    let r = develop_color_f32_into(sensor, &mosaic, &mut dst);
+    assert!(
+        matches!(r, Err(Error::MissingColorCalibration)),
+        "{what}: f32 {r:?}"
+    );
+    assert!(dst.iter().all(|&v| v == -1.0), "{what}: f32 wrote");
+
+    let mut dst = vec![-1.0f32; n];
+    let r = develop_color_f32_into_threaded(sensor, &mosaic, &mut dst, 4);
+    assert!(
+        matches!(r, Err(Error::MissingColorCalibration)),
+        "{what}: f32 threaded {r:?}"
+    );
+    assert!(dst.iter().all(|&v| v == -1.0), "{what}: f32 threaded wrote");
+}
+
+#[test]
+fn ac3_an_unusable_applied_calibration_is_refused_before_any_write() {
+    let base = fused_fixture(9, 7, &[0, 1, 1, 2]);
+
+    let mut short_cc = base.clone();
+    let mut cc = cc_skew_1();
+    cc.pop();
+    short_cc.camera_calibration_1 = Some(cc);
+    assert_refused_on_every_entry(&short_cc, "CC_1 of 8 entries");
+
+    let mut zero_den = base.clone();
+    let mut cc = cc_skew_1();
+    cc[4] = Rational { num: 1, den: 0 };
+    zero_den.camera_calibration_1 = Some(cc);
+    assert_refused_on_every_entry(&zero_den, "CC_1 with a zero denominator");
+
+    let mut short_ab = base.clone();
+    let mut ab = ab_tilted();
+    ab.pop();
+    short_ab.analog_balance = Some(ab);
+    assert_refused_on_every_entry(&short_ab, "AB of 2 entries");
+
+    let mut zero_ab = base.clone();
+    let mut ab = ab_tilted();
+    ab[1] = Rational { num: 0, den: 1 };
+    zero_ab.analog_balance = Some(ab);
+    assert_refused_on_every_entry(&zero_ab, "AB with a zero numerator");
+
+    // inv(K) = [[1,0,0],[0,1,0],[0,-2,1]] maps asn (1/2, 1, 1/2) to a reference
+    // neutral with blue -3/2.
+    let mut bad_neutral = base.clone();
+    bad_neutral.camera_calibration_1 = Some(matrix_rationals([
+        [10000, 0, 0],
+        [0, 10000, 0],
+        [0, 20000, 10000],
+    ]));
+    assert_refused_on_every_entry(&bad_neutral, "a non-positive reference neutral");
+}
+
+#[test]
+fn ac3_an_unused_ill_shaped_calibration_develops() {
+    let mosaic = varied_mosaic(9, 7);
+
+    // The rule does not apply it: it is never checked.
+    let mut unapplied = cm_mosaic_fixture();
+    let mut cc = cc_skew_1();
+    cc.pop();
+    unapplied.camera_calibration_1 = Some(cc);
+    unapplied.camera_calibration_signature = sig("a");
+    unapplied.profile_calibration_signature = sig("b");
+    assert_eq!(
+        api_develop(&unapplied, &mosaic),
+        api_develop(&without_calibration(&unapplied), &mosaic)
+    );
+
+    // A single-illuminant file never reads CC_2.
+    let mut single = cm_mosaic_fixture();
+    let mut cc2 = cc_skew_2();
+    cc2.pop();
+    single.camera_calibration_2 = Some(cc2);
+    assert_eq!(
+        api_develop(&single, &mosaic),
+        reference_develop_color(&single, &mosaic)
+    );
+}
+
+#[test]
+fn ac3_an_identity_calibration_is_byte_identical_to_none() {
+    let camera_rgb = dual_camera_rgb();
+    for (what, base) in [
+        ("single CM", single_cm_sensor()),
+        ("single FM", single_fm_sensor()),
+        ("dual CM", dual_cm_sensor()),
+        ("dual FM", dual_fm_sensor()),
+    ] {
+        let mut s = base.clone();
+        s.camera_calibration_1 = Some(cc_identity());
+        s.camera_calibration_2 = Some(cc_identity());
+        s.analog_balance = Some(ab_unity());
+        assert_eq!(
+            api_to_srgb(&s, &camera_rgb),
+            api_to_srgb(&base, &camera_rgb),
+            "{what}: an identity calibration must be byte-identical to none"
+        );
+    }
+}
+
+#[test]
+fn a_calibrated_threaded_develop_equals_single_thread() {
+    use irradiance::color::develop_color_into_threaded;
+    let mut s = fused_fixture(20, 24, &[0, 1, 1, 2]);
+    s.color_matrix_1 = Some(fixture_cm1());
+    s.color_matrix_2 = Some(fixture_cm2());
+    s.forward_matrix_2 = Some(forward_matrix_cool());
+    s.calibration_illuminant_1 = Some(ILLUMINANT_A);
+    s.calibration_illuminant_2 = Some(ILLUMINANT_D65);
+    s.camera_calibration_1 = Some(cc_skew_1());
+    s.camera_calibration_2 = Some(cc_skew_2());
+    s.analog_balance = Some(ab_tilted());
+    let mosaic = varied_mosaic(20, 24);
+    let single = api_develop(&s, &mosaic);
+    let mut threaded = vec![0u16; single.len()];
+    develop_color_into_threaded(&s, &mosaic, &mut threaded, 4).expect("threaded");
+    assert_eq!(threaded, single);
+    assert_eq!(single, reference_develop_color(&s, &mosaic));
 }

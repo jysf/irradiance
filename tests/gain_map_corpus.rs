@@ -349,6 +349,12 @@ fn stage2_reader_refuses_sample_format_and_hostile_size() {
 /// by position (1023, 1023, 1022, 1022), so their `PerPosition` and colour
 /// outputs now scale by `W − B`. Their mono default pins, and every 7 Pro pin
 /// (one black after `DEC-068`'s rounding), are unchanged.
+///
+/// Re-pinned at `SPEC-085` (`DEC-076`): the colour develop applies
+/// `AnalogBalance` and `CameraCalibration1/2` and runs `NeutralToXY` to
+/// convergence, so every Pixel's two colour pins move (the 7 Pro's and 4a's
+/// through the calibration and the loop, the 3a's, whose calibration is the
+/// identity, through the loop alone). Every mono pin is unchanged.
 const PINNED: [(&str, [&str; 5]); 3] = [
     (
         "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng",
@@ -356,8 +362,8 @@ const PINNED: [(&str, [&str; 5]); 3] = [
             "a2de8cfb2bbcc6892113d3ad08312edb",
             "73d85bb84102586d767e2036c70df563",
             "8cdd4bc68e117a259b67cec86588e511",
-            "092b1ca02b474f3ba73d55e7893af058",
-            "3a5d78cdca45b02f443cd4e30c6682dc",
+            "a5eabb1559873f2f6744879808f78401",
+            "caefcf53b6449b74b549134874b19051",
         ],
     ),
     (
@@ -366,8 +372,8 @@ const PINNED: [(&str, [&str; 5]); 3] = [
             "98cafcff902bdb4e2382301dd291218d",
             "0787d0980ce83ab107439bd7b515663e",
             "8dd219504381e8e91ac8f6cbcacababb",
-            "6b4a538d8e0e81fc9da9adc318f9041e",
-            "135015408536104e2247e9af16dbcf04",
+            "037b970e76897f07fed34d24c0747738",
+            "6aa5c7cc587ce3f5c74d37ebb11deb5b",
         ],
     ),
     (
@@ -376,8 +382,8 @@ const PINNED: [(&str, [&str; 5]); 3] = [
             "2b8cc230e1256a8a2faea3b3ffa7383d",
             "2b8cc230e1256a8a2faea3b3ffa7383d",
             "6c0d07af5f081052670559cdcb7ec702",
-            "7d7936777cdfebbf74a064bd95331947",
-            "0b6b60ffb709efa60a996b7d447fb8b9",
+            "ce179c2126b7c21a6c903a352483b44d",
+            "2a4845ae3f61e9c46b33b98f8e935df2",
         ],
     ),
 ];

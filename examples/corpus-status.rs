@@ -83,5 +83,19 @@ fn main() -> std::process::ExitCode {
         ),
     }
 
+    // SPEC-085: the optional SDK colour cross-check (tests/colour_sdk.rs), on
+    // its own variable, never set in CI.
+    const SDK_COLOUR_ENV: &str = "IRRADIANCE_SDK_COLOUR_DIR";
+    match std::env::var_os(SDK_COLOUR_ENV) {
+        Some(dir) if !dir.is_empty() => println!(
+            "sdk-colour: present  {} — the SDK colour cross-check will run",
+            std::path::Path::new(&dir).display()
+        ),
+        _ => println!(
+            "sdk-colour: SKIP     ${SDK_COLOUR_ENV} unset — the SDK colour cross-check \
+             (SPEC-085) will skip. Generate it with scripts/sdk-colour.sh."
+        ),
+    }
+
     std::process::ExitCode::SUCCESS
 }
