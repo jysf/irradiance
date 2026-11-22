@@ -207,6 +207,37 @@ pub const TAG_CAMERA_CALIBRATION_SIGNATURE: u16 = 50931;
 /// calibration applies only when the two signatures are equal (`DEC-076` §2).
 pub const TAG_PROFILE_CALIBRATION_SIGNATURE: u16 = 50932;
 
+// The tags that change what the samples mean, and the DNG version pair
+// (`SPEC-086`, `DEC-077` §1). Read into [`Sensor`] so the develop can refuse a
+// value it does not honour (`opcode::check_required_processing`); none is
+// applied to pixels yet.
+/// TIFF 6.0 §19: `SampleFormat` — SHORT per sample; 1 is unsigned integer, the
+/// only format the develop reads (2 is signed, 3 is IEEE float).
+pub const TAG_SAMPLE_FORMAT: u16 = 339;
+/// DNG 1.7.1.0 §Chapter 4: `DNGVersion` (IFD0) — four BYTEs, e.g. `1, 4, 0, 0`.
+pub const TAG_DNG_VERSION: u16 = 50706;
+/// DNG 1.7.1.0 §Chapter 4: `DNGBackwardVersion` (IFD0) — four BYTEs, the
+/// oldest reader version that can read the file. Defaults to `DNGVersion` with
+/// its last two bytes zeroed.
+pub const TAG_DNG_BACKWARD_VERSION: u16 = 50707;
+/// DNG 1.7.1.0 §Chapter 4: `LinearizationTable` — SHORT × N; the stored
+/// samples are indices into it.
+pub const TAG_LINEARIZATION_TABLE: u16 = 50712;
+/// DNG 1.7.1.0 §Chapter 4: `BlackLevelDeltaH` — SRATIONAL per column, added to
+/// the black level.
+pub const TAG_BLACK_LEVEL_DELTA_H: u16 = 50715;
+/// DNG 1.7.1.0 §Chapter 4: `BlackLevelDeltaV` — SRATIONAL per row.
+pub const TAG_BLACK_LEVEL_DELTA_V: u16 = 50716;
+/// DNG 1.7.1.0 §Chapter 4: `SubTileBlockSize` — SHORT or LONG × 2, the
+/// `[rows, cols]` of the blocks a tile's samples are stored in.
+pub const TAG_SUB_TILE_BLOCK_SIZE: u16 = 50974;
+/// DNG 1.7.1.0 §Chapter 4: `RowInterleaveFactor` — SHORT or LONG; rows stored
+/// in interleaved order when greater than 1.
+pub const TAG_ROW_INTERLEAVE_FACTOR: u16 = 50975;
+/// DNG 1.7.1.0 §Chapter 4: `ColumnInterleaveFactor` — SHORT or LONG; columns
+/// stored in interleaved order when greater than 1.
+pub const TAG_COLUMN_INTERLEAVE_FACTOR: u16 = 51157;
+
 /// DNG 1.7: `PhotometricInterpretation = LinearRaw`. The sensor plane *is* the
 /// image; there is no CFA to demosaic (`docs/measured-q2m-dng.md`).
 pub const PHOTOMETRIC_LINEAR_RAW: u32 = 34892;
@@ -896,6 +927,38 @@ pub struct Sensor {
     /// Canon, `[3808]` Nikon). Empty when absent; `white_level` above stays the
     /// first-value scalar.
     pub white_levels: Vec<u32>,
+    /// DNG `DNGVersion` (tag 50706, IFD0), four BYTEs (`SPEC-086`, `DEC-077`
+    /// §1). `None` when absent or malformed (a type other than BYTE or a count
+    /// other than 4). Read for the backward version's default.
+    pub dng_version: Option<[u8; 4]>,
+    /// DNG `DNGBackwardVersion` (tag 50707, IFD0), four BYTEs (`DEC-077` §1).
+    /// The develop refuses a file whose effective backward version is newer
+    /// than 1.7.1.0, or whose tag is malformed ([`crate::Error::UnsupportedDngVersion`],
+    /// [`crate::Error::UnsupportedTag`]).
+    pub dng_backward_version: Option<[u8; 4]>,
+    /// TIFF `SampleFormat` (tag 339), SHORT × `SamplesPerPixel` (`DEC-077`
+    /// §1). The develop honours only all-1 (unsigned integer) and refuses any
+    /// other value.
+    pub sample_format: Option<Vec<u16>>,
+    /// DNG `LinearizationTable` (tag 50712), SHORT × N (`DEC-077` §1). Stored,
+    /// not applied: the develop refuses any file that carries one.
+    pub linearization_table: Option<Vec<u16>>,
+    /// DNG `BlackLevelDeltaH` (tag 50715), one value per column as `num / den`
+    /// (`DEC-077` §1). A zero denominator is malformed. The develop honours
+    /// only all-zero and refuses any other value.
+    pub black_level_delta_h: Option<Vec<f64>>,
+    /// DNG `BlackLevelDeltaV` (tag 50716), one value per row as `num / den`
+    /// (`DEC-077` §1). Same rule as [`Sensor::black_level_delta_h`].
+    pub black_level_delta_v: Option<Vec<f64>>,
+    /// DNG `SubTileBlockSize` (tag 50974), `[rows, cols]` (`DEC-077` §1). The
+    /// develop honours only `[1, 1]`.
+    pub sub_tile_block_size: Option<[u32; 2]>,
+    /// DNG `RowInterleaveFactor` (tag 50975) (`DEC-077` §1). The develop
+    /// honours only 1.
+    pub row_interleave_factor: Option<u32>,
+    /// DNG `ColumnInterleaveFactor` (tag 51157) (`DEC-077` §1). The develop
+    /// honours only 1.
+    pub column_interleave_factor: Option<u32>,
     /// Tags that are **present, shaped wrong, and therefore dropped** — not
     /// every tag any read of which ever errored.
     ///
@@ -971,6 +1034,15 @@ impl Sensor {
             black_levels: Vec::new(),
             black_levels_exact: Vec::new(),
             white_levels: Vec::new(),
+            dng_version: None,
+            dng_backward_version: None,
+            sample_format: None,
+            linearization_table: None,
+            black_level_delta_h: None,
+            black_level_delta_v: None,
+            sub_tile_block_size: None,
+            row_interleave_factor: None,
+            column_interleave_factor: None,
             malformed_tags: Vec::new(),
         }
     }
@@ -2148,6 +2220,75 @@ impl<'a> Container<'a> {
         Ok(text.to_vec())
     }
 
+    /// A DNG version tag (`DNGVersion` or `DNGBackwardVersion`) read from
+    /// `IFD0` as its four BYTEs, or `None` when `IFD0` or the tag is absent
+    /// (`SPEC-086`, `DEC-077` §1). Interpretation-class (`DEC-012`): a type
+    /// other than BYTE, a count other than 4, or an unreadable payload costs
+    /// the field and records the tag in `malformed`.
+    fn ifd0_version(&self, tag: u16, malformed: &mut Vec<u16>) -> Option<[u8; 4]> {
+        let entry = self.ifd0()?.entry(tag)?;
+        let read = if entry.field_type == TYPE_BYTE && entry.count == 4 {
+            self.payload(entry)
+                .map(|bytes| <[u8; 4]>::try_from(bytes).ok())
+        } else {
+            Ok(None)
+        };
+        match read {
+            Ok(Some(version)) => Some(version),
+            _ => {
+                malformed.push(tag);
+                None
+            }
+        }
+    }
+
+    /// A SHORT-only tag's values, or `Ok(None)` when absent (`SPEC-086`,
+    /// `DEC-077` §1: `SampleFormat` and `LinearizationTable`). Any other type
+    /// is [`Error::UnexpectedFieldType`], and an empty tag is
+    /// [`Error::ValueOverflow`], so the caller costs the field.
+    fn short_values(&self, ifd: &Ifd, tag: u16) -> Result<Option<Vec<u16>>, Error> {
+        let Some(entry) = ifd.entry(tag) else {
+            return Ok(None);
+        };
+        if entry.field_type != TYPE_SHORT {
+            return Err(Error::UnexpectedFieldType {
+                tag,
+                field_type: entry.field_type,
+            });
+        }
+        let values: Vec<u16> = self
+            .uints(entry)?
+            .into_iter()
+            .map(|v| u16::try_from(v).map_err(|_| Error::ValueOverflow { tag }))
+            .collect::<Result<_, _>>()?;
+        if values.is_empty() {
+            return Err(Error::ValueOverflow { tag });
+        }
+        Ok(Some(values))
+    }
+
+    /// A `BlackLevelDeltaH/V` tag's values as `num / den`, or `Ok(None)` when
+    /// absent (`SPEC-086`, `DEC-077` §1). Read through
+    /// [`Container::rationals`]; a zero denominator is
+    /// [`Error::MalformedRationalValue`], so the caller costs the field.
+    fn black_level_deltas(&self, ifd: &Ifd, tag: u16) -> Result<Option<Vec<f64>>, Error> {
+        let Some(entry) = ifd.entry(tag) else {
+            return Ok(None);
+        };
+        let mut out = Vec::new();
+        for value in self.rationals(entry)? {
+            if value.den == 0 {
+                return Err(Error::MalformedRationalValue {
+                    tag,
+                    numerator: value.num.unsigned_abs(),
+                    denominator: 0,
+                });
+            }
+            out.push(f64::from(value.num) / f64::from(value.den));
+        }
+        Ok(Some(out))
+    }
+
     /// A colour SHORT scalar (a DNG LightSource code) read from `IFD0`, or
     /// `None` (`SPEC-026`). Same interpretation-class contract as
     /// [`Container::ifd0_rationals`]: an absent tag is `None` (via `scalar`'s
@@ -2407,6 +2548,51 @@ impl<'a> Container<'a> {
         // through verbatim. A malformed tag costs this field alone.
         let masked_areas = self.masked_areas(ifd, width, height, &mut malformed);
 
+        // Interpretation: the DNG version pair from `IFD0` and the tags that
+        // change what the samples mean from this sensor IFD (`SPEC-086`,
+        // `DEC-077` §1). Each is read under `DEC-012`: absent is `None`, a
+        // malformed one is `None` and recorded. The develop then refuses a
+        // value it does not honour, or a malformed one, before writing
+        // (`opcode::check_required_processing`); the plane read here is
+        // unaffected.
+        let dng_version = self.ifd0_version(TAG_DNG_VERSION, &mut malformed);
+        let dng_backward_version = self.ifd0_version(TAG_DNG_BACKWARD_VERSION, &mut malformed);
+        let sample_format = Self::cost_the_field(
+            self.short_values(ifd, TAG_SAMPLE_FORMAT),
+            TAG_SAMPLE_FORMAT,
+            &mut malformed,
+        );
+        let linearization_table = Self::cost_the_field(
+            self.short_values(ifd, TAG_LINEARIZATION_TABLE),
+            TAG_LINEARIZATION_TABLE,
+            &mut malformed,
+        );
+        let black_level_delta_h = Self::cost_the_field(
+            self.black_level_deltas(ifd, TAG_BLACK_LEVEL_DELTA_H),
+            TAG_BLACK_LEVEL_DELTA_H,
+            &mut malformed,
+        );
+        let black_level_delta_v = Self::cost_the_field(
+            self.black_level_deltas(ifd, TAG_BLACK_LEVEL_DELTA_V),
+            TAG_BLACK_LEVEL_DELTA_V,
+            &mut malformed,
+        );
+        let sub_tile_block_size = Self::cost_the_field(
+            self.array::<2>(ifd, TAG_SUB_TILE_BLOCK_SIZE, &mut malformed),
+            TAG_SUB_TILE_BLOCK_SIZE,
+            &mut malformed,
+        );
+        let row_interleave_factor = Self::cost_the_field(
+            self.scalar(ifd, TAG_ROW_INTERLEAVE_FACTOR),
+            TAG_ROW_INTERLEAVE_FACTOR,
+            &mut malformed,
+        );
+        let column_interleave_factor = Self::cost_the_field(
+            self.scalar(ifd, TAG_COLUMN_INTERLEAVE_FACTOR),
+            TAG_COLUMN_INTERLEAVE_FACTOR,
+            &mut malformed,
+        );
+
         Ok(Sensor {
             ifd_index,
             // Structural: ImageWidth, ImageLength (read above), BitsPerSample.
@@ -2479,6 +2665,15 @@ impl<'a> Container<'a> {
             black_levels,
             black_levels_exact,
             white_levels,
+            dng_version,
+            dng_backward_version,
+            sample_format,
+            linearization_table,
+            black_level_delta_h,
+            black_level_delta_v,
+            sub_tile_block_size,
+            row_interleave_factor,
+            column_interleave_factor,
             malformed_tags: malformed,
         })
     }

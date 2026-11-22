@@ -1775,6 +1775,7 @@ fn decode_unit(
             // shape check second, and the scan starts at the same offset.
             let (frame, tables, entropy_at) = crate::ljpeg::parse_headers(strip)?;
             check_strip_shape(&frame, sensor.width, span.rows)?;
+            check_precision(&frame, sensor.bits_per_sample)?;
 
             // Every malformed / truncated strip returns a typed `Error`, never
             // a panic (inherited from SPEC-037/038). The scan completes on
@@ -1909,6 +1910,7 @@ fn decode_tile_row(
                 // is decoded and errors are unchanged.
                 let (frame, tables, entropy_at) = crate::ljpeg::parse_headers(tile)?;
                 check_strip_shape(&frame, grid.tile_width, grid.tile_length)?;
+                check_precision(&frame, sensor.bits_per_sample)?;
                 let window = crate::ljpeg::Window {
                     stride: width,
                     x0: span.x0,
@@ -1955,6 +1957,26 @@ pub(crate) fn check_strip_shape(
             expected_height,
             decoded_width,
             decoded_height,
+        });
+    }
+    Ok(())
+}
+
+/// Bind a parsed SOF-3 frame's precision `P` to the sensor's `BitsPerSample`
+/// (`SPEC-086`, `DEC-077` §3). The develop never sees the frame header, and
+/// white defaults from `BitsPerSample` when `WhiteLevel` is absent, so a
+/// P = 16 frame tagged 12-bit would otherwise clip at 4095 with `Ok`. Called
+/// on every strip and tile after [`check_strip_shape`], before any sample is
+/// decoded.
+///
+/// # Errors
+///
+/// [`Error::LjpegPrecisionMismatch`] when they differ.
+fn check_precision(frame: &crate::ljpeg::Frame, bits_per_sample: u32) -> Result<(), Error> {
+    if u32::from(frame.precision) != bits_per_sample {
+        return Err(Error::LjpegPrecisionMismatch {
+            precision: frame.precision,
+            bits_per_sample,
         });
     }
     Ok(())
@@ -2196,6 +2218,15 @@ mod tests {
             black_levels: vec![],
             black_levels_exact: vec![],
             white_levels: vec![],
+            dng_version: None,
+            dng_backward_version: None,
+            sample_format: None,
+            linearization_table: None,
+            black_level_delta_h: None,
+            black_level_delta_v: None,
+            sub_tile_block_size: None,
+            row_interleave_factor: None,
+            column_interleave_factor: None,
             malformed_tags: vec![],
         }
     }

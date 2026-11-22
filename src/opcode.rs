@@ -116,7 +116,11 @@
 //! at the area's top-left) were settled by reading Adobe DNG SDK 1.7.1, class
 //! 4, with no code copied; see `docs/provenance-ledger.md`.
 
-use crate::ifd::{Sensor, TAG_OPCODE_LIST_1, TAG_OPCODE_LIST_2, TAG_OPCODE_LIST_3};
+use crate::ifd::{
+    Sensor, TAG_BLACK_LEVEL_DELTA_H, TAG_BLACK_LEVEL_DELTA_V, TAG_COLUMN_INTERLEAVE_FACTOR,
+    TAG_DNG_BACKWARD_VERSION, TAG_LINEARIZATION_TABLE, TAG_OPCODE_LIST_1, TAG_OPCODE_LIST_2,
+    TAG_OPCODE_LIST_3, TAG_ROW_INTERLEAVE_FACTOR, TAG_SAMPLE_FORMAT, TAG_SUB_TILE_BLOCK_SIZE,
+};
 use crate::Error;
 
 /// One opcode from an `OpcodeList`, decoded far enough to be useful.
@@ -1105,6 +1109,13 @@ impl DevelopPath {
 /// whose opcodes your composition applies; if you apply only the `GainMap`s,
 /// ask with [`DevelopPath::Colour`].
 ///
+/// First, before any opcode list, the sensor's sample-meaning tags and DNG
+/// backward version (`SPEC-086`, `DEC-077` §2): a backward version newer than
+/// 1.7.1.0, or a `SampleFormat`, `LinearizationTable`, `BlackLevelDeltaH/V`,
+/// `SubTileBlockSize` or interleave factor whose value the develop does not
+/// honour, is refused. Every develop entry calls this first, so the refusal
+/// lands before anything is written.
+///
 /// Lists are checked in order 1, 2, 3. For each list:
 ///
 /// 1. If its tag is present but unreadable (recorded in
@@ -1121,6 +1132,11 @@ impl DevelopPath {
 ///
 /// # Errors
 ///
+/// - [`Error::UnsupportedDngVersion`] `{ backward_version }` when the effective
+///   DNG backward version is newer than 1.7.1.0.
+/// - [`Error::UnsupportedTag`] `{ tag }` for the first (lowest-numbered)
+///   sample-meaning tag with a value the develop does not honour, or present
+///   but malformed; or a malformed `DNGBackwardVersion`.
 /// - [`Error::UnreadableOpcodeList`] `{ list }` when an `OpcodeList` tag is
 ///   present but its payload could not be read.
 /// - [`Error::UnsupportedRequiredOpcode`] `{ list, id }` for a mandatory,
@@ -1131,6 +1147,7 @@ impl DevelopPath {
 ///   framing (a present list is read in full even when every opcode in it is
 ///   optional).
 pub fn check_required_processing(sensor: &Sensor, path: DevelopPath) -> Result<(), Error> {
+    check_unhonoured_tags(sensor)?;
     let unreadable = [TAG_OPCODE_LIST_1, TAG_OPCODE_LIST_2, TAG_OPCODE_LIST_3]
         .map(|tag| sensor.malformed_tags.contains(&tag));
     check_lists(
@@ -1142,6 +1159,89 @@ pub fn check_required_processing(sensor: &Sensor, path: DevelopPath) -> Result<(
         unreadable,
         path,
     )
+}
+
+/// The newest DNG backward version this reader reads: 1.7.1.0, the version
+/// the library is written against and the same as
+/// [`MAX_SUPPORTED_OPCODE_VERSION`] (`DEC-077` §2).
+const MAX_SUPPORTED_BACKWARD_VERSION: [u8; 4] = [1, 7, 1, 0];
+
+/// `DEC-077` §2: refuse a sensor whose DNG backward version is newer than this
+/// reader, or that carries a tag changing what the samples mean with a value
+/// the develop does not honour.
+///
+/// The version guard runs first. The effective backward version is
+/// `DNGBackwardVersion` when present; otherwise `DNGVersion` with its last two
+/// bytes zeroed (DNG 1.7.1.0's default); with both absent there is no check. A
+/// malformed `DNGBackwardVersion` is refused as [`Error::UnsupportedTag`]
+/// rather than replaced by the default. Arrays compare byte by byte from the
+/// first, which is the version order.
+///
+/// Then the tag set, in ascending tag order, refusing the first tag that is
+/// present and malformed or holds a value outside its honoured (exact no-op)
+/// set. `LinearizationTable` has no honoured value.
+fn check_unhonoured_tags(sensor: &Sensor) -> Result<(), Error> {
+    let malformed = |tag: u16| sensor.malformed_tags.contains(&tag);
+
+    if malformed(TAG_DNG_BACKWARD_VERSION) {
+        return Err(Error::UnsupportedTag {
+            tag: TAG_DNG_BACKWARD_VERSION,
+        });
+    }
+    let effective = sensor
+        .dng_backward_version
+        .or_else(|| sensor.dng_version.map(|[a, b, _, _]| [a, b, 0, 0]));
+    if let Some(backward_version) = effective {
+        if backward_version > MAX_SUPPORTED_BACKWARD_VERSION {
+            return Err(Error::UnsupportedDngVersion { backward_version });
+        }
+    }
+
+    // A zero delta: `-0.0 == 0.0`, so a negative-zero numerator is honoured.
+    let all_zero = |deltas: &Option<Vec<f64>>| {
+        deltas
+            .as_deref()
+            .is_none_or(|d| d.iter().all(|&x| x == 0.0))
+    };
+    let honoured: [(u16, bool); 7] = [
+        (
+            TAG_SAMPLE_FORMAT,
+            sensor
+                .sample_format
+                .as_deref()
+                .is_none_or(|formats| formats.iter().all(|&f| f == 1)),
+        ),
+        (
+            TAG_LINEARIZATION_TABLE,
+            sensor.linearization_table.is_none(),
+        ),
+        (
+            TAG_BLACK_LEVEL_DELTA_H,
+            all_zero(&sensor.black_level_delta_h),
+        ),
+        (
+            TAG_BLACK_LEVEL_DELTA_V,
+            all_zero(&sensor.black_level_delta_v),
+        ),
+        (
+            TAG_SUB_TILE_BLOCK_SIZE,
+            sensor.sub_tile_block_size.is_none_or(|size| size == [1, 1]),
+        ),
+        (
+            TAG_ROW_INTERLEAVE_FACTOR,
+            sensor.row_interleave_factor.is_none_or(|f| f == 1),
+        ),
+        (
+            TAG_COLUMN_INTERLEAVE_FACTOR,
+            sensor.column_interleave_factor.is_none_or(|f| f == 1),
+        ),
+    ];
+    for (tag, value_honoured) in honoured {
+        if malformed(tag) || !value_honoured {
+            return Err(Error::UnsupportedTag { tag });
+        }
+    }
+    Ok(())
 }
 
 /// The body of [`check_required_processing`] over raw list bytes

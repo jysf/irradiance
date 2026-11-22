@@ -33,7 +33,8 @@ use irradiance::{Error, ErrorKind};
 /// SPEC-068/DEC-063 added `PlaneUnitMismatch` (CallerError); the 2026-11
 /// review fixes added `UnsupportedCfaLayout`, `UnsupportedCfaPlaneColor`,
 /// `UnsupportedOpcodeVersion` (Unsupported) and `NonFiniteWarpCoefficients`
-/// (CallerError)).
+/// (CallerError); SPEC-086/DEC-077 added `UnsupportedDngVersion` and
+/// `UnsupportedTag` (Unsupported) and `LjpegPrecisionMismatch` (Corrupt)).
 fn dec_051_table() -> Vec<(Error, ErrorKind)> {
     use ErrorKind::{CallerError, Corrupt, Unsupported};
     vec![
@@ -211,6 +212,15 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             },
             Unsupported,
         ),
+        // SPEC-086, DEC-077: a DNG backward version newer than 1.7.1.0, and a
+        // tag that changes what the samples mean with a value not honoured.
+        (
+            Error::UnsupportedDngVersion {
+                backward_version: [1, 8, 0, 0],
+            },
+            Unsupported,
+        ),
+        (Error::UnsupportedTag { tag: 50712 }, Unsupported),
         (Error::MissingColorCalibration, Unsupported),
         (Error::LjpegUnsupportedProcess { sof: 0xC0 }, Unsupported),
         (Error::LjpegUnsupportedComponentCount { nf: 3 }, Unsupported),
@@ -406,6 +416,14 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             },
             Corrupt,
         ),
+        // SPEC-086, DEC-077 §3: a SOF-3 precision other than BitsPerSample.
+        (
+            Error::LjpegPrecisionMismatch {
+                precision: 16,
+                bits_per_sample: 12,
+            },
+            Corrupt,
+        ),
     ]
 }
 
@@ -469,8 +487,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        72,
-        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069, and the 2026-11 review fixes) classified 72",
+        75,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069, the 2026-11 review fixes, and DEC-077) classified 75",
         declared.len()
     );
 
@@ -488,16 +506,16 @@ fn every_variant_classified() {
         .collect();
     assert!(wrong.is_empty(), "misclassified: {wrong:#?}");
 
-    // DEC-051's bucket sizes: 17 / 24 / 31 (DEC-053 added one Corrupt;
+    // DEC-051's bucket sizes: 17 / 26 / 32 (DEC-053 added one Corrupt;
     // DEC-056 one Unsupported and two Corrupt; DEC-057 one of each; DEC-058
     // one Unsupported; DEC-059 and DEC-060 one CallerError each; DEC-061 one
     // Corrupt; DEC-063 one CallerError; DEC-069 one CallerError and one
     // Corrupt; the 2026-11 review fixes three Unsupported and one
-    // CallerError).
+    // CallerError; DEC-077 two Unsupported and one Corrupt).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
     assert_eq!(count(ErrorKind::CallerError), 17);
-    assert_eq!(count(ErrorKind::Unsupported), 24);
-    assert_eq!(count(ErrorKind::Corrupt), 31);
+    assert_eq!(count(ErrorKind::Unsupported), 26);
+    assert_eq!(count(ErrorKind::Corrupt), 32);
 }
 
 #[test]

@@ -1142,6 +1142,42 @@ pub enum Error {
         /// `CFAPlaneColor` as found.
         plane_color: Vec<u8>,
     },
+
+    /// `SPEC-086`, `DEC-077` §2. The file's effective DNG backward version is
+    /// newer than 1.7.1.0, the version this library is written against. DNG
+    /// 1.7.1.0 `DNGBackwardVersion`: a reader older than it must not read the
+    /// file. The effective version is `DNGBackwardVersion` when present, else
+    /// `DNGVersion` with its last two bytes zeroed. Raised by every develop
+    /// entry (through [`opcode::check_required_processing`]) before it writes;
+    /// metadata and plane reads still succeed.
+    UnsupportedDngVersion {
+        /// The effective backward version, e.g. `[1, 8, 0, 0]`.
+        backward_version: [u8; 4],
+    },
+
+    /// `SPEC-086`, `DEC-077` §2. A tag that changes what the samples mean
+    /// (`SampleFormat`, `LinearizationTable`, `BlackLevelDeltaH/V`,
+    /// `SubTileBlockSize`, `RowInterleaveFactor`, `ColumnInterleaveFactor`)
+    /// holds a value the develop does not apply, or is present but malformed;
+    /// or `DNGBackwardVersion` is malformed. Raised by every develop entry
+    /// before it writes, naming the first offending tag in ascending order;
+    /// metadata and plane reads still succeed.
+    UnsupportedTag {
+        /// The tag number, e.g. 50712 for `LinearizationTable`.
+        tag: u16,
+    },
+
+    /// `SPEC-086`, `DEC-077` §3. A `Compression = 7` strip or tile's SOF-3
+    /// frame precision `P` is not the sensor's `BitsPerSample`. The frame and
+    /// the tags disagree about the sample range, and white defaults from
+    /// `BitsPerSample`, so the plane is refused at decode, after the shape
+    /// check ([`Error::LjpegPlaneShapeMismatch`]).
+    LjpegPrecisionMismatch {
+        /// The frame's precision `P`.
+        precision: u8,
+        /// The sensor's `BitsPerSample`.
+        bits_per_sample: u32,
+    },
 }
 
 /// Why a preview IFD's bytes are not returned as one slice (`SPEC-062`,
@@ -1660,11 +1696,52 @@ impl fmt::Display for Error {
                      (only H = V = 1, 0x11)"
                 )
             }
+            Error::UnsupportedDngVersion { backward_version } => {
+                let [a, b, c, d] = backward_version;
+                write!(
+                    f,
+                    "DNG backward version {a}.{b}.{c}.{d} is newer than 1.7.1.0, the newest \
+                     this library reads"
+                )
+            }
+            Error::UnsupportedTag { tag } => {
+                write!(
+                    f,
+                    "{} ({tag}) changes what the samples mean and is not applied yet",
+                    unhonoured_tag_name(*tag)
+                )
+            }
+            Error::LjpegPrecisionMismatch {
+                precision,
+                bits_per_sample,
+            } => {
+                write!(
+                    f,
+                    "lossless JPEG: frame precision {precision} does not match BitsPerSample \
+                     {bits_per_sample}"
+                )
+            }
         }
     }
 }
 
 impl core::error::Error for Error {}
+
+/// The DNG or TIFF name of a tag [`Error::UnsupportedTag`] can carry
+/// (`DEC-077` §2), for its `Display`. Any other number reads as "tag".
+fn unhonoured_tag_name(tag: u16) -> &'static str {
+    match tag {
+        ifd::TAG_SAMPLE_FORMAT => "SampleFormat",
+        ifd::TAG_DNG_BACKWARD_VERSION => "DNGBackwardVersion",
+        ifd::TAG_LINEARIZATION_TABLE => "LinearizationTable",
+        ifd::TAG_BLACK_LEVEL_DELTA_H => "BlackLevelDeltaH",
+        ifd::TAG_BLACK_LEVEL_DELTA_V => "BlackLevelDeltaV",
+        ifd::TAG_SUB_TILE_BLOCK_SIZE => "SubTileBlockSize",
+        ifd::TAG_ROW_INTERLEAVE_FACTOR => "RowInterleaveFactor",
+        ifd::TAG_COLUMN_INTERLEAVE_FACTOR => "ColumnInterleaveFactor",
+        _ => "tag",
+    }
+}
 
 /// The coarse class of an [`Error`], returned by [`Error::kind`] (`SPEC-040`,
 /// `DEC-051`).
@@ -1745,6 +1822,8 @@ impl Error {
             | Error::UnsupportedCfaPattern { .. }
             | Error::UnsupportedCfaLayout { .. }
             | Error::UnsupportedCfaPlaneColor { .. }
+            | Error::UnsupportedDngVersion { .. }
+            | Error::UnsupportedTag { .. }
             | Error::MissingColorCalibration
             | Error::LjpegUnsupportedProcess { .. }
             | Error::LjpegUnsupportedComponentCount { .. }
@@ -1784,7 +1863,8 @@ impl Error {
             | Error::LjpegInvalidHuffmanTable
             | Error::LjpegMissingMarker { .. }
             | Error::LjpegUnexpectedMarker { .. }
-            | Error::LjpegPlaneShapeMismatch { .. } => ErrorKind::Corrupt,
+            | Error::LjpegPlaneShapeMismatch { .. }
+            | Error::LjpegPrecisionMismatch { .. } => ErrorKind::Corrupt,
         }
     }
 }
