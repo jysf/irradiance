@@ -132,7 +132,7 @@ line is carried onto the spec as `task.complexity`.
 
 - [x] SPEC-085 (shipped on 2026-11-22) — [L] Apply CameraCalibration and AnalogBalance on the colour develop, and run NeutralToXY to convergence (DEC-076)
 - [x] SPEC-086 (shipped on 2026-11-22) — [M] Refuse tags the develop cannot honour yet (DEC-077)
-- [ ] SPEC-087 (frame) — [M] Malformed interpretation tags refuse at develop
+- [ ] SPEC-087 (design) — [M] Malformed interpretation tags refuse at develop (DEC-078)
 
 **Count:** 2 shipped / 1 active / 0 pending
 

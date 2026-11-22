@@ -58,6 +58,14 @@ structural.** It is optional, so a reader could treat a broken 330 the way it
 treats a broken `BlackLevelRepeatDim` — record it and walk `IFD0` alone. It does
 not, and should not: see below.
 
+> **Amended by DEC-078 (2026-11-22).** The read rule above stands: a malformed
+> interpretation tag still costs only its field. But the rationale "not consumed yet" no
+> longer holds for the levels, geometry, CFA and colour tags. DEC-078 adds the
+> develop-time half: a develop path refuses (`Error::MalformedTag`) when a tag it reads is
+> in `malformed_tags`. The exception is `BlackLevelRepeatDim` with a single `BlackLevel`
+> value, the Pentax K-3 III Monochrome case this decision was written for, which still
+> develops.
+
 ## Context
 
 `SPEC-003` shipped the TIFF/IFD reader. Verify approved the reader and raised
