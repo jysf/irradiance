@@ -1704,6 +1704,18 @@ impl fmt::Display for Error {
                      this library reads"
                 )
             }
+            // A malformed DNGBackwardVersion is refused under this variant too
+            // (DEC-077 §2), but it says nothing about the samples.
+            Error::UnsupportedTag {
+                tag: ifd::TAG_DNG_BACKWARD_VERSION,
+            } => {
+                write!(
+                    f,
+                    "DNGBackwardVersion ({}) is malformed, so the file's reader version is \
+                     unknown",
+                    ifd::TAG_DNG_BACKWARD_VERSION
+                )
+            }
             Error::UnsupportedTag { tag } => {
                 write!(
                     f,
@@ -1732,7 +1744,6 @@ impl core::error::Error for Error {}
 fn unhonoured_tag_name(tag: u16) -> &'static str {
     match tag {
         ifd::TAG_SAMPLE_FORMAT => "SampleFormat",
-        ifd::TAG_DNG_BACKWARD_VERSION => "DNGBackwardVersion",
         ifd::TAG_LINEARIZATION_TABLE => "LinearizationTable",
         ifd::TAG_BLACK_LEVEL_DELTA_H => "BlackLevelDeltaH",
         ifd::TAG_BLACK_LEVEL_DELTA_V => "BlackLevelDeltaV",

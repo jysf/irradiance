@@ -51,13 +51,13 @@ handback:
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 12951904           # REAL combined count — what cost-audit reads
-  estimated_usd: 9.82              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: 12
+  tokens_total: 15838413           # REAL combined count — what cost-audit reads
+  estimated_usd: 11.67             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 51
   branch: feat/spec-086-unhonoured-tags
   pr: https://github.com/jysf/irradiance/pull/309
   completed_at: 2026-11-22         # YYYY-MM-DD
-  notes: "Floor, summed live from this session's transcript (ad9e0a16), 67 messages deduplicated by message.id; in 136, cache creation 205,743, cache read 12,689,330, out 56,695. USD at Opus list rates $5/$25 per MTok with 1-hour cache writes; re-sum after the session for the final figure. Duration is the transcript's timestamp span."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  notes: "Floor, summed live from this session's transcript (ad9e0a16), build plus the verify punch-list fix, 78 messages deduplicated by message.id; in 160, cache creation 220,412, cache read 15,550,093, out 67,748. The punch-list fix is 2,886,509 of it (about $1.85). USD at Opus list rates $5/$25 per MTok with 1-hour cache writes; re-sum after the session for the final figure. Duration is the transcript's timestamp span."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -224,6 +224,31 @@ this — it transcribes it. The reflection questions are part of completion.*
 - **Follow-up work identified:**
   - Decide whether a malformed `DNGVersion` with no backward version should refuse. It
     fits naturally into SPEC-087's general malformed rule.
+
+### Verify punch list (HANDOFF-181, fixed in dbc2017)
+
+- **P1, the interleave factors.** They were read through `scalar()`, which keeps the
+  first of any number of values. So count 0 read as absent and `[1, 2]` read as 1;
+  neither was recorded as malformed, and both developed. Each is now read by
+  `single_short_or_long` in `src/ifd.rs`: exactly one SHORT or LONG, anything else costed
+  into `malformed_tags`, so DEC-077 §2 refuses it.
+  - Four cases added to `ac6_a_malformed_unhonoured_tag_is_refused` (count 0 and count 2
+    for 50975 and 51157).
+  - Red before the fix: "50975 with count 0: malformed_tags [] must name 50975". With
+    the count-0 cases skipped, also "50975 with count 2: malformed_tags [] must name
+    50975".
+  - Green after the fix.
+- **P2.** The verifier's `b2: SampleFormat = [1, 3]` row came in from 8c90c4d
+  unchanged, and it is green.
+- **Nit.** `UnsupportedTag { tag: 50707 }` now displays "DNGBackwardVersion (50707) is
+  malformed, so the file's reader version is unknown", pinned in
+  `unsupported_tag_display_names_the_tag`.
+- **Gates.** `just test` with the corpus exits 0 (836 passed, 0 failed, only the two SDK
+  cross-checks skip, no pin moved). `lint-ci`, `lint-no-allow`, `fmt-check`, `validate`
+  and `doc-check` are green.
+- **Extra cost.** 2,886,509 tokens, about $1.85. The front matter's `tokens_total` and
+  `estimated_usd` now hold the whole session (build plus fix): 15,838,413 and 11.67.
+  Do not add the extra on top.
 
 ### Reflection (3 questions, short answers)
 

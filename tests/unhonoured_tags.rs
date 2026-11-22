@@ -657,6 +657,13 @@ fn ac6_a_malformed_unhonoured_tag_is_refused() {
         BLACK_LEVEL_DELTA_H,
         srationals(BLACK_LEVEL_DELTA_H, &zero_den),
     ));
+    // DEC-077 §1: each interleave factor is exactly one SHORT or LONG. Added at
+    // the verify punch list (HANDOFF-181): a first-value read took count 0 as
+    // absent and `[1, 2]` as 1, and both developed.
+    for tag in [ROW_INTERLEAVE_FACTOR, COLUMN_INTERLEAVE_FACTOR] {
+        cases.push((format!("{tag} with count 0"), tag, shorts(tag, &[])));
+        cases.push((format!("{tag} with count 2"), tag, shorts(tag, &[1, 2])));
+    }
     cases.push((
         "DNGBackwardVersion with count 3".to_string(),
         DNG_BACKWARD_VERSION,
@@ -691,6 +698,10 @@ fn unsupported_tag_display_names_the_tag() {
     let msg = Error::UnsupportedTag { tag: 50712 }.to_string();
     assert!(msg.contains("LinearizationTable"), "{msg}");
     assert!(msg.contains("50712"), "{msg}");
+    let msg = Error::UnsupportedTag { tag: 50707 }.to_string();
+    assert!(msg.contains("DNGBackwardVersion"), "{msg}");
+    assert!(msg.contains("malformed"), "{msg}");
+    assert!(!msg.contains("samples mean"), "{msg}");
     let msg = Error::UnsupportedDngVersion {
         backward_version: [1, 8, 0, 0],
     }
