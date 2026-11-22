@@ -32,11 +32,19 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   Pixel 3a (loop only: 39 to 6), Pixel 4a (both: 23 to 1), Canon EOS 5D Mark III (both:
   3 to 2) and Nikon D300S (loop only); mono output does not change. `DEVELOP_VERSION` goes
   from `"7"` to `"8"`.
-- **A dual-illuminant file whose `ColorMatrix1` is singular now develops** (SPEC-085,
-  DEC-076 §5). The converged weight loop starts at D50, as Adobe's SDK does, so when it
-  settles fully on illuminant 2 the singular matrix is never inverted and the develop uses
-  `ColorMatrix2` alone; before, the 3-pass loop inverted `ColorMatrix1` first and the file
-  was refused with `Error::MissingColorCalibration`.
+- **A dual-illuminant file with a singular `ColorMatrix` can now develop, when the scene
+  weight never uses it** (SPEC-085, DEC-076 §5). The converged weight loop starts at D50,
+  as Adobe's SDK does, and inverts only the matrix at the weight it lands on.
+  - A singular `ColorMatrix1` develops when the loop settles fully on illuminant 2: the
+    develop uses `ColorMatrix2` alone. Before, the 3-pass loop started at illuminant 1,
+    inverted `ColorMatrix1` first, and refused the file.
+  - It is still refused with `Error::MissingColorCalibration` whenever the weight needs the
+    singular matrix, for example when `ColorMatrix1` is the higher-temperature illuminant
+    of the two. So whether such a file develops depends on the scene.
+  - The same holds for an applied `CameraCalibration1` or `CameraCalibration2`: a singular
+    one develops when its product goes unused at the converged weight, and is refused when
+    it is used.
+  - Whether these files should be refused outright is left to SPEC-087.
 
 ## [0.2.4] - 2026-11-20
 

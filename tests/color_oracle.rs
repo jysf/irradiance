@@ -277,20 +277,40 @@ fn ref_neutral_xy(d: &RefDual, g: f64) -> Option<(f64, f64)> {
     Some((w[0] / sum, w[1] / sum))
 }
 
-/// Reference scene weight by the SDK 1.7.1 `NeutralToXY` loop (DEC-076 §5):
-/// from D50, at most 30 passes, stop when `|Δx| + |Δy| < 1e-7` taking `next`,
-/// else the midpoint of the last two; the weight is read at the final `xy`.
-/// Returns the weight and the number of passes run. `None` ⇒ fallback.
-fn ref_weight_and_passes(sensor: &Sensor) -> Option<(f64, u32)> {
+/// DEC-076 §5's stopping tolerance on `|Δx| + |Δy|`.
+const REF_TOLERANCE: f64 = 0.0000001;
+
+/// How the reference `NeutralToXY` loop ended.
+#[derive(Debug, Clone, Copy)]
+struct RefLoop {
+    /// The scene weight read at the final `xy`.
+    weight: f64,
+    /// The number of passes run (1 to 30).
+    passes: u32,
+    /// The final chromaticity.
+    xy: (f64, f64),
+    /// `true` when a step fell under the tolerance; `false` when the 30th
+    /// pass took the midpoint instead.
+    by_tolerance: bool,
+}
+
+/// The reference `NeutralToXY` loop at a given stopping tolerance (DEC-076 §5:
+/// from D50, at most 30 passes, stop when `|Δx| + |Δy| < tolerance` taking
+/// `next`, else the midpoint of the last two on pass 30). The tolerance is a
+/// parameter only so FU-1 can show that a 10× looser or tighter one develops
+/// differently; everything else passes [`REF_TOLERANCE`]. `None` ⇒ fallback.
+fn ref_neutral_to_xy(sensor: &Sensor, tolerance: f64) -> Option<RefLoop> {
     let d = ref_dual(sensor)?;
     let mut last = D50_XY;
     let mut passes = 0u32;
+    let mut by_tolerance = false;
     for pass in 0..30u32 {
         passes = pass + 1;
         let g = ref_weight_at(&d, last)?;
         let mut next = ref_neutral_xy(&d, g)?;
-        if (next.0 - last.0).abs() + (next.1 - last.1).abs() < 0.0000001 {
+        if (next.0 - last.0).abs() + (next.1 - last.1).abs() < tolerance {
             last = next;
+            by_tolerance = true;
             break;
         }
         if pass == 29 {
@@ -298,7 +318,18 @@ fn ref_weight_and_passes(sensor: &Sensor) -> Option<(f64, u32)> {
         }
         last = next;
     }
-    Some((ref_weight_at(&d, last)?, passes))
+    Some(RefLoop {
+        weight: ref_weight_at(&d, last)?,
+        passes,
+        xy: last,
+        by_tolerance,
+    })
+}
+
+/// Reference scene weight by the SDK 1.7.1 `NeutralToXY` loop (DEC-076 §5),
+/// with the number of passes run. `None` ⇒ fallback.
+fn ref_weight_and_passes(sensor: &Sensor) -> Option<(f64, u32)> {
+    ref_neutral_to_xy(sensor, REF_TOLERANCE).map(|l| (l.weight, l.passes))
 }
 
 /// Reference scene weight (`None` ⇒ fallback).
@@ -2117,11 +2148,21 @@ fn ac2e_dual_forward_matrix_with_non_diagonal_calibrations() {
     assert_calibrated(&s, "AC2 (e)");
 }
 
+/// AC2 (f), the midpoint branch: on [`dual_cm_sensor`] the step shrinks by about
+/// 0.76 a pass and is still about 3.5e-6 at pass 30, so the loop ends on the
+/// pass-30 midpoint, never on the tolerance (verify FU-1). The tolerance stop
+/// is pinned separately, by
+/// [`ac2f_the_loop_stops_by_tolerance_well_before_30_passes`].
 #[test]
-fn ac2f_the_loop_converges_and_its_weight_is_not_the_three_pass_one() {
+fn ac2f_the_loop_ends_on_the_midpoint_and_its_weight_is_not_the_three_pass_one() {
     let s = dual_cm_sensor();
     let three = ref_weight_three_pass(&s).expect("three-pass weight");
     let (converged, passes) = ref_weight_and_passes(&s).expect("converged weight");
+    let ended = ref_neutral_to_xy(&s, REF_TOLERANCE).expect("loop");
+    assert!(
+        passes == 30 && !ended.by_tolerance,
+        "this fixture must exercise the pass-30 midpoint, ran {passes} passes"
+    );
     // Both weights, hand-pinned from the reference (SPEC-085 AC2 (f)). The
     // three-pass one is DEC-034's value, which SPEC-034's unit test pinned.
     assert!(
@@ -2154,6 +2195,59 @@ fn ac2f_the_loop_converges_and_its_weight_is_not_the_three_pass_one() {
 
 /// AC2 (f)'s converged weight for [`dual_cm_sensor`], from the reference loop.
 const CONVERGED_WEIGHT: f64 = 0.6708871184066116;
+
+/// The Nikon D300S dual-illuminant tags (A / D65, ColorMatrix only) with its own
+/// `AsShotNeutral`, on a 64×64 frame: a loop that stops by tolerance.
+fn nikon_dual_sensor() -> Sensor {
+    let mut s = fixture_sensor(64, 64);
+    s.color_matrix_1 = Some(nikon_cm1());
+    s.color_matrix_2 = Some(nikon_cm2());
+    s.calibration_illuminant_1 = Some(ILLUMINANT_A);
+    s.calibration_illuminant_2 = Some(ILLUMINANT_D65);
+    s.as_shot_neutral = Some(nikon_asn());
+    s
+}
+
+/// A spread of camera RGB over the full `u16` range, one triple per pixel of a
+/// `width × height` frame (a multiplicative hash, so no two rows repeat).
+fn spread_camera_rgb(width: u32, height: u32) -> Vec<u16> {
+    (0..width * height * 3)
+        .map(|i| (i.wrapping_mul(2_654_435_761) >> 16) as u16)
+        .collect()
+}
+
+/// AC2 (f), the tolerance stop (verify FU-1): on the Nikon tags the step falls
+/// under 1e-7 at pass 9, well before the cap. The pass count, the final `xy`
+/// and the weight are hand-pinned from the reference. The API develops at that
+/// weight, and both a 10× looser and a 10× tighter tolerance stop on a
+/// different pass and develop to different codes, so a wrong tolerance in
+/// `src/color.rs` turns this red.
+#[test]
+fn ac2f_the_loop_stops_by_tolerance_well_before_30_passes() {
+    let s = nikon_dual_sensor();
+    let ended = ref_neutral_to_xy(&s, REF_TOLERANCE).expect("loop");
+    assert!(ended.by_tolerance, "must stop by tolerance: {ended:?}");
+    assert_eq!(ended.passes, 9, "pass count: {ended:?}");
+    assert_eq!(ended.xy, (0.3530156291392405, 0.34551698155535704));
+    assert_eq!(ended.weight, 0.6954583018786118);
+
+    let camera_rgb = spread_camera_rgb(64, 64);
+    let got = api_to_srgb(&s, &camera_rgb);
+    assert_eq!(
+        got,
+        reference_apply(reference_matrix_at(&s, Some(ended.weight)), &camera_rgb),
+        "the API develops at the tolerance-stopped weight"
+    );
+    for tolerance in [REF_TOLERANCE * 10.0, REF_TOLERANCE / 10.0] {
+        let other = ref_neutral_to_xy(&s, tolerance).expect("loop");
+        assert_ne!(other.passes, ended.passes, "tolerance {tolerance:e}");
+        assert_ne!(
+            got,
+            reference_apply(reference_matrix_at(&s, Some(other.weight)), &camera_rgb),
+            "tolerance {tolerance:e} must develop differently, or the fixture cannot see it"
+        );
+    }
+}
 
 // ── AC3 — the signature rule, the shapes, the identity ──────────────────────
 
@@ -2346,6 +2440,95 @@ fn ac3_an_identity_calibration_is_byte_identical_to_none() {
             api_to_srgb(&base, &camera_rgb),
             "{what}: an identity calibration must be byte-identical to none"
         );
+    }
+}
+
+/// An `AsShotNeutral` red of 32263125/46358789, where `den/num` (DEC-033's `D`,
+/// built from the rationals) and `1/(num/den)` (the calibrated path's `1/R`
+/// with `R = inv(I) · asn`) differ in the last bit of `f64`.
+fn asn_last_bit() -> Vec<Rational> {
+    vec![
+        Rational {
+            num: 32_263_125,
+            den: 46_358_789,
+        },
+        Rational { num: 1, den: 1 },
+        Rational { num: 1, den: 2 },
+    ]
+}
+
+/// DEC-076 §4's bit-identity on the ForwardMatrix path (verify FU-2): an
+/// identity calibration must keep DEC-033's `D` from the rationals, not fold
+/// through `1/R`. The pixels `(r, 0, 0)` for r = 3, 9, 15, 21 were found by
+/// search to land on a rounding boundary where the two forms of `D` quantize
+/// differently, so dropping the identity shortcut turns this red.
+#[test]
+fn ac3_an_identity_calibration_keeps_the_rational_white_balance_on_the_fm_path() {
+    let mut base = single_fm_sensor();
+    base.as_shot_neutral = Some(asn_last_bit());
+    let red = &asn_last_bit()[0];
+    let (num, den) = (f64::from(red.num), f64::from(red.den));
+    assert_ne!(den / num, 1.0 / (num / den), "the two forms must differ");
+
+    let camera_rgb: Vec<u16> = vec![3, 0, 0, 9, 0, 0, 15, 0, 0, 21, 0, 0];
+    let c = mm(S_SRGB_FROM_XYZ_D65, B_BRADFORD_D50_TO_D65);
+    let fm = matrix_of(&forward_matrix_d50());
+    let rational = reference_apply(mm(c, fm_cam2xyz(fm, None, &base)), &camera_rgb);
+    let folded = reference_apply(mm(c, fm_cam2xyz(fm, Some(I3), &base)), &camera_rgb);
+    assert_ne!(rational, folded, "the fixture must see the difference");
+
+    let mut s = base.clone();
+    s.camera_calibration_1 = Some(cc_identity());
+    s.camera_calibration_2 = Some(cc_identity());
+    s.analog_balance = Some(ab_unity());
+    let got = api_to_srgb(&s, &camera_rgb);
+    assert_eq!(
+        got,
+        api_to_srgb(&base, &camera_rgb),
+        "byte-identical to none"
+    );
+    assert_eq!(got, rational, "DEC-033's D from the rationals");
+}
+
+/// The f32 entry with a non-diagonal calibration applied (verify FU-4): it
+/// equals `to_linear_f32_into` of the independent reference's `u16` develop to
+/// the bit, single-threaded and threaded, on both the ForwardMatrix and the
+/// ColorMatrix path.
+#[test]
+fn a_calibrated_f32_develop_equals_the_reference_to_the_bit() {
+    use irradiance::color::develop_color_f32_into_threaded;
+    let (w, h) = (20, 24);
+    let mut fm = fused_fixture(w, h, &[0, 1, 1, 2]);
+    fm.color_matrix_1 = Some(fixture_cm1());
+    fm.color_matrix_2 = Some(fixture_cm2());
+    fm.forward_matrix_2 = Some(forward_matrix_cool());
+    fm.calibration_illuminant_1 = Some(ILLUMINANT_A);
+    fm.calibration_illuminant_2 = Some(ILLUMINANT_D65);
+    fm.camera_calibration_1 = Some(cc_skew_1());
+    fm.camera_calibration_2 = Some(cc_skew_2());
+    fm.analog_balance = Some(ab_tilted());
+    let mut cm = fm.clone();
+    cm.forward_matrix_1 = None;
+    cm.forward_matrix_2 = None;
+
+    let mosaic = varied_mosaic(w, h);
+    for (path, s) in [("FM", fm), ("CM", cm)] {
+        let reference = reference_develop_color(&s, &mosaic);
+        assert_ne!(
+            reference,
+            reference_develop_color(&without_calibration(&s), &mosaic),
+            "{path}: the calibration must move the reference"
+        );
+        let mut expected = vec![0.0f32; reference.len()];
+        to_linear_f32_into(&reference, &mut expected).expect("to_linear_f32_into");
+
+        let mut got = vec![0.0f32; reference.len()];
+        develop_color_f32_into(&s, &mosaic, &mut got).expect("f32 develop");
+        assert_eq!(got, expected, "{path}: f32 must equal the reference");
+
+        let mut threaded = vec![0.0f32; reference.len()];
+        develop_color_f32_into_threaded(&s, &mosaic, &mut threaded, 4).expect("threaded");
+        assert_eq!(threaded, expected, "{path}: threaded f32");
     }
 }
 
