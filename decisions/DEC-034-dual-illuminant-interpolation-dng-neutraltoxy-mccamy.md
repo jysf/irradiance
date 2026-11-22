@@ -74,6 +74,15 @@ chromatic-adaptation CAT (SPEC-033's implicit-D50 treatment is kept; SPEC-035's 
 whether the CAT is worth its own spec), and `CameraCalibration` / `AnalogBalance` (identity,
 DEC-033).
 
+**Amended at SPEC-085's design (2026-11-22): the pass count.** DEC-076 §5 replaces the
+fixed 3-iteration loop with the Adobe DNG SDK 1.7.1 loop: start at D50, at most 30 passes,
+stop when `|Δx| + |Δy| < 1e-7`, and take the midpoint of the last two if the 30th has not
+converged. "dng_sdk's iteration count" above was wrong for SDK 1.7.1, and 3 passes do not
+converge on the held Pixels (the 3a needs 19, the 7 Pro 16). Everything else here stands:
+the mired weight, McCamy's cubic, the committed CCT table and the single-illuminant
+fallback. DEC-076 §4 also folds `AnalogBalance · CameraCalibration` into each `ColorMatrix`
+before the lerp. Takes effect when SPEC-085 ships.
+
 ## Context
 
 SPEC-033 (DEC-033) built the camera→XYZ matrix from the **first** illuminant only. A DNG
