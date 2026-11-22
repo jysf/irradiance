@@ -14,11 +14,11 @@ handoff:
   id: HANDOFF-179
   cycle: verify                 # build | verify — which cycle is delegated
   from_agent: claude-opus-5       # the orchestrator (tier_map.design; DEC-005)
-  to_agent: claude-opus-5           # from tier_map.<cycle> — the executing agent
+  to_agent: claude-opus-5-5         # from tier_map.<cycle> — the executing agent
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-22
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-085
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 15986361           # REAL combined count — what cost-audit reads
+  estimated_usd: 11.52             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 22
+  branch: claude/spec-085-verify-base
+  pr: null                         # verify returns a verdict; PR 306 is under review
+  completed_at: 2026-11-22         # YYYY-MM-DD
+  notes: "APPROVED at 2267a34 (PR 306 head). FLOOR taken before the handback commit, from transcript 1e544d8e-4a30-4c65-b85b-b51b11836719.jsonl (78 unique message.ids, all claude-opus-5-5, no subagents): input 160 + cache-creation 220,944 (1-hour) + cache-read 15,707,163 + output 58,094. Re-sum at ship." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -250,43 +250,277 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
+*Filled in by the receiving agent (claude-opus-5-5, cold verify, 2026-11-22). I did not
+build SPEC-085. Every number below is my own measurement on this machine.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** verdict committed to `claude/spec-085-verify-base` (no PR, by
+  instruction). Under review: https://github.com/jysf/irradiance/pull/306, head `2267a34`.
+- **Completed at:** 2026-11-22
+- **All acceptance criteria met?** Yes. AC1 to AC7 hold against the spec as designed in
+  PR 305 (`origin/main`), and no pre-registered bound was touched.
+- **For `verify`:** ✅ **APPROVED at `2267a34`** (PR 306's head; `979820b` on this branch
+  adds only the handoff and the cycle move). No ship-blockers. Four follow-ups, FU-1 to FU-4,
+  none of which holds the spec.
+
+### Evidence, check by check
+
+1. **The rule against the SDK source.** I read `dng_color_spec.cpp` (the constructor,
+   `FindXYZtoCamera_SingleOrDual`, `SetWhiteXY`, `NeutralToXY`) and `dng_string::operator==`.
+   - **Signature:** the SDK compares two `dng_string`s, and `dng_string::Set` stores an empty
+     string as null. So absent and empty are equal, and `resolve_calibration`'s
+     `unwrap_or_default` slice equality matches that. Both are case-sensitive.
+   - **`CameraCalibration2`:** used only when the dual model runs. On the single path the SDK
+     sets `fCameraCalibration2 = fCameraCalibration1`, and ours checks `CC_2` only under
+     `applies && dual`.
+   - **The fold:** the SDK computes `fColorMatrix_i = fAnalogBalance * fCameraCalibration_i *
+     fColorMatrix_i` before the lerp. Ours computes `fold(k_i, cm_i)` with
+     `k_i = AB · CC_i`, so it is the same product.
+   - **The ForwardMatrix path:** the SDK computes
+     `FM · inv(diag(inv(AB·CC(g)) · cameraWhite)) · inv(AB·CC(g))`, with `CC(g)` lerped
+     separately from the matrix. `fm_path_cam_to_xyz` has the same structure. The SDK's
+     `cameraWhite` comes from `colorMatrix · XYZ(white)` (normalised and pinned to
+     [0.001, 1]), where ours uses `AsShotNeutral` directly. That difference is inside the
+     residual AC4 measures and is not a defect.
+   - **The loop:** both start at the SDK's `D50_xy_coord()` = (0.3457, 0.3585). Both use a
+     tolerance of `0.0000001` on `|Δx| + |Δy|`, take `next` on convergence, and take the
+     midpoint on the last of 30 passes. Ours runs passes 1..=30 and takes the midpoint at
+     pass 30; the SDK runs 0..30 and takes it at 29. These are the same pass.
+   - **The g inversion:** the SDK's `g` weights illuminant 1 after swapping so that
+     `T1 < T2`. Ours is `clamp((1/T1 − 1/T) / (1/T1 − 1/T2), 0, 1)`. That expression equals
+     `1 − g_sdk` when `T1 < T2`. It is also correct without any swap when `T1 > T2`: it gives
+     0 at `T = T1`, 1 at `T = T2`, and the clamp sends `T` beyond either end to that end's
+     illuminant.
+   - **Empirical check of the swap:** the Pixel 3a, whose illuminants are 20 then 17, comes
+     out at 6 codes in AC4, and my probe of a swapped-order fixture behaves as reasoned.
+2. **Bit identity under the identity calibration.**
+   - `fold` returns `CM` itself when `K == IDENTITY`. The ForwardMatrix path passes
+     `k = None` and returns `FM · wb`, with `wb` being the old `D` built from the rationals.
+   - The identity test compares `f64`s, so `2/2` gives exactly 1.0 and counts as identity,
+     and `0/-1` gives -0.0, which equals 0.0 and also counts as identity. Both give the
+     correct result.
+   - AC3's identity rows (single CM, single FM, dual CM, dual FM) do reach the ForwardMatrix
+     path where they claim to.
+   - **The gap, FU-2:** the fixture's `AsShotNeutral` is (1/2, 1, 1/2). For those values
+     `den/num` and `1/(num/den)` are equal, so the shortcut cannot be observed on this
+     fixture. My mutant (n), which removes it, survives the whole suite (see 9).
+3. **AC4 reproduces from scratch.**
+   - I ran `scripts/sdk-colour.sh` cold into my scratchpad. It built the harness from 69 SDK
+     objects and wrote five matrix files. The 7 Pro's white is xy (0.319745, 0.333331), as
+     DEC-076 says.
+   - **My numbers (max |Δ| in codes): 7 Pro 6, 3a 6, 4a 1, Canon 2, Nikon 5.** All 18 deltas
+     on every file are identical to the build's table. The bound of 12 holds.
+   - **Independence of the expected side:** `tests/colour_sdk.rs` uses its own transcribed
+     S and B constants, its own `mm`, its own round-half-up and its own clamp. It never calls
+     `src/color.rs`.
+   - **Set means must run:** with one matrix file removed the lane fails ("every matrix file
+     must exist"). With the corpus pointed at a missing directory it fails with "MISSING …
+     must run". Unset, it prints a visible `SKIP`, and `corpus-status` prints
+     `sdk-colour: SKIP`.
+   - **Output directory:** the script refuses `./tmp-out-inside` and the main checkout's
+     `irradiance/x` ("output directory is inside the repository") and creates nothing.
+4. **The independent reference in `tests/color_oracle.rs`.**
+   - It imports only the public API and never reads `src/color.rs`.
+   - I checked its `ref_fold`, `ref_dual`, `ref_weight_and_passes` and `fm_cam2xyz` line by
+     line against DEC-076 §4–5, and they match.
+   - The diff against `origin/main` removes only the old reference helpers (`ref_weight` and
+     the old `reference_matrix` body). No assertion line was removed or weakened in the
+     three dual fixtures.
+   - **AC2 (f) weights, recomputed independently in Python** (plain floats, my own cofactor
+     inverse): 3-pass 0.5202685520213217 against the pinned …226, and loop
+     0.6708871184066119 against the pinned …116. Both agree to 1e-15.
+   - **FU-1:** this fixture never meets the 1e-7 tolerance. Its per-pass step shrinks by
+     about 0.76 a pass, is still 3.5e-6 at pass 30, and the result is the pass-30 midpoint.
+     So `ac2f_the_loop_converges…` actually pins the midpoint branch, not convergence.
+5. **The ForwardMatrix-path trap.**
+   - AC2 (b) and (e) use non-diagonal `cc_skew_1` and `cc_skew_2`. AC2 (b) also asserts that
+     a diagonal `K` on a single-illuminant FM file moves the output by at most 1 code, which
+     shows the trap directly.
+   - AC2 (c) asserts `assert_ne!(got, no_ab)` on both rows, so `AnalogBalance` is observably
+     applied wherever the test claims it is. On the FM row it acts through `g` (dual
+     fixture), as the handback says. Mutant (e) goes red on exactly this test.
+6. **The two approved deviations.**
+   - **The re-pinned weight:** 0.6708871184066116 follows from the DEC-076 §5 loop (my
+     independent recompute above), and the 3-pass value 0.5202685520213226 is still asserted
+     as the contrast. Accepted.
+   - **Singular `ColorMatrix1`. Ruling: accepted, with the CHANGELOG wording corrected at
+     ship (FU-3).** I probed it with a throwaway test through all five public entries
+     (`to_srgb`, u16, u16 threaded, f32, f32 threaded), wrapped in `catch_unwind`. Results:
+     - **Never a panic, the entries always agree, threaded equals single, every f32 output
+       is finite.** Every `inv` returns an `Option` and is handled, and `quantize` maps NaN
+       to 0, so no NaN can reach `dst`.
+     - Singular `CM1` with valid `CM2` (A then D65): `Ok`.
+     - Singular `CM2` with valid `CM1`: `Ok`.
+     - Singular `CM2` with `T1 > T2`: `Ok`.
+     - **Singular `CM1` with `T1 > T2`: `MissingColorCalibration`.**
+     - `CM2 = −CM1`, so `X(g)` is singular at g = ½: `Ok`, because the degenerate step falls
+       back to the single-illuminant path.
+     - A singular applied `CC_1` or `CC_2` on a dual file: `Ok`.
+     - A singular `K` on the FM path: `MissingColorCalibration`.
+     - A sweep of 990 perturbed dual fixtures (CM path and applied-`CC_2` path): 74
+       `MissingColorCalibration`, 916 `Ok`, no panics.
+
+     The behaviour matches the SDK, which inverts only the matrix at the `g` it lands on,
+     and every refusal is typed. But it is data-dependent. Whether a singular matrix refuses
+     depends on which end the scene weight settles at, so a singular `ColorMatrix1` still
+     refuses when it belongs to the warmer, higher-numbered illuminant. A singular **applied
+     calibration** develops too when its product is unused, which is looser than a literal
+     reading of DEC-076 §3's "a singular product".
+
+     The CHANGELOG body does carry the condition ("when it settles fully on illuminant 2").
+     Its bold headline, "A dual-illuminant file whose `ColorMatrix1` is singular now
+     develops", over-generalises, and it says nothing about singular calibrations. That is a
+     documentation precision issue (FU-3); whether to refuse belongs to SPEC-087.
+7. **Shapes and refusals (AC3).**
+   - `assert_refused_on_every_entry` covers five entries (`to_srgb`, u16, u16 threaded, f32,
+     f32 threaded) with sentinel `dst`s, on all five rows (`CC_1` with 8 entries, a zero
+     denominator, `AB` with 2 entries, an `AB` zero numerator, a non-positive reference
+     neutral).
+   - The non-positive neutral row runs on the FM path, where `R` exists.
+   - The two ill-shaped-but-unused rows develop `Ok`.
+   - Refusal happens in `resolve_calibration` / `fm_path_cam_to_xyz`, both inside
+     `build_camera_to_srgb_linear`, which every entry calls before any write.
+8. **Parse (AC1).**
+   - `signature_bytes` checks the type (ASCII/BYTE), `MAX_TAG_VALUES` and the existing
+     bounds-checked `payload`, then cuts at the first NUL.
+   - Writer fixtures cover: both byte orders; ASCII and BYTE; an inline value and an
+     external one; no NUL; wrong types (LONG and SHORT on the rationals, and a wrong type on
+     each signature) costing only their field; absent tags being `None` and not malformed.
+   - The exiftool comparison has a per-field perturbation red-proof on the held files and on
+     replayed lines. Mutant (h) turns it red.
+   - The `ifd` fuzz target calls `container.sensor()`, so it drives the new reader. I ran it
+     for 61 s (4.26M runs) and `develop` for 61 s (1.93M runs); both were clean.
+9. **Mutants.** Each ran in its own copy of the tree with its own `CARGO_TARGET_DIR`. The
+   control ran first and is green. The suite is `--lib`, `color_oracle`, `colour_sdk` (SDK
+   lane set) and `colour_metadata_oracle`. Mutants that survived that set also ran through
+   the whole corpus suite.
+
+   | Mutant | Goes red on | AC4 (max \|Δ\|) |
+   |---|---|---|
+   | control | nothing | 6 / 6 / 1 / 2 / 5 |
+   | (a) calibration ignored | `ac2a` to `ac2e`, three AC3 rows, threaded, AC4 | 7 Pro **1161**, 4a 23, Canon 3 |
+   | (b) 3-pass loop | `ac2f`, `ac2c`, `ac2d`, `ac2e`, the weight unit test, the degenerate unit test, AC4 | 7 Pro **148**, 3a **39** |
+   | (c) lerp of the factors | `ac2d`, `ac2e`, AC4 | 7 Pro **23** |
+   | (d) signature rule always applies | `ac3_mismatched…`, `ac3_an_unused…`, `ac2c` | unchanged |
+   | (e) `AnalogBalance` dropped | `ac2c`, threaded | unchanged |
+   | (f) FM path as `FM(g) · D` | `ac2b`, `ac2e`, the AC3 non-positive-neutral row, threaded | unchanged |
+   | (g) `CC_2` checked on the single path | `ac3_an_unused_ill_shaped…` | unchanged |
+   | (h) signature not cut at NUL | both `ifd` NUL tests, the exiftool held-file test | unchanged |
+   | (i) the loop starts at g = 0, then converges | `ac2f`, the three old dual fixtures, the weight and degenerate unit tests | unchanged |
+   | (j) tolerance 10× looser | Tier A survives; **Tier B red**: Pixel 4a and 3a colour pins | unchanged |
+   | (j2) tolerance 10× tighter | Tier A survives; **Tier B red**: Pixel 4a and 3a colour pins | unchanged |
+   | (k) midpoint removed | `interpolation_weight_matches_dng_neutral_to_xy` (unit test) | unchanged |
+   | (l1) f32 entry on the uncalibrated transform | the AC3 non-positive-neutral row | unchanged |
+   | (l2) threaded entries on the uncalibrated transform | threaded = single, the AC3 refusal row | unchanged |
+   | (m) `R` from `asn` without `inv(K)` | `ac2b`, `ac2c`, `ac2e`, the AC3 refusal row, threaded, AC4 | 4a **597**, Canon **225** |
+   | (n) FM identity shortcut removed | **survives the whole corpus suite** | unchanged |
+
+   AC4 columns are 7 Pro / 3a / 4a / Canon / Nikon; "unchanged" means equal to the
+   control.
+
+   - (a) to (g) reproduce the build's table and the probe's numbers (1161, 148/39, 23).
+   - (j) and (j2) are caught only by the held-file pins (FU-1).
+   - (l1) is caught at Tier A only through a refusal row: no Tier-A test compares calibrated
+     **f32 values** with the reference. The Tier-B f32 pins cover the held Pixels (FU-4).
+   - (n) is near-equivalent. It differs only where `den/num ≠ 1/(num/den)` in the last bit,
+     and no fixture or held file has an identity calibration on the FM path with such a
+     neutral (FU-2).
+10. **Files outside the plan.** `src/develop.rs` and `src/plane.rs` (five `None` fields
+    each), `examples/corpus-status.rs` (the lane's SKIP/present line), and
+    `tests/black_levels.rs`, `develop_options.rs`, `orientation_tiles.rs`, `warp_alpha.rs`
+    (the `DEVELOP_VERSION` pin, 7 → 8, message extended). All are mechanical and nothing was
+    weakened.
+11. **Pins (AC5).**
+    - Exactly six pins moved, all in `gain_map_corpus.rs` `PINNED`: the 4a, 3a and 7 Pro,
+      each for `develop_color_into` and `develop_color_f32_into`. The four
+      `DEVELOP_VERSION` pins moved too.
+    - All mono pins hold, since both `just test` runs are green.
+    - The Canon and Nikon have only mono or SDK-bounded comparisons, no colour pins.
+    - Threaded equals single in `a_calibrated_threaded_develop_equals_single_thread`, and in
+      my probe across all cases.
+    - **Cause attribution, spot-checked through AC4 under my own mutants:**
+      - **Pixel 3a:** ignoring the calibration leaves it at 6, with the same deltas, while
+        the 3-pass loop returns it to 39. So the loop alone moved it, as claimed.
+      - **7 Pro:** it moves under both mutants (1161 and 148), so both causes moved it.
+12. **Release surface and provenance.**
+    - `DEVELOP_VERSION` is `"8"`, with a doc paragraph.
+    - The CHANGELOG `[Unreleased]` entry names all five files and both causes, apart from
+      FU-3's headline.
+    - `semver-check`: "no semver update required" (additive).
+    - The ledger row cites DNG 1.7.1.0 Chapter 6 as class 1 and SDK `dng_color_spec.cpp` as
+      class 4, read, with **no code copied**. The code is not a transliteration: the
+      structure, names and `Option` fallbacks are irradiance's own.
+    - `scripts/sdk-camera-to-pcs.cpp` is irradiance's own harness of about 35 lines, built
+      only by `sdk-colour.sh`. No `.github/` change, so it is never built in CI.
+    - The 22-file diff contains no SDK bytes, outputs, corpus bytes or binaries.
+13. **The build's cost figure.** 33.19M tokens and $22.58 over 25 minutes is plausible.
+    - That USD at opus-5-5 rates implies mostly cache reads, as expected on an L build.
+    - This verify, with two corpus suites, 16 mutant builds and the SDK harness, spans
+      22 minutes in its own transcript, so a 25-minute build is credible.
+    - It is labelled a floor taken before the handback commit, so the orchestrator should
+      re-sum it at ship.
+14. **Gates, all green on this branch's head (`979820b`, whose code is `2267a34`):**
+    - `just test` with the corpus, without `IRRADIANCE_SDK_COLOUR_DIR` (EXIT 0) and with it
+      (EXIT 0);
+    - `lint-ci`, `lint-no-allow`, `fmt-check`, `validate`, `doc-check`;
+    - `cost-audit`, `gate-audit` (14 scripts, no mute-death), `name-length-check`,
+      `decisions-index --check`, `semver-check`;
+    - fuzz on `ifd` and `develop`, 61 s each, clean.
+
+### Findings
+
+No ship-blockers.
+
+- **FU-1:** AC2 (f)'s fixture ends at the 30-pass midpoint and never meets the 1e-7
+  tolerance, so the name `ac2f_the_loop_converges…` overstates what it pins. A tolerance
+  10× off survives Tier A and is caught only by the Tier-B Pixel pins.
+  Suggest: a Tier-A dual fixture that converges by tolerance in a known number of
+  passes, with the count asserted.
+- **FU-2:** DEC-076 §4's bit-identity clause on the ForwardMatrix path is untested.
+  Removing the identity shortcut survives the whole corpus suite, because the AC3 identity
+  fixture's neutral (1/2, 1, 1/2) makes `den/num` equal `1/(num/den)`. Suggest: add an
+  identity row whose `AsShotNeutral` rationals differ in the last bit between the two forms.
+- **FU-3:** the CHANGELOG's bold headline "A dual-illuminant file whose `ColorMatrix1` is
+  singular now develops" over-generalises.
+  - It refuses when `ColorMatrix1` is the higher-temperature illuminant.
+  - A singular applied `CameraCalibration_i` whose product is unused also develops, which is
+    unstated.
+  - Fix the wording at ship (docs only). Whether a singular unused matrix or calibration
+    should refuse goes to SPEC-087.
+- **FU-4:** no Tier-A test compares a calibrated develop through `develop_color_f32_into`
+  with the reference. The f32 entry on the uncalibrated transform is caught only by a
+  refusal row at Tier A, and by the Pixel f32 pins at Tier B.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 15,986,361, a floor taken before the handback commit (input 160 + cache creation 220,944, all 1-hour + cache read 15,707,163 + output 58,094)
+- **Estimated USD:** 11.52 (opus-5-5: input $5 and output $25 per MTok; cache read ×0.10; 1-hour cache write ×2.0)
+- **Duration (minutes):** 22, the transcript's timestamp span
+- **Source of the number:** this session's own transcript, `1e544d8e-4a30-4c65-b85b-b51b11836719.jsonl`, found by the scratchpad UUID and measured per docs/cost-tracking.md "Measuring a cycle": 78 unique message.ids, all claude-opus-5-5, no subagents, deduplicated by message.id with each message's largest output_tokens (`basis: transcript`). Re-sum at ship.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none in the verify. Branch note: the local branch name
+  `claude/spec-085-verify-base` was already checked out in another worktree
+  (`opcode-demosaic-review-fixes-f9348f`), so I worked on a local branch tracking
+  `origin/claude/spec-085-verify-base` and pushed to that remote branch.
+- **Follow-up work identified:** FU-1 to FU-4 above. FU-3's refusal question goes to
+  SPEC-087, which already owns malformed and singular interpretation inputs.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little. "AC2 (f) asserts the converged weight" assumed the fixture converges;
+   checking that independently showed it ends at the cap. A handoff could ask the verifier to
+   record the pass count of every Tier-A loop fixture.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-076 §3's "a singular product is `MissingColorCalibration`" should say "at the weight
+   actually used". The convergent loop makes every singular-matrix refusal depend on the
+   scene weight, as in the SDK, and the decision text does not say so.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run every surviving mutant through the full corpus suite from the start rather than a
+   Tier-A subset first. Two of my three Tier-A survivors were caught only at Tier B.
