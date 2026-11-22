@@ -953,11 +953,11 @@ pub struct Sensor {
     /// DNG `SubTileBlockSize` (tag 50974), `[rows, cols]` (`DEC-077` §1). The
     /// develop honours only `[1, 1]`.
     pub sub_tile_block_size: Option<[u32; 2]>,
-    /// DNG `RowInterleaveFactor` (tag 50975) (`DEC-077` §1). The develop
-    /// honours only 1.
+    /// DNG `RowInterleaveFactor` (tag 50975), exactly one SHORT or LONG
+    /// (`DEC-077` §1); any other shape is malformed. The develop honours only 1.
     pub row_interleave_factor: Option<u32>,
-    /// DNG `ColumnInterleaveFactor` (tag 51157) (`DEC-077` §1). The develop
-    /// honours only 1.
+    /// DNG `ColumnInterleaveFactor` (tag 51157), exactly one SHORT or LONG
+    /// (`DEC-077` §1); any other shape is malformed. The develop honours only 1.
     pub column_interleave_factor: Option<u32>,
     /// Tags that are **present, shaped wrong, and therefore dropped** — not
     /// every tag any read of which ever errored.
@@ -2267,6 +2267,31 @@ impl<'a> Container<'a> {
         Ok(Some(values))
     }
 
+    /// A tag DNG defines as exactly one SHORT or LONG, or `Ok(None)` when
+    /// absent (`SPEC-086`, `DEC-077` §1: the two interleave factors). Any other
+    /// type is [`Error::UnexpectedFieldType`] and a count other than 1 is
+    /// [`Error::ValueOverflow`], so the caller costs the field. Unlike
+    /// [`Container::scalar`], which keeps the first of any number of values,
+    /// a count of 0 or 2 is malformed here, not absent or the first value.
+    fn single_short_or_long(&self, ifd: &Ifd, tag: u16) -> Result<Option<u32>, Error> {
+        let Some(entry) = ifd.entry(tag) else {
+            return Ok(None);
+        };
+        if entry.field_type != TYPE_SHORT && entry.field_type != TYPE_LONG {
+            return Err(Error::UnexpectedFieldType {
+                tag,
+                field_type: entry.field_type,
+            });
+        }
+        if entry.count != 1 {
+            return Err(Error::ValueOverflow { tag });
+        }
+        match self.uints(entry)?.as_slice() {
+            [value] => Ok(Some(*value)),
+            _ => Err(Error::ValueOverflow { tag }),
+        }
+    }
+
     /// A `BlackLevelDeltaH/V` tag's values as `num / den`, or `Ok(None)` when
     /// absent (`SPEC-086`, `DEC-077` §1). Read through
     /// [`Container::rationals`]; a zero denominator is
@@ -2583,12 +2608,12 @@ impl<'a> Container<'a> {
             &mut malformed,
         );
         let row_interleave_factor = Self::cost_the_field(
-            self.scalar(ifd, TAG_ROW_INTERLEAVE_FACTOR),
+            self.single_short_or_long(ifd, TAG_ROW_INTERLEAVE_FACTOR),
             TAG_ROW_INTERLEAVE_FACTOR,
             &mut malformed,
         );
         let column_interleave_factor = Self::cost_the_field(
-            self.scalar(ifd, TAG_COLUMN_INTERLEAVE_FACTOR),
+            self.single_short_or_long(ifd, TAG_COLUMN_INTERLEAVE_FACTOR),
             TAG_COLUMN_INTERLEAVE_FACTOR,
             &mut malformed,
         );
