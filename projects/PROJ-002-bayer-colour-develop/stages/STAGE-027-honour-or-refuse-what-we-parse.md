@@ -131,7 +131,7 @@ it) and rewrites the line in place. An optional `[S]`/`[M]`/`[L]` tag on the
 line is carried onto the spec as `task.complexity`.
 
 - [x] SPEC-085 (shipped on 2026-11-22) — [L] Apply CameraCalibration and AnalogBalance on the colour develop, and run NeutralToXY to convergence (DEC-076)
-- [ ] SPEC-086 (frame) — [S] Refuse tags the develop cannot honour yet
+- [ ] SPEC-086 (design) — [M] Refuse tags the develop cannot honour yet (DEC-077)
 - [ ] SPEC-087 (frame) — [M] Malformed interpretation tags refuse at develop
 
 **Count:** 1 shipped / 2 active / 0 pending
