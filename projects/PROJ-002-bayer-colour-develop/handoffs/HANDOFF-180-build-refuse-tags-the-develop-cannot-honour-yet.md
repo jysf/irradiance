@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-22
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-086
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 12951904           # REAL combined count — what cost-audit reads
+  estimated_usd: 9.82              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 12
+  branch: feat/spec-086-unhonoured-tags
+  pr: https://github.com/jysf/irradiance/pull/309
+  completed_at: 2026-11-22         # YYYY-MM-DD
+  notes: "Floor, summed live from this session's transcript (ad9e0a16), 67 messages deduplicated by message.id; in 136, cache creation 205,743, cache read 12,689,330, out 56,695. USD at Opus list rates $5/$25 per MTok with 1-hour cache writes; re-sum after the session for the final figure. Duration is the transcript's timestamp span."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -160,38 +160,82 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `feat/spec-086-unhonoured-tags`, https://github.com/jysf/irradiance/pull/309
+- **Completed at:** 2026-11-22
+- **All acceptance criteria met?** yes.
+  - AC1 to AC4, AC6: `tests/unhonoured_tags.rs`, every check on all nine develop entries
+    (mono entries on a mono fixture, the rest on RGGB), sensor in a SubIFD under a
+    preview IFD0.
+  - AC5: `tests/ljpeg_precision_binding.rs`, the three decode paths × strip and tile ×
+    both byte orders.
+  - AC7: the full corpus `just test` exits 0 (836 passed, 0 failed). Only the two
+    optional SDK cross-checks skip. No held file refuses, no Tier-B pin moved, and
+    `DEVELOP_VERSION` is still `"8"`.
+  - AC8: `tests/error_kind.rs` at 75 variants, 17 / 26 / 32, with DEC-051's paragraph
+    updated.
+  - Red first: the new tests did not compile before the variants and fields existed.
+    With the fields read but no check wired, AC1, AC3, AC5 and AC6 failed with `Ok`.
+    AC5 decoded a P = 16 frame tagged 12-bit to samples above 4095.
+- **AC9 red-proof** (control first, each mutant applied by script, run, then the file
+  restored byte for byte):
+
+  | Mutant | Test | Result |
+  |---|---|---|
+  | control | `unhonoured_tags` (7), `ljpeg_precision_binding` (3) | green |
+  | (a) check not called from `check_required_processing` | `ac1_every_entry_refuses_each_unhonoured_tag` | red: row a on `develop_into` got `Ok(())` |
+  | (b) `SampleFormat` 3 honoured | `ac1_every_entry_refuses_each_unhonoured_tag` | red: row a got `Ok(())` |
+  | (c) `>=` instead of `>` | `ac2_honoured_values_develop_byte_identical` | red: 1.7.1.0 refused |
+  | (d) default ignores `DNGVersion` | `ac3_backward_version_defaults_from_dng_version` | red: DNGVersion 1.8.0.0 got `Ok(())` |
+  | (e) `malformed_tags` refusal dropped | `ac6_a_malformed_unhonoured_tag_is_refused` | red: 339 as ASCII got `Ok(())` |
+  | (f) zero-delta exemption dropped | `ac2_honoured_values_develop_byte_identical` | red: all-zero `BlackLevelDeltaH` refused |
+  | (g) precision check removed (strip and tile) | `ac5_precision_must_equal_bits_per_sample_on_every_decode_path` | red: P16 / BPS12 decoded with `Ok` |
+  | (h) a write to `dst` before the check in `develop_color_into_threaded` | `ac1_every_entry_refuses_each_unhonoured_tag` | red: sentinel assertion on `DevelopColorIntoThreaded` |
+
+- **Gates:** `just test` (with the corpus), `just lint-ci`, `just lint-no-allow`,
+  `just fmt-check`, `just validate` and `just doc-check` are all green.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 12,951,904 (a floor: summed live, so the handback commit's own
+  messages are not in it).
+- **Estimated USD:** 9.82 (input 136, cache creation 205,743, cache read 12,689,330,
+  output 56,695; Opus $5 / $25 per MTok, 1-hour cache writes).
+- **Duration (minutes):** 12 (transcript timestamp span).
+- **Source of the number:** this session's transcript
+  (`ad9e0a16-c10b-4af9-ba06-9b629dc10568.jsonl`), deduplicated by `message.id` with
+  the largest `output_tokens`, per `docs/cost-tracking.md`. No subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - Read strictness DEC-077 §1 leaves open, chosen as follows. `SampleFormat` and
+    `LinearizationTable` must be SHORT and non-empty, or they are malformed. The two
+    versions must be BYTE with count exactly 4. `BlackLevelDeltaH/V` go through
+    `rationals()`, so RATIONAL is accepted as well as SRATIONAL.
+  - `SampleFormat`'s count is not checked against `SamplesPerPixel`. Every honoured
+    value must be 1 whatever the count.
+  - A malformed `DNGVersion` (with `DNGBackwardVersion` absent) is costed and recorded,
+    then treated as absent: no check, no refusal. DEC-077 names only a malformed
+    backward version as a refusal.
+  - `docs/conformance-matrix.md` is unchanged. It has no per-tag support table.
+  - `UnsupportedTag`'s `Display` names the tag through a small private lookup in
+    `src/lib.rs`, with "tag" as the fallback.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - Decide whether a malformed `DNGVersion` with no backward version should refuse. It
+    fits naturally into SPEC-087's general malformed rule.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Little. The type and count strictness of each new read was left to the build; I
+   chose the strict SHORT / BYTE × 4 shapes DEC-077 lists. The malformed `DNGVersion`
+   case was unstated.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. The `type_complexity` clippy lint on test code (`lint-ci` covers tests) was
+   the only gate surprise, fixed with a type alias.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write the mutant script before the first green run, so the control and the eight
+   mutants run as one step straight after it.
