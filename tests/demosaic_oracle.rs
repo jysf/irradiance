@@ -643,6 +643,59 @@ fn an_unsupported_cfa_is_a_typed_error() {
 }
 
 #[test]
+fn a_staggered_cfa_layout_is_refused_not_demosaiced_as_rectangular() {
+    let mosaic = [1000u16; 16];
+    // Layouts 2..=9 are the DNG staggered geometries; 0 and 999 are not
+    // defined at all. Only 1 (rectangular) is demosaiced.
+    for layout in [0u32, 2, 3, 5, 9, 999] {
+        let mut cfa = bayer(RGGB);
+        cfa.layout = layout;
+        let sensor = fixture_sensor(4, 4, Some(cfa));
+        let mut dst = [7u16; 48];
+        let err = demosaic_into(&sensor, &mosaic, &mut dst).expect_err("staggered layout");
+        assert!(
+            matches!(err, Error::UnsupportedCfaLayout { layout: l } if l == layout),
+            "layout {layout}: {err:?}"
+        );
+        assert_eq!(dst, [7u16; 48], "nothing written on refusal");
+    }
+}
+
+#[test]
+fn cfa_pattern_values_are_colour_codes_and_plane_order_is_refused() {
+    // A uniform mosaic with distinct per-colour values: R = 10000, G = 20000,
+    // B = 5000. With the default plane colour, every output pixel is exactly
+    // that triple, whichever order the pixel's sites sit in.
+    let rggb_sample = |row: usize, col: usize| match (row % 2, col % 2) {
+        (0, 0) => 10000u16,
+        (1, 1) => 5000,
+        _ => 20000,
+    };
+    let mosaic: Vec<u16> = (0..16).map(|i| rggb_sample(i / 4, i % 4)).collect();
+    let sensor = fixture_sensor(4, 4, Some(bayer(RGGB)));
+    let mut dst = [0u16; 48];
+    demosaic_into(&sensor, &mosaic, &mut dst).expect("default plane colour demosaics");
+    assert_eq!(&dst[..3], &[10000, 20000, 5000]);
+
+    // A non-RGB plane order used to be read as a colour remap of the
+    // PATTERN, swapping (or rejecting) the physical mosaic colours. Plane
+    // order says how the colour matrices' columns are ordered, which the
+    // pipeline does not permute, so it is refused rather than mis-developed.
+    for plane_color in [vec![2u8, 1, 0], vec![1, 2, 0], vec![0, 1, 2, 3]] {
+        let mut cfa = bayer(RGGB);
+        cfa.plane_color = plane_color.clone();
+        let sensor = fixture_sensor(4, 4, Some(cfa));
+        let mut dst = [7u16; 48];
+        let err = demosaic_into(&sensor, &mosaic, &mut dst).expect_err("non-RGB plane order");
+        assert!(
+            matches!(&err, Error::UnsupportedCfaPlaneColor { plane_color: p } if *p == plane_color),
+            "{plane_color:?}: {err:?}"
+        );
+        assert_eq!(dst, [7u16; 48], "nothing written on refusal");
+    }
+}
+
+#[test]
 fn wrong_buffer_lengths_are_typed_errors() {
     let sensor = fixture_sensor(4, 4, Some(bayer(RGGB)));
 

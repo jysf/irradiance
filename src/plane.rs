@@ -45,7 +45,9 @@
 //! # Units — `SPEC-068`, `DEC-063`
 //!
 //! [`units`] cuts the plane into **full-width bands of whole rows** that decode
-//! independently, and [`unpack_unit_into`] decodes one into its own band. A
+//! independently, and [`unpack_unit_into`] decodes one into its own band. To
+//! decode many bands, build a [`PlaneDecoder`] once: it checks the layout a
+//! single time and decodes each band without re-walking the strip table. A
 //! band is a contiguous run of the plane, so a caller splits its buffer with
 //! `split_at_mut` and decodes the bands on its own threads, in any order, with
 //! no `unsafe`; the result equals [`unpack_into`] byte for byte, because
@@ -1022,6 +1024,10 @@ pub fn units<'a>(
 ///   [`unpack_into`] documents for it ([`Error::LjpegPlaneShapeMismatch`] and
 ///   the `Ljpeg*` / [`Error::Truncated`] family) — the same error
 ///   [`unpack_into`] stops at when it reaches this unit.
+///
+/// Each call re-checks the whole plane layout, which walks every strip or
+/// tile table entry. To decode many units of one plane, build a
+/// [`PlaneDecoder`] once and call [`PlaneDecoder::unpack_unit_into`].
 pub fn unpack_unit_into(
     sensor: &Sensor,
     byte_order: ByteOrder,
@@ -1029,23 +1035,97 @@ pub fn unpack_unit_into(
     unit: &Unit,
     dst: &mut [u16],
 ) -> Result<(), Error> {
-    let (kind, plan) = plan_for(sensor, file)?;
-    // The unit must be one this layout yields: checked BEFORE `dst`, so a
-    // foreign unit is reported as such whatever buffer came with it.
-    if !plan.yields(sensor.height, unit) {
-        return Err(Error::PlaneUnitMismatch {
-            row_start: unit.row_start,
-            row_count: unit.row_count,
-        });
+    PlaneDecoder::new(sensor, byte_order, file)?.unpack_unit_into(unit, dst)
+}
+
+/// A plane whose layout has been checked once, for decoding many [`Unit`]s.
+///
+/// [`unpack_unit_into`] re-runs the full layout check on every call, which
+/// walks the whole strip or tile table: decoding all `n` units of an
+/// `n`-strip plane that way is `O(n²)`. A `PlaneDecoder` runs that check once
+/// in [`PlaneDecoder::new`] and then decodes each unit in time proportional to
+/// that unit alone. It borrows the sensor and file, is `Copy`, and is `Send` +
+/// `Sync`, so one decoder can be shared by every thread decoding a band.
+///
+/// Results equal [`unpack_unit_into`]'s byte for byte, errors included: the
+/// constructor reports exactly the pre-decode errors [`units`] does, and
+/// [`PlaneDecoder::unpack_unit_into`] the rest, in the same order.
+#[derive(Debug, Clone, Copy)]
+pub struct PlaneDecoder<'a> {
+    sensor: &'a Sensor,
+    byte_order: ByteOrder,
+    file: &'a [u8],
+    kind: PlaneKind,
+    plan: Plan,
+}
+
+impl<'a> PlaneDecoder<'a> {
+    /// Check the plane's layout once. `byte_order` and `file` are as for
+    /// [`unpack_into`].
+    ///
+    /// Allocation-free; reads no strip or tile byte.
+    ///
+    /// # Errors
+    ///
+    /// The pre-decode errors [`units`] returns for this sensor.
+    pub fn new(
+        sensor: &'a Sensor,
+        byte_order: ByteOrder,
+        file: &'a [u8],
+    ) -> Result<PlaneDecoder<'a>, Error> {
+        let (kind, plan) = plan_for(sensor, file)?;
+        Ok(PlaneDecoder {
+            sensor,
+            byte_order,
+            file,
+            kind,
+            plan,
+        })
     }
-    let expected = u64::from(unit.row_count).saturating_mul(u64::from(sensor.width));
-    if u64::try_from(dst.len()).ok() != Some(expected) {
-        return Err(Error::PlaneBufferWrongLength {
-            expected,
-            actual: dst.len(),
-        });
+
+    /// The plane's units, exactly as [`units`] yields them, without checking
+    /// the layout again.
+    #[must_use]
+    pub fn units(&self, max_band_rows: NonZeroU32) -> Units<'a> {
+        Units::new(self.sensor, self.plan, max_band_rows.get())
     }
-    decode_unit(sensor, plan, kind, byte_order, file, unit, dst)
+
+    /// Decode one [`Unit`] into `dst`, as [`unpack_unit_into`] does, without
+    /// checking the layout again.
+    ///
+    /// # Errors
+    ///
+    /// In this order, so nothing is written on any refusal:
+    /// [`Error::PlaneUnitMismatch`] if `unit` is not a unit of this plane;
+    /// [`Error::PlaneBufferWrongLength`] if `dst` is not exactly the band;
+    /// then the decode-time errors [`unpack_unit_into`] documents.
+    pub fn unpack_unit_into(&self, unit: &Unit, dst: &mut [u16]) -> Result<(), Error> {
+        let sensor = self.sensor;
+        // The unit must be one this layout yields: checked BEFORE `dst`, so a
+        // foreign unit is reported as such whatever buffer came with it.
+        if !self.plan.yields(sensor.height, unit) {
+            return Err(Error::PlaneUnitMismatch {
+                row_start: unit.row_start,
+                row_count: unit.row_count,
+            });
+        }
+        let expected = u64::from(unit.row_count).saturating_mul(u64::from(sensor.width));
+        if u64::try_from(dst.len()).ok() != Some(expected) {
+            return Err(Error::PlaneBufferWrongLength {
+                expected,
+                actual: dst.len(),
+            });
+        }
+        decode_unit(
+            sensor,
+            self.plan,
+            self.kind,
+            self.byte_order,
+            self.file,
+            unit,
+            dst,
+        )
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1055,7 +1135,7 @@ pub fn unpack_unit_into(
 
 /// Which strip format the plane declares — selects the per-path checks and
 /// error variants the shared walk reports.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum PlaneKind {
     /// `Compression = 1`, at one of the [`SUPPORTED_BITS`] depths.
     Uncompressed {

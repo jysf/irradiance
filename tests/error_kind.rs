@@ -30,7 +30,10 @@ use irradiance::{Error, ErrorKind};
 /// (Unsupported); SPEC-064/DEC-059 added `InvalidWarpAlpha` (CallerError);
 /// SPEC-065/DEC-060 added `DevelopScratchWrongLength` (CallerError);
 /// SPEC-066/DEC-061 added `InvalidBlackLevelPattern` (Corrupt);
-/// SPEC-068/DEC-063 added `PlaneUnitMismatch` (CallerError)).
+/// SPEC-068/DEC-063 added `PlaneUnitMismatch` (CallerError); the 2026-11
+/// review fixes added `UnsupportedCfaLayout`, `UnsupportedCfaPlaneColor`,
+/// `UnsupportedOpcodeVersion` (Unsupported) and `NonFiniteWarpCoefficients`
+/// (CallerError)).
 fn dec_051_table() -> Vec<(Error, ErrorKind)> {
     use ErrorKind::{CallerError, Corrupt, Unsupported};
     vec![
@@ -129,6 +132,9 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
         // SPEC-064, DEC-059: a warp_alpha outside [0, 1] is the caller's
         // argument, whatever the file holds.
         (Error::InvalidWarpAlpha { warp_alpha: 1.5 }, CallerError),
+        // A hand-built warp with a NaN/inf coefficient; the parser refuses
+        // the same bytes as MalformedOpcodeParams (Corrupt).
+        (Error::NonFiniteWarpCoefficients, CallerError),
         // SPEC-065, DEC-060: a develop scratch of the wrong length is the
         // caller's buffer.
         (
@@ -188,6 +194,20 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             Error::UnsupportedCfaPattern {
                 repeat_dim: [6, 6],
                 pattern: vec![1; 36],
+            },
+            Unsupported,
+        ),
+        (Error::UnsupportedCfaLayout { layout: 2 }, Unsupported),
+        (
+            Error::UnsupportedOpcodeVersion {
+                id: 4,
+                version: 0x0200_0000,
+            },
+            Unsupported,
+        ),
+        (
+            Error::UnsupportedCfaPlaneColor {
+                plane_color: vec![2, 1, 0],
             },
             Unsupported,
         ),
@@ -449,8 +469,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        68,
-        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069) classified 68",
+        72,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069, and the 2026-11 review fixes) classified 72",
         declared.len()
     );
 
@@ -468,14 +488,15 @@ fn every_variant_classified() {
         .collect();
     assert!(wrong.is_empty(), "misclassified: {wrong:#?}");
 
-    // DEC-051's bucket sizes: 16 / 21 / 31 (DEC-053 added one Corrupt;
+    // DEC-051's bucket sizes: 17 / 24 / 31 (DEC-053 added one Corrupt;
     // DEC-056 one Unsupported and two Corrupt; DEC-057 one of each; DEC-058
     // one Unsupported; DEC-059 and DEC-060 one CallerError each; DEC-061 one
     // Corrupt; DEC-063 one CallerError; DEC-069 one CallerError and one
-    // Corrupt).
+    // Corrupt; the 2026-11 review fixes three Unsupported and one
+    // CallerError).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
-    assert_eq!(count(ErrorKind::CallerError), 16);
-    assert_eq!(count(ErrorKind::Unsupported), 21);
+    assert_eq!(count(ErrorKind::CallerError), 17);
+    assert_eq!(count(ErrorKind::Unsupported), 24);
     assert_eq!(count(ErrorKind::Corrupt), 31);
 }
 

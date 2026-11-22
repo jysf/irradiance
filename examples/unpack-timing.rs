@@ -8,8 +8,8 @@
 //! `corpus-status`) and times:
 //!
 //! - `unpack_into` on one thread;
-//! - 8 bands of 704 rows, from `plane::units`, each decoded by
-//!   `unpack_unit_into` on its own `std::thread::scope` thread into a
+//! - 8 bands of 704 rows, from `plane::units`, each decoded by one shared
+//!   `PlaneDecoder` on its own `std::thread::scope` thread into a
 //!   `chunks_mut` band of one plane. The assembled plane is asserted
 //!   byte-identical to the single-thread plane.
 //!
@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use corpus::{CorpusRoot, Manifest};
 use irradiance::ifd::{ByteOrder, Container, Sensor};
-use irradiance::plane::{units, unpack_into, unpack_unit_into, Unit};
+use irradiance::plane::{units, unpack_into, PlaneDecoder, Unit};
 
 const FILE: &str = "LEICA-Q2-MONO/L1021223.DNG";
 const RUNS: usize = 7;
@@ -76,10 +76,15 @@ fn unpack_threaded(
     plane: &mut [u16],
 ) {
     let band_len = (BAND_ROWS as usize) * (sensor.width as usize);
+    // Check the layout once and share the decoder; `unpack_unit_into` would
+    // re-walk the whole strip table on every thread.
+    let decoder = PlaneDecoder::new(sensor, order, file)
+        .unwrap_or_else(|e| panic!("{FILE}: plane layout: {e}"));
     std::thread::scope(|scope| {
         for (unit, band) in units.iter().zip(plane.chunks_mut(band_len)) {
             scope.spawn(move || {
-                unpack_unit_into(sensor, order, file, unit, band)
+                decoder
+                    .unpack_unit_into(unit, band)
                     .unwrap_or_else(|e| panic!("{FILE}: unit at row {}: {e}", unit.row_start));
             });
         }

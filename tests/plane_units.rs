@@ -33,7 +33,7 @@ use std::num::NonZeroU32;
 use corpus::{CorpusRoot, Manifest};
 use dng_writer::{write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload, RawTag};
 use irradiance::ifd::{ByteOrder, Container, Sensor, TAG_ROWS_PER_STRIP};
-use irradiance::plane::{units, unpack_into, unpack_unit_into, Unit};
+use irradiance::plane::{units, unpack_into, unpack_unit_into, PlaneDecoder, Unit};
 use irradiance::{Error, ErrorKind};
 use tiff::Order;
 
@@ -882,6 +882,80 @@ fn units_refuse_what_unpack_into_refuses() {
         "the sweep must exercise both refusals ({structural}) and accepted layouts ({oks}); \
          decode-time {decode_time}"
     );
+}
+
+/// `PlaneDecoder` is the free functions with the layout check hoisted: on
+/// every tier-A layout and every refusal fixture, its constructor refuses
+/// exactly as `units` does, its units are `units`'s, and each unit decodes
+/// to the same bytes and the same error as `unpack_unit_into`.
+#[test]
+fn plane_decoder_equals_the_free_functions() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<PlaneDecoder<'static>>();
+
+    let files: Vec<(String, Vec<u8>)> = ac2_layouts()
+        .into_iter()
+        .map(|f| (f.label, f.file))
+        .chain(refusal_sweep())
+        .collect();
+    let (mut built, mut refused) = (0, 0);
+    for (label, file) in files {
+        let (sensor, order) = sensor_of(&file);
+        for rows in BANDS_A {
+            let free = units(&sensor, &file, band(rows));
+            let decoder = PlaneDecoder::new(&sensor, order, &file);
+            let (free, decoder) = match (free, decoder) {
+                (Ok(f), Ok(d)) => (f, d),
+                (Err(a), Err(b)) => {
+                    assert_eq!(format!("{a:?}"), format!("{b:?}"), "{label}");
+                    refused += 1;
+                    continue;
+                }
+                (a, b) => panic!("{label}: units {a:?} but PlaneDecoder::new {b:?}"),
+            };
+            let free: Vec<Unit> = free.collect();
+            let mine: Vec<Unit> = decoder.units(band(rows)).collect();
+            assert_eq!(free, mine, "{label} band {rows}");
+            for u in &mine {
+                let k = u.samples(sensor.width).unwrap();
+                let mut a = vec![0x1234u16; k];
+                let mut b = vec![0x1234u16; k];
+                let ra = unpack_unit_into(&sensor, order, &file, u, &mut a);
+                let rb = decoder.unpack_unit_into(u, &mut b);
+                assert_eq!(format!("{ra:?}"), format!("{rb:?}"), "{label} {u:?}");
+                assert!(a == b, "{label} {u:?}: bytes differ");
+                // A wrong-length band is refused the same way.
+                let mut short = vec![0u16; k.saturating_sub(1)];
+                if k > 0 {
+                    let ea = unpack_unit_into(&sensor, order, &file, u, &mut short);
+                    let eb = decoder.unpack_unit_into(u, &mut short);
+                    assert_eq!(format!("{ea:?}"), format!("{eb:?}"), "{label}");
+                }
+            }
+            built += 1;
+        }
+    }
+    assert!(
+        built > 20 && refused > 20,
+        "built {built}, refused {refused}"
+    );
+}
+
+/// A decoder refuses a unit of another plane, as `unpack_unit_into` does.
+#[test]
+fn plane_decoder_refuses_a_foreign_unit() {
+    let tall = uncompressed(Order::Little, (8, 13), 16, None).0.build();
+    let short = uncompressed(Order::Little, (8, 6), 16, None).0.build();
+    let (s_tall, _) = sensor_of(&tall);
+    let (s_short, order) = sensor_of(&short);
+    let foreign = *collect_units("tall", &s_tall, &tall, 2).last().unwrap();
+    let decoder = PlaneDecoder::new(&s_short, order, &short).expect("valid plane");
+    let mut dst = vec![0x7E7Eu16; foreign.samples(8).unwrap()];
+    let e = decoder
+        .unpack_unit_into(&foreign, &mut dst)
+        .expect_err("foreign unit");
+    assert!(matches!(e, Error::PlaneUnitMismatch { .. }), "{e:?}");
+    assert!(dst.iter().all(|&s| s == 0x7E7E), "dst written on refusal");
 }
 
 /// A unit of `from` that is not a unit of `onto`, decoded into a sentinel band

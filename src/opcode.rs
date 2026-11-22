@@ -160,9 +160,11 @@ pub enum Opcode {
         bayer_phase: u32,
     },
     /// An opcode ID this module does not parse into its own variant —
-    /// genuinely unknown. Only ever produced when `flags` bit 0 (optional)
-    /// is set; an unset bit on an unrecognized ID is
-    /// [`Error::UnsupportedMandatoryOpcode`] instead of a value.
+    /// genuinely unknown, or a known ID declaring a DNG version newer than
+    /// this reader supports (its parameters are then not interpreted). Only
+    /// ever produced when `flags` bit 0 (optional) is set; an unset bit is
+    /// [`Error::UnsupportedMandatoryOpcode`] (or, for a too-new version,
+    /// [`Error::UnsupportedOpcodeVersion`]) instead of a value.
     Unknown {
         /// The opcode ID.
         id: u32,
@@ -350,7 +352,9 @@ const FLAG_OPTIONAL: u32 = 1;
 /// (`4 + 48*N + 16`) before reading a single coefficient — a mismatch is
 /// [`Error::MalformedOpcodeParams`], not a best-effort guess. `cx_hat`/
 /// `cy_hat` sit after every one of the `N` coefficient sets; only `K1`
-/// (the first 48 bytes after `N`) is extracted, per the module docs.
+/// (the first 48 bytes after `N`) is extracted, per the module docs. A
+/// non-finite `K1` coefficient or optical centre is also
+/// [`Error::MalformedOpcodeParams`].
 fn parse_warp_rectilinear_params(params: &[u8], id: u32) -> Result<WarpRect, Error> {
     let malformed = |declared_size: usize| Error::MalformedOpcodeParams {
         id,
@@ -387,6 +391,17 @@ fn parse_warp_rectilinear_params(params: &[u8], id: u32) -> Result<WarpRect, Err
         .checked_add(8)
         .ok_or_else(|| malformed(params.len()))?;
     let cy = read_f64_be(params, cy_offset).map_err(|_| malformed(params.len()))?;
+
+    // A NaN or infinite coefficient or optical centre has no geometric
+    // meaning: applied, it turns every source coordinate into NaN and the
+    // sampler silently writes black. Refuse it here, once, so no develop path
+    // (default crop or full active area) ever sees one.
+    let all_finite = [kr0, kr1, kr2, kr3, kt0, kt1, cx, cy]
+        .iter()
+        .all(|v| v.is_finite());
+    if !all_finite {
+        return Err(malformed(params.len()));
+    }
 
     Ok(WarpRect {
         kr: [kr0, kr1, kr2, kr3],
@@ -606,10 +621,14 @@ impl<'a> GainMaps<'a> {
         let mut pos: usize = 4;
         let mut found: u32 = 0;
         for _ in 0..count {
-            let RawOpcode { id, params, .. } = read_raw_opcode(list, &mut pos)?;
-            if id != OPCODE_ID_GAIN_MAP {
+            let raw = read_raw_opcode(list, &mut pos)?;
+            // A GainMap declaring a newer DNG version is not one this reader
+            // understands: `check_required_processing` refuses it when
+            // mandatory, and an optional one is skipped like any unknown.
+            if raw.known_id() != Some(OPCODE_ID_GAIN_MAP) {
                 continue;
             }
+            let (id, params) = (raw.id, raw.params);
             let view = parse_gain_map_params(params, id)?;
             if let Some(slot) = maps.maps.get_mut(maps.count) {
                 *slot = Some(prepare(view, width, height));
@@ -729,11 +748,49 @@ fn grid_axis(f: f64, points: u32) -> (u32, u32, f64) {
     (i, i.saturating_add(1).min(last), f - floor)
 }
 
+/// The newest DNG specification version whose opcodes this reader
+/// understands: 1.7.1.0, as the opcode header's `DNGSpecVersion` bytes
+/// `1, 7, 1, 0` read big-endian.
+///
+/// DNG 1.7.0.0 p.105: a reader must not process an opcode whose declared
+/// version is newer than it supports. Such an opcode is treated exactly like
+/// an unrecognized ID — skipped when optional, refused when mandatory
+/// ([`Error::UnsupportedOpcodeVersion`]) — whatever its `OpcodeID`.
+const MAX_SUPPORTED_OPCODE_VERSION: u32 = 0x0107_0100;
+
 /// One opcode's framing, its parameter block sliced but not interpreted.
 struct RawOpcode<'a> {
     id: u32,
+    version: u32,
     flags: u32,
     params: &'a [u8],
+}
+
+impl RawOpcode<'_> {
+    /// `id`, unless the opcode declares a DNG version newer than
+    /// [`MAX_SUPPORTED_OPCODE_VERSION`]: then `None`, so every dispatcher
+    /// treats it as unrecognized and never interprets its parameters.
+    fn known_id(&self) -> Option<u32> {
+        (self.version <= MAX_SUPPORTED_OPCODE_VERSION).then_some(self.id)
+    }
+
+    /// The refusal for this opcode when it is mandatory and not applied
+    /// because this reader does not understand it.
+    fn unsupported(&self) -> Error {
+        if self.version > MAX_SUPPORTED_OPCODE_VERSION {
+            Error::UnsupportedOpcodeVersion {
+                id: self.id,
+                version: self.version,
+            }
+        } else {
+            Error::UnsupportedMandatoryOpcode { id: self.id }
+        }
+    }
+
+    /// Whether `Flags` bit 0 (optional) is set.
+    fn optional(&self) -> bool {
+        self.flags & FLAG_OPTIONAL != 0
+    }
 }
 
 /// Read the opcode framing (`id, version, flags, size, params`) at `*pos` and
@@ -750,7 +807,7 @@ fn read_raw_opcode<'a>(bytes: &'a [u8], pos: &mut usize) -> Result<RawOpcode<'a>
     let mut at = *pos;
     let id = read_u32_be(bytes, at)?;
     at = at.checked_add(4).ok_or(Error::Truncated { at, len: 4 })?;
-    let _version = read_u32_be(bytes, at)?;
+    let version = read_u32_be(bytes, at)?;
     at = at.checked_add(4).ok_or(Error::Truncated { at, len: 4 })?;
     let flags = read_u32_be(bytes, at)?;
     at = at.checked_add(4).ok_or(Error::Truncated { at, len: 4 })?;
@@ -770,7 +827,12 @@ fn read_raw_opcode<'a>(bytes: &'a [u8], pos: &mut usize) -> Result<RawOpcode<'a>
         len: size_usize,
     })?;
     *pos = params_end;
-    Ok(RawOpcode { id, flags, params })
+    Ok(RawOpcode {
+        id,
+        version,
+        flags,
+        params,
+    })
 }
 
 /// Parse a complete `OpcodeList` byte stream (DNG 1.7.0.0 Chapter 7).
@@ -789,16 +851,22 @@ fn read_raw_opcode<'a>(bytes: &'a [u8], pos: &mut usize) -> Result<RawOpcode<'a>
 ///   parameter layout does not match its declared `DataSize`.
 /// - [`Error::UnsupportedMandatoryOpcode`] if an opcode ID this module does
 ///   not recognize has `Flags` bit 0 (optional) unset.
+/// - [`Error::UnsupportedOpcodeVersion`] if a mandatory opcode declares a DNG
+///   version newer than this reader supports (DNG 1.7.0.0 p.105), whatever
+///   its ID; an optional one is kept as [`Opcode::Unknown`].
 pub fn parse_opcode_list(bytes: &[u8]) -> Result<Vec<Opcode>, Error> {
     let count = read_u32_be(bytes, 0)?;
     let mut pos: usize = 4;
 
     let mut opcodes = Vec::new();
     for _ in 0..count {
-        let RawOpcode { id, flags, params } = read_raw_opcode(bytes, &mut pos)?;
+        let raw = read_raw_opcode(bytes, &mut pos)?;
+        let RawOpcode {
+            id, flags, params, ..
+        } = raw;
 
-        match id {
-            OPCODE_ID_WARP_RECTILINEAR => {
+        match raw.known_id() {
+            Some(OPCODE_ID_WARP_RECTILINEAR) => {
                 let warp = parse_warp_rectilinear_params(params, id)?;
                 opcodes.push(Opcode::WarpRectilinear {
                     kr: warp.kr,
@@ -808,14 +876,14 @@ pub fn parse_opcode_list(bytes: &[u8]) -> Result<Vec<Opcode>, Error> {
                     planes: warp.planes,
                 });
             }
-            OPCODE_ID_FIX_BAD_PIXELS_CONSTANT => {
+            Some(OPCODE_ID_FIX_BAD_PIXELS_CONSTANT) => {
                 let (constant, bayer_phase) = parse_fix_bad_pixels_constant_params(params, id)?;
                 opcodes.push(Opcode::FixBadPixelsConstant {
                     constant,
                     bayer_phase,
                 });
             }
-            OPCODE_ID_GAIN_MAP => {
+            Some(OPCODE_ID_GAIN_MAP) => {
                 let view = parse_gain_map_params(params, id)?;
                 let grid = params.get(GAIN_MAP_HEADER_LEN..).unwrap_or(&[]);
                 let (chunks, _rest) = grid.as_chunks::<4>();
@@ -838,15 +906,15 @@ pub fn parse_opcode_list(bytes: &[u8]) -> Result<Vec<Opcode>, Error> {
                     gains: chunks.iter().map(|b| f32::from_be_bytes(*b)).collect(),
                 });
             }
-            other => {
-                if flags & FLAG_OPTIONAL != 0 {
+            _ => {
+                if raw.optional() {
                     opcodes.push(Opcode::Unknown {
-                        id: other,
+                        id,
                         flags,
                         params: params.to_vec(),
                     });
                 } else {
-                    return Err(Error::UnsupportedMandatoryOpcode { id: other });
+                    return Err(raw.unsupported());
                 }
             }
         }
@@ -888,25 +956,26 @@ fn first_recognised<T>(
 
     let mut found = None;
     for _ in 0..count {
-        let RawOpcode { id, flags, params } = read_raw_opcode(bytes, &mut pos)?;
-        let recognised = match id {
-            OPCODE_ID_WARP_RECTILINEAR => {
+        let raw = read_raw_opcode(bytes, &mut pos)?;
+        let RawOpcode { id, params, .. } = raw;
+        let recognised = match raw.known_id() {
+            Some(OPCODE_ID_WARP_RECTILINEAR) => {
                 Recognised::WarpRectilinear(parse_warp_rectilinear_params(params, id)?)
             }
-            OPCODE_ID_FIX_BAD_PIXELS_CONSTANT => {
+            Some(OPCODE_ID_FIX_BAD_PIXELS_CONSTANT) => {
                 let (constant, _bayer_phase) = parse_fix_bad_pixels_constant_params(params, id)?;
                 Recognised::FixBadPixelsConstant { constant }
             }
-            OPCODE_ID_GAIN_MAP => {
+            Some(OPCODE_ID_GAIN_MAP) => {
                 // Validated like every recognised opcode; no lookup returns it.
                 parse_gain_map_params(params, id)?;
                 Recognised::GainMap
             }
-            other => {
-                if flags & FLAG_OPTIONAL != 0 {
+            _ => {
+                if raw.optional() {
                     continue;
                 }
-                return Err(Error::UnsupportedMandatoryOpcode { id: other });
+                return Err(raw.unsupported());
             }
         };
         if found.is_none() {
@@ -1093,7 +1162,10 @@ pub fn check_required_processing(sensor: &Sensor, path: DevelopPath) -> Result<(
 ///   `GainMap`) →
 ///   [`Error::UnsupportedRequiredOpcode`] `{ list: n, id }`;
 /// - an unrecognized ID → [`Error::UnsupportedMandatoryOpcode`] `{ id }`, the
-///   same error [`parse_opcode_list`] has always given for it.
+///   same error [`parse_opcode_list`] has always given for it;
+/// - any ID declaring a DNG version newer than this reader supports →
+///   [`Error::UnsupportedOpcodeVersion`] `{ id, version }`. Such an opcode is
+///   never the applied instance: the appliers skip it like an unknown ID.
 ///
 /// A list flagged unreadable refuses with [`Error::UnreadableOpcodeList`]
 /// before its own scan, so with several defects the lowest list's is reported.
@@ -1127,7 +1199,17 @@ fn check_list(bytes: &[u8], list: u8, applied: Applied) -> Result<(), Error> {
     let mut applied_seen = false;
 
     for _ in 0..count {
-        let RawOpcode { id, flags, .. } = read_raw_opcode(bytes, &mut pos)?;
+        let raw = read_raw_opcode(bytes, &mut pos)?;
+
+        // An opcode declaring a newer DNG version is not one the appliers
+        // read (they skip it like an unknown ID), so it is never the applied
+        // instance and never shadows a later same-ID instance that is.
+        let Some(id) = raw.known_id() else {
+            if raw.optional() {
+                continue;
+            }
+            return Err(raw.unsupported());
+        };
 
         let is_applied = match applied {
             Applied::Nothing => false,
@@ -1143,7 +1225,7 @@ fn check_list(bytes: &[u8], list: u8, applied: Applied) -> Result<(), Error> {
             Applied::Every(applied_id) => applied_id == id,
         };
 
-        if is_applied || flags & FLAG_OPTIONAL != 0 {
+        if is_applied || raw.optional() {
             continue;
         }
         return Err(match id {
@@ -1306,6 +1388,42 @@ mod tests {
     }
 
     #[test]
+    fn non_finite_warp_coefficient_or_centre_is_malformed() {
+        let good_kr = [1.0, 0.0, 0.0, 0.0];
+        let cases: [([f64; 4], [f64; 2], f64, f64); 5] = [
+            ([f64::NAN, 0.0, 0.0, 0.0], [0.0, 0.0], 0.5, 0.5),
+            ([1.0, 0.0, f64::INFINITY, 0.0], [0.0, 0.0], 0.5, 0.5),
+            (good_kr, [f64::NAN, 0.0], 0.5, 0.5),
+            (good_kr, [0.0, 0.0], f64::NAN, 0.5),
+            (good_kr, [0.0, 0.0], 0.5, f64::NEG_INFINITY),
+        ];
+        for (kr, kt, cx, cy) in cases {
+            let params = warp_rectilinear_params(kr, kt, cx, cy);
+            let bytes = opcode_list(&[raw_opcode(
+                OPCODE_ID_WARP_RECTILINEAR,
+                0x0103_0000,
+                0,
+                &params,
+            )]);
+            for err in [
+                parse_warp_rectilinear(&bytes).expect_err("non-finite warp"),
+                parse_opcode_list(&bytes).expect_err("non-finite warp"),
+            ] {
+                assert!(
+                    matches!(
+                        err,
+                        Error::MalformedOpcodeParams {
+                            id: OPCODE_ID_WARP_RECTILINEAR,
+                            ..
+                        }
+                    ),
+                    "kr={kr:?} kt={kt:?} cx={cx} cy={cy}: {err:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn no_warp_rectilinear_opcode_is_none_not_an_error() {
         let bytes = opcode_list(&[raw_opcode(999, 0x0104_0000, 1, &[])]);
         assert_eq!(parse_warp_rectilinear(&bytes).expect("parses"), None);
@@ -1459,6 +1577,102 @@ mod tests {
 
     fn required(list: u8, id: u32) -> String {
         format!("{:?}", Error::UnsupportedRequiredOpcode { list, id })
+    }
+
+    /// A `FixBadPixelsConstant` declaring DNG 2.0.0.0, newer than any
+    /// version this reader supports.
+    fn fbpc_v2(flags: u32) -> Vec<u8> {
+        raw_opcode(
+            OPCODE_ID_FIX_BAD_PIXELS_CONSTANT,
+            0x0200_0000,
+            flags,
+            &[0; 8],
+        )
+    }
+
+    fn too_new(id: u32, version: u32) -> String {
+        format!("{:?}", Error::UnsupportedOpcodeVersion { id, version })
+    }
+
+    #[test]
+    fn a_mandatory_opcode_newer_than_supported_is_refused_everywhere() {
+        let bytes = opcode_list(&[fbpc_v2(MANDATORY)]);
+        let want = too_new(OPCODE_ID_FIX_BAD_PIXELS_CONSTANT, 0x0200_0000);
+        // The required-processing check, on every path and in every list
+        // (it is recognized by ID, but not at this version).
+        for path in [DevelopPath::Mono, DevelopPath::Colour] {
+            for list in 1..=3 {
+                let err = check_one(&bytes, list, path).expect_err("too-new mandatory");
+                assert_eq!(format!("{err:?}"), want, "{path:?} list {list}");
+            }
+        }
+        // ...and every parser.
+        assert_eq!(
+            format!("{:?}", parse_opcode_list(&bytes).unwrap_err()),
+            want
+        );
+        assert_eq!(
+            format!("{:?}", parse_fix_bad_pixels_constant(&bytes).unwrap_err()),
+            want
+        );
+        assert_eq!(
+            format!("{:?}", parse_warp_rectilinear(&bytes).unwrap_err()),
+            want
+        );
+    }
+
+    #[test]
+    fn an_optional_opcode_newer_than_supported_is_skipped_not_applied() {
+        // Garbage params: a too-new opcode's parameters are never interpreted.
+        let v2_optional = raw_opcode(OPCODE_ID_FIX_BAD_PIXELS_CONSTANT, 0x0200_0000, 1, &[1, 2]);
+        let bytes = opcode_list(std::slice::from_ref(&v2_optional));
+        assert_eq!(
+            parse_opcode_list(&bytes).expect("skippable"),
+            vec![Opcode::Unknown {
+                id: OPCODE_ID_FIX_BAD_PIXELS_CONSTANT,
+                flags: 1,
+                params: vec![1, 2],
+            }]
+        );
+        assert_eq!(
+            parse_fix_bad_pixels_constant(&bytes).expect("skippable"),
+            None
+        );
+        for path in [DevelopPath::Mono, DevelopPath::Colour] {
+            assert!(check_one(&bytes, 1, path).is_ok(), "{path:?}");
+        }
+
+        // It does not take the applied slot: a later supported mandatory
+        // FixBadPixelsConstant is the first instance the applier sees, and
+        // the check agrees it is applied.
+        let then_v13 = opcode_list(&[v2_optional, fbpc(MANDATORY)]);
+        assert_eq!(
+            parse_fix_bad_pixels_constant(&then_v13).expect("parses"),
+            Some(0)
+        );
+        assert!(check_one(&then_v13, 1, DevelopPath::Mono).is_ok());
+    }
+
+    #[test]
+    fn the_newest_supported_version_is_still_applied() {
+        let v171 = opcode_list(&[raw_opcode(
+            OPCODE_ID_FIX_BAD_PIXELS_CONSTANT,
+            MAX_SUPPORTED_OPCODE_VERSION,
+            MANDATORY,
+            &[0; 8],
+        )]);
+        assert_eq!(
+            parse_fix_bad_pixels_constant(&v171).expect("parses"),
+            Some(0)
+        );
+        assert!(check_one(&v171, 1, DevelopPath::Mono).is_ok());
+        let v172 = opcode_list(&[raw_opcode(
+            OPCODE_ID_FIX_BAD_PIXELS_CONSTANT,
+            MAX_SUPPORTED_OPCODE_VERSION + 0x100,
+            MANDATORY,
+            &[0; 8],
+        )]);
+        assert!(check_one(&v172, 1, DevelopPath::Mono).is_err());
     }
 
     #[test]
