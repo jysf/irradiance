@@ -10,6 +10,19 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **`Sensor` reads the tags that change what the samples mean, and the DNG version
+  pair** (SPEC-086, STAGE-027, PROJ-002, DEC-077): `dng_version` and
+  `dng_backward_version` (IFD0, four bytes), `sample_format`, `linearization_table`,
+  `black_level_delta_h`, `black_level_delta_v`, `sub_tile_block_size`,
+  `row_interleave_factor` and `column_interleave_factor` (the sensor IFD), each under
+  DEC-012's contract, with public tag constants `TAG_SAMPLE_FORMAT`, `TAG_DNG_VERSION`,
+  `TAG_DNG_BACKWARD_VERSION`, `TAG_LINEARIZATION_TABLE`, `TAG_BLACK_LEVEL_DELTA_H`,
+  `TAG_BLACK_LEVEL_DELTA_V`, `TAG_SUB_TILE_BLOCK_SIZE`, `TAG_ROW_INTERLEAVE_FACTOR` and
+  `TAG_COLUMN_INTERLEAVE_FACTOR`. Additive: `Sensor` is `#[non_exhaustive]`.
+- **Three `Error` variants** (SPEC-086, DEC-077 §4), appended: `UnsupportedDngVersion`
+  and `UnsupportedTag` (`ErrorKind::Unsupported`) and `LjpegPrecisionMismatch`
+  (`ErrorKind::Corrupt`). The enum goes from 72 to 75 variants.
+
 - **`Sensor` reads the camera calibration tags** (SPEC-085, STAGE-027, PROJ-002, DEC-076):
   `camera_calibration_1`, `camera_calibration_2` and `analog_balance` (rationals, verbatim)
   and `camera_calibration_signature` / `profile_calibration_signature` (the bytes as
@@ -20,6 +33,21 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **Every develop entry refuses tags it cannot honour, and a newer DNG backward version**
+  (SPEC-086, DEC-077 §2). Through `opcode::check_required_processing`, before anything
+  is written: an effective DNG backward version above 1.7.1.0 (`DNGBackwardVersion`, else
+  `DNGVersion` with its last two bytes zeroed) is `Error::UnsupportedDngVersion`; a
+  `SampleFormat` other than 1, any `LinearizationTable`, a non-zero
+  `BlackLevelDeltaH/V`, a `SubTileBlockSize` other than `[1, 1]`, an interleave factor
+  other than 1, or any of these tags malformed, is `Error::UnsupportedTag` naming the
+  lowest such tag. Such a file used to develop with `Ok` and wrong pixels. Metadata and
+  plane reads still succeed. No held file carries a refused value, so no output changes
+  and `DEVELOP_VERSION` stays `"8"`.
+- **A Compression 7 frame whose precision differs from `BitsPerSample` is refused at
+  decode** (SPEC-086, DEC-077 §3): `Error::LjpegPrecisionMismatch` on `unpack_into`,
+  `unpack_unit_into`, `PlaneDecoder::unpack_unit_into` and the tile path, after the shape
+  check. A P = 16 frame tagged 12-bit used to decode with `Ok` and then clip at 4095 in
+  the develop. Every held Compression 7 file has equal values.
 - **The colour develop applies `AnalogBalance` and `CameraCalibration1/2`, and runs the
   illuminant weight to convergence** (SPEC-085, DEC-076). On all four colour entries and
   `to_srgb_linear_into`: `AnalogBalance` always, and the calibrations when the camera and

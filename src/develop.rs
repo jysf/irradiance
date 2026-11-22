@@ -2001,6 +2001,15 @@ mod tests {
             black_levels: vec![],
             black_levels_exact: vec![],
             white_levels: vec![],
+            dng_version: None,
+            dng_backward_version: None,
+            sample_format: None,
+            linearization_table: None,
+            black_level_delta_h: None,
+            black_level_delta_v: None,
+            sub_tile_block_size: None,
+            row_interleave_factor: None,
+            column_interleave_factor: None,
             malformed_tags: vec![],
         }
     }
