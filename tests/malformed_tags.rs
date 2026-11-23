@@ -653,8 +653,33 @@ fn ac3_order_dec077_then_malformed_then_opcode_lists() {
         d.extra_tags.push(unreadable_opcode_list(OPCODE_LIST_2));
         d.extra_tags.push(malformed(WHITE_LEVEL));
     };
+    // The sets interleave on the colour path: the levels set walks first, but
+    // CFALayout (50711) sorts below BlackLevel (50714). Lowest wins, so a
+    // walk-order check (the first malformed tag of the first set) is red here.
+    let interleaved = |d: &mut DngDescription| {
+        d.extra_tags.push(malformed(BLACK_LEVEL));
+        d.extra_tags.push(malformed(CFA_LAYOUT));
+    };
     for entry in ENTRIES {
         let reads_levels = path_sets(entry.path()).contains(&Set::Levels);
+
+        let (r, written) = run(entry, &fixture_for(entry, &interleaved));
+        let context = format!("interleaved sets on {entry:?}");
+        match entry.path() {
+            DevelopPath::Colour | DevelopPath::Demosaic => {
+                assert_malformed(&r, CFA_LAYOUT, &context);
+                assert!(written.untouched(), "{context}");
+            }
+            // The mono fixture has no CFA, so only BlackLevel is read.
+            DevelopPath::Mono => {
+                assert_malformed(&r, BLACK_LEVEL, &context);
+                assert!(written.untouched(), "{context}");
+            }
+            _ => assert!(
+                !matches!(r, Err(Error::MalformedTag { .. })),
+                "{context}: {r:?}"
+            ),
+        }
 
         let (r, written) = run(entry, &fixture_for(entry, &two_malformed));
         if reads_levels {

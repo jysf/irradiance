@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-22
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-087
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
+  verdict: punch-list              # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 7184428           # REAL combined count — what cost-audit reads
+  estimated_usd: 5.67              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 10
+  branch: claude/spec-087-verify-base
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  completed_at: 2026-11-22         # YYYY-MM-DD
+  notes: "Floor, re-summed live from transcript 9084a071 before the commit. 1 verify round: PUNCH LIST, P1 tests-only and done on this branch (interleaved-set AC3 case; the walk-order mutant was green at c8211c5). Build transcript cdca0400 re-sums to 11,571,180."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -201,43 +201,194 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-087-verify-base` (no PR, as asked). Reviewed PR 312's head `c8211c5`.
+- **Completed at:** 2026-11-22
+- **All acceptance criteria met?** Yes for AC1 to AC9 as written, but the ordering
+  deviation that handoff item 4 asks about was untested. A walk-order mutant stayed green.
+  The fix is tests-only (P1 below), and it is done on this branch.
+- **For `verify`:** ⚠ **PUNCH LIST**. There is one item (P1). It touches tests only and is
+  done here. Nothing in `src/` needs to change. Once P1 is cherry-picked onto
+  `feat/spec-087-malformed-tags`, round 2 can approve at that SHA.
+
+**Punch list**
+
+- **P1 (tests, done on this branch):** no test separated "lowest tag across the path's
+  sets" from "first tag in walk order". A mutant that returns the first malformed tag in
+  walk order (`find` instead of `min`) left all 9 `malformed_tags` tests green. AC3 now
+  has an interleaved case, a malformed `BlackLevel` (50714) with a malformed `CFALayout`
+  (50711). It expects 50711 on the four colour develops and both demosaic entries, 50714
+  on the three mono entries (their fixture has no CFA), and no `MalformedTag` on the
+  transform. The walk-order mutant now goes red on
+  `ac3_order_dec077_then_malformed_then_opcode_lists`. Cherry-pick this branch's
+  `tests/malformed_tags.rs` change onto the feat branch. The handoff's suggested
+  Orientation-against-CFA pair would not have separated the two orders, because 274 is
+  first either way.
+
+**Rulings**
+
+- **Ordering deviation (item 4): accepted.** DEC-078 §3 says the path's check runs "in
+  ascending tag order", and SPEC-087 Design 2 says it "returns the first tag" of that
+  walk. On `Colour` the path's tags are the union of three sets whose numbers interleave.
+  The only reading under which the reported tag does not depend on how the sets are
+  listed is the lowest tag of the union, which is the `min()` the build chose. It was
+  untested, which is why P1 exists.
+- **Fixture deviations (item 6): all four accepted.**
+  - The four-value `BlackLevelRepeatDim` row is needed so the tag counts at all. Its
+    behaves-as-absent comparator has the same four values and no repeat dimension, so
+    the comparison is fair.
+  - `ForwardMatrix1` absent means really absent: the CFA base's matrix is removed in
+    both fixtures.
+  - `CFAPlaneColor`'s comparator `[0, 1, 2]` is the DNG default, so it is
+    semantically the absent tag. The writer cannot omit the tag.
+  - The two signatures are written as `SHORT` because `ASCII` (and `BYTE`) are their
+    valid types.
+
+  Every malformed fixture lands in `malformed_tags`. AC1, AC5 and AC6 assert this on
+  every row, and the tests pass.
+- **AC2 options deviation: accepted.** Only `develop_with_into` and
+  `develop_with_scratch_into` take `DevelopOptions`. The other levels entries run once,
+  under the default.
+- **`unhonoured_tag_name` renamed to `tag_name`: accepted.** It stays private (`fn`, no
+  `pub`).
+
+**Evidence by handoff item**
+
+1. **Sets against the reads.** The costed tags in `sensor()` (src/ifd.rs) are these: the
+   levels set (7 tags), the four CFA tags, the 11 colour tags, `AsShotNeutral`, the three
+   opcode lists, `MaskedAreas`, the version pair, and DEC-077's set. Each one is in a
+   DEC-078 set or refused another way. Each path reads only its own set:
+   - Mono (`develop.rs`) reads only the levels and geometry fields, plus the opcode lists
+     and dimensions.
+   - `demosaic.rs` reads only `color_filter` (pattern, repeat dimension, layout, plane
+     colour) and dimensions.
+   - `to_srgb_linear_into` reads `as_shot_neutral`, the colour tags and dimensions. It
+     reads no level, geometry or orientation tag.
+   - The colour develop reads `white_levels`, which is not costed, but only after
+     `check_colour_required_processing`, and a malformed `WhiteLevel` is already in
+     `malformed_tags` through `white_level`.
+
+   No develop reads `MaskedAreas`; outside `ifd.rs` it appears only in struct literals.
+2. **The path split.** The two demosaic entries pass `Demosaic`, and `to_srgb_linear_into`
+   passes `ColourTransform`. The four colour develops keep `Colour` through
+   `check_colour_required_processing`. `applied()` matches only `Mono` explicitly, so both
+   new variants get `Colour`'s opcode arms. The held `tests/required_processing.rs`
+   already shows all three primitives refusing a mandatory list-1 opcode as
+   `UnsupportedRequiredOpcode { list: 1, id: 4 }`, the same as the colour develops.
+   `semver-check` reports 202 checks passed and "no semver update required". The change
+   is additive (`#[non_exhaustive]`).
+3. **The exception.** In code, "one value" is `sensor.black_levels.len() > 1`, the parsed
+   value count, not the scalar. I ran a probe on all 7 levels entries, under both
+   options where an entry takes them:
+   - A malformed `BlackLevel` with a malformed repeat dimension refuses 50714. The count
+     is then 0, so the repeat dimension is exempt, and `BlackLevel` refuses on its own.
+   - A malformed repeat dimension with `BlackLevel` absent develops.
+
+   The K-3 III develops on every held pin: `just test` is green, and mutants (d) and (j)
+   turn `black_levels::one_by_one_files_are_identical_under_both_modes` red on that file.
+4. **Order.** DEC-077 runs first, then the malformed check, then the opcode lists. This is
+   pinned by AC3 and by mutant (g). For the deviation ruling, see above and P1.
+5. **50706.** It refuses on all 10 entries with no backward version. It develops on all
+   10 when the backward version 1.4.0.0 is present. Its `Display` names `DNGVersion` and
+   50706 and says "reader version is unknown". Mutants (h) and (n) are both red.
+6. **AC1 cross product.** The test generates it from `TAG_SETS`. The outside-the-set rows
+   compare real `dst` bytes, as `f32` bits for the f32 entries, or the `Debug` of the
+   error.
+
+   "A tag added to a set without a row fails" holds in effect, not by construction.
+   `TAG_SETS` is the test's own list, so adding a tag to a set in `src/` is caught by
+   that tag's own test: AC5 covers `CFAPattern`, `CFARepeatPatternDim`, `AsShotNeutral`,
+   the opcode lists and `MaskedAreas`, and AC4 covers `DNGVersion`. Removing a tag from a
+   set is caught by the cross product: mutants (f) and (m) are red.
+7. **AC5 against `origin/main`.** I extracted `ac5_already_refused_tags_keep_their_errors`
+   and ran it against `origin/main`'s `src/`. It passes there, so the errors are
+   identical.
+8. **AC6.** The direct `check_required_processing` call agrees with each entry. Mutants
+   (a), (b), (c), (e), (f), (k), (l) and (m) all turn `ac6_reads_and_the_composer_check_agree`
+   red as well.
+9. **AC7.**
+   - `IRRADIANCE_CORPUS_DIR=… just test`: 845 passed, 0 failed, 1 ignored. The corpus is
+     12/12 present. The two SDK cross-checks skip, as they always have.
+   - `git diff origin/main -- tests/` touches only `tests/malformed_tags.rs` (new) and
+     `tests/error_kind.rs`, so no Tier-B pin moved.
+   - `DEVELOP_VERSION` is `"8"`, and nothing in `src/` changes it.
+   - `irr ifd` on all 11 held DNGs: `malformed_tags` is `[]` on every file except
+     `PENTAX-K3III-MONO/K3III.DNG`, which has `[50713]`.
+10. **Errors.**
+    - `MalformedTag` is the last variant, `Corrupt`, with an explicit `kind()` arm.
+    - `error_kind.rs` reads 76 / 33 / 26 / 17 and passes.
+    - DEC-051 has the row.
+    - `Display` names every DEC-078 §2 tag, and the fallback is "tag (N)". Both are
+      tested.
+    - `tag_name` is private.
+11. **Mutants.** Every copy had its own fresh `CARGO_TARGET_DIR` and touched sources. The
+    test command was `cargo test --all-features --profile corpus --no-fail-fast` on
+    `malformed_tags`, `black_levels` and `error_kind`, with the corpus. The green control
+    ran first: 9, 12 and 5 passed. I read every panic message, and each one shows the
+    intended reason.
+
+| Mutant | Result | Red on (panic reason) |
+|---|---|---|
+| (a) check not called | red | ac1_each, ac2_four, ac3, ac6 ("expected MalformedTag { tag: 274 }, got Ok") |
+| (b) `demosaic_into` on `Colour` | red | ac1_a_tag_outside, ac3, ac6 (DemosaicInto gets MalformedTag 274 / 50717) |
+| (c) `to_srgb_linear_into` on `Colour` | red | ac1_a_tag_outside, ac3, ac6 |
+| (d) exception dropped | red | ac2_one_value; Tier B `black_levels::one_by_one_files_are_identical_under_both_modes` (K3III 50713) |
+| (e) exception for any count | red | ac1_each, ac2_four, ac6 |
+| (f) `CameraCalibration2` out of the colour set | red | ac1_each, ac6 |
+| (g) check after the opcode lists | red | ac3 ("got UnreadableOpcodeList { list: 2 }") |
+| (h) 50706 case dropped | red | ac4 ("DevelopInto: Ok(())") |
+| (i) write before the check in `demosaic_into` | red | ac1_each on the sentinel, ac3, ac4, ac5 |
+| (j) exception keyed on the scalar `black_level.is_some()` | red | ac2_one_value; Tier B K3III |
+| (k) `ColourTransform` given the levels set | red | ac1_a_tag_outside, ac3, ac6 |
+| (l) `Demosaic` given an empty set | red | ac1_each, ac6 ("50710 … got Ok") |
+| (m) `DefaultCropSize` out of the levels set | red | ac1_each, ac6 |
+| (n) 50706 refused even with a backward version | red | ac4 ("backward 1.4.0.0 … UnsupportedTag 50706") |
+| (o) walk order (`find`) instead of lowest (`min`) | **green at `c8211c5`**; red after P1 | ac3 ("interleaved sets on DevelopColorInto: expected 50711, got 50714") |
+
+After P1 the control was re-run green, and (o) is red.
+12. **Release surface.** The CHANGELOG `[Unreleased]` entry states the refusal, the lowest
+    tag, the three sets, the K-3 III exception, the two new variants, the entry-path
+    change and the 50706 refusal, all accurately. `semver-check` is additive.
+13. **The build's cost.** Its transcript (`cdca0400…`) re-sums to 11,571,180 tokens over
+    60 deduplicated messages and 13.2 minutes on `claude-opus-5-5`. That is consistent
+    with the reported 10,156,524, which was a live floor, so the figure is plausible.
+14. **Gates.** `just test` with the corpus, `lint-ci`, `lint-no-allow`, `fmt-check` (re-run
+    after P1), `validate`, `doc-check`, `cost-audit`, `gate-audit`, `name-length-check`,
+    `decisions-index --check` and `semver-check` are all green.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** see the `handback:` front matter. That figure is re-summed just
+  before the commit, so it is a floor.
+- **Estimated USD:** see the front matter. Each component is priced at Opus 5.5's rates:
+  input $5/M, output $25/M, cache read $0.50/M, and cache write (1-hour) $10/M.
+- **Duration (minutes):** see the front matter (the transcript's timestamp span).
+- **Source of the number:** this session's own transcript (`9084a071-…jsonl`, matched by
+  the scratchpad UUID). Lines are deduplicated by `message.id`, with the largest
+  `output_tokens` per message. There were no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none by the verifier. The build's deviations are ruled on
+  above.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - P1: cherry-pick onto the feat branch before ship.
+  - (nit, no action) `DevelopPath::applied` uses a `(_, 2)` wildcard, so a future
+    variant inherits the colour path's `GainMap` arm silently. This is fine for the two
+    variants here.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — The handoff's example for the interleaved case (Orientation 274 against the CFA
+   tags) cannot tell walk order from lowest-tag order, because 274 comes first either
+   way. A levels tag above 50711 is needed.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would write the walk-order mutant before reading the tests. It was the one
+   question the build's AC9 table did not cover, and it was the one gap.
