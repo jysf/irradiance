@@ -6,7 +6,7 @@
 task:
   id: SPEC-087
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: design                    # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -36,9 +36,9 @@ handoff:
   created_at: null
 
 references:
-  decisions: [DEC-012, DEC-053, DEC-051]  # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: [SPEC-086]  # [SPEC-NNN]
+  decisions: [DEC-078, DEC-012, DEC-053, DEC-051, DEC-077, DEC-076, DEC-058]  # [DEC-NNN, DEC-MMM]
+  constraints: [no-panics-on-untrusted-input, oracle-must-be-shown-red]  # [constraint-id-1, constraint-id-2]
+  related_specs: [SPEC-086, SPEC-085, SPEC-056]  # [SPEC-NNN]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -52,7 +52,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-027's <capability>". Optional; null is acceptable.
-value_link: null
+value_link: "a malformed tag the develop reads refuses with a typed error instead of silently developing with the absent-tag default"
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -67,7 +67,7 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
+  tokens_estimate: 25000000
   sessions: []
   totals:
     tokens_total: 0
@@ -76,11 +76,6 @@ cost:
 ---
 
 # SPEC-087: Malformed interpretation tags refuse at develop
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-087]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
 
 ## Context
 
@@ -114,77 +109,195 @@ written, and asked that this spec refuse it as `UnsupportedTag { tag: 50706 }`, 
 a malformed 50707, because the file's reader version is then unknown. Give 50706 its own
 `Display` wording, as 50707 has.
 
+**Re-measured at design (2026-11-22, `irr ifd` on every held DNG):** every
+`malformed_tags` is empty except the Pentax K-3 III Monochrome's `[50713]`
+(`BlackLevelRepeatDim`, count 1), whose `BlackLevel` has one value. It is developed mono
+in held tests (`develop_oracle`, `black_levels` md5 under `PerPosition`,
+`develop_options`, `develop_scratch`, `warp_alpha`), so it must keep developing.
+
+**Both carried-in questions are decided in DEC-078:** the singular unused matrix keeps the
+SDK's behaviour (§4, no change); the malformed `DNGVersion` refuses as
+`UnsupportedTag { tag: 50706 }` (§2).
+
 ## Goal
 
-A malformed interpretation tag that a develop path consumes refuses at that
-develop with a typed `Error`, generalising DEC-053 and amending DEC-012. The
-tolerant parse is kept, so metadata and previews still read, and the existing
-nuance survives: a malformed `BlackLevelRepeatDim` is fatal only when
-`BlackLevel` has more than one value.
+A malformed interpretation tag that a develop path reads refuses that develop with a
+typed `Error` before writing, instead of developing with the absent-tag default
+(DEC-078). The tolerant parse is kept, so metadata, previews and plane reads still work.
+A malformed `BlackLevelRepeatDim` stays harmless when `BlackLevel` has one value, so the
+Pentax K-3 III Monochrome still develops. No held output changes.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:**
+  - `decisions/DEC-078-...md`: the whole rule. This spec implements it.
+  - `src/opcode.rs`: `check_required_processing` (1149), `check_unhonoured_tags` (1183;
+    the malformed-50707 case at 1186 is the model for 50706), `DevelopPath` (1049).
+  - `src/ifd.rs`: `sensor()` (2380 to 2704) and where each §2 tag is costed. Orientation
+    is hand-rolled (2405 to 2423), `ifd0_version` (2228).
+  - `src/demosaic.rs`: `demosaic_into` (278) and `demosaic_into_threaded` (478), which
+    pass `DevelopPath::Colour` today.
+  - `src/color.rs`: `to_srgb_linear_into` (287), which passes `Colour` today;
+    `check_colour_required_processing` (647).
+  - `src/develop.rs`: `develop_core` (1661), `black_pattern_dims` (686).
+  - `src/lib.rs`: `UnsupportedTag`'s `Display` arms (1709 and 1719),
+    `unhonoured_tag_name` (1744), `UnreadableOpcodeList`'s kind arm (1848).
+  - `tests/unhonoured_tags.rs`: the per-entry, sentinel and malformed-fixture patterns
+    this spec copies.
+  - `tests/error_kind.rs`: 75 / 17 / 26 / 32 today.
+  - `tests/ifd_reader.rs` (the K3III `malformed: &[50713]` row) and
+    `tests/black_levels.rs` (701 to 708, the one-value repeat-dim case).
 
 ## Outputs
 
-What the implementer will produce.
+- **Files created:**
+  - `tests/malformed_tags.rs`: AC1 to AC6.
+- **Files modified:**
+  - `src/opcode.rs`: `DevelopPath::Demosaic` and `DevelopPath::ColourTransform` (both
+    opcode-equivalent to `Colour`); the DEC-078 §2 check after `check_unhonoured_tags`
+    and before the opcode lists; the malformed-50706 case in the version part.
+  - `src/demosaic.rs`, `src/color.rs`: the two demosaic entries pass `Demosaic`;
+    `to_srgb_linear_into` passes `ColourTransform`. The four colour develop entries keep
+    `Colour`.
+  - `src/lib.rs`: `Error::MalformedTag { tag: u16 }` appended at the end, `Corrupt`; its
+    `Display` arm; the name lookup widened to every DEC-078 §2 tag; an `UnsupportedTag`
+    `Display` arm for 50706. `DEVELOP_VERSION` is not touched.
+  - `tests/error_kind.rs`: one row; 75 to 76; `Corrupt` 32 to 33; the history comment.
+  - `decisions/DEC-051-...md`: the new row.
+  - `CHANGELOG.md` `[Unreleased]`: the new refusal, the new `DevelopPath` variants, and
+    the change that the demosaic and transform entries now pass their own path.
+- **New flags / options:** none.
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+## Design
+
+1. **Path split.** Add the two `DevelopPath` variants. In the opcode-list logic, treat
+   them as `Colour`. A composer calling `check_required_processing(sensor, Colour)` keeps
+   today's opcode behaviour and now also gets the full colour malformed set.
+2. **Malformed check.** A private function taking `(sensor, path)` that walks the
+   path's set from DEC-078 §2 in ascending tag order and returns
+   `MalformedTag { tag }` for the first tag in `malformed_tags`.
+   - `BlackLevelRepeatDim` (50713) counts only when the sensor's `black_levels` has more
+     than one value.
+   - Sets are `const` slices, one per set, combined per path. No allocation.
+3. **Version.** In `check_unhonoured_tags`, when `DNGBackwardVersion` is absent and 50706
+   is in `malformed_tags`, refuse `UnsupportedTag { tag: 50706 }`, beside the existing
+   50707 case. All paths.
+4. **Order** (DEC-078 §3): DEC-077 checks, then the malformed check, then the opcode lists.
+5. **Errors:** one variant appended, explicit `kind()` arm.
+6. **No output change.** `DEVELOP_VERSION` stays `"8"`; no Tier-B pin moves.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
+Pre-registered: every check below is exact (an error variant and its fields, or byte
+equality). There is no numeric tolerance in this spec.
 
-**Pre-register every numeric threshold.** A tolerance, bound or score an AC
-checks is written here at design, with its falsifier, before the build measures
-anything. A measured number outside it is reported, never fixed by widening the
-bound (signal `pre-register-the-tolerance`).
+- [ ] **AC1, each path refuses its own set, on every entry.** For every tag in DEC-078 §2,
+  a fixture with that tag malformed (written with a wrong type, `ASCII`) gives `Ok` from
+  `sensor()` with the tag in `malformed_tags`. Then:
+  - every entry whose path's set contains the tag returns `MalformedTag { tag }` and
+    leaves `dst` (and scratch) exactly as filled with a sentinel;
+  - every entry whose set does not contain it behaves exactly as on the same fixture with
+    the tag absent (the same `Ok` bytes, or the same error).
 
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+  Entries: the three mono, the four colour develop, `to_srgb_linear_into`, and both
+  demosaic entries. Mono entries on a mono fixture, the rest on a CFA fixture with colour
+  tags. The test table is the cross product, generated from one list of (tag, sets), so
+  a tag added to a set without a row fails.
+- [ ] **AC2, the repeat-dimension exception.** A malformed `BlackLevelRepeatDim` with one
+  `BlackLevel` value develops on every mono and colour entry, byte-identical to the same
+  fixture with the tag absent, under both `BlackLevels::FirstValue` and `PerPosition`.
+  With four `BlackLevel` values it refuses `MalformedTag { tag: 50713 }` on every mono and
+  colour entry, under both options.
+- [ ] **AC3, order.** A fixture with malformed `WhiteLevel` and malformed `ActiveArea`
+  refuses 50717 (ascending). A fixture with a DEC-077 refused tag (`SampleFormat` 3) and a
+  malformed `WhiteLevel` refuses `UnsupportedTag { tag: 339 }` (DEC-077 first). A fixture
+  with a malformed `WhiteLevel` and an unreadable `OpcodeList2` refuses
+  `MalformedTag { tag: 50717 }` (the malformed check before the opcode lists).
+- [ ] **AC4, the version.** A malformed `DNGVersion` (count 3) with no
+  `DNGBackwardVersion` refuses `UnsupportedTag { tag: 50706 }` on every entry. With a
+  well-formed `DNGBackwardVersion` 1.4.0.0 present, it develops (the backward version
+  decides). Its `Display` says the reader version is unknown.
+- [ ] **AC5, already-refused tags keep their errors.** Malformed `CFAPattern`,
+  `CFARepeatPatternDim`, `AsShotNeutral` and `OpcodeList1` give the same error as on
+  `main`: `NotAColorFilterArray`, `UnsupportedCfaPattern`, `MissingColorCalibration` and
+  `UnreadableOpcodeList { list: 1 }`. Malformed `MaskedAreas` develops.
+- [ ] **AC6, reads unaffected and the composer check.** For every AC1 row, metadata
+  (`sensor()`) and `plane::unpack_into` succeed. `check_required_processing(sensor, path)`
+  called directly returns the same result as the entry for each of the four paths.
+- [ ] **AC7, nothing held changes.** `just test` with the corpus: every existing Tier-B
+  pin passes unchanged, the Pentax K-3 III Monochrome develops on every pin that develops
+  it today, and `DEVELOP_VERSION` is still `"8"`.
+- [ ] **AC8, error classification.** `tests/error_kind.rs` passes with 76 variants,
+  `Corrupt` 33, `Unsupported` 26, `CallerError` 17. DEC-051 lists the row.
+- [ ] **AC9, red-proof.** Each mutant below is applied, run, shown red on the named test,
+  and reverted, with a green control run first:
+  - (a) the malformed check not called: AC1.
+  - (b) `demosaic_into` left on `Colour`: AC1 (a malformed `WhiteLevel` refuses it).
+  - (c) `to_srgb_linear_into` left on `Colour`: AC1.
+  - (d) the repeat-dimension exception dropped: AC2 (one value) and AC7 (the K-3 III).
+  - (e) the exception taken as "any count" so four values develop: AC2.
+  - (f) one tag removed from the colour set (for example `CameraCalibration2`): AC1.
+  - (g) the malformed check placed after the opcode lists: AC3.
+  - (h) the malformed-50706 case dropped: AC4.
+  - (i) the check placed after the first write on one entry: AC1's sentinel.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+- **`tests/malformed_tags.rs`** (Tier A, fixtures through
+  `Container::parse → sensor → unpack_into`, as `tests/unhonoured_tags.rs` does)
+  - `ac1_each_path_refuses_its_own_malformed_set_on_every_entry`
+  - `ac1_a_tag_outside_the_path_set_behaves_as_absent`
+  - `ac2_a_malformed_repeat_dim_with_one_black_value_develops`
+  - `ac2_a_malformed_repeat_dim_with_four_black_values_refuses`
+  - `ac3_order_dec077_then_malformed_then_opcode_lists`
+  - `ac4_a_malformed_dng_version_without_a_backward_version_refuses`
+  - `ac5_already_refused_tags_keep_their_errors`
+  - `ac6_reads_and_the_composer_check_agree`
+- **`tests/error_kind.rs`**: the updated counts (AC8).
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+**Rule-clause map (DEC-078).**
 
-**Rule-clause map.** When this spec implements a `DEC-*` rule, map every clause
-of it (each malformed class, each entry point, each numeric path) to a named
-test above, and say which code path that test must reach. Name the path where the
-clause changes the output, not just one that runs it: a clause tested only where it
-is unobservable leaves a mutant the build's suite cannot see (signal
-`every-rule-clause-maps-to-a-reachable-test`).
+| Clause | Test | Path where it changes the output |
+|---|---|---|
+| §1 refuse, not default | `ac1_each…` | every entry's result and `dst` |
+| §1 reads stay tolerant | `ac6_…` | `sensor()`, `unpack_into` |
+| §2 each path's set, each tag | `ac1_each…` (cross product) | each entry |
+| §2 outside the set is absent | `ac1_a_tag_outside…` | demosaic and transform entries |
+| §2 repeat-dim exception, both directions | `ac2_…` ×2 | mono and colour levels |
+| §2 50706 | `ac4_…` | every entry |
+| §2 already-refused keep their errors | `ac5_…` | each error |
+| §3 order | `ac3_…` | the error field |
+| §3 variant and kind | `error_kind.rs` | `kind()` |
+| §4 singular unused matrix unchanged | existing SPEC-085 tests | colour |
+| §5 no output change | AC7 (corpus pins) | Tier B |
 
 ## Non-Goals
 
-Explicit scope limits. If the implementer thinks any of these need to
-happen, they should create a new spec (in this stage's backlog), not
-expand this one.
-
-- ...
+- Changing DEC-012's read rule. Parsing stays tolerant.
+- Refusing a well-formed but singular unused `ColorMatrix` or calibration (DEC-078 §4).
+- Audit ranks 8, 9 and 11 (unknown illuminant, several sensor IFDs, degenerate warp and
+  gains), and rank 12.
+- Any change to `DEVELOP_VERSION`, any Tier-B re-pin.
+- Re-wording `UnreadableOpcodeList` or DEC-077's `UnsupportedTag` arms other than adding
+  50706.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- A malformed fixture: `tests/support/dng_writer.rs`'s `extra_tags` replaces an entry, so
+  write the tag with `ASCII` and a short payload. Check that `sensor()` records it (some
+  readers accept several numeric types, so use a type every reader rejects).
+- `Orientation` is costed only when neither IFD0 nor the sensor IFD gives a value; a
+  fixture must malform both, or write it in one IFD only.
+- `WhiteLevel` has two fields: `white_level` (costed) and `white_levels` (the colour path's
+  array, `values().unwrap_or_default()`, not costed). The tag in `malformed_tags` is what
+  refuses; confirm the colour path cannot read a value through `white_levels` before the
+  check.
+- Keep the per-set `const` slices next to `DevelopPath` with a doc comment citing
+  DEC-078 §2, so the sets and the decision stay in one place.
+- Commit-message bodies are plain prose (the repo ruleset rejects code tokens).
 
 ---
+
 
 ## Reflection
 
