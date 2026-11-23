@@ -254,12 +254,13 @@ impl BayerPhase {
 /// # Errors
 ///
 /// - Whatever [`crate::opcode::check_required_processing`] returns for
-///   [`crate::opcode::DevelopPath::Colour`], checked first: that path applies
+///   [`crate::opcode::DevelopPath::Demosaic`], checked first: that path applies
 ///   only `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069`), so any other
 ///   mandatory opcode in any list is
 ///   [`Error::UnsupportedRequiredOpcode`] /
 ///   [`Error::UnsupportedMandatoryOpcode`], and a present-but-unreadable list
-///   is [`Error::UnreadableOpcodeList`] (`SPEC-056`, `DEC-053`).
+///   is [`Error::UnreadableOpcodeList`] (`SPEC-056`, `DEC-053`); a malformed
+///   `CFAPlaneColor` or `CFALayout` is [`Error::MalformedTag`] (`DEC-078`).
 /// - [`Error::NotAColorFilterArray`] if `sensor.color_filter` is `None` (a
 ///   monochrome plane has nothing to demosaic).
 /// - [`Error::UnsupportedCfaPattern`] if the CFA is not a 2×2 Bayer of the
@@ -279,7 +280,7 @@ pub fn demosaic_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<()
     // The colour path applies only `OpcodeList2`'s `GainMap`s, at stage 2,
     // before this primitive's input (`SPEC-059`); refuse a file whose declared
     // processing it would skip, before anything else (`SPEC-056`, `DEC-053`).
-    crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Colour)?;
+    crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Demosaic)?;
     let cfa = sensor
         .color_filter
         .as_ref()
@@ -483,7 +484,7 @@ pub fn demosaic_into_threaded(
 ) -> Result<(), Error> {
     // First, before any thread or allocation (`SPEC-056`, `DEC-053`). The
     // fallbacks to `demosaic_into` below check again; that is cheap.
-    crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Colour)?;
+    crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Demosaic)?;
     if threads <= 1 {
         return demosaic_into(sensor, src, dst);
     }

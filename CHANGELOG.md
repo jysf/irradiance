@@ -10,6 +10,13 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **`DevelopPath::Demosaic` and `DevelopPath::ColourTransform`** (SPEC-087, STAGE-027,
+  PROJ-002, DEC-078 §2), so each stage primitive asks
+  `opcode::check_required_processing` about only the tags it reads. Both behave as
+  `DevelopPath::Colour` for the opcode lists. Additive: `DevelopPath` is
+  `#[non_exhaustive]`.
+- **`Error::MalformedTag { tag }`** (SPEC-087, DEC-078 §3), appended,
+  `ErrorKind::Corrupt`. The enum goes from 75 to 76 variants.
 - **`Sensor` reads the tags that change what the samples mean, and the DNG version
   pair** (SPEC-086, STAGE-027, PROJ-002, DEC-077): `dng_version` and
   `dng_backward_version` (IFD0, four bytes), `sample_format`, `linearization_table`,
@@ -33,6 +40,26 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **A malformed tag the develop path reads refuses the develop** (SPEC-087, DEC-078).
+  Through `opcode::check_required_processing`, after DEC-077's checks and before the
+  opcode lists, every develop entry refuses `Error::MalformedTag` naming the lowest tag of
+  its path's set found in `Sensor::malformed_tags`, before anything is written. The mono
+  path's set is `Orientation`, `BlackLevel`, `WhiteLevel`, `DefaultCropOrigin/Size`,
+  `ActiveArea`, and `BlackLevelRepeatDim` when `BlackLevel` has more than one value; the
+  demosaic's is `CFAPlaneColor` and `CFALayout`; the colour transform's is
+  `ColorMatrix1/2`, `CameraCalibration1/2`, `AnalogBalance`, `CalibrationIlluminant1/2`,
+  the two calibration signatures and `ForwardMatrix1/2`; the colour develop refuses all
+  three sets. Such a file used to develop as if the tag were absent. Metadata and plane
+  reads are unchanged, and the Pentax K-3 III Monochrome (a malformed
+  `BlackLevelRepeatDim` with one black value) still develops.
+- **`demosaic_into`, `demosaic_into_threaded` and `to_srgb_linear_into` pass their own
+  path** (SPEC-087, DEC-078 §2): `DevelopPath::Demosaic` and
+  `DevelopPath::ColourTransform` instead of `DevelopPath::Colour`. The opcode-list
+  behaviour is the same; the malformed-tag check asks only about the tags each reads.
+- **A malformed `DNGVersion` with no `DNGBackwardVersion` is refused** (SPEC-087, DEC-078
+  §2) as `Error::UnsupportedTag { tag: 50706 }` on every develop entry, as a malformed
+  `DNGBackwardVersion` already was: the file's reader version is then unknown. It used to
+  skip DEC-077's version guard. No held file changes, and `DEVELOP_VERSION` stays `"8"`.
 - **Every develop entry refuses tags it cannot honour, and a newer DNG backward version**
   (SPEC-086, DEC-077 §2). Through `opcode::check_required_processing`, before anything
   is written: an effective DNG backward version above 1.7.1.0 (`DNGBackwardVersion`, else
