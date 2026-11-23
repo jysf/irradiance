@@ -58,7 +58,7 @@ handback:
   pr: null
   completed_at: 2026-11-22         # YYYY-MM-DD
   notes: "Floor, re-summed live from transcript 9084a071 before the round-2 commit; covers both rounds. Round 1 PUNCH LIST (P1 tests-only, the interleaved-set AC3 case, done in 3c0077e); round 2 APPROVED at 3c0077e. Build transcript cdca0400 re-sums to 11,571,180."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-22
 ---
 
 # HANDOFF-183: VERIFY: malformed interpretation tags refuse at develop (SPEC-087)
