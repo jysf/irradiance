@@ -15,12 +15,12 @@
 task:
   id: SPEC-088
   type: release                    # epic | story | task | bug | chore | release
-  cycle: build                     # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
 
 project:
@@ -49,11 +49,45 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 15000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-184
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 17708903
+      estimated_usd: 12.32
+      duration_minutes: 60
+      recorded_at: 2026-11-23
+      notes: "TRUE cost, re-summed at ship from the whole prep worktree transcript dir (89 unique message.ids, all claude-opus-5-5, no subagents): input 182 + cache-creation 204,761 (1-hour) + cache-read 17,441,755 + output 62,205, opus-5-5 rates. The handback floor was 16,659,440 and $11.62. PR 316 (Phase 1); semver clean; SDK colour 6/6/1/2/5 and stage-2 equal to 0.2.4's; changed-input reconciliation found no behaviour change outside every spec and PR."
+    - cycle: verify
+      agent: claude-opus-5-5
+      interface: claude-code
+      basis: transcript
+      tokens_total: 6112132
+      estimated_usd: 3.53
+      duration_minutes: 15
+      recorded_at: 2026-11-23
+      notes: "NOT a cold verify. The orchestrator's own review stood in for one: it read PR 316's diff, release notes, reconciliation and SDK figures against the spec's stop conditions before the user merged, then after the publish checked the tag, crates.io, docs.rs and ran a clean-host smoke crate on =0.2.5 whose Pixel 7 Pro colour and K-3 III mono hashes equal main's. Measured from the orchestrator transcript (session a0013105) from the first look at release/0.2.5-prep (2026-11-23T02:41Z) to this record: 15 unique message.ids, input 34 + cache-creation 20,450 (1-hour) + cache-read 6,080,162 + output 11,486, opus-5-5 rates. A floor. 0.2.4's release spec had a cold verify (HANDOFF-174) that found a missed changed input; this one did not."
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-11-22
+      notes: "Un-metered main-loop orchestration (STAGE-028 frame and this design in PR 315, with a semver-check on main); counted at stage grain in STAGE-028's orchestration_cost."
+    - cycle: ship
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      recorded_at: 2026-11-23
+      notes: "Un-metered main-loop ship: the orchestrator's prep review, the post-publish checks (tag, crates.io, docs.rs, the clean-host smoke crate) and this record; counted at stage grain in STAGE-028's orchestration_cost. There was no separate cold verify cycle: the orchestrator reviewed the prep PR against the spec's stop conditions before the user merged, tagged and published."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 23821035
+    estimated_usd: 15.85
+    session_count: 4
+shipped_at: 2026-11-23
 ---
 
 # SPEC-088: irradiance 0.2.5 release: calibration, converged weight, unhonoured and malformed tag refusals
@@ -635,34 +669,43 @@ those results.
 
 ## Cut Record
 
-*One line, appended after Phase 2 by whoever runs the cut.* The user-facing
-outcome now live, plus the upgrade/clean-install check that confirms the
-publish landed — the one line a review or work-log would quote. E.g.
-*"v0.4.0→v0.5.0 `brew upgrade` clean; MCP-install now first-class; prod DB
-opened, 189 entries intact."* If the release is pure infra with no user-facing
-change, say so — a real, greppable outcome, not a blank.
+v0.2.4 → **v0.2.5 published 2026-11-23** (crates.io, by the user, 02:47 UTC; not yanked;
+checksum `1cbe5f6439987371…`). Tag `v0.2.5` (lightweight) points at `c558a4b`, the PR 316
+merge, whose `Cargo.toml` says 0.2.5; the published `.crate`'s `.cargo_vcs_info.json`
+`git.sha1` is `c558a4b8f42b7bd99361f89f331b554042976dec`, the tagged commit. docs.rs reports
+`doc_status: true`. No GitHub release was created at the cut. Clean-host check, run by the
+orchestrator in a scratch crate on `irradiance = "=0.2.5"` from crates.io (Cargo.lock
+`registry+https://github.com/rust-lang/crates.io-index`): it built clean;
+`DEVELOP_VERSION` is `8`; `develop_color_into` on the Pixel 7 Pro (3866×2908) and
+`develop_into` on the Pentax K-3 III Monochrome (6192×4128, `malformed_tags [50713]`, still
+exempt) return `Ok`, with output hashes identical to the same program built against
+`main`'s source. Calibrated colour and the unhonoured and malformed tag refusals are now on
+crates.io.
 
 ---
 
 ## Reflection
 
-*Appended during **ship**. Four questions, short answers.*
+1. **What would I do differently next time?**
+   — Check that every merged change carries its CHANGELOG entry when it merges, not at
+   release. PR 301 had no spec and no entry, and only the release design caught it. Also
+   tag annotated, as 0.2.4 was; `v0.2.5` is a lightweight tag (cosmetic, the commit is
+   right).
 
-1. **What would I do differently next release?**
-   — <answer>
-
-2. **Does any template, constraint, or decision need updating?** (e.g. a new
-   pre-flight category to add to this template)
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`. See `docs/signals.md`.>
+2. **Does any template, constraint, or decision need updating?**
+   — No change made. The changed-input reconciliation (signal
+   `release-notes-diff-every-changed-refusal-and-what-it-preempts`, N=2 before this) earned
+   its keep again: the build corrected one wrong design example and added six classes the
+   design missed, all described by their own specs or PR. That is a third same-outcome
+   instance, for the stage close to disposition.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No. A GitHub release for `v0.2.5` (this spec's Release Notes) is the user's call.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(A release-phase `escaped` defect means a pre-flight category above was
-   missing or skipped — grow the checklist.)*
+4. **Where was the worst defect caught?** — design
+
+5. **What can a user do now that they couldn't before?** — A crates.io user on
+   `irradiance = "0.2"` now gets colour within 6 codes of Adobe's DNG SDK on every held
+   colour file (the Pixel 7 Pro was 1,160 codes off in 0.2.4), and typed refusals instead
+   of silently wrong pixels for unhonoured, malformed or out-of-version tags, staggered or
+   non-RGB CFAs, non-finite warps and too-new mandatory opcodes.

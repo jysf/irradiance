@@ -1824,14 +1824,20 @@ signals:
   - id: release-notes-diff-every-changed-refusal-and-what-it-preempts
     type: lesson
     summary: "A release design lists every input whose result changes since the last tag: new refusals, changed error fields, changed output, and the existing errors a new refusal now runs before. semver-checks sees none of these, and the notes otherwise miss one."
-    evidence: "N=2. 0.2.3 (SPEC-077, STAGE-024): the verify found the notes missed malformed or too many optional GainMaps, which 0.2.2 skipped unread and 0.2.3 refuses. 0.2.4 (SPEC-083, STAGE-026): the design's Err( diff found the new colour refusal and the changed PerPosition field, but the verify found the new check also pre-empts the GainMap, CFA and matrix errors, so a W <= B input that 0.2.3 refused with one of those now gets InvalidLevels."
+    evidence: "N=3, bar reached 2026-11-23. 0.2.3 (SPEC-077, STAGE-024): the verify found the notes missed malformed or too many optional GainMaps, which 0.2.2 skipped unread and 0.2.3 refuses. 0.2.4 (SPEC-083, STAGE-026): the design's Err( diff found the new colour refusal and the changed PerPosition field, but the verify found the new check also pre-empts the GainMap, CFA and matrix errors. 0.2.5 (SPEC-088, STAGE-028): the build's reconciliation against git diff v0.2.4 corrected one wrong design example and added six classes the design missed (PR 301's precedence changes, a now-skipped unparsable too-new opcode, a later same-ID opcode now applied, the buffer, options and GainMap errors now pre-empted, the singular-ColorMatrix1 path change, the longer malformed_tags list)."
     bar: "N=3 same-outcome"
-    status: watch
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-21
-    last_touched: 2026-11-21
+    last_touched: 2026-11-23
     raised_by: claude
     notes: |
+      ══ STAGE-028 CLOSE, 2026-11-23: CODIFIED. ══ projects/_templates/release-spec.md's
+      Release Scope now carries an "Every input whose result changes since the last tag"
+      line: the design writes the list, the build re-derives it from the source diff and
+      records the reconciliation, and the notes carry each class. SPEC-088 ran it that way
+      by design and it worked; the probe against the published previous version stays a
+      verify option, not a template requirement.
       Candidate codification at N=3: a release-spec template line under Release Scope
       asking for the changed-input list, including error precedence, with a probe run
       against the published previous version (as SPEC-083's verify did).
