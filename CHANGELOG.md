@@ -8,6 +8,45 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Fixed
+
+- **An empty or misshapen interpretation tag now refuses the develop that reads it**
+  (SPEC-089, STAGE-029, PROJ-002, DEC-078 §7). Before, `Sensor::malformed_tags` named
+  a tag only when it could not be read, so a tag that read cleanly with the wrong
+  shape passed as absent or valid: a `ColorMatrix2` with 8 entries or a zero
+  denominator developed byte-identically to `ColorMatrix2` absent. A present
+  interpretation tag is now malformed, recorded in `malformed_tags` and left `None`,
+  when its count is zero, when a tag with a fixed DNG count has another count
+  (`Orientation`, `CFALayout` and `CalibrationIlluminant1/2` are 1; `ColorMatrix1/2`
+  and `ForwardMatrix1/2` are 3 × ColorPlanes, `CameraCalibration1/2` ColorPlanes ×
+  ColorPlanes and `AnalogBalance` ColorPlanes, where ColorPlanes is the
+  `CFAPlaneColor` count on a CFA plane and `SamplesPerPixel` otherwise), or when one
+  of those colour rationals has a zero denominator. DEC-078's existing check then
+  refuses it as `Error::MalformedTag { tag }` on every path that reads it (DEC-077's
+  set as `Error::UnsupportedTag { tag }`), before anything is written. An absent tag
+  keeps its default, and a count-zero `Orientation` in one IFD is recovered from a
+  well-formed one in the other.
+  - **New refusals:** a count-zero `Orientation`, `BlackLevel`, `WhiteLevel`,
+    `CFALayout`, `ColorMatrix2`, `ForwardMatrix1/2`, `CameraCalibration2`,
+    `CalibrationIlluminant1/2`, `CameraCalibrationSignature`,
+    `ProfileCalibrationSignature`, `BlackLevelDeltaH` or `BlackLevelDeltaV`; a
+    wrong-count `Orientation`, `CFALayout` or `CalibrationIlluminant1/2`; a
+    wrong-length or zero-denominator `ColorMatrix2`, `ForwardMatrix1/2` or
+    `CameraCalibration2` that the develop previously skipped or fell back from.
+  - **Changed refusals:** a misshapen `ColorMatrix1`, `CameraCalibration1/2` or
+    `AnalogBalance`, which the colour develop refused late as
+    `Error::MissingColorCalibration`, and a count-zero `CFAPlaneColor`, which refused
+    as `Error::UnsupportedCfaPlaneColor`, now refuse earlier as
+    `Error::MalformedTag { tag }`.
+  - The colour code no longer falls back silently from a present matrix it cannot
+    use (single-illuminant colour for a bad `ColorMatrix2`, the ColorMatrix path for
+    a bad `ForwardMatrix2`, the identity for a bad unused `CameraCalibration2`); a
+    hand-built `Sensor` that bypasses the reader gets
+    `Error::MissingColorCalibration` there.
+  - No new `Error` variant, no output change for any file that develops, and
+    `DEVELOP_VERSION` stays `"8"`. The public `Container::scalar` is unchanged; its
+    documentation now says a count-zero tag is `Ok(None)` there.
+
 ## [0.2.5] - 2026-11-22
 
 Colour develops now apply the camera calibration and run the illuminant weight to

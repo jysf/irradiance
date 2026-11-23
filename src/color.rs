@@ -979,7 +979,7 @@ fn build_camera_to_srgb_linear(sensor: &Sensor) -> Result<[[f64; 3]; 3], Error> 
     // `SPEC-034`'s preconditions decide whether the dual-illuminant path runs;
     // that in turn decides whether `CameraCalibration2` is used, and so checked
     // (`DEC-076` §3).
-    let dual = dual_illuminant(sensor);
+    let dual = dual_illuminant(sensor)?;
     let calibration = resolve_calibration(sensor, dual.is_some())?;
 
     // The scene weight (`NeutralToXY` to convergence, `DEC-076` §5), found once
@@ -1017,10 +1017,11 @@ struct Calibration {
 ///   rationals with positive numerators and denominators.
 /// - `CameraCalibration1/2` apply only when `CameraCalibrationSignature` equals
 ///   `ProfileCalibrationSignature`, an absent signature counting as empty.
-/// - Only what is used is checked: `CameraCalibration1` whenever the rule
-///   applies, `CameraCalibration2` only when it applies **and** `dual` (the
-///   dual-illuminant path runs). A used calibration must be 9 rationals with
-///   non-zero denominators; absent, it is the identity.
+/// - Every **present** calibration is checked, used or not (`DEC-078` §7.2,
+///   `SPEC-089`): it must be 9 rationals with non-zero denominators. Only
+///   what is used is applied: `CameraCalibration1` whenever the rule applies,
+///   `CameraCalibration2` only when it applies **and** `dual` (the
+///   dual-illuminant path runs). Absent or unused, it is the identity.
 ///
 /// Anything else is [`Error::MissingColorCalibration`], before any write.
 fn resolve_calibration(sensor: &Sensor, dual: bool) -> Result<Calibration, Error> {
@@ -1042,9 +1043,14 @@ fn resolve_calibration(sensor: &Sensor, dual: bool) -> Result<Calibration, Error
         .as_deref()
         .unwrap_or_default();
     let applies = camera == profile;
+    // A present calibration is read (and so validated) whether or not it is
+    // used: an unusable one is never silently the identity (`DEC-078` §7.2).
     let used = |tag: Option<&Vec<Rational>>, used: bool| -> Result<[[f64; 3]; 3], Error> {
-        match tag {
-            Some(entries) if used => matrix_from_rationals(entries),
+        match tag
+            .map(|entries| matrix_from_rationals(entries))
+            .transpose()?
+        {
+            Some(matrix) if used => Ok(matrix),
             _ => Ok(IDENTITY),
         }
     };
@@ -1105,10 +1111,12 @@ fn cam_to_xyz_single_illuminant(
 
 /// The interpolated `cam2xyz` at a known scene weight `g` (`SPEC-034`,
 /// `DEC-076` §4). The **ForwardMatrix path**, `FM(g) = lerp(FM1, FM2, g)` with
-/// `K(g) = AB · lerp(CC_1, CC_2, g)`, runs only when **both** forward matrices
-/// are present and well-shaped; otherwise the **ColorMatrix path** inverts the
-/// lerp of the folded products, `X(g) = lerp(AB·CC_1·CM_1, AB·CC_2·CM_2, g)`
-/// (the SDK's form). A singular `X(g)` is [`Error::MissingColorCalibration`].
+/// `K(g) = AB · lerp(CC_1, CC_2, g)`, runs when **both** forward matrices are
+/// present; otherwise (one absent) the **ColorMatrix path** inverts the lerp of
+/// the folded products, `X(g) = lerp(AB·CC_1·CM_1, AB·CC_2·CM_2, g)` (the SDK's
+/// form). A present forward matrix that cannot be read is an error, never a
+/// switch to the ColorMatrix path (`DEC-078` §7.2). A singular `X(g)` is
+/// [`Error::MissingColorCalibration`].
 fn cam_to_xyz_interpolated(
     sensor: &Sensor,
     wb: &[[f64; 3]; 3],
@@ -1117,22 +1125,27 @@ fn cam_to_xyz_interpolated(
     dual: &DualIlluminant,
     g: f64,
 ) -> Result<[[f64; 3]; 3], Error> {
-    if let (Some(fm1), Some(fm2)) = (
-        sensor.forward_matrix_1.as_ref(),
-        sensor.forward_matrix_2.as_ref(),
-    ) {
-        if let (Ok(f1), Ok(f2)) = (matrix_from_rationals(fm1), matrix_from_rationals(fm2)) {
-            let fm = lerp_matrix(f1, f2, g);
-            let k = if calibration.k1 == IDENTITY && calibration.k2 == IDENTITY {
-                None
-            } else {
-                Some(mat_mul(
-                    calibration.ab,
-                    lerp_matrix(calibration.cc1, calibration.cc2, g),
-                ))
-            };
-            return fm_path_cam_to_xyz(fm, wb, asn, k);
-        }
+    let fm1 = sensor
+        .forward_matrix_1
+        .as_deref()
+        .map(matrix_from_rationals)
+        .transpose()?;
+    let fm2 = sensor
+        .forward_matrix_2
+        .as_deref()
+        .map(matrix_from_rationals)
+        .transpose()?;
+    if let (Some(f1), Some(f2)) = (fm1, fm2) {
+        let fm = lerp_matrix(f1, f2, g);
+        let k = if calibration.k1 == IDENTITY && calibration.k2 == IDENTITY {
+            None
+        } else {
+            Some(mat_mul(
+                calibration.ab,
+                lerp_matrix(calibration.cc1, calibration.cc2, g),
+            ))
+        };
+        return fm_path_cam_to_xyz(fm, wb, asn, k);
     }
 
     let x = lerp_matrix(
@@ -1228,27 +1241,50 @@ struct DualIlluminant {
     denom: f64,
 }
 
-/// The dual-illuminant preconditions (`DEC-034`), or `None` for the
-/// single-illuminant fallback: `ColorMatrix1` **and** `ColorMatrix2` present and
-/// well-shaped, **and** both `CalibrationIlluminant` codes present and known (in
-/// [`ILLUMINANT_CCT`]), with distinct reciprocal temperatures.
-fn dual_illuminant(sensor: &Sensor) -> Option<DualIlluminant> {
-    let cm1 = matrix_from_rationals(sensor.color_matrix_1.as_ref()?).ok()?;
-    let cm2 = matrix_from_rationals(sensor.color_matrix_2.as_ref()?).ok()?;
-    let t1 = cct_of_illuminant(sensor.calibration_illuminant_1?)?;
-    let t2 = cct_of_illuminant(sensor.calibration_illuminant_2?)?;
+/// The dual-illuminant preconditions (`DEC-034`): `Ok(Some(_))` when
+/// `ColorMatrix1` **and** `ColorMatrix2` are present, **and** both
+/// `CalibrationIlluminant` codes are present and known (in
+/// [`ILLUMINANT_CCT`]) with distinct reciprocal temperatures.
+///
+/// `Ok(None)`, the single-illuminant path, only when a tag is **absent**, a
+/// code is unknown, or the temperatures coincide. A **present** `ColorMatrix`
+/// that cannot be read is [`Error::MissingColorCalibration`], never the
+/// single-illuminant fallback (`DEC-078` §7.2, `SPEC-089`); the sensor reader
+/// refuses such a tag first, so this is the second line for a hand-built
+/// [`Sensor`].
+fn dual_illuminant(sensor: &Sensor) -> Result<Option<DualIlluminant>, Error> {
+    let cm1 = sensor
+        .color_matrix_1
+        .as_deref()
+        .map(matrix_from_rationals)
+        .transpose()?;
+    let cm2 = sensor
+        .color_matrix_2
+        .as_deref()
+        .map(matrix_from_rationals)
+        .transpose()?;
+    let (Some(cm1), Some(cm2)) = (cm1, cm2) else {
+        return Ok(None);
+    };
+    let known = |code: Option<u32>| code.and_then(cct_of_illuminant);
+    let (Some(t1), Some(t2)) = (
+        known(sensor.calibration_illuminant_1),
+        known(sensor.calibration_illuminant_2),
+    ) else {
+        return Ok(None);
+    };
     let inv_t1 = 1.0 / t1;
     let denom = inv_t1 - 1.0 / t2;
     if denom == 0.0 {
         // `T1 == T2` (or coincident reciprocals): the mired blend is undefined.
-        return None;
+        return Ok(None);
     }
-    Some(DualIlluminant {
+    Ok(Some(DualIlluminant {
         cm1,
         cm2,
         inv_t1,
         denom,
-    })
+    }))
 }
 
 /// The D50 chromaticity `NeutralToXY` starts from (`DEC-076` §5).
@@ -1309,7 +1345,7 @@ fn scene_weight(dual: &DualIlluminant, calibration: &Calibration, asn: &[Rationa
 /// when the dual-illuminant preconditions fail or the calibration is unusable.
 #[cfg(test)]
 fn interpolation_weight(sensor: &Sensor) -> Option<f64> {
-    let dual = dual_illuminant(sensor)?;
+    let dual = dual_illuminant(sensor).ok()??;
     let calibration = resolve_calibration(sensor, true).ok()?;
     scene_weight(&dual, &calibration, sensor.as_shot_neutral.as_ref()?)
 }
@@ -2823,8 +2859,9 @@ mod tests {
     fn degenerate_interpolation_inputs_do_not_panic() {
         let asn = asn_half_one_half();
 
-        // (a) A ColorMatrix2 with a zero-denominator entry ⇒ unusable ⇒ fallback;
-        //     the build still succeeds via ForwardMatrix1.
+        // (a) A ColorMatrix2 with a zero-denominator entry is unusable. Before
+        //     SPEC-089 that silently fell back to single-illuminant colour via
+        //     ForwardMatrix1; DEC-078 §7.2 makes it an error, never a panic.
         let mut bad_cm2 = fixture_cm2();
         bad_cm2[0] = Rational { num: 1, den: 0 };
         let fm1 = matrix_rationals([[6000, 3000, 642], [2000, 7000, 1000], [1000, 1000, 6252]]);
@@ -2838,7 +2875,10 @@ mod tests {
             Some(ILLUMINANT_D65),
         );
         assert_eq!(interpolation_weight(&sensor), None);
-        assert!(build_camera_to_srgb_linear(&sensor).is_ok());
+        assert!(matches!(
+            build_camera_to_srgb_linear(&sensor),
+            Err(Error::MissingColorCalibration)
+        ));
 
         // (b) A singular ColorMatrix1 (row 1 = 2·row 0), no ForwardMatrix, with a
         //     present ColorMatrix2 and illuminants. Before SPEC-085 the 3-pass
@@ -2867,5 +2907,145 @@ mod tests {
         assert_eq!(xyz_to_xy([-1.0, 0.0, 0.0]), None);
         assert_eq!(xyz_to_xy([0.0, 0.0, 0.0]), None);
         assert!(xyz_to_xy([0.3, 0.4, 0.3]).is_some());
+    }
+
+    // ── SPEC-089 AC4 (DEC-078 §7.2): a present matrix's error propagates ─────
+    //
+    // Hand-built sensors, bypassing the reader (which refuses these shapes
+    // first): the colour code is the second line, and it no longer turns a
+    // present matrix it cannot use into a fallback.
+
+    /// `entries` cut to its first eight: the misshapen form of a 3×3 matrix.
+    fn eight(entries: Vec<Rational>) -> Vec<Rational> {
+        entries.into_iter().take(8).collect()
+    }
+
+    #[test]
+    fn ac4_dual_illuminant_propagates_a_present_matrix_error() {
+        // Both illuminants known and distinct, so only the matrix decides
+        // (mutant (d)'s distinguishing fixture).
+        let asn = asn_half_one_half();
+        let misshapen = dual_sensor(
+            Some(fixture_cm1()),
+            Some(eight(fixture_cm2())),
+            None,
+            None,
+            Some(asn.clone()),
+            Some(ILLUMINANT_A),
+            Some(ILLUMINANT_D65),
+        );
+        assert!(matches!(
+            dual_illuminant(&misshapen),
+            Err(Error::MissingColorCalibration)
+        ));
+        assert!(matches!(
+            build_camera_to_srgb_linear(&misshapen),
+            Err(Error::MissingColorCalibration)
+        ));
+
+        // The absent control still takes the single-illuminant path, Ok.
+        let absent = dual_sensor(
+            Some(fixture_cm1()),
+            None,
+            None,
+            None,
+            Some(asn.clone()),
+            Some(ILLUMINANT_A),
+            Some(ILLUMINANT_D65),
+        );
+        assert!(matches!(dual_illuminant(&absent), Ok(None)));
+        let single = build_camera_to_srgb_linear(&absent).expect("absent CM2 develops");
+        // And it is exactly what an unknown illuminant gives (rank 8 keeps its
+        // fallback): today's single-illuminant output.
+        let unknown = dual_sensor(
+            Some(fixture_cm1()),
+            Some(fixture_cm2()),
+            None,
+            None,
+            Some(asn),
+            Some(ILLUMINANT_A),
+            Some(99),
+        );
+        assert!(matches!(dual_illuminant(&unknown), Ok(None)));
+        assert_eq!(build_camera_to_srgb_linear(&unknown).unwrap(), single);
+    }
+
+    /// The AC4 `ForwardMatrix1`.
+    fn fm1_fixture() -> Vec<Rational> {
+        matrix_rationals([[6000, 3000, 642], [2000, 7000, 1000], [1000, 1000, 6252]])
+    }
+
+    /// A `ForwardMatrix2` distinct from [`fm1_fixture`], so the ForwardMatrix
+    /// path differs from the ColorMatrix path.
+    fn fm2_fixture() -> Vec<Rational> {
+        matrix_rationals([[6500, 2500, 642], [2500, 6500, 1000], [800, 1200, 6252]])
+    }
+
+    #[test]
+    fn ac4_forward_matrix_error_propagates() {
+        let asn = asn_half_one_half();
+        let with_fm2 = |fm2: Option<Vec<Rational>>| {
+            dual_sensor(
+                Some(fixture_cm1()),
+                Some(fixture_cm2()),
+                Some(fm1_fixture()),
+                fm2,
+                Some(asn.clone()),
+                Some(ILLUMINANT_A),
+                Some(ILLUMINANT_D65),
+            )
+        };
+        // The two valid paths differ, so taking the wrong one would show
+        // (mutant (e)'s distinguishing fixture).
+        let fm_path = build_camera_to_srgb_linear(&with_fm2(Some(fm2_fixture())))
+            .expect("the ForwardMatrix path develops");
+        let cm_path =
+            build_camera_to_srgb_linear(&with_fm2(None)).expect("the ColorMatrix path develops");
+        assert_ne!(fm_path, cm_path);
+
+        // A present, misshapen ForwardMatrix2 is an error, not the ColorMatrix
+        // path's output.
+        let misshapen = with_fm2(Some(eight(fm2_fixture())));
+        assert!(matches!(
+            build_camera_to_srgb_linear(&misshapen),
+            Err(Error::MissingColorCalibration)
+        ));
+    }
+
+    #[test]
+    fn ac4_unused_calibration_is_validated() {
+        // Single-illuminant (one CalibrationIlluminant, no ColorMatrix2), so
+        // CameraCalibration2 is never applied (mutant (f)'s distinguishing
+        // fixture: on a dual sensor the old code already refused).
+        let asn = asn_half_one_half();
+        let mut sensor = dual_sensor(
+            Some(fixture_cm1()),
+            None,
+            None,
+            None,
+            Some(asn),
+            Some(ILLUMINANT_A),
+            None,
+        );
+        let control = build_camera_to_srgb_linear(&sensor).expect("no calibration develops");
+        assert!(resolve_calibration(&sensor, false).is_ok());
+
+        sensor.camera_calibration_2 = Some(eight(identity_rationals()));
+        assert!(matches!(
+            resolve_calibration(&sensor, false),
+            Err(Error::MissingColorCalibration)
+        ));
+        assert!(matches!(
+            build_camera_to_srgb_linear(&sensor),
+            Err(Error::MissingColorCalibration)
+        ));
+
+        // A well-formed but unused CameraCalibration2 changes nothing.
+        sensor.camera_calibration_2 = Some(matrix_rationals([
+            [10500, 0, 0],
+            [0, 10000, 0],
+            [0, 0, 9500],
+        ]));
+        assert_eq!(build_camera_to_srgb_linear(&sensor).unwrap(), control);
     }
 }

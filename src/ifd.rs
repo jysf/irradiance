@@ -1617,6 +1617,10 @@ impl<'a> Container<'a> {
     }
 
     /// First value of `tag` in `ifd`, or `None` when the tag is absent.
+    ///
+    /// A present tag with a count of zero is also `Ok(None)` here; the sensor
+    /// reader uses its own count-aware read, which treats it as malformed
+    /// (`DEC-078` §7).
     pub fn scalar(&self, ifd: &Ifd, tag: u16) -> Result<Option<u32>, Error> {
         match ifd.entry(tag) {
             None => Ok(None),
@@ -2171,6 +2175,51 @@ impl<'a> Container<'a> {
         }
     }
 
+    /// An interpretation scalar that knows its shape (`SPEC-089`, `DEC-078`
+    /// §7.1): `Ok(None)` when absent, and `Err` for a present tag whose count
+    /// is zero or, when `exactly_one`, anything but 1 (`Orientation`,
+    /// `CFALayout`, `CalibrationIlluminant1/2`). The error is only ever costed
+    /// by [`Container::cost_the_field`], never surfaced. The public
+    /// [`Container::scalar`] keeps its documented `Ok(None)` for count zero.
+    fn shaped_scalar(&self, ifd: &Ifd, tag: u16, exactly_one: bool) -> Result<Option<u32>, Error> {
+        let Some(entry) = ifd.entry(tag) else {
+            return Ok(None);
+        };
+        let misshapen = if exactly_one {
+            entry.count != 1
+        } else {
+            entry.count == 0
+        };
+        if misshapen {
+            return Err(Error::ValueOverflow { tag });
+        }
+        self.scalar(ifd, tag)
+    }
+
+    /// A colour calibration tag's [`Rational`] values from `IFD0`, checked
+    /// for shape (`SPEC-089`, `DEC-078` §7.1(b) and (c)): exactly `expected`
+    /// values and no zero denominator, or the field is costed and recorded in
+    /// `malformed`. `expected` is `None` only when ColorPlanes is too large
+    /// to multiply, and then no count fits. An absent tag is `None` and is not
+    /// recorded (`DEC-015`).
+    fn ifd0_colour_rationals(
+        &self,
+        tag: u16,
+        expected: Option<usize>,
+        malformed: &mut Vec<u16>,
+    ) -> Option<Vec<Rational>> {
+        let entry = self.ifd0()?.entry(tag)?;
+        let read = self.rationals(entry).and_then(|values| {
+            let shaped = Some(values.len()) == expected && values.iter().all(|v| v.den != 0);
+            if shaped {
+                Ok(Some(values))
+            } else {
+                Err(Error::ValueOverflow { tag })
+            }
+        });
+        Self::cost_the_field(read, tag, malformed)
+    }
+
     /// A colour tag's [`Rational`] values read from `IFD0`, or `None` when
     /// `IFD0` or the tag is absent (`SPEC-026`). Interpretation-class
     /// (`DEC-012`): a present-but-malformed tag costs that field alone and is
@@ -2184,10 +2233,17 @@ impl<'a> Container<'a> {
     /// A calibration signature read from `IFD0`, or `None` when `IFD0` or the
     /// tag is absent (`SPEC-085`, `DEC-076` §1). Same interpretation-class
     /// contract as [`Container::ifd0_rationals`]: a present tag of any type but
-    /// `ASCII`/`BYTE`, or one whose payload cannot be read, costs the field.
+    /// `ASCII`/`BYTE`, a count of zero (`DEC-078` §7.1(a)), or one whose
+    /// payload cannot be read, costs the field.
     fn ifd0_signature(&self, tag: u16, malformed: &mut Vec<u16>) -> Option<Vec<u8>> {
         let entry = self.ifd0()?.entry(tag)?;
-        Self::cost_the_field(self.signature_bytes(entry).map(Some), tag, malformed)
+        // `DEC-078` §7.1(a): an empty signature tag is malformed, not "".
+        let read = if entry.count == 0 {
+            Err(Error::ValueOverflow { tag })
+        } else {
+            self.signature_bytes(entry).map(Some)
+        };
+        Self::cost_the_field(read, tag, malformed)
     }
 
     /// An `ASCII` or `BYTE` entry's bytes as written, cut at the first NUL
@@ -2295,11 +2351,15 @@ impl<'a> Container<'a> {
     /// A `BlackLevelDeltaH/V` tag's values as `num / den`, or `Ok(None)` when
     /// absent (`SPEC-086`, `DEC-077` §1). Read through
     /// [`Container::rationals`]; a zero denominator is
-    /// [`Error::MalformedRationalValue`], so the caller costs the field.
+    /// [`Error::MalformedRationalValue`], and a count of zero (`DEC-078`
+    /// §7.1(a)) is [`Error::ValueOverflow`], so the caller costs the field.
     fn black_level_deltas(&self, ifd: &Ifd, tag: u16) -> Result<Option<Vec<f64>>, Error> {
         let Some(entry) = ifd.entry(tag) else {
             return Ok(None);
         };
+        if entry.count == 0 {
+            return Err(Error::ValueOverflow { tag });
+        }
         let mut out = Vec::new();
         for value in self.rationals(entry)? {
             if value.den == 0 {
@@ -2316,11 +2376,12 @@ impl<'a> Container<'a> {
 
     /// A colour SHORT scalar (a DNG LightSource code) read from `IFD0`, or
     /// `None` (`SPEC-026`). Same interpretation-class contract as
-    /// [`Container::ifd0_rationals`]: an absent tag is `None` (via `scalar`'s
-    /// `Ok(None)`), a malformed one costs the field.
+    /// [`Container::ifd0_rationals`]: an absent tag is `None`, a malformed one
+    /// costs the field. A `CalibrationIlluminant` is exactly one value, so a
+    /// count other than 1 is malformed (`DEC-078` §7.1(b)).
     fn ifd0_scalar(&self, tag: u16, malformed: &mut Vec<u16>) -> Option<u32> {
         let ifd0 = self.ifd0()?;
-        Self::cost_the_field(self.scalar(ifd0, tag), tag, malformed)
+        Self::cost_the_field(self.shaped_scalar(ifd0, tag, true), tag, malformed)
     }
 
     /// The CFA mosaic model ([`Cfa`]) of a Bayer plane, or `None` (`SPEC-024`).
@@ -2350,15 +2411,26 @@ impl<'a> Container<'a> {
             malformed,
         )
         .unwrap_or([0, 0]);
+        // `DEC-078` §7.1(a): an empty `CFAPlaneColor` is malformed (it would
+        // otherwise read as zero planes), and `CFALayout` is exactly one value.
         let plane_color = Self::cost_the_field(
-            self.cfa_bytes(ifd, TAG_CFA_PLANE_COLOR),
+            self.cfa_bytes(ifd, TAG_CFA_PLANE_COLOR)
+                .and_then(|read| match read {
+                    Some(bytes) if bytes.is_empty() => Err(Error::ValueOverflow {
+                        tag: TAG_CFA_PLANE_COLOR,
+                    }),
+                    other => Ok(other),
+                }),
             TAG_CFA_PLANE_COLOR,
             malformed,
         )
         .unwrap_or_else(|| vec![0, 1, 2]);
-        let layout =
-            Self::cost_the_field(self.scalar(ifd, TAG_CFA_LAYOUT), TAG_CFA_LAYOUT, malformed)
-                .unwrap_or(1);
+        let layout = Self::cost_the_field(
+            self.shaped_scalar(ifd, TAG_CFA_LAYOUT, true),
+            TAG_CFA_LAYOUT,
+            malformed,
+        )
+        .unwrap_or(1);
         Some(Cfa {
             repeat_dim,
             pattern,
@@ -2402,12 +2474,17 @@ impl<'a> Container<'a> {
         // all. `ifd_index == 0` is exactly "the plane is IFD0": `ifd0()` is
         // always `self.ifds[0]`, so a distinct sensor-IFD read only exists
         // when the sensor plane is some other index.
-        let ifd0_read = self.ifd0().map(|ifd0| self.scalar(ifd0, TAG_ORIENTATION));
+        //
+        // `SPEC-089` (`DEC-078` §7.1): both reads are shape-aware, so an empty
+        // or multi-valued entry is an `Err` here and takes the same recovery.
+        let ifd0_read = self
+            .ifd0()
+            .map(|ifd0| self.shaped_scalar(ifd0, TAG_ORIENTATION, true));
         let plane_is_ifd0 = ifd_index == 0;
         let sensor_read = if plane_is_ifd0 {
             None
         } else {
-            Some(self.scalar(ifd, TAG_ORIENTATION))
+            Some(self.shaped_scalar(ifd, TAG_ORIENTATION, true))
         };
         let orientation = match &ifd0_read {
             Some(Ok(Some(value))) => Some(*value),
@@ -2427,8 +2504,12 @@ impl<'a> Container<'a> {
         // scalar is the first value of that same read, so `black_level` and
         // `black_levels` cannot disagree. A malformed tag is costed once here
         // and leaves all three fields at their absent values.
+        // A count of zero is malformed, not absent (`DEC-078` §7.1(a)).
         let black_read = match ifd.entry(TAG_BLACK_LEVEL) {
             None => Ok(None),
+            Some(entry) if entry.count == 0 => Err(Error::ValueOverflow {
+                tag: TAG_BLACK_LEVEL,
+            }),
             Some(entry) => self.black_level_values(entry).map(Some),
         };
         let (black_level, black_levels, black_levels_exact) =
@@ -2437,7 +2518,7 @@ impl<'a> Container<'a> {
                 None => (None, Vec::new(), Vec::new()),
             };
         let white_level = Self::cost_the_field(
-            self.scalar(ifd, TAG_WHITE_LEVEL),
+            self.shaped_scalar(ifd, TAG_WHITE_LEVEL, false),
             TAG_WHITE_LEVEL,
             &mut malformed,
         );
@@ -2518,6 +2599,9 @@ impl<'a> Container<'a> {
         // `samples_per_pixel` applies (it was already read cleanly by the scan
         // that selected this IFD).
         let photometric = self.required_scalar(ifd, TAG_PHOTOMETRIC)?;
+        // Structural: SamplesPerPixel, read here because ColorPlanes below
+        // needs it; see the struct field for why no softening test exists.
+        let samples_per_pixel = self.scalar(ifd, TAG_SAMPLES_PER_PIXEL)?.unwrap_or(1);
 
         // Interpretation: the CFA mosaic model (`SPEC-024`). Gated on a CFA
         // plane so a `LinearRaw` plane never reads a CFA tag and the monochrome
@@ -2535,10 +2619,29 @@ impl<'a> Container<'a> {
         // NOT this sensor sub-IFD — reading them from `ifd` would return `None`
         // everywhere and fail AC1. Each is interpretation-class (`DEC-012`): a
         // malformed tag costs that field alone, an absent one is simply `None`.
-        let color_matrix_1 = self.ifd0_rationals(TAG_COLOR_MATRIX_1, &mut malformed);
-        let color_matrix_2 = self.ifd0_rationals(TAG_COLOR_MATRIX_2, &mut malformed);
-        let forward_matrix_1 = self.ifd0_rationals(TAG_FORWARD_MATRIX_1, &mut malformed);
-        let forward_matrix_2 = self.ifd0_rationals(TAG_FORWARD_MATRIX_2, &mut malformed);
+        //
+        // `SPEC-089` (`DEC-078` §7.1(b), (c)): the calibration matrices and
+        // `AnalogBalance` have a fixed count in ColorPlanes and must have no
+        // zero denominator. ColorPlanes is the `CFAPlaneColor` count on a CFA
+        // plane (its `[0, 1, 2]` default, so 3, when absent or malformed, and
+        // 3 when the mosaic itself did not read), `SamplesPerPixel` otherwise.
+        let color_planes = match &color_filter {
+            Some(cfa) => cfa.plane_color.len(),
+            None if photometric == PHOTOMETRIC_CFA => 3,
+            None => usize::try_from(samples_per_pixel).unwrap_or(usize::MAX),
+        };
+        let matrix_len = color_planes.checked_mul(3);
+        let calibration_len = color_planes.checked_mul(color_planes);
+        let color_matrix_1 =
+            self.ifd0_colour_rationals(TAG_COLOR_MATRIX_1, matrix_len, &mut malformed);
+        let color_matrix_2 =
+            self.ifd0_colour_rationals(TAG_COLOR_MATRIX_2, matrix_len, &mut malformed);
+        let forward_matrix_1 =
+            self.ifd0_colour_rationals(TAG_FORWARD_MATRIX_1, matrix_len, &mut malformed);
+        let forward_matrix_2 =
+            self.ifd0_colour_rationals(TAG_FORWARD_MATRIX_2, matrix_len, &mut malformed);
+        // `AsShotNeutral` keeps its own refusal (`DEC-078` §2), so its read
+        // is unchanged.
         let as_shot_neutral = self.ifd0_rationals(TAG_AS_SHOT_NEUTRAL, &mut malformed);
         let calibration_illuminant_1 =
             self.ifd0_scalar(TAG_CALIBRATION_ILLUMINANT_1, &mut malformed);
@@ -2546,9 +2649,12 @@ impl<'a> Container<'a> {
             self.ifd0_scalar(TAG_CALIBRATION_ILLUMINANT_2, &mut malformed);
         // `SPEC-085` (`DEC-076` §1): the calibration the colour develop applies,
         // from `IFD0` with the same interpretation-class contract.
-        let camera_calibration_1 = self.ifd0_rationals(TAG_CAMERA_CALIBRATION_1, &mut malformed);
-        let camera_calibration_2 = self.ifd0_rationals(TAG_CAMERA_CALIBRATION_2, &mut malformed);
-        let analog_balance = self.ifd0_rationals(TAG_ANALOG_BALANCE, &mut malformed);
+        let camera_calibration_1 =
+            self.ifd0_colour_rationals(TAG_CAMERA_CALIBRATION_1, calibration_len, &mut malformed);
+        let camera_calibration_2 =
+            self.ifd0_colour_rationals(TAG_CAMERA_CALIBRATION_2, calibration_len, &mut malformed);
+        let analog_balance =
+            self.ifd0_colour_rationals(TAG_ANALOG_BALANCE, Some(color_planes), &mut malformed);
         let camera_calibration_signature =
             self.ifd0_signature(TAG_CAMERA_CALIBRATION_SIGNATURE, &mut malformed);
         let profile_calibration_signature =
@@ -2633,7 +2739,7 @@ impl<'a> Container<'a> {
             // the value it would tolerate was already read once, without
             // error, by the scan that chose this IFD. Equivalent mutant,
             // unkillable by construction; do not manufacture coverage for it.
-            samples_per_pixel: self.scalar(ifd, TAG_SAMPLES_PER_PIXEL)?.unwrap_or(1),
+            samples_per_pixel,
             // Structural: Photometric — part of the identifying trio. Read
             // once above (reused for the CFA gate); same equivalent-mutant
             // reasoning as `samples_per_pixel`.
@@ -3061,7 +3167,10 @@ mod tests {
         for big in [false, true] {
             let b = Build::new(big, 8);
             let block = b.srational_bytes(CM1);
-            let mut entries = sensor(&b);
+            // A 3-plane CFA plane: a 9-entry ColorMatrix is 3 × ColorPlanes
+            // there, where a 1-sample LinearRaw plane would want 3 entries
+            // (`DEC-078` §7.1(b), `SPEC-089`).
+            let mut entries = cfa_sensor(&b);
             entries.push((TAG_COLOR_MATRIX_1, TYPE_SRATIONAL, 9, 300));
             let data = b.ifd(8, &entries, 0).data_at(300, &block).done();
 
@@ -3190,7 +3299,9 @@ mod tests {
         // and the NUL cut are exercised on the same file.
         for big in [false, true] {
             let b = Build::new(big, 8);
-            let mut entries = sensor(&b);
+            // A 3-plane CFA plane, so 9 and 3 entries are the DNG counts
+            // (`DEC-078` §7.1(b), `SPEC-089`).
+            let mut entries = cfa_sensor(&b);
             entries.push((TAG_CAMERA_CALIBRATION_1, TYPE_SRATIONAL, 9, 400));
             entries.push((TAG_CAMERA_CALIBRATION_2, TYPE_SRATIONAL, 9, 480));
             entries.push((TAG_ANALOG_BALANCE, TYPE_RATIONAL, 3, 560));

@@ -6,19 +6,19 @@
 task:
   id: SPEC-089
   type: story                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -68,11 +68,31 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 25000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-185
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 14259009
+      estimated_usd: 11.23
+      duration_minutes: 18
+      recorded_at: 2026-11-23
+      notes: "Floor, summed live from this session transcript (6c650547), 65 messages deduplicated by message.id, model claude-opus-5-5; in 131, cache creation 232,446 (1-hour), cache read 13,949,284, out 77,148. USD at Opus list rates 5 and 25 dollars per MTok with 1-hour cache writes. Taken before the handback edit and PR body, so re-sum after the session for the final figure. Duration is the transcript timestamp span."
+    - cycle: verify
+      handoff: HANDOFF-186
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 10230218
+      estimated_usd: 7.69
+      duration_minutes: 16
+      recorded_at: 2026-11-23
+      notes: "Floor, summed live from this session transcript (8ef6d792), 58 messages deduplicated by message.id, model claude-opus-5-5; in 115, cache creation 168,356 (1-hour), cache read 10,021,976, out 39,771. USD at Opus list rates 5 and 25 dollars per MTok with 1-hour cache writes. Taken before the handback commit and push, so re-sum after the session. APPROVED at 727d471; V1 fixed there, tests only."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 24489227
+    estimated_usd: 18.92
+    session_count: 2
 ---
 
 # SPEC-089: Empty and misshapen interpretation tags refuse at develop
