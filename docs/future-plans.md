@@ -254,6 +254,10 @@ A bounded `SPIKE-NNN` on the held Q2M files (and the rest of the corpus):
 > PROJ-005. The mixer is PROJ-006 by the maintainer's call. The ID tool reads only
 > `projects/`, so create this project before any other, or it will hand PROJ-006 out
 > again.
+>
+> **Created 2026-11-23** as `projects/PROJ-006-spectral-monochrome-mixer/` (proposed). The
+> brief is now the source of truth; the mix space (white-balanced camera RGB here, or a
+> linear working space) is reopened there as the first STAGE-031 design decision.
 
 A scene-linear monochrome formation for **colour** Bayer DNGs (Leica Q2/Q3,
 M10/M11, SL2/SL3) — the PROJ-002 bridge for the monochrome app.
