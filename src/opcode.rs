@@ -117,9 +117,15 @@
 //! 4, with no code copied; see `docs/provenance-ledger.md`.
 
 use crate::ifd::{
-    Sensor, TAG_BLACK_LEVEL_DELTA_H, TAG_BLACK_LEVEL_DELTA_V, TAG_COLUMN_INTERLEAVE_FACTOR,
-    TAG_DNG_BACKWARD_VERSION, TAG_LINEARIZATION_TABLE, TAG_OPCODE_LIST_1, TAG_OPCODE_LIST_2,
-    TAG_OPCODE_LIST_3, TAG_ROW_INTERLEAVE_FACTOR, TAG_SAMPLE_FORMAT, TAG_SUB_TILE_BLOCK_SIZE,
+    Sensor, TAG_ACTIVE_AREA, TAG_ANALOG_BALANCE, TAG_BLACK_LEVEL, TAG_BLACK_LEVEL_DELTA_H,
+    TAG_BLACK_LEVEL_DELTA_V, TAG_BLACK_LEVEL_REPEAT_DIM, TAG_CALIBRATION_ILLUMINANT_1,
+    TAG_CALIBRATION_ILLUMINANT_2, TAG_CAMERA_CALIBRATION_1, TAG_CAMERA_CALIBRATION_2,
+    TAG_CAMERA_CALIBRATION_SIGNATURE, TAG_CFA_LAYOUT, TAG_CFA_PLANE_COLOR, TAG_COLOR_MATRIX_1,
+    TAG_COLOR_MATRIX_2, TAG_COLUMN_INTERLEAVE_FACTOR, TAG_DEFAULT_CROP_ORIGIN,
+    TAG_DEFAULT_CROP_SIZE, TAG_DNG_BACKWARD_VERSION, TAG_DNG_VERSION, TAG_FORWARD_MATRIX_1,
+    TAG_FORWARD_MATRIX_2, TAG_LINEARIZATION_TABLE, TAG_OPCODE_LIST_1, TAG_OPCODE_LIST_2,
+    TAG_OPCODE_LIST_3, TAG_ORIENTATION, TAG_PROFILE_CALIBRATION_SIGNATURE,
+    TAG_ROW_INTERLEAVE_FACTOR, TAG_SAMPLE_FORMAT, TAG_SUB_TILE_BLOCK_SIZE, TAG_WHITE_LEVEL,
 };
 use crate::Error;
 
@@ -1039,7 +1045,8 @@ pub fn parse_fix_bad_pixels_constant(bytes: &[u8]) -> Result<Option<u32>, Error>
 // Required-processing validation — `SPEC-054`, `DEC-049`
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Which develop path is asking, and so which opcodes it applies (`DEC-049`).
+/// Which develop path is asking, and so which opcodes it applies (`DEC-049`)
+/// and which malformed tags it refuses (`DEC-078` §2).
 ///
 /// Passed to [`check_required_processing`] by anyone composing the stage
 /// primitives themselves (`SPEC-056`, `DEC-053`). `#[non_exhaustive]`: a later
@@ -1053,17 +1060,59 @@ pub enum DevelopPath {
     /// in `OpcodeList3`.
     Mono,
     /// The colour path: [`crate::color::develop_color_into`] and its `f32` /
-    /// threaded variants, and the colour stage primitives
-    /// ([`crate::demosaic::demosaic_into`],
-    /// [`crate::demosaic::demosaic_into_threaded`],
-    /// [`crate::color::to_srgb_linear_into`]). It applies **every** `GainMap`
-    /// in `OpcodeList2` (`SPEC-059`, `DEC-069`) and nothing else, so any other
-    /// mandatory opcode in any list is refused. The colour develop entries
-    /// apply the maps themselves; the colour stage primitives take a plane
-    /// that is already past stage 2, so a composer applies them first with
-    /// [`crate::develop::apply_gain_maps`].
+    /// threaded variants. It applies **every** `GainMap` in `OpcodeList2`
+    /// (`SPEC-059`, `DEC-069`) and nothing else, so any other mandatory opcode
+    /// in any list is refused. It refuses a malformed tag of the levels and
+    /// geometry set, the CFA set or the colour set (`DEC-078` §2). A composer
+    /// asking with this path gets the full colour develop's answer.
     Colour,
+    /// The demosaic stage primitives, [`crate::demosaic::demosaic_into`] and
+    /// [`crate::demosaic::demosaic_into_threaded`] (`SPEC-087`, `DEC-078`).
+    /// The same opcodes as [`DevelopPath::Colour`]: the primitive takes a
+    /// plane already past stage 2, so a composer applies the `GainMap`s first
+    /// with [`crate::develop::apply_gain_maps`]. It refuses only a malformed
+    /// tag of the CFA set, the tags a demosaic reads.
+    Demosaic,
+    /// The colour transform stage primitive,
+    /// [`crate::color::to_srgb_linear_into`] (`SPEC-087`, `DEC-078`). The same
+    /// opcodes as [`DevelopPath::Colour`]. It refuses only a malformed tag of
+    /// the colour set, the tags the transform reads.
+    ColourTransform,
 }
+
+/// `DEC-078` §2, the levels and geometry set: the tags the mono and colour
+/// develops read to resolve levels and framing, in ascending order.
+/// `BlackLevelRepeatDim` counts only when `BlackLevel` has more than one value
+/// (see [`check_malformed_tags`]).
+const LEVELS_AND_GEOMETRY_SET: [u16; 7] = [
+    TAG_ORIENTATION,
+    TAG_BLACK_LEVEL_REPEAT_DIM,
+    TAG_BLACK_LEVEL,
+    TAG_WHITE_LEVEL,
+    TAG_DEFAULT_CROP_ORIGIN,
+    TAG_DEFAULT_CROP_SIZE,
+    TAG_ACTIVE_AREA,
+];
+
+/// `DEC-078` §2, the CFA set: the tags a demosaic reads beyond `CFAPattern`
+/// and `CFARepeatPatternDim` (which are refused another way), ascending.
+const CFA_SET: [u16; 2] = [TAG_CFA_PLANE_COLOR, TAG_CFA_LAYOUT];
+
+/// `DEC-078` §2, the colour set: every tag the colour transform reads, even
+/// one the chosen sub-path will not use, ascending.
+const COLOUR_SET: [u16; 11] = [
+    TAG_COLOR_MATRIX_1,
+    TAG_COLOR_MATRIX_2,
+    TAG_CAMERA_CALIBRATION_1,
+    TAG_CAMERA_CALIBRATION_2,
+    TAG_ANALOG_BALANCE,
+    TAG_CALIBRATION_ILLUMINANT_1,
+    TAG_CALIBRATION_ILLUMINANT_2,
+    TAG_CAMERA_CALIBRATION_SIGNATURE,
+    TAG_PROFILE_CALIBRATION_SIGNATURE,
+    TAG_FORWARD_MATRIX_1,
+    TAG_FORWARD_MATRIX_2,
+];
 
 /// Which instances of an opcode a path applies from one list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1088,6 +1137,19 @@ impl DevelopPath {
             (DevelopPath::Mono, 3) => Applied::First(OPCODE_ID_WARP_RECTILINEAR),
             (_, 2) => Applied::Every(OPCODE_ID_GAIN_MAP),
             _ => Applied::Nothing,
+        }
+    }
+
+    /// The `DEC-078` §2 sets this path refuses a malformed tag of. The sets'
+    /// numbers interleave (levels 274 and 50713 to 50829, CFA 50710 and
+    /// 50711, colour 50721 to 50965), so [`check_malformed_tags`] takes the
+    /// lowest malformed tag across them rather than the first in walk order.
+    fn malformed_sets(self) -> &'static [&'static [u16]] {
+        match self {
+            DevelopPath::Mono => &[&LEVELS_AND_GEOMETRY_SET],
+            DevelopPath::Colour => &[&LEVELS_AND_GEOMETRY_SET, &CFA_SET, &COLOUR_SET],
+            DevelopPath::Demosaic => &[&CFA_SET],
+            DevelopPath::ColourTransform => &[&COLOUR_SET],
         }
     }
 }
@@ -1116,6 +1178,13 @@ impl DevelopPath {
 /// honour, is refused. Every develop entry calls this first, so the refusal
 /// lands before anything is written.
 ///
+/// Then, before any opcode list, a malformed tag that `path` reads (`SPEC-087`,
+/// `DEC-078`): the levels and geometry tags on [`DevelopPath::Mono`]; the CFA
+/// tags `CFAPlaneColor` and `CFALayout` on [`DevelopPath::Demosaic`]; the
+/// colour calibration tags on [`DevelopPath::ColourTransform`]; all three sets
+/// on [`DevelopPath::Colour`]. A malformed `BlackLevelRepeatDim` counts only
+/// when `BlackLevel` has more than one value.
+///
 /// Lists are checked in order 1, 2, 3. For each list:
 ///
 /// 1. If its tag is present but unreadable (recorded in
@@ -1136,7 +1205,10 @@ impl DevelopPath {
 ///   DNG backward version is newer than 1.7.1.0.
 /// - [`Error::UnsupportedTag`] `{ tag }` for the first (lowest-numbered)
 ///   sample-meaning tag with a value the develop does not honour, or present
-///   but malformed; or a malformed `DNGBackwardVersion`.
+///   but malformed; or a malformed `DNGBackwardVersion`, or a malformed
+///   `DNGVersion` with no `DNGBackwardVersion`.
+/// - [`Error::MalformedTag`] `{ tag }` for the lowest malformed tag `path`
+///   reads (`DEC-078` §2).
 /// - [`Error::UnreadableOpcodeList`] `{ list }` when an `OpcodeList` tag is
 ///   present but its payload could not be read.
 /// - [`Error::UnsupportedRequiredOpcode`] `{ list, id }` for a mandatory,
@@ -1148,6 +1220,7 @@ impl DevelopPath {
 ///   optional).
 pub fn check_required_processing(sensor: &Sensor, path: DevelopPath) -> Result<(), Error> {
     check_unhonoured_tags(sensor)?;
+    check_malformed_tags(sensor, path)?;
     let unreadable = [TAG_OPCODE_LIST_1, TAG_OPCODE_LIST_2, TAG_OPCODE_LIST_3]
         .map(|tag| sensor.malformed_tags.contains(&tag));
     check_lists(
@@ -1159,6 +1232,34 @@ pub fn check_required_processing(sensor: &Sensor, path: DevelopPath) -> Result<(
         unreadable,
         path,
     )
+}
+
+/// `DEC-078` §2 and §3: refuse the lowest tag of `path`'s sets that is in
+/// [`Sensor::malformed_tags`], as [`Error::MalformedTag`]. A malformed tag is
+/// present but unreadable, so the develop cannot fall back to the absent-tag
+/// default: absent is the DNG default, malformed is "the file says something
+/// here and we cannot read it".
+///
+/// The one exception is `BlackLevelRepeatDim`: with at most one `BlackLevel`
+/// value the repeat dimension cannot change any photosite's black, so a
+/// malformed one is not refused (the Pentax K-3 III Monochrome writes count 1).
+/// It holds under every `DevelopOptions`, since an option never skips a tag's
+/// validation (`DEC-058` §3).
+///
+/// Reads `malformed_tags` and `black_levels` only; allocates nothing.
+fn check_malformed_tags(sensor: &Sensor, path: DevelopPath) -> Result<(), Error> {
+    let repeat_dim_matters = sensor.black_levels.len() > 1;
+    let first = path
+        .malformed_sets()
+        .iter()
+        .flat_map(|set| set.iter().copied())
+        .filter(|&tag| tag != TAG_BLACK_LEVEL_REPEAT_DIM || repeat_dim_matters)
+        .filter(|tag| sensor.malformed_tags.contains(tag))
+        .min();
+    match first {
+        Some(tag) => Err(Error::MalformedTag { tag }),
+        None => Ok(()),
+    }
 }
 
 /// The newest DNG backward version this reader reads: 1.7.1.0, the version
@@ -1174,7 +1275,8 @@ const MAX_SUPPORTED_BACKWARD_VERSION: [u8; 4] = [1, 7, 1, 0];
 /// `DNGBackwardVersion` when present; otherwise `DNGVersion` with its last two
 /// bytes zeroed (DNG 1.7.1.0's default); with both absent there is no check. A
 /// malformed `DNGBackwardVersion` is refused as [`Error::UnsupportedTag`]
-/// rather than replaced by the default. Arrays compare byte by byte from the
+/// rather than replaced by the default, and so is a malformed `DNGVersion`
+/// when `DNGBackwardVersion` is absent (`DEC-078` §2). Arrays compare byte by byte from the
 /// first, which is the version order.
 ///
 /// Then the tag set, in ascending tag order, refusing the first tag that is
@@ -1186,6 +1288,13 @@ fn check_unhonoured_tags(sensor: &Sensor) -> Result<(), Error> {
     if malformed(TAG_DNG_BACKWARD_VERSION) {
         return Err(Error::UnsupportedTag {
             tag: TAG_DNG_BACKWARD_VERSION,
+        });
+    }
+    // `DEC-078` §2: with no backward version, the default comes from
+    // `DNGVersion`; a malformed one leaves the reader version unknown.
+    if sensor.dng_backward_version.is_none() && malformed(TAG_DNG_VERSION) {
+        return Err(Error::UnsupportedTag {
+            tag: TAG_DNG_VERSION,
         });
     }
     let effective = sensor

@@ -267,8 +267,10 @@ const MCCAMY_C0: f64 = 5520.33;
 /// # Errors
 ///
 /// - Whatever [`crate::opcode::check_required_processing`] returns for
-///   [`crate::opcode::DevelopPath::Colour`], checked first: a mandatory opcode
-///   in any list other than an `OpcodeList2` `GainMap` (`SPEC-059`; this
+///   [`crate::opcode::DevelopPath::ColourTransform`], checked first: a
+///   malformed colour calibration tag ([`Error::MalformedTag`], `DEC-078`), or
+///   a mandatory opcode in any list other than an `OpcodeList2` `GainMap`
+///   (`SPEC-059`; this
 ///   primitive takes camera RGB already past stage 2, so a composer applies
 ///   the maps first with [`crate::develop::apply_gain_maps`])
 ///   ([`Error::UnsupportedRequiredOpcode`] /
@@ -291,8 +293,9 @@ pub fn to_srgb_linear_into(
 ) -> Result<(), Error> {
     // Camera-referred pixels on the colour path, which applies only
     // `OpcodeList2`'s `GainMap`s (`SPEC-059`): refuse first, as every colour
-    // develop does (`SPEC-056`, `DEC-053`).
-    check_colour_required_processing(sensor)?;
+    // develop does (`SPEC-056`, `DEC-053`). This primitive reads only the
+    // colour tags, so it asks as the transform (`DEC-078` §2).
+    crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::ColourTransform)?;
     let rgb_len = interleaved_rgb_len(sensor)?;
     let expected = usize::try_from(rgb_len).unwrap_or(usize::MAX);
     if camera_rgb.len() != expected {

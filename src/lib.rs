@@ -1159,7 +1159,9 @@ pub enum Error {
     /// (`SampleFormat`, `LinearizationTable`, `BlackLevelDeltaH/V`,
     /// `SubTileBlockSize`, `RowInterleaveFactor`, `ColumnInterleaveFactor`)
     /// holds a value the develop does not apply, or is present but malformed;
-    /// or `DNGBackwardVersion` is malformed. Raised by every develop entry
+    /// or `DNGBackwardVersion` is malformed, or `DNGVersion` is malformed with
+    /// no `DNGBackwardVersion` (`SPEC-087`, `DEC-078` §2: the file's reader
+    /// version is then unknown). Raised by every develop entry
     /// before it writes, naming the first offending tag in ascending order;
     /// metadata and plane reads still succeed.
     UnsupportedTag {
@@ -1177,6 +1179,17 @@ pub enum Error {
         precision: u8,
         /// The sensor's `BitsPerSample`.
         bits_per_sample: u32,
+    },
+
+    /// `SPEC-087`, `DEC-078`. A tag the develop path reads is present but
+    /// malformed (it is in [`ifd::Sensor::malformed_tags`]), so the develop
+    /// cannot use it and does not fall back to the absent-tag default. Raised
+    /// by every develop entry (through [`opcode::check_required_processing`])
+    /// before it writes, naming the lowest such tag of the path's set;
+    /// metadata and plane reads still succeed.
+    MalformedTag {
+        /// The tag number, e.g. 50717 for `WhiteLevel`.
+        tag: u16,
     },
 }
 
@@ -1716,11 +1729,23 @@ impl fmt::Display for Error {
                     ifd::TAG_DNG_BACKWARD_VERSION
                 )
             }
+            // A malformed DNGVersion with no DNGBackwardVersion (DEC-078 §2):
+            // the backward version's default is then unknown.
+            Error::UnsupportedTag {
+                tag: ifd::TAG_DNG_VERSION,
+            } => {
+                write!(
+                    f,
+                    "DNGVersion ({}) is malformed and DNGBackwardVersion is absent, so the \
+                     file's reader version is unknown",
+                    ifd::TAG_DNG_VERSION
+                )
+            }
             Error::UnsupportedTag { tag } => {
                 write!(
                     f,
                     "{} ({tag}) changes what the samples mean and is not applied yet",
-                    unhonoured_tag_name(*tag)
+                    tag_name(*tag)
                 )
             }
             Error::LjpegPrecisionMismatch {
@@ -1733,16 +1758,44 @@ impl fmt::Display for Error {
                      {bits_per_sample}"
                 )
             }
+            Error::MalformedTag { tag } => {
+                write!(
+                    f,
+                    "{} ({tag}) is present but malformed, so the develop cannot use it",
+                    tag_name(*tag)
+                )
+            }
         }
     }
 }
 
 impl core::error::Error for Error {}
 
-/// The DNG or TIFF name of a tag [`Error::UnsupportedTag`] can carry
-/// (`DEC-077` §2), for its `Display`. Any other number reads as "tag".
-fn unhonoured_tag_name(tag: u16) -> &'static str {
+/// The DNG or TIFF name of a tag [`Error::UnsupportedTag`] (`DEC-077` §2) or
+/// [`Error::MalformedTag`] (`DEC-078` §2) can carry, for its `Display`. Any
+/// other number reads as "tag".
+fn tag_name(tag: u16) -> &'static str {
     match tag {
+        ifd::TAG_ORIENTATION => "Orientation",
+        ifd::TAG_CFA_PLANE_COLOR => "CFAPlaneColor",
+        ifd::TAG_CFA_LAYOUT => "CFALayout",
+        ifd::TAG_BLACK_LEVEL_REPEAT_DIM => "BlackLevelRepeatDim",
+        ifd::TAG_BLACK_LEVEL => "BlackLevel",
+        ifd::TAG_WHITE_LEVEL => "WhiteLevel",
+        ifd::TAG_DEFAULT_CROP_ORIGIN => "DefaultCropOrigin",
+        ifd::TAG_DEFAULT_CROP_SIZE => "DefaultCropSize",
+        ifd::TAG_COLOR_MATRIX_1 => "ColorMatrix1",
+        ifd::TAG_COLOR_MATRIX_2 => "ColorMatrix2",
+        ifd::TAG_CAMERA_CALIBRATION_1 => "CameraCalibration1",
+        ifd::TAG_CAMERA_CALIBRATION_2 => "CameraCalibration2",
+        ifd::TAG_ANALOG_BALANCE => "AnalogBalance",
+        ifd::TAG_CALIBRATION_ILLUMINANT_1 => "CalibrationIlluminant1",
+        ifd::TAG_CALIBRATION_ILLUMINANT_2 => "CalibrationIlluminant2",
+        ifd::TAG_ACTIVE_AREA => "ActiveArea",
+        ifd::TAG_CAMERA_CALIBRATION_SIGNATURE => "CameraCalibrationSignature",
+        ifd::TAG_PROFILE_CALIBRATION_SIGNATURE => "ProfileCalibrationSignature",
+        ifd::TAG_FORWARD_MATRIX_1 => "ForwardMatrix1",
+        ifd::TAG_FORWARD_MATRIX_2 => "ForwardMatrix2",
         ifd::TAG_SAMPLE_FORMAT => "SampleFormat",
         ifd::TAG_LINEARIZATION_TABLE => "LinearizationTable",
         ifd::TAG_BLACK_LEVEL_DELTA_H => "BlackLevelDeltaH",
@@ -1846,6 +1899,7 @@ impl Error {
             // out-of-range values read from the file (the Invalid* variants).
             Error::Truncated { .. }
             | Error::UnreadableOpcodeList { .. }
+            | Error::MalformedTag { .. }
             | Error::CyclicIfd { .. }
             | Error::IfdDepthExceeded { .. }
             | Error::TooManyIfds { .. }

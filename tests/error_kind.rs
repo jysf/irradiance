@@ -34,7 +34,8 @@ use irradiance::{Error, ErrorKind};
 /// review fixes added `UnsupportedCfaLayout`, `UnsupportedCfaPlaneColor`,
 /// `UnsupportedOpcodeVersion` (Unsupported) and `NonFiniteWarpCoefficients`
 /// (CallerError); SPEC-086/DEC-077 added `UnsupportedDngVersion` and
-/// `UnsupportedTag` (Unsupported) and `LjpegPrecisionMismatch` (Corrupt)).
+/// `UnsupportedTag` (Unsupported) and `LjpegPrecisionMismatch` (Corrupt);
+/// SPEC-087/DEC-078 added `MalformedTag` (Corrupt)).
 fn dec_051_table() -> Vec<(Error, ErrorKind)> {
     use ErrorKind::{CallerError, Corrupt, Unsupported};
     vec![
@@ -424,6 +425,9 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             },
             Corrupt,
         ),
+        // SPEC-087, DEC-078 §3: a tag the develop path reads is present but
+        // malformed.
+        (Error::MalformedTag { tag: 50717 }, Corrupt),
     ]
 }
 
@@ -487,8 +491,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        75,
-        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069, the 2026-11 review fixes, and DEC-077) classified 75",
+        76,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069, the 2026-11 review fixes, DEC-077 and DEC-078) classified 76",
         declared.len()
     );
 
@@ -506,16 +510,17 @@ fn every_variant_classified() {
         .collect();
     assert!(wrong.is_empty(), "misclassified: {wrong:#?}");
 
-    // DEC-051's bucket sizes: 17 / 26 / 32 (DEC-053 added one Corrupt;
+    // DEC-051's bucket sizes: 17 / 26 / 33 (DEC-053 added one Corrupt;
     // DEC-056 one Unsupported and two Corrupt; DEC-057 one of each; DEC-058
     // one Unsupported; DEC-059 and DEC-060 one CallerError each; DEC-061 one
     // Corrupt; DEC-063 one CallerError; DEC-069 one CallerError and one
     // Corrupt; the 2026-11 review fixes three Unsupported and one
-    // CallerError; DEC-077 two Unsupported and one Corrupt).
+    // CallerError; DEC-077 two Unsupported and one Corrupt; DEC-078 one
+    // Corrupt).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
     assert_eq!(count(ErrorKind::CallerError), 17);
     assert_eq!(count(ErrorKind::Unsupported), 26);
-    assert_eq!(count(ErrorKind::Corrupt), 32);
+    assert_eq!(count(ErrorKind::Corrupt), 33);
 }
 
 #[test]
