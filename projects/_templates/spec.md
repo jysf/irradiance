@@ -145,6 +145,13 @@ answer differ. A fixture where they agree (one value, a symmetric white balance,
 that do not interleave, a loop that always hits its cap) reaches the clause and still
 cannot fail (signal `a-designed-mutant-must-be-able-to-fail-on-its-fixture`).
 
+**Moved assertions.** When this spec changes, removes or reverses a behaviour
+(including a clause of an earlier `DEC-*`), grep the tests for every assertion that
+encodes the old behaviour (pins, refusal tests, hand-written oracles, fixtures built
+on the old shape) and list each one here as a pre-approved move, with what it becomes.
+A short list sends the build round the gate once per missed test (signal
+`a-changed-formula-lists-every-assertion-it-moves`).
+
 ## Non-Goals
 
 Explicit scope limits. If the implementer thinks any of these need to

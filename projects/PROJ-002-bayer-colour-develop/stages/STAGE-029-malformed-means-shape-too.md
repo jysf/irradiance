@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-029                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-23
-shipped_at: null
+shipped_at: 2026-11-23
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -40,7 +40,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 15800133
+      estimated_usd: 11.61
+      recorded_at: 2026-11-23
+      notes: "Floor, measured from the orchestrator transcript (session 38903934, claude-opus-5-5) from the pasted external review (2026-11-23T05:23Z) to 2026-11-23T13:44Z: 89 unique message.ids, deduped by message.id, no subagents, opus-5-5 rates (input 192 + cache-creation 218,828 (1-hour) + cache-read 15,514,648 + output 66,465). Covers the reproduction probe, the stage frame and SPEC-089's design (PR 318), dispatching the build and verify, the cost-sync fix on PR 319, and this ship and close. The last few ship messages were not yet flushed to the transcript when this was summed. The build and verify sessions are on SPEC-089's own rows, not here."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -111,9 +116,9 @@ them. Update status as specs progress.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-089 (design) — [M] Empty and misshapen interpretation tags refuse at develop (DEC-078 section 7)
+- [x] SPEC-089 (shipped on 2026-11-23) — [M] Empty and misshapen interpretation tags refuse at develop (DEC-078 section 7)
 
-**Count:** 0 shipped / 1 active / 0 pending
+**Count:** 1 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -139,16 +144,31 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. PR 319 (merged as
+  `51b21e8`) makes a present tag that is empty, the wrong length or zero-denominator a
+  `MalformedTag` refusal on every develop path that reads it, before writing, with `dst`
+  untouched. `dual_illuminant`, the ForwardMatrix branch and `resolve_calibration` no longer
+  turn a present matrix's error into a fallback. No `Error` variant, `DEVELOP_VERSION` still
+  8, and `irr ifd` and the outputs are unchanged on all 11 held DNGs.
+- **How many specs did it actually take?** One, SPEC-089 [M], as planned; complexity_actual M.
+- **How many outlines survived unchanged?** Not framed with `just frame-stage`.
+- **What changed between starting and shipping?** The scope grew from "count zero" to
+  "count, length and denominator" once the design audit found the misshapen colour tags.
+  The build then also reversed DEC-076 §3 ("only what is used is checked"), which the
+  design had not named; the verify added the DEC-076 amendment note.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7)
-  - <note what codified / what's still watch + its N>
+  - Codified: `a-changed-formula-lists-every-assertion-it-moves` (N=3) as a "Moved
+    assertions" paragraph under Failing Tests in `projects/_templates/spec.md`.
+- **Signals dispositioned at this close?** All `watch` signals with `disposition_at:
+  stage-close` were walked. One codified (above). `hostile-fixture-shadowed-by-an-earlier-guard`
+  went N=1 to N=2 and stays `watch`. The codified `a-designed-mutant-must-be-able-to-fail-on-its-fixture`
+  recurred (a note was added, wording unchanged). The rest gained no same-outcome evidence
+  and stay `watch`.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - The verify's reflection: write your own mutants from the rule text before reading the
+    build's table. Every survivor here was a clause the build's table did not list. This
+    is already the cold verify's job; no new signal.
+- **Cost.** SPEC-089 24.49M / $18.92 (build 14.26M, verify 10.23M, estimate 25M).
+  Orchestration 15.80M / $11.61. Stage about 40.3M / $30.53.
+- **Next.** The 0.2.6 release spec. Its notes must carry the changed refusals listed in
+  SPEC-089's Reflection.

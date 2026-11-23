@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -93,6 +93,7 @@ cost:
     tokens_total: 24489227
     estimated_usd: 18.92
     session_count: 2
+shipped_at: 2026-11-23
 ---
 
 # SPEC-089: Empty and misshapen interpretation tags refuse at develop
@@ -400,16 +401,30 @@ Pre-registered: every check is exact (an error variant and its fields, a
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — At design, grep the tests for every behaviour the rule reverses (here DEC-076 §3's
+   "only what is used is checked", and 9-entry matrices on a 1-sample LinearRaw plane)
+   and list each as a pre-approved move. The build found four such tests by full runs.
+   Also give every count clause, and every rule the spec says is preserved, a fixture of
+   its own: the verify's three surviving mutants were clauses the 3-plane fixtures could
+   not separate, plus a preserved `WhiteLevel` rule with no positive control.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — Yes, done at the STAGE-029 close: signal
+   `a-changed-formula-lists-every-assertion-it-moves` reached N=3 and is codified as a
+   "Moved assertions" line under Failing Tests in `projects/_templates/spec.md`.
+   DEC-076 §3 got its amendment note in PR 319.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — The 0.2.6 release spec. Its notes must list the changed refusals: a misshapen
+   `ColorMatrix1`, `CameraCalibration` or `AnalogBalance` now refuses as `MalformedTag`
+   (was `MissingColorCalibration`), a count-zero `CFAPlaneColor` as `MalformedTag` (was
+   `UnsupportedCfaPlaneColor`), and an unused ill-shaped calibration now refuses (it
+   developed in 0.2.5).
 
 4. **Where was the worst defect caught?**
-   — <one word>
+   — verify
 
 5. **What can a user do now that they couldn't before?**
-   — <answer | none>
+   — Trust that a DNG with an empty or wrong-shaped interpretation tag, or an invalid
+   second colour matrix, refuses with `MalformedTag` before writing, instead of
+   developing silently with the absent-tag default or single-illuminant colour.
