@@ -83,6 +83,15 @@ positive numerators and denominators, a singular product, or a non-positive refe
 neutral on the ForwardMatrix path (§4). This is the same error and the same treatment an
 unusable `ColorMatrix` gets today, so no variant is added.
 
+> **Amended by DEC-078 §7.2 (2026-11-23, SPEC-089).** "Only a calibration the develop
+> will use is checked" is reversed. Every **present** `CameraCalibration1/2` is checked,
+> used or not, and one that is not 9 rationals with non-zero denominators is never
+> silently the identity. On a parsed file the reader records it in `malformed_tags` and
+> the develop refuses it as `Error::MalformedTag` (DEC-078 §7.1). On a hand-built
+> `Sensor`, the colour code refuses it as `Error::MissingColorCalibration`. Which
+> calibration is *applied* is unchanged: `CameraCalibration1` whenever the rule applies,
+> and `CameraCalibration2` only when the dual-illuminant path also runs.
+
 ### 4. The transform
 
 `g` keeps DEC-034's meaning, the weight of illuminant 2.

@@ -793,6 +793,83 @@ fn ac1_colour_planes_come_from_the_plane() {
     }
 }
 
+/// DEC-078 §7.1(b)'s other two ColorPlanes counts, added at verify
+/// (HANDOFF-186): `CameraCalibration1/2` are ColorPlanes × ColorPlanes and
+/// `AnalogBalance` is ColorPlanes. On a 3-plane CFA fixture 3 × ColorPlanes
+/// and ColorPlanes × ColorPlanes are both 9, and ColorPlanes is 3 either way,
+/// so only a 4-plane or a 1-sample plane tells the rule from "3 × ColorPlanes"
+/// or "always 3".
+#[test]
+fn ac1_colour_planes_size_the_calibration_and_the_balance() {
+    let n_of = |tag: u16, n: usize| -> RawTag {
+        let one = if tag == ANALOG_BALANCE {
+            (1, 1)
+        } else {
+            (10_000, 10_000)
+        };
+        rationals(tag, &vec![one; n])
+    };
+    let four_planes = |d: &mut DngDescription| d.kind = cfa_kind(vec![0, 1, 2, 3]);
+    // (tag, entries, plane: Some(4) is the 4-plane CFA, None the 1-sample
+    // LinearRaw plane, recorded).
+    let cases: [(u16, usize, Option<usize>, bool); 12] = [
+        (CAMERA_CALIBRATION_1, 16, Some(4), false),
+        (CAMERA_CALIBRATION_1, 12, Some(4), true),
+        (CAMERA_CALIBRATION_1, 1, None, false),
+        (CAMERA_CALIBRATION_1, 3, None, true),
+        (CAMERA_CALIBRATION_2, 16, Some(4), false),
+        (CAMERA_CALIBRATION_2, 12, Some(4), true),
+        (CAMERA_CALIBRATION_2, 1, None, false),
+        (CAMERA_CALIBRATION_2, 3, None, true),
+        (ANALOG_BALANCE, 4, Some(4), false),
+        (ANALOG_BALANCE, 3, Some(4), true),
+        (ANALOG_BALANCE, 1, None, false),
+        (ANALOG_BALANCE, 3, None, true),
+    ];
+    for (tag, n, planes, recorded) in cases {
+        let context = format!("{tag} with {n} entries on {planes:?} planes");
+        let written = n_of(tag, n);
+        let fx = fixture(planes.is_some(), &|d: &mut DngDescription| {
+            if planes.is_some() {
+                four_planes(d);
+            }
+            d.extra_tags.push(written.clone());
+        });
+        assert_eq!(
+            times_recorded(&fx.sensor, tag),
+            usize::from(recorded),
+            "{context}: malformed_tags {:?}",
+            fx.sensor.malformed_tags
+        );
+        let read = match tag {
+            CAMERA_CALIBRATION_1 => fx.sensor.camera_calibration_1.as_ref(),
+            CAMERA_CALIBRATION_2 => fx.sensor.camera_calibration_2.as_ref(),
+            _ => fx.sensor.analog_balance.as_ref(),
+        };
+        assert_eq!(read.map(Vec::len), (!recorded).then_some(n), "{context}");
+    }
+}
+
+/// `WhiteLevel` keeps its variable count beyond §7.1(a) (DEC-078 §7.1, the
+/// spec's Non-Goals), added at verify (HANDOFF-186): several values are not
+/// malformed, the scalar is the first and the array keeps them all. Without
+/// this row, reading `WhiteLevel` as "exactly one" passes every other test.
+#[test]
+fn ac1_a_multi_value_white_level_is_not_misshapen() {
+    let values = [60_000, 61_000, 62_000];
+    for cfa in [false, true] {
+        let fx = fixture(cfa, &with_tag(WHITE_LEVEL, longs(WHITE_LEVEL, &values)));
+        assert_eq!(
+            times_recorded(&fx.sensor, WHITE_LEVEL),
+            0,
+            "cfa {cfa}: malformed_tags {:?}",
+            fx.sensor.malformed_tags
+        );
+        assert_eq!(fx.sensor.white_level, Some(values[0]), "cfa {cfa}");
+        assert_eq!(fx.sensor.white_levels, values.to_vec(), "cfa {cfa}");
+    }
+}
+
 #[test]
 fn ac1_valid_and_absent_controls_are_not_recorded() {
     for (tag, set) in TAGS {
