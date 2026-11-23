@@ -732,7 +732,9 @@ fn ac1_colour_planes_come_from_the_plane() {
         rationals(COLOR_MATRIX_1, &values)
     };
     let four_planes = |d: &mut DngDescription| d.kind = cfa_kind(vec![0, 1, 2, 3]);
-    let cases: Vec<(&str, Box<dyn Fn(&mut DngDescription)>, bool, bool)> = vec![
+    /// (name, fixture change, CFA plane, ColorMatrix1 recorded).
+    type Case = (&'static str, Box<dyn Fn(&mut DngDescription)>, bool, bool);
+    let cases: Vec<Case> = vec![
         (
             "4 planes, 9 entries",
             Box::new(move |d: &mut DngDescription| {

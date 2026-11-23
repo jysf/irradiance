@@ -2395,31 +2395,29 @@ fn ac3_an_unusable_applied_calibration_is_refused_before_any_write() {
     assert_refused_on_every_entry(&bad_neutral, "a non-positive reference neutral");
 }
 
+/// SPEC-085 pinned DEC-076 §3's "only what is used is checked": an unused
+/// ill-shaped calibration developed as if absent. DEC-078 §7.2 (SPEC-089)
+/// reverses it: a **present** calibration that cannot be read is refused, used
+/// or not, never silently the identity. On a file the reader refuses it first as
+/// `MalformedTag`; on these hand-built sensors the colour code's second line
+/// refuses it as `MissingColorCalibration`.
 #[test]
-fn ac3_an_unused_ill_shaped_calibration_develops() {
-    let mosaic = varied_mosaic(9, 7);
-
-    // The rule does not apply it: it is never checked.
+fn ac3_an_unused_ill_shaped_calibration_refuses() {
+    // The signature rule does not apply it, and it is still checked.
     let mut unapplied = cm_mosaic_fixture();
     let mut cc = cc_skew_1();
     cc.pop();
     unapplied.camera_calibration_1 = Some(cc);
     unapplied.camera_calibration_signature = sig("a");
     unapplied.profile_calibration_signature = sig("b");
-    assert_eq!(
-        api_develop(&unapplied, &mosaic),
-        api_develop(&without_calibration(&unapplied), &mosaic)
-    );
+    assert_refused_on_every_entry(&unapplied, "an unapplied 8-entry CameraCalibration1");
 
-    // A single-illuminant file never reads CC_2.
+    // A single-illuminant file never uses CC_2, and it is still checked.
     let mut single = cm_mosaic_fixture();
     let mut cc2 = cc_skew_2();
     cc2.pop();
     single.camera_calibration_2 = Some(cc2);
-    assert_eq!(
-        api_develop(&single, &mosaic),
-        reference_develop_color(&single, &mosaic)
-    );
+    assert_refused_on_every_entry(&single, "an unused 8-entry CameraCalibration2");
 }
 
 #[test]
