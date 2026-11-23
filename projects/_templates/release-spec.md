@@ -113,6 +113,10 @@ gated by a human/coordinator. Structure it so the reversible work lands first:
   is the merged Phase-1 commit: the version in the manifest is the new one. A tag
   cut on the commit before the merge points at the old version (irradiance 0.2.4's
   first attempt).
+  Make the tag annotated (`git tag -a`), then confirm `git cat-file -t <tag>` prints
+  `tag` and, after the push, that `git ls-remote --tags origin '<tag>*'` shows a `^{}`
+  line. A lightweight tag (irradiance 0.2.5's) still publishes, but `git describe`
+  skips it.
 
 ## Release Pre-Flight
 

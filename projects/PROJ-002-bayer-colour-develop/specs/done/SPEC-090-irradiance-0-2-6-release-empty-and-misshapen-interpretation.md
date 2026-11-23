@@ -20,7 +20,7 @@ task:
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved
   verify_rounds: [approved]
@@ -57,25 +57,26 @@ cost:
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 12869053
-      estimated_usd: 9.37
+      tokens_total: 14419276
+      estimated_usd: 10.33
       duration_minutes: 30
       recorded_at: 2026-11-23
-      notes: "FLOOR from this session's own transcript (f6e5f73d-413a-4acd-bfe6-b8fd9a9cf071.jsonl, found by the scratchpad UUID; 75 unique message.ids, all claude-opus-5-5, no subagents), deduped by message.id with the largest output_tokens: input 156 + cache-creation 168,265 (1-hour) + cache-read 12,646,102 + output 54,530, opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Measured before the handback commit, so the last turns are not in it; re-sum at ship. Duration is an estimate: the transcript timestamps span 20 minutes with long background runs overlapping."
+      notes: "TRUE cost, re-summed at ship from the whole build transcript (f6e5f73d, 82 unique message.ids, claude-opus-5-5, no subagents): input 172 + cache-creation 175,437 (1-hour) + cache-read 14,184,198 + output 59,469. The handback floor was 12,869,053 and $9.37. Handback text: FLOOR from this session's own transcript (f6e5f73d-413a-4acd-bfe6-b8fd9a9cf071.jsonl, found by the scratchpad UUID; 75 unique message.ids, all claude-opus-5-5, no subagents), deduped by message.id with the largest output_tokens: input 156 + cache-creation 168,265 (1-hour) + cache-read 12,646,102 + output 54,530, opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Measured before the handback commit, so the last turns are not in it; re-sum at ship. Duration is an estimate: the transcript timestamps span 20 minutes with long background runs overlapping."
     - cycle: verify
       handoff: HANDOFF-188
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 10944131
-      estimated_usd: 8.71
+      tokens_total: 12762552
+      estimated_usd: 9.82
       duration_minutes: 40
       recorded_at: 2026-11-23
-      notes: "FLOOR from this session's own transcript (0b33b4e6-1c9e-4a72-ae09-f8f167ef5ebd.jsonl, found by the scratchpad UUID; 59 unique message.ids, all claude-opus-5-5, no subagents), deduped by message.id with the largest output_tokens: input 117 + cache-creation 197,507 (1-hour) + cache-read 10,690,847 + output 55,660, opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Measured before the handback commit, so the last turns are not in it. Duration is an estimate."
+      notes: "TRUE cost, re-summed at ship from the whole verify transcript (0b33b4e6, 66 unique message.ids, claude-opus-5-5, no subagents): input 131 + cache-creation 203,847 (1-hour) + cache-read 12,497,485 + output 61,089. The handback floor was 10,944,131 and $8.71. APPROVED; three changed inputs added to the notes. Handback text: FLOOR from this session's own transcript (0b33b4e6-1c9e-4a72-ae09-f8f167ef5ebd.jsonl, found by the scratchpad UUID; 59 unique message.ids, all claude-opus-5-5, no subagents), deduped by message.id with the largest output_tokens: input 117 + cache-creation 197,507 (1-hour) + cache-read 10,690,847 + output 55,660, opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Measured before the handback commit, so the last turns are not in it. Duration is an estimate."
   totals:
-    tokens_total: 23813184
-    estimated_usd: 18.08
+    tokens_total: 27181828
+    estimated_usd: 20.15
     session_count: 2
+shipped_at: 2026-11-23
 ---
 
 # SPEC-090: irradiance 0.2.6 release: empty and misshapen interpretation tags refuse
@@ -684,7 +685,19 @@ repeated on the PR head; the handback has that result.
 
 ## Cut Record
 
-*One line, appended after Phase 2.*
+v0.2.5 → **v0.2.6 published 2026-11-23** (crates.io, by the user, 16:30 UTC; not yanked;
+checksum `b08f960ad58ac617…`). Tag `v0.2.6` is **annotated** (`d3fef8a`; `ls-remote` shows the
+`^{}` line) and points at `50d533d`, the PR 322 merge, whose `Cargo.toml` says 0.2.6; the
+published `.crate`'s `.cargo_vcs_info.json` `git.sha1` is
+`50d533d0823c6d5f906d6675d1eda3e677549459`, the tagged commit. docs.rs had not built 0.2.6 when
+this was recorded. Clean-host check, run by the orchestrator in scratch crates on
+`irradiance = "=0.2.6"` and `"=0.2.5"` from crates.io and on `main`'s source: all build;
+`DEVELOP_VERSION` is `8`; the Pixel 7 Pro (`develop_color_into`, 3866×2908), the K-3 III
+Monochrome (`develop_into`, 6192×4128, `malformed_tags [50713]`) and the Canon EOS 5D Mark III
+(colour, 5760×3840) give identical output hashes on all three. With the Canon's parsed
+`color_matrix_2` cut to 8 entries, 0.2.6 returns `Err(MissingColorCalibration)` with `dst`
+untouched, while 0.2.5 returns `Ok` and writes. Empty and misshapen interpretation tags now
+refuse on crates.io.
 
 ---
 
@@ -693,20 +706,27 @@ repeated on the PR head; the handback has that result.
 *Appended during **ship**. Four questions, short answers.*
 
 1. **What would I do differently next release?**
-   — <answer>
+   — At design, probe the changed-input list against the previous release instead of
+   deriving it from the CHANGELOG and a read of the diff. Both later cycles probed
+   `v0.2.5` against the candidate with edited `Sensor`s and byte fixtures, and each
+   found classes the design had wrong: the build moved two "changed refusals" to new
+   refusals, and the verify found an output change (a multi-value IFD0 `Orientation`
+   now recovered from the sensor IFD), two `to_srgb_linear_into` refusals and one
+   overstated composer claim.
 
-2. **Does any template, constraint, or decision need updating?** (e.g. a new
-   pre-flight category to add to this template)
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`. See `docs/signals.md`.>
+2. **Does any template, constraint, or decision need updating?**
+   — Yes, done at this close: the release-spec template's Phase 2 now asks for an
+   annotated tag and a remote `^{}` check (0.2.5 was pushed lightweight). The
+   release-notes signal stays codified; this release adds a note that its line held
+   only because the build and verify probed.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None required. The verify's note (the single-illuminant path never reads a
+   hand-built `Sensor`'s `ForwardMatrix2`) is not a defect against DEC-078 §7.2. Retagging
+   `v0.2.5` as annotated is the user's call.
 
 4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
    the defect-escape distribution is greppable across specs:
    `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
    `none` (clean first try).
-   — <one word>
-   *(A release-phase `escaped` defect means a pre-flight category above was
-   missing or skipped — grow the checklist.)*
+   — verify

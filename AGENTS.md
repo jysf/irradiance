@@ -20,7 +20,7 @@ Instructions for any AI agent working in this repository. Read this file first, 
     ColorChecker ΔE oracle (SPEC-035), is blocked on capturing the chart.
   - `PROJ-005` (public DNG writer for onyx's Darkroom v1) is **proposed** and being
     framed.
-  - The live release is **irradiance 0.2.5** on crates.io (2026-11-23).
+  - The live release is **irradiance 0.2.6** on crates.io (2026-11-23).
   - Each project's `brief.md` is the source of truth; check `status:` there.
 
 See `.repo-context.yaml` for structured metadata.
@@ -207,7 +207,7 @@ borrowed band as soon as it has one.
   adopting it needs a `DEC-*` like any other dependency.
 - **Linter / Formatter:** `cargo clippy` (0.1.97) and `cargo fmt` (rustfmt 1.9.0).
   `cargo-deny` (0.19.9) enforces the licence policy.
-- **Hosting:** crates.io, published since 0.1.0 (DEC-028); 0.2.5 is the live
+- **Hosting:** crates.io, published since 0.1.0 (DEC-028); 0.2.6 is the live
   version. Releases are two-phase release specs: the build preps, the maintainer
   tags and runs `cargo publish`. crustyimg can depend on a registry version; its
   `raw-develop` integration is tracked in crustyimg's own STAGE-056.

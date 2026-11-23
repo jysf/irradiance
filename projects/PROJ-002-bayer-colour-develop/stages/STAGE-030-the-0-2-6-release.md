@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-030                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-23
-shipped_at: null
+shipped_at: 2026-11-23
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -40,7 +40,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 13167720
+      estimated_usd: 8.53
+      recorded_at: 2026-11-23
+      notes: "Floor, measured from the orchestrator transcript (session 38903934, claude-opus-5-5) from the user's request to design 0.2.6 (2026-11-23T13:52Z) to 2026-11-23T16:31Z: 59 unique message.ids, deduped by message.id, no subagents, opus-5-5 rates (input 142 + cache-creation 96,281 (1-hour) + cache-read 13,029,175 + output 42,122). Covers the semver check, the stage frame and SPEC-090's design (PR 321), dispatching the build and verify, reviewing their PRs, the cut runbook, the post-publish checks and clean-host crates, and this ship and close. The last ship messages were not yet flushed to the transcript when this was summed. The build and verify sessions are on SPEC-090's own rows."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -95,9 +100,9 @@ writer.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-090 (design) — [S] irradiance 0.2.6 release: empty and misshapen interpretation tags refuse
+- [x] SPEC-090 (shipped on 2026-11-23) — [S] irradiance 0.2.6 release: empty and misshapen interpretation tags refuse
 
-**Count:** 0 shipped / 1 active / 0 pending
+**Count:** 1 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -116,21 +121,26 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. irradiance 0.2.6 is on
+  crates.io (2026-11-23, annotated tag `v0.2.6` on `50d533d`) with SPEC-089. A clean-host
+  crate on `=0.2.6` develops the Pixel 7 Pro, the K-3 III and the Canon exactly as `main`
+  and 0.2.5 do, and refuses the Canon with a truncated `ColorMatrix2`, which 0.2.5 develops.
+  The notes name every changed input, including one output change (a multi-value IFD0
+  `Orientation`) that the design had wrongly ruled out.
+- **How many specs did it actually take?** One, SPEC-090 [S], as planned; complexity_actual S.
+- **How many outlines survived unchanged?** Not framed with `just frame-stage`.
+- **What changed between starting and shipping?** The changed-input list: the build moved
+  two classes to new refusals and the cold verify added three, so "no output change" became
+  "one output change, on no held file". docs.rs had not built 0.2.6 at close.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - Done: `projects/_templates/release-spec.md` Phase 2 asks for an annotated tag and a
+    remote `^{}` check (0.2.5 was pushed lightweight). AGENTS.md names 0.2.6 as live.
+- **Signals dispositioned at this close?** All `watch` signals with `disposition_at:
+  stage-close` were walked; none gained same-outcome evidence and all stay `watch`. The
+  codified `release-notes-diff-every-changed-refusal-and-what-it-preempts` held, through
+  the build's and verify's probes rather than the design's list; a note records it.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - Keep a cold verify on every release with new refusals: this one found three missed
+    changed inputs, 0.2.4's found one, and 0.2.5 (no cold verify) is unknown.
+- **Cost.** SPEC-090 27.18M / $20.15 (build 14.42M, verify 12.76M, estimate 22M).
+  Orchestration 13.17M / $8.53. Stage about 40.3M / $28.68.

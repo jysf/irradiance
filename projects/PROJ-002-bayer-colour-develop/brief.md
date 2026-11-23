@@ -151,9 +151,9 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [x] STAGE-027 (shipped 2026-11-22) — Honour or refuse what we parse: SPEC-085 applies CameraCalibration and AnalogBalance and converges NeutralToXY (DEC-076; Pixel 7 Pro 1,160 to 6 codes off the SDK, DEVELOP_VERSION 8), SPEC-086 refuses tags that change sample meaning and a newer DNG backward version (DEC-077), SPEC-087 refuses malformed tags the develop path reads (DEC-078). From the PR 301 review and the PR 303 audit. Specs 108.1M / $78.23, orchestration 60.06M / $43.88 (floor)
 - [x] STAGE-028 (shipped 2026-11-23) — The 0.2.5 release: SPEC-088 published irradiance 0.2.5 (tag v0.2.5 on c558a4b) with STAGE-027 (DEC-076/077/078, DEVELOP_VERSION 8) and PR 301 (PlaneDecoder, four refusals); semver clean against 0.2.4. Stage about 35.6M / $22.68
 - [x] STAGE-029 (shipped 2026-11-23) — Malformed means shape too: SPEC-089 (PR 319) makes an interpretation tag that is present but empty, the wrong length or zero-denominator refuse the develop that reads it (DEC-078 §7), closing the two P2 findings of the external 0.2.5 review. No new Error variant, no output change. Unreleased; rides in 0.2.6. Stage about 40.3M / $30.53
-- [ ] STAGE-030 (active) — The 0.2.6 release: SPEC-090 publishes SPEC-089 (DEC-078 §7) as a patch; semver clean against 0.2.5 at design (202 pass). Cold verify before the user tags.
+- [x] STAGE-030 (shipped 2026-11-23) — The 0.2.6 release: SPEC-090 published irradiance 0.2.6 (annotated tag v0.2.6 on 50d533d) with SPEC-089 (DEC-078 §7); semver clean against 0.2.5; cold verify added three changed inputs to the notes. Stage about 40.3M / $28.68
 
-**Count:** 8 shipped / 2 active / 0 pending
+**Count:** 9 shipped / 1 active / 0 pending
 
 Each stage ends at a **stopping point** where the maintainer reviews before the
 next begins. Effort estimates live in each stage file.

@@ -1853,6 +1853,13 @@ signals:
       Candidate codification at N=3: a release-spec template line under Release Scope
       asking for the changed-input list, including error precedence, with a probe run
       against the published previous version (as SPEC-083's verify did).
+      ══ STAGE-030, 2026-11-23: held after codification, but only through probing. ══
+      SPEC-090's design wrote the list from the CHANGELOG and a read of the diff and got
+      it wrong in two directions; the build's probe against v0.2.5 moved two classes from
+      changed to new refusals, and the cold verify's 73-fixture probe found an output
+      change, two to_srgb_linear_into refusals and an overstated composer line. Every
+      miss was caught before the tag. If a third release needs both probes, add "probe
+      the list against the published previous version" to the template line.
   - id: preflight-tool-lists-are-hand-written
     type: process-debt
     summary: "The corpus pre-flight names which tier-B suites skip without exiftool or dnglab from two hand-written lists in tests/support/corpus.rs. They match the tests today, but a new tool-gated test would not be named and nothing fails."
