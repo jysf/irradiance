@@ -35,13 +35,19 @@ output or inspection result changes.
   reads as `[0, 1, 2]` and a malformed `CFALayout` as 1. DEC-078's existing check then
   refuses it as `Error::MalformedTag { tag }` on every path that reads it (DEC-077's
   set as `Error::UnsupportedTag { tag }`), before anything is written. An absent tag
-  keeps its default, and a count-zero `Orientation` in one IFD is recovered from a
-  well-formed one in the other.
+  keeps its default, and a count-zero or wrong-count `Orientation` in one IFD is
+  recovered from a well-formed one in the other.
+  - **One output change:** when IFD0's `Orientation` has more than one value and the
+    sensor IFD carries a well-formed `Orientation` of its own, 0.2.5 used IFD0's first
+    value and 0.2.6 uses the sensor IFD's. Where the two differ, the file still
+    develops, with the sensor IFD's orientation.
   - **New refusals** (0.2.5 developed these): a count-zero `Orientation`,
     `BlackLevel`, `WhiteLevel`, `CFALayout`, `CalibrationIlluminant1/2`,
     `CameraCalibrationSignature`, `ProfileCalibrationSignature`, `BlackLevelDeltaH`
-    or `BlackLevelDeltaV`; a wrong-count `Orientation`, `CFALayout` or
-    `CalibrationIlluminant1/2`; and an empty, wrong-length or zero-denominator colour
+    or `BlackLevelDeltaV`; a wrong-count `Orientation` with no well-formed one in the
+    other IFD, and a wrong-count `CFALayout` or `CalibrationIlluminant1/2`; a 9-entry
+    colour matrix on a 1-sample `LinearRaw` plane or on a plane whose `CFAPlaneColor`
+    has 4 entries, which 0.2.5's `color::to_srgb_linear_into` transformed; and an empty, wrong-length or zero-denominator colour
     matrix, forward matrix or calibration that 0.2.5's colour develop fell back from
     or did not use. That is a `ColorMatrix1` or `ColorMatrix2` that sent the file to
     the single-illuminant path (which then developed from `ForwardMatrix1` when there
@@ -65,8 +71,12 @@ output or inspection result changes.
     use (single-illuminant colour for a bad `ColorMatrix1` or `ColorMatrix2`, the
     ColorMatrix path for a bad `ForwardMatrix1` or `ForwardMatrix2`, the identity for
     a bad unused `CameraCalibration1` or `CameraCalibration2`); a hand-built `Sensor`
-    that bypasses the reader gets `Error::MissingColorCalibration` there.
-  - No new `Error` variant, no output change for any file that develops, and
+    that bypasses the reader gets `Error::MissingColorCalibration` there. The
+    single-illuminant path still never reads `ForwardMatrix2`, so a hand-built
+    `Sensor` with a bad one there develops as before; the reader refuses such a tag
+    from a file.
+  - No new `Error` variant, no output change for any file that develops apart from
+    the two-IFD `Orientation` case above, and
     `DEVELOP_VERSION` stays `"8"`. The public `Container::scalar` is unchanged; its
     documentation now says a count-zero tag is `Ok(None)` there.
 

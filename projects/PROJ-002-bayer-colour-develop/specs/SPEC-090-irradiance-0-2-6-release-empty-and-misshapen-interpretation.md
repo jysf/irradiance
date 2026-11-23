@@ -15,13 +15,15 @@
 task:
   id: SPEC-090
   type: release                    # epic | story | task | bug | chore | release
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
+  verify_verdict: approved
+  verify_rounds: [approved]
 
 project:
   id: PROJ-002
@@ -49,11 +51,31 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 22000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-187
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 12869053
+      estimated_usd: 9.37
+      duration_minutes: 30
+      recorded_at: 2026-11-23
+      notes: "FLOOR from this session's own transcript (f6e5f73d-413a-4acd-bfe6-b8fd9a9cf071.jsonl, found by the scratchpad UUID; 75 unique message.ids, all claude-opus-5-5, no subagents), deduped by message.id with the largest output_tokens: input 156 + cache-creation 168,265 (1-hour) + cache-read 12,646,102 + output 54,530, opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Measured before the handback commit, so the last turns are not in it; re-sum at ship. Duration is an estimate: the transcript timestamps span 20 minutes with long background runs overlapping."
+    - cycle: verify
+      handoff: HANDOFF-188
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 10944131
+      estimated_usd: 8.71
+      duration_minutes: 40
+      recorded_at: 2026-11-23
+      notes: "FLOOR from this session's own transcript (0b33b4e6-1c9e-4a72-ae09-f8f167ef5ebd.jsonl, found by the scratchpad UUID; 59 unique message.ids, all claude-opus-5-5, no subagents), deduped by message.id with the largest output_tokens: input 117 + cache-creation 197,507 (1-hour) + cache-read 10,690,847 + output 55,660, opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Measured before the handback commit, so the last turns are not in it. Duration is an estimate."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 23813184
+    estimated_usd: 18.08
+    session_count: 2
 ---
 
 # SPEC-090: irradiance 0.2.6 release: empty and misshapen interpretation tags refuse
@@ -228,20 +250,28 @@ A compatible 0.2.x release: run `cargo update -p irradiance`.
   `ForwardMatrix1/2` or `CameraCalibration1/2` that the colour code cannot use is
   `Error::MissingColorCalibration`, even when it would not have been applied. The
   reader refuses such a tag first, so this matters to a caller that builds or edits a
-  `Sensor` itself.
+  `Sensor` itself. The one exception is a `ForwardMatrix2` on the single-illuminant
+  path, which the colour code never reads.
 
 **Behaviour changes**
-- **No output change** for any file that develops. `DEVELOP_VERSION` stays `"8"`. On
-  every held DNG, `irr ifd` prints the same as 0.2.5, and no held file carries one of
-  these shapes.
+- **One output change, no held file.** When IFD0's `Orientation` has more than one
+  value and the sensor IFD carries a well-formed `Orientation` of its own, 0.2.5 used
+  IFD0's first value and 0.2.6 uses the sensor IFD's, as it already did for an IFD0
+  entry it could not read. Where the two values differ, the file develops with a
+  different orientation. No other input that develops changes its output, and
+  `DEVELOP_VERSION` stays `"8"`. On every held DNG, `irr ifd` prints the same as
+  0.2.5, and no held file carries one of these shapes.
 - **Newly refused** (0.2.5 developed these), before anything is written:
   - a count-zero `Orientation`, `BlackLevel`, `WhiteLevel`, `CFALayout`,
     `CalibrationIlluminant1/2`, `CameraCalibrationSignature`,
     `ProfileCalibrationSignature`, `BlackLevelDeltaH` or `BlackLevelDeltaV`. 0.2.5 read
-    each as absent. A count-zero `Orientation` in one IFD is still recovered from a
-    well-formed one in the other;
-  - a wrong-count `Orientation`, `CFALayout` or `CalibrationIlluminant1/2`. 0.2.5 took
-    the first value;
+    each as absent. A count-zero or wrong-count `Orientation` in one IFD is still
+    recovered from a well-formed one in the other;
+  - a wrong-count `Orientation` with no well-formed one in the other IFD, and a
+    wrong-count `CFALayout` or `CalibrationIlluminant1/2`. 0.2.5 took the first value;
+  - on `color::to_srgb_linear_into`, a 9-entry colour matrix on a 1-sample `LinearRaw`
+    plane or on a plane whose `CFAPlaneColor` has 4 entries. 0.2.5 transformed both;
+    0.2.6 reads the matrix as malformed for that plane's ColorPlanes;
   - an empty, wrong-length or zero-denominator colour matrix, forward matrix or
     calibration that 0.2.5's colour develop fell back from or did not use:
     - a `ColorMatrix1` or `ColorMatrix2` that sent a file to single-illuminant colour,
@@ -263,19 +293,21 @@ A compatible 0.2.x release: run `cargo update -p irradiance`.
     options, levels, `GainMap`, CFA and colour checks. So an input 0.2.5 refused for
     one of those reasons that also carries a newly malformed tag now reports
     `MalformedTag` (or `UnsupportedTag`). For example, a 4-entry `CFAPlaneColor` with
-    9-entry colour matrices was `UnsupportedCfaPlaneColor` and is now `MalformedTag`
-    for the matrix, since 4 colour planes need 12 entries.
+    9-entry colour matrices was `UnsupportedCfaPlaneColor` (or `UnsupportedCfaPattern`
+    when its `CFAPattern` names the fourth plane) and is now `MalformedTag` for the
+    matrix, since 4 colour planes need 12 entries.
 - **Inspection, with no develop:** `Container::sensor()` still succeeds on all of these
   files. `Sensor::malformed_tags` can be longer for the same file, and a misshapen
   colour field is `None` where 0.2.5 kept the wrong-length values. On a plane that is
   not CFA, ColorPlanes is `SamplesPerPixel`, so on a 1-sample `LinearRaw` plane a
   9-entry `ColorMatrix1` is malformed. The monochrome develop does not read the colour
   tags, so it still develops such a file; `color::to_srgb_linear_into` on its `Sensor`
-  refuses. No held monochrome file carries colour tags.
+  now refuses (above). No held monochrome file carries colour tags.
 - **A caller that builds or edits a `Sensor`** with a present colour matrix,
   forward matrix or calibration the colour code cannot use now gets
   `MissingColorCalibration` from every colour develop entry and `to_srgb_linear_into`,
-  where 0.2.5 fell back silently.
+  where 0.2.5 fell back silently. The exception is a `ForwardMatrix2` on the
+  single-illuminant path, which the colour code never reads, so it still develops.
 
 **Breaking / action required:** none for the API. `cargo semver-checks` against crates.io
 0.2.5 reports no semver update required: there is no new public item, `Error` variant,
@@ -472,6 +504,63 @@ already there)
   The notes add one known limitation, the unknown-`CalibrationIlluminant` fallback
   that SPEC-089 left out of scope, because the headline's "no silent fallback" would
   otherwise overclaim.
+- **Cold verify (HANDOFF-188, 2026-11-23, on the PR head `0bec2de`).** Every
+  build figure was re-derived, not read from the handback:
+  - `just test` with the corpus and both SDK lanes (fresh `sdk-colour.sh` and
+    `sdk-stage2.sh` runs into the verify scratchpad): 51 results, 859 passed, 0 failed,
+    1 ignored, exit 0, "12/12 present", both lanes "will run". The colour lane's 90
+    deltas and five white points, and the stage-2 table, equal 0.2.5's digit for digit;
+    the 7 stage-2 TIFF sha256s equal HANDOFF-169's.
+  - `just semver-check` (0.51.0): "v0.2.5 -> v0.2.6 (minor change)", 202 pass, 58 skip,
+    no semver update required.
+  - `irr ifd` at `v0.2.5` and at the head, on all 11 held DNGs: byte-identical, exit
+    codes included.
+  - `cargo publish --dry-run` on a clean detached worktree of `0bec2de`: 19 files,
+    51 "ignoring" warnings, vcs sha1 `0bec2de…`, packaged `rust-version = "1.90"`.
+    `cargo package --list` equals `v0.2.5`'s. `Cargo.toml` differs from `v0.2.5` only
+    in the version line.
+  - **The changed-input list, probed.** One probe source, built against a `v0.2.5`
+    worktree and against the head, wrote 73 fixtures with the test-only DNG writer
+    (both `Orientation` IFDs, every count-zero tag, every colour shape on the single
+    and dual paths, 4-plane and `LinearRaw` ColorPlanes, short-buffer precedence) and
+    six edited-`Sensor` cases, and ran `develop_into` or `develop_color_into`,
+    `demosaic_into` and `to_srgb_linear_into` on each. Every class the build named was
+    confirmed. Three were missing or misstated, and the CHANGELOG and notes above now
+    say them:
+    - **an output change.** An IFD0 `Orientation` with two values `[3, 1]` beside a
+      sensor-IFD `Orientation` of 6 developed `Ok` at orientation 3 in 0.2.5 and
+      develops `Ok` at orientation 6 now (different output hash, mono and colour). The
+      wrong-count read is an `Err`, so the existing two-IFD recovery takes the other
+      IFD's value. This is DEC-078 §7.1's recovery rule ("as a wrong-type one already
+      is"), not a defect, but "no output change for any file that develops" was
+      false for it. A wrong-count `Orientation` with no well-formed one in the other
+      IFD is refused, as the notes said;
+    - **`to_srgb_linear_into` refusals.** A 9-entry `ColorMatrix1` on a 1-sample
+      `LinearRaw` plane, and on a plane whose `CFAPlaneColor` has 4 entries, was
+      transformed `Ok` by 0.2.5's `to_srgb_linear_into` and is now
+      `MalformedTag { tag: 50721 }`. The notes said the first "refuses" without saying
+      it was `Ok` before, and did not name the second;
+    - **the composer claim was too broad.** A parsed `Sensor` edited to carry an
+      8-entry `ForwardMatrix2` on the single-illuminant path still develops `Ok` on
+      both versions with the same output: `cam_to_xyz_single_illuminant` never reads
+      `ForwardMatrix2`. From a file, the reader refuses it (`MalformedTag { tag:
+      50965 }`, probed), so only a hand-built `Sensor` sees this.
+  - **Also confirmed by probe:** the precedence rule (a count-zero `WhiteLevel` with a
+    one-short buffer was `DevelopBufferWrongLength` or `RgbBufferWrongLength`, now
+    `MalformedTag`); a count-zero `BlackLevelDeltaH/V` is now `UnsupportedTag` on every
+    entry, `demosaic_into` and `to_srgb_linear_into` included; the mono develop is
+    unaffected by a count-zero colour tag; the 4-plane precedence example was
+    `UnsupportedCfaPlaneColor` with an RGGB-index pattern and `UnsupportedCfaPattern`
+    when the pattern names the fourth plane; count-zero `AsShotNeutral`, a NUL-only
+    signature and a zero-numerator `AnalogBalance` are unchanged. Every other
+    `DEC-078` §7.1(a) tag (the arrays, `SampleFormat`, `LinearizationTable`, the
+    interleave factors, the version pair) already refused count zero in 0.2.5, by
+    reading the code.
+  - **The `[cut]` smoke case, on the real file.** The Canon EOS 5D Mark III's parsed
+    `Sensor` with `color_matrix_2` cut to 8 entries: `v0.2.5` `Ok`, the head
+    `Err(MissingColorCalibration)` with the destination untouched. Unedited, both give
+    the same output hash, and `DEVELOP_VERSION` is `"8"` on both, so only the edited
+    case tells the releases apart.
 
 ## Release Pre-Flight
 
@@ -501,7 +590,10 @@ repeated on the PR head; the handback has that result.
     - `git tag -a v0.2.6 -m "irradiance 0.2.6"` on the merged prep commit, after
       confirming its `Cargo.toml` shows 0.2.6.
     - `git tag --points-at HEAD` prints exactly `v0.2.6`, and `git cat-file -t v0.2.6`
-      prints `tag` (an annotated tag; `v0.2.5` was pushed lightweight).
+      prints `tag` (an annotated tag; `v0.2.5` was pushed lightweight). After the
+      push, `git ls-remote --tags origin 'v0.2.6*'` shows both `refs/tags/v0.2.6` and
+      `refs/tags/v0.2.6^{}`, the line a lightweight tag lacks (added at verify: the
+      local check alone does not show what origin received).
     - The published `.crate`'s `.cargo_vcs_info.json` sha1 equals the tagged commit:
       `curl -sL https://static.crates.io/crates/irradiance/irradiance-0.2.6.crate | tar -xzO irradiance-0.2.6/.cargo_vcs_info.json`
       against `git rev-parse v0.2.6^{commit}`.
