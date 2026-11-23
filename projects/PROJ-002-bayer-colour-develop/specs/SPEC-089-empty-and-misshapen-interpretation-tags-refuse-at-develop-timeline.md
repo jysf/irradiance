@@ -12,6 +12,7 @@ _(Timeline will be populated as the architect writes each cycle's prompt.)_
 - [x] design — 2026-11-23, claude-opus-5-5 (orchestrator): both review findings
       reproduced through the parser at c78ec4c, neighbouring readers audited, corpus
       re-measured; DEC-078 §7 amendment; build handed to HANDOFF-185.
-- [ ] build — HANDOFF-185, branch `feat/spec-089-misshapen-tags`, separate session.
+- [x] build — 2026-11-23, claude-opus-5-5, HANDOFF-185, branch `feat/spec-089-misshapen-tags`,
+      PR 319; all gates green, AC9 mutants (a) to (j) red, AC8 `irr ifd` unchanged.
 - [ ] verify — a cold verify handoff after the build PR opens.
 - [ ] ship

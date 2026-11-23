@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-23
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-089
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                     # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 14259009               # REAL combined count — what cost-audit reads
+  estimated_usd: 11.23              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 18
+  branch: feat/spec-089-misshapen-tags
+  pr: https://github.com/jysf/irradiance/pull/319
+  completed_at: 2026-11-23               # YYYY-MM-DD
+  notes: "Floor, summed live from this session transcript (6c650547), 65 messages deduplicated by message.id, model claude-opus-5-5; in 131, cache creation 232,446 (1-hour), cache read 13,949,284, out 77,148. USD at Opus list rates 5 and 25 dollars per MTok with 1-hour cache writes. Taken before the handback edit and PR body, so re-sum after the session for the final figure. Duration is the transcript timestamp span."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -333,43 +333,86 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `feat/spec-089-misshapen-tags` → https://github.com/jysf/irradiance/pull/319 (cut from `origin/main` at 48a8310, PR 318's merge; checked with `/usr/bin/git`).
+- **Completed at:** 2026-11-23
+- **All acceptance criteria met?** yes. AC1 to AC7 by the tests below, AC8 by the corpus run and re-measure, AC9 by the red-proof table.
+
+**Test file.** The build chose a new `tests/misshapen_tags.rs`, reusing `support/dng_writer.rs` and `support/tiff.rs` and the entry / sentinel machinery of `tests/malformed_tags.rs` (copied, not shared: that file keeps SPEC-087's malformed-type rows). The AC1 reader rows run through `Container::parse → sensor → unpack_into` there rather than in `tests/ifd_reader.rs`. AC4 is three unit tests in `src/color.rs`.
+
+**Shown red on main's behaviour first** (tests written before any `src/` change, run at 48a8310 plus the test file): 7 of 9 red.
+
+| Test | On main |
+|---|---|
+| `ac1_the_reader_records_each_empty_or_misshapen_tag` | red (274 count zero not recorded) |
+| `ac1_colour_planes_come_from_the_plane` | red |
+| `ac2_each_path_refuses_a_misshapen_tag_it_reads` | red: `274 count zero on DevelopInto: expected MalformedTag { tag: 274 }, got Ok(())` |
+| `ac3_a_misshapen_second_colour_matrix_refuses_instead_of_falling_back` | red: `50722 8 entries on DevelopColorInto: … got Ok(())` |
+| `ac3_a_misshapen_second_forward_matrix_refuses_instead_of_switching_path` | red: `50965 8 entries on DevelopColorInto: … got Ok(())` |
+| `ac5_an_empty_orientation_is_recovered_from_the_other_ifd` | red (count zero in both not recorded) |
+| `ac7_the_changed_refusals_are_malformed_tag` | red: `50721 on DevelopColorInto: … got Err(MissingColorCalibration)` |
+| `ac1_valid_and_absent_controls_are_not_recorded` | green (control, as expected) |
+| `ac6_the_k3iii_exception_and_the_already_refused_tags_hold` | green (exceptions, as expected) |
+
+The AC4 unit tests do not compile on main (`dual_illuminant` returned `Option`), so their red evidence is mutants (d) to (f).
+
+**What changed.**
+- `src/ifd.rs`: private `shaped_scalar` (count zero is `Err`; `exactly_one` for `Orientation`, `CFALayout`, `CalibrationIlluminant1/2`) and `ifd0_colour_rationals` (exact count in ColorPlanes, no zero denominator), both next to `cost_the_field`; count-zero `BlackLevel`, `CFAPlaneColor`, both signatures and `BlackLevelDeltaH/V` are `Err`; ColorPlanes is `CFAPlaneColor`'s count on a CFA plane (3 when absent, malformed or the mosaic did not read), `SamplesPerPixel` otherwise (read earlier in `sensor()`, same structural read). `AsShotNeutral` keeps the old read. The public `Container::scalar` is unchanged; its doc comment gains the count-zero sentence. `WhiteLevel` lands once, through `white_level`.
+- `src/color.rs`: `dual_illuminant` is `Result<Option<_>, Error>` and propagates a present `ColorMatrix`'s error (absent, unknown code or equal temperatures stay `Ok(None)`); `cam_to_xyz_interpolated` validates each present `ForwardMatrix` and takes the FM path when both are present; `resolve_calibration` validates every present `CameraCalibration`, used or not.
+- `CHANGELOG.md` `[Unreleased] → Fixed`: the new refusals and the changed refusals of AC7.
+
+**AC9 red-proof** (scratchpad script applied each mutant to the source, ran the named test, restored the file; `git status` clean after). Green control first: every named test passed unmutated.
+
+| Mutant | Test | Result |
+|---|---|---|
+| (a) count-zero scalar back to `Ok(None)` | `ac1_the_reader…` (row `274 count zero (cfa false)`), `ac2_each_path…` (`274 count zero on DevelopInto … got Ok(())`) | red, red |
+| (b) matrix length check removed | `ac1_the_reader…` (row `50721 count zero`), `ac3_…colour_matrix…` (`50722 8 entries … got Err(MissingColorCalibration)`) | red, red |
+| (c) denominator check removed | `ac1_the_reader…` (row `50721 zero denominator in the last entry`), `ac3_…colour_matrix…` (`50722 zero denominator … got Err(MissingColorCalibration)`) | red, red |
+| (d) `dual_illuminant` back to `.ok()` | `color::tests::ac4_dual_illuminant_propagates_a_present_matrix_error` | red |
+| (e) FM branch back to "both Ok or fall through" | `color::tests::ac4_forward_matrix_error_propagates` | red |
+| (f) `resolve_calibration` checks only a used calibration | `color::tests::ac4_unused_calibration_is_validated` | red |
+| (g) Orientation recovery dropped (IFD0 error recorded even when the sensor IFD's is valid) | `ac5_an_empty_orientation…` | red |
+| (h) length taken as "at least" | `ac1_the_reader…` (row `50721 10 entries`) | red |
+| (i) ColorPlanes fixed at 3 | `ac1_colour_planes_come_from_the_plane` | red |
+| (j) zero denominator checked on the first entry only | `ac1_the_reader…` (row `50721 zero denominator in the last entry`) | red |
+
+**AC8 corpus re-measure** (`irr ifd`, release build, all 11 held DNGs, before = 48a8310, after = this branch): byte-identical `diff`. Before and after alike: Canon 5D III, Pixel 3a / 4a / 7 Pro, Leica M Monochrom, M Monochrom Typ 246, Q2 Mono ×3 and Nikon D300S `malformed_tags []`; Pentax K-3 III Mono `[50713]`. None of the six mono files carries a colour tag (exiftool), so ColorPlanes = SamplesPerPixel = 1 changes nothing there. `DEVELOP_VERSION` is `"8"`, `tests/error_kind.rs` still counts 76, and no Tier-B pin or fixture changed.
+
+**Gates** (final tree):
+- `IRRADIANCE_CORPUS_DIR=~/PSeven/experiments/crustimg_redo_plus/images just test`: green, 857 passed, 0 failed across 51 result lines; corpus-status `12/12 present … no tier-B test will skip`.
+- `just lint-ci`: green (after a type alias for one test-local type; first run was red on `clippy::type_complexity` in the new test file).
+- `just lint-no-allow`, `just fmt-check`, `just doc-check` (2 surfaces, 0 warnings), `just validate`: green (validate prints its standing SPEC-061 advisory).
+- **SKIPPED**: `IRRADIANCE_SDK_STAGE2_DIR` and `IRRADIANCE_SDK_COLOUR_DIR` were unset, so the dng_validate stage-2 and SDK colour cross-checks did not run.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 14,259,009 (floor; see `notes`)
+- **Estimated USD:** 11.23
+- **Duration (minutes):** 18 (transcript span)
+- **Source of the number:** this session's transcript, measured per `docs/cost-tracking.md` "Measuring a cycle"
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - Three existing tests encoded the behaviour DEC-078 §7 reverses and were changed, not deleted:
+    - `color::tests::degenerate_interpolation_inputs_do_not_panic` case (a): a zero-denominator `ColorMatrix2` with `ForwardMatrix1` used to fall back and develop; it now asserts `MissingColorCalibration`.
+    - `tests/color_oracle.rs` `ac3_an_unused_ill_shaped_calibration_develops` (SPEC-085, DEC-076 §3 "only what is used is checked") became `ac3_an_unused_ill_shaped_calibration_refuses`, asserting the refusal on every entry for an unapplied 8-entry `CameraCalibration1` and an unused 8-entry `CameraCalibration2`.
+    - `ifd::tests::srational_matrix_reads_signed_and_fractional_verbatim` and `the_five_calibration_tags_read_on_a_writer_fixture` put 9-entry matrices on a 1-sample LinearRaw plane, where §7.1(b) now wants 3; they moved to the existing `cfa_sensor` fixture (3 planes), which keeps what they test.
+  - `dual_illuminant` validates both present `ColorMatrix`es before the illuminant check, so a misshapen matrix is an error even with an unknown illuminant code (stricter than the spec's reading for mutant (d); the reader refuses such a file first anyway).
+  - A present misshapen `ForwardMatrix1` with `ForwardMatrix2` absent is now an error in the dual path too (it was silently ignored); same §7.2 rule.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - DEC-076 §3's text still says "only what is used is checked"; it could get an amendment note pointing at DEC-078 §7.2, as DEC-012 got one for §6.
+  - The scan accepts only 1-sample planes, so `SamplesPerPixel` is always 1 on a LinearRaw sensor and ColorPlanes for LinearRaw is always 1; if multi-sample LinearRaw is ever supported, this rule is already in place for it.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — That a LinearRaw plane's ColorPlanes is `SamplesPerPixel` = 1 broke two reader unit tests and a SPEC-085 oracle test that the spec did not list; finding them took one full `just test` run each.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-076 §3 (`resolve_calibration` checks only what is used) is directly reversed by §7.2 and has a pinned test in `tests/color_oracle.rs`; naming that test would have saved a gate round.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Grep the existing tests for the old fallbacks (`unused`, `fallback`, matrices on `sensor(&b)`) before the first full run, and run `just lint-ci` on the new test file before the full gate chain.
