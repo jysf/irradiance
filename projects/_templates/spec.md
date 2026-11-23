@@ -138,6 +138,13 @@ clause changes the output, not just one that runs it: a clause tested only where
 is unobservable leaves a mutant the build's suite cannot see (signal
 `every-rule-clause-maps-to-a-reachable-test`).
 
+**Distinguishing fixture.** For each pre-registered mutant, and for each quantifier
+(every / any), count (exactly one / many), ordering (lowest / first walked) or
+alternative formula in the rule, name the fixture on which the right and the wrong
+answer differ. A fixture where they agree (one value, a symmetric white balance, sets
+that do not interleave, a loop that always hits its cap) reaches the clause and still
+cannot fail (signal `a-designed-mutant-must-be-able-to-fail-on-its-fixture`).
+
 ## Non-Goals
 
 Explicit scope limits. If the implementer thinks any of these need to

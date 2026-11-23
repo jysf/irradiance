@@ -148,9 +148,9 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [x] STAGE-010 (shipped 2026-11-11) — Downstream consumer API: validate-before-allocate, error kinds, determinism, and the **0.2.0** release (added after framing, from the pre-0.2.0 review, DEC-045)
 - [x] STAGE-012 (shipped 2026-11-09) — Colour-develop ActiveArea-origin correctness, active-area crop, and demosaic performance (added after framing; SPEC-047..051)
 - [x] STAGE-014 (shipped 2026-11-21) — 0.2.x maintenance: SPEC-056 (0.2.1 housekeeping, DEC-053) and SPEC-084 (harness and CI honesty, PR 298: the corpus pre-flight names missing tools, `req()` refuses multi-valued required tags, `SUPPORTED_BITS` is enumerated by a test, the macOS arm64 determinism leg blocks again). SPEC-084 14.34M / $10.80, second-batch orchestration 18.37M / $12.83
-- [ ] STAGE-027 (active) — Honour or refuse what we parse: SPEC-085 applies CameraCalibration and AnalogBalance on the colour develop (live on the Pixel 7 Pro), SPEC-086 refuses tags the develop cannot honour yet, SPEC-087 makes malformed interpretation tags refuse at develop. From the PR 301 review and the PR 303 audit (added after framing, framed 2026-11-22). SPEC-085 shipped 2026-11-22 (PR 306), SPEC-086 shipped 2026-11-22 (PR 309), SPEC-087 shipped 2026-11-22 (PR 312)
+- [x] STAGE-027 (shipped 2026-11-22) — Honour or refuse what we parse: SPEC-085 applies CameraCalibration and AnalogBalance and converges NeutralToXY (DEC-076; Pixel 7 Pro 1,160 to 6 codes off the SDK, DEVELOP_VERSION 8), SPEC-086 refuses tags that change sample meaning and a newer DNG backward version (DEC-077), SPEC-087 refuses malformed tags the develop path reads (DEC-078). From the PR 301 review and the PR 303 audit. Specs 108.1M / $78.23, orchestration 60.06M / $43.88 (floor)
 
-**Count:** 5 shipped / 2 active / 0 pending
+**Count:** 6 shipped / 1 active / 0 pending
 
 Each stage ends at a **stopping point** where the maintainer reviews before the
 next begins. Effort estimates live in each stage file.
