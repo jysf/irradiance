@@ -149,8 +149,9 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [x] STAGE-012 (shipped 2026-11-09) — Colour-develop ActiveArea-origin correctness, active-area crop, and demosaic performance (added after framing; SPEC-047..051)
 - [x] STAGE-014 (shipped 2026-11-21) — 0.2.x maintenance: SPEC-056 (0.2.1 housekeeping, DEC-053) and SPEC-084 (harness and CI honesty, PR 298: the corpus pre-flight names missing tools, `req()` refuses multi-valued required tags, `SUPPORTED_BITS` is enumerated by a test, the macOS arm64 determinism leg blocks again). SPEC-084 14.34M / $10.80, second-batch orchestration 18.37M / $12.83
 - [x] STAGE-027 (shipped 2026-11-22) — Honour or refuse what we parse: SPEC-085 applies CameraCalibration and AnalogBalance and converges NeutralToXY (DEC-076; Pixel 7 Pro 1,160 to 6 codes off the SDK, DEVELOP_VERSION 8), SPEC-086 refuses tags that change sample meaning and a newer DNG backward version (DEC-077), SPEC-087 refuses malformed tags the develop path reads (DEC-078). From the PR 301 review and the PR 303 audit. Specs 108.1M / $78.23, orchestration 60.06M / $43.88 (floor)
+- [ ] STAGE-028 (active) — The 0.2.5 release: SPEC-088 takes STAGE-027 (DEC-076/077/078, DEVELOP_VERSION 8) and PR 301 (PlaneDecoder, four refusals) to crates.io as a patch; semver-check clean against 0.2.4 at design
 
-**Count:** 6 shipped / 1 active / 0 pending
+**Count:** 6 shipped / 2 active / 0 pending
 
 Each stage ends at a **stopping point** where the maintainer reviews before the
 next begins. Effort estimates live in each stage file.
