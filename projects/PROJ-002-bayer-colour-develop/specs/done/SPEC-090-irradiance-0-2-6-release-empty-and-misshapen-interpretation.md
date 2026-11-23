@@ -689,8 +689,8 @@ v0.2.5 → **v0.2.6 published 2026-11-23** (crates.io, by the user, 16:30 UTC; n
 checksum `b08f960ad58ac617…`). Tag `v0.2.6` is **annotated** (`d3fef8a`; `ls-remote` shows the
 `^{}` line) and points at `50d533d`, the PR 322 merge, whose `Cargo.toml` says 0.2.6; the
 published `.crate`'s `.cargo_vcs_info.json` `git.sha1` is
-`50d533d0823c6d5f906d6675d1eda3e677549459`, the tagged commit. docs.rs had not built 0.2.6 when
-this was recorded. Clean-host check, run by the orchestrator in scratch crates on
+`50d533d0823c6d5f906d6675d1eda3e677549459`, the tagged commit. docs.rs serves 0.2.6 (checked after
+the publish). Clean-host check, run by the orchestrator in scratch crates on
 `irradiance = "=0.2.6"` and `"=0.2.5"` from crates.io and on `main`'s source: all build;
 `DEVELOP_VERSION` is `8`; the Pixel 7 Pro (`develop_color_into`, 3866×2908), the K-3 III
 Monochrome (`develop_into`, 6192×4128, `malformed_tags [50713]`) and the Canon EOS 5D Mark III

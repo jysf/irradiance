@@ -131,7 +131,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - **How many outlines survived unchanged?** Not framed with `just frame-stage`.
 - **What changed between starting and shipping?** The changed-input list: the build moved
   two classes to new refusals and the cold verify added three, so "no output change" became
-  "one output change, on no held file". docs.rs had not built 0.2.6 at close.
+  "one output change, on no held file". docs.rs serves 0.2.6.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
   - Done: `projects/_templates/release-spec.md` Phase 2 asks for an annotated tag and a
     remote `^{}` check (0.2.5 was pushed lightweight). AGENTS.md names 0.2.6 as live.
