@@ -58,7 +58,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/319
   completed_at: 2026-11-23               # YYYY-MM-DD
   notes: "Floor, summed live from this session transcript (6c650547), 65 messages deduplicated by message.id, model claude-opus-5-5; in 131, cache creation 232,446 (1-hour), cache read 13,949,284, out 77,148. USD at Opus list rates 5 and 25 dollars per MTok with 1-hour cache writes. Taken before the handback edit and PR body, so re-sum after the session for the final figure. Duration is the transcript timestamp span."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-23
 ---
 
 # HANDOFF-185: Empty and misshapen interpretation tags refuse at develop
