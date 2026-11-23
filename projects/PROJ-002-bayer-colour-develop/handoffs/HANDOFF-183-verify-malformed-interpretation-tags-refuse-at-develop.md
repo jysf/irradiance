@@ -49,15 +49,15 @@ handback:
   status: completed                # completed | blocked | rejected
   agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: punch-list              # verify handoffs: approved | punch-list | rejected
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
   basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: 7184428           # REAL combined count — what cost-audit reads
-  estimated_usd: 5.67              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: 10
+  tokens_total: 8989130           # REAL combined count — what cost-audit reads
+  estimated_usd: 6.83              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 15
   branch: claude/spec-087-verify-base
   pr: null
   completed_at: 2026-11-22         # YYYY-MM-DD
-  notes: "Floor, re-summed live from transcript 9084a071 before the commit. 1 verify round: PUNCH LIST, P1 tests-only and done on this branch (interleaved-set AC3 case; the walk-order mutant was green at c8211c5). Build transcript cdca0400 re-sums to 11,571,180."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  notes: "Floor, re-summed live from transcript 9084a071 before the round-2 commit; covers both rounds. Round 1 PUNCH LIST (P1 tests-only, the interleaved-set AC3 case, done in 3c0077e); round 2 APPROVED at 3c0077e. Build transcript cdca0400 re-sums to 11,571,180."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -392,3 +392,22 @@ After P1 the control was re-run green, and (o) is red.
 3. **If you did this task again, what would you do differently?**
    — I would write the walk-order mutant before reading the tests. It was the one
    question the build's AC9 table did not cover, and it was the one gap.
+
+### Round 2: ✅ APPROVED at `3c0077e`
+
+- The orchestrator fast-forwarded `feat/spec-087-malformed-tags` (PR 312) to `3c0077e`,
+  and `origin/feat/spec-087-malformed-tags` resolves to `3c0077e`. Its `src/` is
+  byte-identical to `c8211c5`: `git diff c8211c5 3c0077e -- src/` is empty. P1's test is
+  now on the PR.
+- `IRRADIANCE_CORPUS_DIR=… just test` at `3c0077e`: 845 passed, 0 failed, 1 ignored. The
+  corpus is 12/12 present, and no Tier-B test skipped. The count is the same as round 1
+  because P1 added a case inside an existing test, not a new test.
+- `lint-ci`, `lint-no-allow` and `fmt-check` are green.
+- The walk-order mutant (o) was re-run on a fresh copy of `3c0077e` with its own target
+  directory and touched sources. The control ran green first (9, 12 and 5 passed). The
+  mutant is red on `ac3_order_dec077_then_malformed_then_opcode_lists`, with "interleaved
+  sets on DevelopColorInto: expected MalformedTag { tag: 50711 }, got
+  Err(MalformedTag { tag: 50714 })".
+- Nothing is open. The `applied` wildcard nit stays a no-action note.
+- The front matter's `tokens_total`, `estimated_usd` and `duration_minutes` now cover both
+  rounds, re-summed from this session's transcript.
