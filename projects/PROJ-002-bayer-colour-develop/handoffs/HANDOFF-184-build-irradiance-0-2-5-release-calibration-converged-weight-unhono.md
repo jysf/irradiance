@@ -57,7 +57,7 @@ handback:
   pr: 316
   completed_at: 2026-11-22         # YYYY-MM-DD
   notes: "FLOOR from this session's own transcript (f05d5494-5971-4ca8-a038-a75160f617c3.jsonl, found by the scratchpad UUID; 85 unique message.ids, all claude-opus-5-5, no subagents), deduped by message.id with the largest output_tokens: input 174 + cache-creation 199,419 (1-hour) + cache-read 16,402,949 + output 56,898, opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Measured before the handback commit, so the last few turns are not in it; re-sum at ship. Duration is an estimate: the transcript timestamps span 21 minutes, less than the measured command times, so they are not used."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-22
 ---
 
 # HANDOFF-184: irradiance 0.2.5 release prep (SPEC-088, Phase 1)

@@ -74,6 +74,13 @@ out in this cut, and the version/tag you intend to publish.
 - **Delivery shapes:** which of {binary · package · service · library} this
   release produces — this decides which pre-flight categories below apply, and
   which version scheme fits (semver for a library/public API; calver otherwise).
+- **Every input whose result changes since the last tag:** output changes, newly
+  refused inputs, newly accepted inputs, changed error fields, and inputs that were
+  already refused but now report a different error because a new check runs first.
+  A semver checker sees none of these. The design writes the list; the build re-derives
+  it from `git diff <last-tag> <candidate> -- src/` (every error path, every new check,
+  every reordering) and records the reconciliation; the release notes carry a line for
+  each class (signal `release-notes-diff-every-changed-refusal-and-what-it-preempts`).
 
 ## Release Notes
 
