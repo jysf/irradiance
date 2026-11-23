@@ -8,6 +8,19 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-22
+
+Colour develops now apply the camera calibration and run the illuminant weight to
+convergence, as Adobe's DNG SDK does, and the develop refuses inputs it used to render
+wrongly with no error: tags it cannot honour yet, a newer DNG backward version, a
+malformed tag it reads, staggered or non-RGB CFAs, non-finite warps and opcodes newer
+than DNG 1.7.1.0 (PROJ-002 STAGE-027, and the Codex review fixes of PR 301). A
+compatible patch release over 0.2.4: the public additions are all additive (a new
+`plane::PlaneDecoder` type, new tag constants, and new `Sensor` fields, eight `Error`
+variants and two `DevelopPath` variants on `#[non_exhaustive]` types), there is no new
+dependency or feature, and the MSRV stays 1.90. `DEVELOP_VERSION` goes from `"7"` to `"8"`; colour
+output changes on every held dual-illuminant file, and mono output does not change.
+
 ### Added
 
 - **`DevelopPath::Demosaic` and `DevelopPath::ColourTransform`** (SPEC-087, STAGE-027,
@@ -29,7 +42,6 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 - **Three `Error` variants** (SPEC-086, DEC-077 §4), appended: `UnsupportedDngVersion`
   and `UnsupportedTag` (`ErrorKind::Unsupported`) and `LjpegPrecisionMismatch`
   (`ErrorKind::Corrupt`). The enum goes from 72 to 75 variants.
-
 - **`Sensor` reads the camera calibration tags** (SPEC-085, STAGE-027, PROJ-002, DEC-076):
   `camera_calibration_1`, `camera_calibration_2` and `analog_balance` (rationals, verbatim)
   and `camera_calibration_signature` / `profile_calibration_signature` (the bytes as
@@ -37,8 +49,36 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   constants `TAG_CAMERA_CALIBRATION_1`, `TAG_CAMERA_CALIBRATION_2`, `TAG_ANALOG_BALANCE`,
   `TAG_CAMERA_CALIBRATION_SIGNATURE` and `TAG_PROFILE_CALIBRATION_SIGNATURE`. Additive:
   `Sensor` is `#[non_exhaustive]`.
+- **`plane::PlaneDecoder`** (PR 301), for decoding many plane units. `PlaneDecoder::new`
+  checks the plane layout once, reporting the same pre-decode errors `plane::units` does;
+  `PlaneDecoder::units` yields the units without checking again; and
+  `PlaneDecoder::unpack_unit_into` decodes one unit in time proportional to that unit
+  alone. Its results, errors included, equal `plane::unpack_unit_into`'s byte for byte.
+  It is `Copy`, `Send` and `Sync`, so one decoder serves every band thread. Decoding
+  every one-row band of a 900-strip plane fell from about 3 ms to 16 µs. The free
+  `unpack_unit_into` is unchanged; it still re-checks the whole layout on each call, and
+  its docs point to the decoder.
+- **Four `Error` variants** (PR 301), appended: `NonFiniteWarpCoefficients`
+  (`ErrorKind::CallerError`), and `UnsupportedOpcodeVersion { id, version }`,
+  `UnsupportedCfaLayout { layout }` and `UnsupportedCfaPlaneColor { plane_color }`
+  (`ErrorKind::Unsupported`). The enum goes from 68 to 72 variants.
 
 ### Changed
+
+- **The new develop checks run first, so an input that was already refused can report a
+  different error** (SPEC-086, SPEC-087). DEC-077's and DEC-078's checks run inside
+  `opcode::check_required_processing`, which every develop entry calls before its
+  buffer, geometry, options, levels, `GainMap`, CFA and colour-matrix checks, and they
+  run before its own opcode-list checks. So an input that 0.2.4 refused for one of
+  those reasons, and that also carries a refused tag value, a newer DNG backward version
+  or a malformed tag on the path's set, now reports `UnsupportedDngVersion`,
+  `UnsupportedTag` or `MalformedTag`. For example, a malformed `WhiteLevel` with an
+  unreadable `OpcodeList` was `UnreadableOpcodeList` and is now `MalformedTag`, and a
+  malformed `CFALayout` on a file with no usable `ColorMatrix` was
+  `MissingColorCalibration` on the colour path and is now `MalformedTag`. A malformed
+  `CFAPattern` still gives `NotAColorFilterArray`: without a pattern the CFA's other
+  tags are not read, so they are never marked malformed. The mono develop's
+  `warp_alpha` argument check still comes first.
 
 - **A malformed tag the develop path reads refuses the develop** (SPEC-087, DEC-078).
   Through `opcode::check_required_processing`, after DEC-077's checks and before the
@@ -99,7 +139,42 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   - The same holds for an applied `CameraCalibration1` or `CameraCalibration2`: a singular
     one develops when its product goes unused at the converged weight, and is refused when
     it is used.
-  - Whether these files should be refused outright is left to SPEC-087.
+  - SPEC-087 kept this (DEC-078 §4): a well-formed but singular matrix the converged
+    weight never uses still develops, as in Adobe's DNG SDK.
+- **A non-finite `WarpRectilinear` is refused** (PR 301). The opcode parser now refuses
+  a NaN or infinite `kr`, `kt` or optical centre as `Error::MalformedOpcodeParams`, so
+  `parse_opcode_list`, `parse_warp_rectilinear` and every other parser walking that list
+  refuse it, and so does the mono develop that applies it. Under the default
+  `Framing::StandardCrop` such a warp used to resample every pixel to black and
+  return `Ok`; under `Framing::FullActiveArea` it was already refused, as
+  `Error::UnsupportedWarpedFullActiveArea`, and now gets `MalformedOpcodeParams`.
+  `warp::apply_warp_into` refuses a hand-built non-finite warp with the new
+  `Error::NonFiniteWarpCoefficients`, before the identity shortcut and before any write.
+- **The demosaic refuses a staggered `CFALayout`** (PR 301): a layout other than 1 is
+  `Error::UnsupportedCfaLayout`, from `demosaic_into`, `demosaic_into_threaded` and every
+  colour develop entry. Layouts 2 to 9 place photosites on staggered positions, and they
+  (and any other value) used to be demosaiced as a rectangular grid.
+- **`CFAPattern` values are read as colour codes, and a non-RGB `CFAPlaneColor` is
+  refused** (PR 301). The demosaic used to remap each `CFAPattern` value through
+  `CFAPlaneColor`, which swapped physical colours whenever `CFAPlaneColor` was not the
+  identity. It now reads the pattern directly, and a `CFAPlaneColor` other than
+  `[0, 1, 2]` is `Error::UnsupportedCfaPlaneColor`, because the colour matrices assume
+  R, G, B plane order. An absent `CFAPlaneColor` is still the default `[0, 1, 2]`. The
+  CFA checks run in the order pattern, then layout, then plane colour, and all before
+  the colour matrix is built, so such a file that 0.2.4 refused with
+  `Error::MissingColorCalibration` now reports the CFA error.
+- **An opcode newer than DNG 1.7.1.0 is treated as unrecognised** (PR 301), as DNG
+  1.7.0.0 asks. The opcode reader now keeps each opcode's declared version. When it is
+  above 1.7.1.0, every parser, the `GainMap` reader and
+  `opcode::check_required_processing` treat the opcode as an unknown ID whatever its ID:
+  an optional one is skipped, its parameters never interpreted, and a mandatory one is
+  `Error::UnsupportedOpcodeVersion { id, version }`. A too-new optional opcode never
+  takes the applied first-instance slot, so a later supported instance of the same ID
+  is the one applied. 0.2.4 ignored the version, so it applied such an optional
+  `WarpRectilinear`, `FixBadPixelsConstant` or `GainMap`, or refused it with
+  `MalformedOpcodeParams` when its parameters did not parse; and it refused a mandatory
+  one as `UnsupportedMandatoryOpcode` (an unknown ID), `UnsupportedRequiredOpcode` (an
+  ID the path does not apply) or `MalformedOpcodeParams`, or applied it.
 
 ## [0.2.4] - 2026-11-20
 

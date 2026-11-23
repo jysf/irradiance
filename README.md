@@ -47,7 +47,7 @@ It is deliberately a **library, not an application**
 - **Edition 2021**, MSRV `1.90` (the measured floor; the true floor is lower
   but unmeasured — see [`Cargo.toml`](Cargo.toml)).
 
-> **Status:** early (0.2.4, on crates.io). Uncompressed **monochrome** and
+> **Status:** early (0.2.5, on crates.io). Uncompressed **monochrome** and
 > **Bayer** DNG develop work end to end. Sensor planes stored as strips or
 > **tiles**, uncompressed or `Compression 7` (lossless-JPEG, SOF-3), decode
 > bit-exact through the public `plane::unpack_into`, and can be split into
@@ -59,8 +59,11 @@ It is deliberately a **library, not an application**
 > fractional `BlackLevel` and a colour `BlackLevelRepeatDim` correctly. 0.2.4
 > scales a file whose black differs by position by white minus the largest
 > black, as the DNG specification and Adobe's SDK do, and refuses a colour file
-> whose white is at or below that black. Size the plane buffer with
-> `plane::validate` first: it checks the layout and your own pixel budget
+> whose white is at or below that black. 0.2.5 applies the camera calibration
+> and runs the illuminant weight to convergence, as Adobe's SDK does, and
+> refuses tags it cannot honour yet, a newer DNG backward version and a
+> malformed tag it reads, instead of developing them wrongly. Size the plane
+> buffer with `plane::validate` first: it checks the layout and your own pixel budget
 > before you allocate. See
 > [tested DNG modes](#tested-dng-modes), [`CHANGELOG.md`](CHANGELOG.md) and
 > [Scope](#scope-and-roadmap).
@@ -281,8 +284,10 @@ waves:
   levels, apply the DNG geometry/opcode pipeline, and sRGB-encode a monochrome
   DNG end to end.
 - **`PROJ-002` — Bayer colour develop** *(in progress)*: demosaic and the
-  camera→sRGB colour transform are shipped and released (0.2.x); ColorChecker
-  ΔE validation (SPEC-035) is pending the chart capture.
+  camera→sRGB colour transform are shipped and released (0.2.x). Since 0.2.5 the
+  transform applies the camera calibration, and on 18 probe values per held
+  colour file it is within 6 codes of Adobe's DNG SDK 1.7.1; ColorChecker ΔE
+  validation (SPEC-035) is pending the chart capture.
 - **`PROJ-003` — compressed planes** *(shipped)*: a clean-room, patent-clean
   lossless-JPEG (SOF-3) decoder, fuzzed, and bound to DNG `Compression 7`
   through `plane::unpack_into` (`SPEC-043` routing, `SPEC-046` two-component
@@ -301,7 +306,8 @@ waves:
 Intentionally **not** implemented yet (by design, not omission): lossless-JPEG
 component layouts other than `Nf = 1` and `Nf = 2`, compressions other than `1` and `7`,
 mandatory opcodes the develop does not apply (refused with a typed error, never
-silently skipped), and the `ASCII`/signed DNG tag types. The long view — more vendor formats and beyond — is in
+silently skipped), tags that change what the samples mean such as
+`LinearizationTable` or a non-zero `BlackLevelDeltaH/V` (also refused), and the `ASCII`/signed DNG tag types. The long view — more vendor formats and beyond — is in
 [`docs/future-plans.md`](docs/future-plans.md); see [`projects/`](projects/)
 for active briefs.
 

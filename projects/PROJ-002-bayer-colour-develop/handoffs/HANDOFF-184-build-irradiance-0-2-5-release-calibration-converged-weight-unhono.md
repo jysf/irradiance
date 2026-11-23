@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-22
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-088
@@ -46,18 +46,17 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
-                                   #   to_agent above is a prediction from tier_map
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model)
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 16659440           # REAL combined count — what cost-audit reads
+  estimated_usd: 11.62             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 60
+  branch: release/0.2.5-prep
+  pr: 316
+  completed_at: 2026-11-22         # YYYY-MM-DD
+  notes: "FLOOR from this session's own transcript (f05d5494-5971-4ca8-a038-a75160f617c3.jsonl, found by the scratchpad UUID; 85 unique message.ids, all claude-opus-5-5, no subagents), deduped by message.id with the largest output_tokens: input 174 + cache-creation 199,419 (1-hour) + cache-read 16,402,949 + output 56,898, opus-5-5 rates (in 5, out 25 per M; cache read 0.1x, 1-hour write 2x). Measured before the handback commit, so the last few turns are not in it; re-sum at ship. Duration is an estimate: the transcript timestamps span 21 minutes, less than the measured command times, so they are not used."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -146,43 +145,58 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `release/0.2.5-prep`, [PR 316](https://github.com/jysf/irradiance/pull/316), head `4dbecce` before this handback commit.
+- **Completed at:** 2026-11-22
+- **All acceptance criteria met?** Yes. All ten build steps are done, and none of the stop conditions fired:
+  - `semver-check`: no breaking change. `cargo-semver-checks 0.51.0` against crates.io 0.2.4: "202 checks: 202 pass, 58 skip … no semver update required", before and after the bump.
+  - Held pins: no pin moved. `just test` ran with the corpus and both SDK lanes: 845 passed, 0 failed, 1 ignored, 12 of 12 held files. It ran on `2724fff` (233 s) and again on the PR head `4dbecce` (227 s). `src/` is byte-identical across both, which `git diff --quiet` confirmed.
+  - SDK colour maxima: 6 / 6 / 1 / 2 / 5, from a fresh `sdk-colour.sh` run.
+  - Stage-2 table: equal to 0.2.4's digit for digit, from a fresh `sdk-stage2.sh` run. All 7 TIFF sha256s match HANDOFF-169 and HANDOFF-171.
+  - Changed-input diff: no behaviour change outside every spec and PR.
+- **Gates:** all green on the candidate: lint-ci, lint-no-allow, lint-fuzz, fmt-check, validate, doc-check, deny, deny-fuzz, msrv, cost-audit, gate-audit, name-length-check, decisions-index --check, semver-check and package-targets-check. `cargo publish --dry-run` passed on a clean detached worktree of `92ad58f` and again of `4dbecce`: 19 files, and the packaged `vcs_info` sha1 is the commit. CI on PR 316 was 21 pass with 1 pending at handback.
+- **The reconciliation, in short** (the full record is in SPEC-088's internal record):
+  - It confirms the design's list.
+  - It answers the open question: 0.2.4 did apply an optional opcode newer than 1.7.1.0, because it discarded the version and dispatched on the ID.
+  - It corrects one design example. A malformed `CFAPattern` with a malformed `CFALayout` still gives `NotAColorFilterArray`, because `parse_cfa` returns before reading `CFALayout`. The CHANGELOG uses another example instead.
+  - It adds seven classes, each described by its spec or PR:
+    - PR 301's already-refused-different-error cases: a mandatory too-new opcode, a bad CFA with no usable matrix, and a non-finite warp under `FullActiveArea`;
+    - PR 301's newly-developing case: an optional too-new opcode with unparseable parameters;
+    - PR 301's output case: a later same-ID opcode is now the one applied;
+    - SPEC-086/087: the buffer, options and `GainMap` errors are pre-empted by the new tag checks;
+    - SPEC-085: the `ForwardMatrix1` fallback edge;
+    - `malformed_tags` growth;
+    - the `irr` print lines.
+- **What else changed:**
+  - PR 301's CHANGELOG entries were added from the PR description and diff.
+  - The SPEC-085 entry's "left to SPEC-087" was corrected to DEC-078 §4.
+  - The README now names 0.2.5. Wording only.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 16,659,440. This is a floor, measured before this handback commit.
+- **Estimated USD:** 11.62
+- **Duration (minutes):** 60, an estimate. The transcript's timestamp span (21 minutes) is shorter than the measured command times, so it is not used.
+- **Source of the number:** the session transcript `f05d5494-5971-4ca8-a038-a75160f617c3.jsonl`, found by the scratchpad UUID. It has 85 unique message ids, all claude-opus-5-5, and no subagents. Each message id is counted once, at its largest output.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - `just release-notes PROJ-002` lists no STAGE-027 or PR 301 notes, so the notes were written from the CHANGELOG. 0.2.4 did the same.
+  - The README wording fix makes the package bytes differ from the first dry run's, so the dry run was repeated on the PR head.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - Warp-free orientation O7 and O8 timings are 5% slower than 0.2.4 on two runs (150 against 143 ms). `src/` changed only by a once-per-develop tag check on that path. Worth one look if it persists; not investigated.
+  - `just release-notes` does not pick up STAGE-027's specs, which suggests their Reflection Q5 is not in the shape the tool reads. A tooling or records fix.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Little. The one design example that was wrong (the CFA pair) cost a few minutes. The parse short-circuit is easy to miss without reading `parse_cfa`.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — The README is in the package, so a wording fix after the dry run means repeating the dry run. Worth one line in the release template's step order: README before the package guards.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Make the README pass before the dry run, and run the timings while nothing else is building. The first ljpeg run had a 166 ms outlier.
