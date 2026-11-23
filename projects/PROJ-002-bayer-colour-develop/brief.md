@@ -150,6 +150,7 @@ Format: `- [status] STAGE-ID — one-line summary`
 - [x] STAGE-014 (shipped 2026-11-21) — 0.2.x maintenance: SPEC-056 (0.2.1 housekeeping, DEC-053) and SPEC-084 (harness and CI honesty, PR 298: the corpus pre-flight names missing tools, `req()` refuses multi-valued required tags, `SUPPORTED_BITS` is enumerated by a test, the macOS arm64 determinism leg blocks again). SPEC-084 14.34M / $10.80, second-batch orchestration 18.37M / $12.83
 - [x] STAGE-027 (shipped 2026-11-22) — Honour or refuse what we parse: SPEC-085 applies CameraCalibration and AnalogBalance and converges NeutralToXY (DEC-076; Pixel 7 Pro 1,160 to 6 codes off the SDK, DEVELOP_VERSION 8), SPEC-086 refuses tags that change sample meaning and a newer DNG backward version (DEC-077), SPEC-087 refuses malformed tags the develop path reads (DEC-078). From the PR 301 review and the PR 303 audit. Specs 108.1M / $78.23, orchestration 60.06M / $43.88 (floor)
 - [x] STAGE-028 (shipped 2026-11-23) — The 0.2.5 release: SPEC-088 published irradiance 0.2.5 (tag v0.2.5 on c558a4b) with STAGE-027 (DEC-076/077/078, DEVELOP_VERSION 8) and PR 301 (PlaneDecoder, four refusals); semver clean against 0.2.4. Stage about 35.6M / $22.68
+- [ ] STAGE-029 (active) — Malformed means shape too: SPEC-089 makes an interpretation tag that is present but empty, the wrong length or zero-denominator refuse the develop that reads it (DEC-078 §7), closing the two P2 findings of the external 0.2.5 review. No new Error variant, no output change.
 
 **Count:** 7 shipped / 1 active / 0 pending
 

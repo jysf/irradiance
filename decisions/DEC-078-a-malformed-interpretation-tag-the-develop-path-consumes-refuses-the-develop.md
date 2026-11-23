@@ -33,6 +33,8 @@ affected_scope:
   - decisions/DEC-012-strict-on-structure-tolerant-on-shape.md
   - decisions/DEC-051-error-kind-three-way-classification-and-the-wildcard-free-match.md
   - projects/PROJ-002-bayer-colour-develop/specs/SPEC-087-malformed-interpretation-tags-refuse-at-develop.md
+  - src/ifd.rs
+  - projects/PROJ-002-bayer-colour-develop/specs/SPEC-089-empty-and-misshapen-interpretation-tags-refuse-at-develop.md
 
 tags:
   - refusal
@@ -133,6 +135,52 @@ DEC-012's rationale for tolerance ("not consumed yet") no longer holds for these
 Its read rule stands; this decision adds the develop-time half. DEC-012 gets an amendment
 note pointing here.
 
+### 7. Amendment (2026-11-23, SPEC-089): malformed includes empty and misshapen
+
+§1 to §6 called a tag malformed only when its reader could not read it. A tag that reads
+cleanly with the wrong shape still passed as absent or valid: a count of zero, a colour
+matrix with eight entries, a zero denominator. An external review of 0.2.5 found it, and
+SPEC-089's design reproduced it through the parser: an 8-entry or zero-denominator
+`ColorMatrix2` developed byte-identically to `ColorMatrix2` absent, the exact case this
+decision's Context names. This section closes that gap. It changes which tags reach
+`malformed_tags`, not how they are refused.
+
+1. **Shape is part of malformed.** A present interpretation tag is malformed, recorded in
+   `malformed_tags` and left `None`, when:
+   - (a) its count is zero. This covers every interpretation tag the sensor reader reads:
+     §2's three sets, `DNGVersion`, `DNGBackwardVersion`, and DEC-077's set;
+   - (b) it has a fixed count in DNG 1.7.1.0 and its count differs. `Orientation`,
+     `CFALayout` and `CalibrationIlluminant1/2` are 1. `ColorMatrix1/2` and
+     `ForwardMatrix1/2` are 3 × ColorPlanes. `CameraCalibration1/2` are
+     ColorPlanes × ColorPlanes, and `AnalogBalance` is ColorPlanes. ColorPlanes is the
+     `CFAPlaneColor` count on a CFA plane (3 when the tag is absent or malformed), and
+     `SamplesPerPixel` otherwise;
+   - (c) it is one of those colour rational tags, and any of its values has a zero
+     denominator.
+
+   An absent tag is still not recorded (DEC-015). The array tags keep their existing
+   length check, and `BlackLevel` and `WhiteLevel` keep their count rules beyond (a).
+   A count-zero `Orientation` in one IFD with a well-formed one in the other is
+   recovered, as a wrong-type one already is. §2's `BlackLevelRepeatDim` exception
+   applies unchanged.
+2. **No silent fallback in the colour code.** A colour helper that receives a
+   **present** matrix it cannot use returns an error. It never takes a fallback for it:
+   neither single-illuminant colour, nor the ColorMatrix path in place of the
+   ForwardMatrix path, nor identity for an unused calibration. Fallbacks remain only for
+   an **absent** tag, and for an unknown `CalibrationIlluminant` code (audit rank 8, not
+   a shape question). With (1) in place this is a second line, reachable only through a
+   hand-built `Sensor`, where it keeps `MissingColorCalibration`.
+3. **Changed refusals.** A misshapen `ColorMatrix1`, `CameraCalibration1/2` or
+   `AnalogBalance` was already refused late by the colour code, as
+   `MissingColorCalibration`, and a count-zero `CFAPlaneColor` as
+   `UnsupportedCfaPlaneColor`. They now refuse earlier, as `MalformedTag { tag }`. The
+   release notes list them.
+4. **Nothing else moves.** There is no new `Error` variant (76 stays 76), §2's sets and
+   §3's order are unchanged, `DEVELOP_VERSION` stays `"8"`, and the public
+   `Container::scalar` keeps its documented `Ok(None)` for a count-zero tag (the sensor
+   reader uses its own count-aware read). Every held DNG was re-measured at design, and
+   none has a count-zero, wrong-count or zero-denominator interpretation tag.
+
 ## Context
 
 **The gap.** The STAGE-027 audit (`docs/reviews/2026-11-21-parsed-but-unvalidated-audit.md`
@@ -186,3 +234,5 @@ passed `DevelopPath::Colour`, which could not tell them from the full colour dev
   variants (`Corrupt` 32 to 33).
 - The Pentax K-3 III Monochrome still develops. `DEVELOP_VERSION` stays `"8"`.
 - DEC-012 is amended (§6). DEC-076 §3's singular-matrix behaviour is confirmed (§4).
+- §7 (SPEC-089) adds empty and misshapen tags to "malformed", and removes the colour
+  code's silent fallbacks for a present matrix. No new variant and no output change.
