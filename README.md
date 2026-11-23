@@ -47,7 +47,7 @@ It is deliberately a **library, not an application**
 - **Edition 2021**, MSRV `1.90` (the measured floor; the true floor is lower
   but unmeasured — see [`Cargo.toml`](Cargo.toml)).
 
-> **Status:** early (0.2.5, on crates.io). Uncompressed **monochrome** and
+> **Status:** early (0.2.6, on crates.io). Uncompressed **monochrome** and
 > **Bayer** DNG develop work end to end. Sensor planes stored as strips or
 > **tiles**, uncompressed or `Compression 7` (lossless-JPEG, SOF-3), decode
 > bit-exact through the public `plane::unpack_into`, and can be split into
@@ -62,7 +62,8 @@ It is deliberately a **library, not an application**
 > whose white is at or below that black. 0.2.5 applies the camera calibration
 > and runs the illuminant weight to convergence, as Adobe's SDK does, and
 > refuses tags it cannot honour yet, a newer DNG backward version and a
-> malformed tag it reads, instead of developing them wrongly. Size the plane
+> malformed tag it reads, instead of developing them wrongly. 0.2.6 also
+> refuses a tag that reads cleanly but is empty or the wrong shape. Size the plane
 > buffer with `plane::validate` first: it checks the layout and your own pixel budget
 > before you allocate. See
 > [tested DNG modes](#tested-dng-modes), [`CHANGELOG.md`](CHANGELOG.md) and
