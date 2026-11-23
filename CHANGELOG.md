@@ -8,6 +8,19 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-22
+
+Colour develops now apply the camera calibration and run the illuminant weight to
+convergence, as Adobe's DNG SDK does, and the develop refuses inputs it used to render
+wrongly with no error: tags it cannot honour yet, a newer DNG backward version, a
+malformed tag it reads, staggered or non-RGB CFAs, non-finite warps and opcodes newer
+than DNG 1.7.1.0 (PROJ-002 STAGE-027, and the Codex review fixes of PR 301). A
+compatible patch release over 0.2.4: the public additions are all additive (a new
+`plane::PlaneDecoder` type, new tag constants, and new `Sensor` fields, eight `Error`
+variants and two `DevelopPath` variants on `#[non_exhaustive]` types), there is no new
+dependency or feature, and the MSRV stays 1.90. `DEVELOP_VERSION` goes from `"7"` to `"8"`; colour
+output changes on every held dual-illuminant file, and mono output does not change.
+
 ### Added
 
 - **`DevelopPath::Demosaic` and `DevelopPath::ColourTransform`** (SPEC-087, STAGE-027,
@@ -29,7 +42,6 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 - **Three `Error` variants** (SPEC-086, DEC-077 §4), appended: `UnsupportedDngVersion`
   and `UnsupportedTag` (`ErrorKind::Unsupported`) and `LjpegPrecisionMismatch`
   (`ErrorKind::Corrupt`). The enum goes from 72 to 75 variants.
-
 - **`Sensor` reads the camera calibration tags** (SPEC-085, STAGE-027, PROJ-002, DEC-076):
   `camera_calibration_1`, `camera_calibration_2` and `analog_balance` (rationals, verbatim)
   and `camera_calibration_signature` / `profile_calibration_signature` (the bytes as
@@ -52,6 +64,21 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   (`ErrorKind::Unsupported`). The enum goes from 68 to 72 variants.
 
 ### Changed
+
+- **The new develop checks run first, so an input that was already refused can report a
+  different error** (SPEC-086, SPEC-087). DEC-077's and DEC-078's checks run inside
+  `opcode::check_required_processing`, which every develop entry calls before its
+  buffer, geometry, options, levels, `GainMap`, CFA and colour-matrix checks, and they
+  run before its own opcode-list checks. So an input that 0.2.4 refused for one of
+  those reasons, and that also carries a refused tag value, a newer DNG backward version
+  or a malformed tag on the path's set, now reports `UnsupportedDngVersion`,
+  `UnsupportedTag` or `MalformedTag`. For example, a malformed `WhiteLevel` with an
+  unreadable `OpcodeList` was `UnreadableOpcodeList` and is now `MalformedTag`, and a
+  malformed `CFALayout` on a file with no usable `ColorMatrix` was
+  `MissingColorCalibration` on the colour path and is now `MalformedTag`. A malformed
+  `CFAPattern` still gives `NotAColorFilterArray`: without a pattern the CFA's other
+  tags are not read, so they are never marked malformed. The mono develop's
+  `warp_alpha` argument check still comes first.
 
 - **A malformed tag the develop path reads refuses the develop** (SPEC-087, DEC-078).
   Through `opcode::check_required_processing`, after DEC-077's checks and before the
