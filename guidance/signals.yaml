@@ -1578,12 +1578,12 @@ signals:
   - id: hostile-fixture-shadowed-by-an-earlier-guard
     type: lesson
     summary: "A hostile fixture that trips an EARLIER guard never reaches the later one it was written for, and a declared deviation with no fixture of its own is unpinned; give each guard and each declared deviation a fixture that only it can refuse."
-    evidence: "N=1, STAGE-018 2026-11-12. SPEC-062's cold verify (HANDOFF-132) ran 24 hand mutants of src/ifd.rs; 22 went red, 2 survived. (a) The only u32-wrap fixture overflowed on the FIRST strip, which the u64 first_end check caught, so a mutant that accumulated the running end in wrapping u32 stayed green; two new fixtures (running end past u32, wrapped end faking contiguity) pin it. (b) The build's declared deviation 'a count-0 NewSubfileType reads as absent' had no test; a count-0-as-1 mutant stayed green. Both fixed test-only in PR 209; src unchanged."
+    evidence: "N=2. STAGE-018 2026-11-12. SPEC-062's cold verify (HANDOFF-132) ran 24 hand mutants of src/ifd.rs; 22 went red, 2 survived. (a) The only u32-wrap fixture overflowed on the FIRST strip, which the u64 first_end check caught, so a mutant that accumulated the running end in wrapping u32 stayed green; two new fixtures (running end past u32, wrapped end faking contiguity) pin it. (b) The build's declared deviation 'a count-0 NewSubfileType reads as absent' had no test; a count-0-as-1 mutant stayed green. Both fixed test-only in PR 209; src unchanged. STAGE-029 2026-11-23: SPEC-089 named WhiteLevel keeping its count rules as a Non-Goal but gave that preserved rule no positive control, so a mutant taking WhiteLevel as exactly one value stayed green until the cold verify (HANDOFF-186 V1); fixed test-only in PR 319."
     bar: "N=3 same-outcome"
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-12
-    last_touched: 2026-11-18
+    last_touched: 2026-11-23
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Same family as [[tolerant-oracle-cannot-pin-structure]]
@@ -1595,6 +1595,7 @@ signals:
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
 
+      ══ STAGE-029 CLOSE, 2026-11-23: N=1 -> N=2 (a preserved rule with no fixture of its own), stays watch. ══
   - id: closed-form-numeric-needs-extreme-magnitude-fixtures
     type: lesson
     summary: "A closed-form numeric check specified as 'exact, no tolerance' was tested for NaN and degenerate shapes but not for finite extremes; huge finite inputs overflowed an intermediate and flipped a refusal into an admission. Give every numeric guard a fixture at the extremes of the finite range."
@@ -1775,14 +1776,19 @@ signals:
   - id: a-changed-formula-lists-every-assertion-it-moves
     type: lesson
     summary: "When a spec changes or removes a behaviour, the design greps every test that encodes it (pins, refusal tests and hand-written oracles), and lists them all in the spec as pre-approved moves. A short list stops the build for approval mid-cycle."
-    evidence: "N=2. SPEC-059 (STAGE-016): the design named one refusal test to rewrite and missed a second (develop_options.rs's Pixel loop), found by the build's corpus run. SPEC-078 (STAGE-025): AC5 listed the corpus pins and the Canon test, but thirteen tier-A oracles also encoded the per-position white-minus-black denominator; the build stopped once for approval."
+    evidence: "N=3, bar reached 2026-11-23. SPEC-059 (STAGE-016): the design named one refusal test to rewrite and missed a second (develop_options.rs's Pixel loop), found by the build's corpus run. SPEC-078 (STAGE-025): AC5 listed the corpus pins and the Canon test, but thirteen tier-A oracles also encoded the per-position white-minus-black denominator; the build stopped once for approval. SPEC-089 (STAGE-029): DEC-078 section 7.2 reverses DEC-076 section 3 and section 7.1 sizes matrices by ColorPlanes, but the design listed none of the four tests that encoded the old behaviour (color_oracle's unused-calibration test, a colour.rs fallback case, two ifd.rs reader tests with 9-entry matrices on a 1-sample LinearRaw plane); the build found each by a full test run."
     bar: "N=3 same-outcome"
-    status: watch
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-20
-    last_touched: 2026-11-20
+    last_touched: 2026-11-23
     raised_by: claude
     notes: |
+      ══ STAGE-029 CLOSE, 2026-11-23: CODIFIED. ══ Bar reached (N=3).
+      projects/_templates/spec.md's Failing Tests section now carries a "Moved
+      assertions" paragraph: grep the tests for every behaviour the spec changes or
+      reverses (including a DEC clause it overrides), and list each assertion as a
+      pre-approved move. The throwaway-implementation run below stays a design option.
       Candidate codification at N=3: a spec-template line under Failing Tests asking the
       designer to run the full tier-A suite against a throwaway implementation of the new
       rule and list every assertion that goes red, as SPEC-078's builder suggested.
@@ -1794,7 +1800,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-20
-    last_touched: 2026-11-22
+    last_touched: 2026-11-23
     raised_by: claude
     notes: |
       ══ STAGE-027 CLOSE, 2026-11-22: CODIFIED. ══ Bar reached (N=5). projects/_templates/spec.md's
@@ -1807,6 +1813,12 @@ signals:
       Sibling of `a-changed-formula-lists-every-assertion-it-moves` and
       `every-rule-clause-maps-to-a-reachable-test`: all three are design-time checks that
       the designed tests can actually see what they are meant to.
+      ══ STAGE-029, 2026-11-23: recurred after codification. ══ SPEC-089 had the
+      Distinguishing fixture paragraph, but its every-count clause was mapped to fixtures
+      that all had three colour planes, so 'AnalogBalance fixed at 3' and 'CameraCalibration
+      sized 3 x ColorPlanes' stayed green until the cold verify (HANDOFF-186 V1). The
+      template line held as written; the design applied it per tag, not per count rule.
+      Watch for a second recurrence before tightening the wording.
   - id: validate-does-not-parse-feedback-or-docs
     type: process-debt
     summary: "`just validate` parses front matter only under projects/ and decisions/, so feedback/ and docs/ front matter is never checked, and an AC that says 'validate parses it' is unenforced."
