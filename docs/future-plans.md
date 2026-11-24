@@ -16,9 +16,10 @@ planning sessions and folded in here (see [Open questions](#open-questions--to-r
 
 _Last reconstructed: 2026-10-27; PROJ-003/004/005 and sequencing added 2026-11-02;
 reconciled to current status (PROJ-001 published, PROJ-002 colour shipped, PROJ-003
-closing) and the post-PROJ-003 sequence 2026-11-06; reconciled again to 0.2.6 and the
-PROJ-001..006 state, with the 2026-11-24 landscape refresh and an adoption-push
-candidate, 2026-11-24._
+closing) and the post-PROJ-003 sequence 2026-11-06; tooling-landscape survey
+refreshed 2026-11-24 (DNG 1.7 / JPEG XL, new entrants, second-oracle options); status,
+near-term and sequencing reconciled to 0.2.6 and the PROJ-001..006 state, and an
+adoption-push candidate drafted, 2026-11-24._
 
 ## The through-line
 
@@ -422,155 +423,139 @@ _Sources (fetched 2026-10-27, treated as untrusted): the projects' own GitHub re
 
 #### Refresh 2026-11-24
 
-A bounded refresh of the survey above, with the table left as it was. The same rule
-applies: **every licence, provenance and coverage claim below is the project's own,
-read off its repo or registry page and treated as untrusted data.** A declared licence
-is a cargo-deny fact; a clean-room claim, an `unsafe` claim or a coverage claim is
-*carried*, not verified, unless marked otherwise. Nothing copyleft was read beyond
-README, licence and registry metadata. The 2026-11-12 memo
-(`docs/rust-ecosystem-and-semver-decisions.md` §1) already covered gamut-dng,
-filmcraft-dng and flashraw 0.2.0; this records only what changed since.
+A one-pass refresh of the 2026-10-27 table above. That table stands as written;
+this subsection records only what changed and what is new. **The headline still
+holds: no permissive, provenance-clean, DNG-sensor-aware pure-Rust decoder exists
+that irradiance could adopt.** The movement since October is in three places:
+DNG 1.7 / JPEG XL files are now common in phone output, FlashRaw shipped to
+crates.io, and two new permissive entrants (`gamut-dng`, `oxideav-jpegxl`) give
+the oracle and writer work more independent cross-checks.
 
-**1. DNG 1.7 features in real files.**
+> Same rules as the table above: every licence, provenance and capability claim
+> is the project's own, read from its README, Cargo metadata or crates.io
+> listing, and treated as untrusted data. "Claims" means asserted, not verified.
 
-- **Apple ProRAW with JPEG XL** (Compression 52546). On iPhone 16 Pro and 16 Pro Max
-  under iOS 18, Settings > Camera > Formats offers JPEG Lossless, JPEG-XL Lossless and
-  JPEG-XL Lossy for ProRAW (MacRumors, 2024-09-20). The iPhone 17 Pro models are
-  ProRAW devices under iOS 26 (Apple support); that they keep the JXL options is only a
-  forum report, so *unverified*.
-- **ProfileGainTableMap** (52525, DNG 1.6). Apple's WWDC21 session names it as a ProRAW
-  tag, and an exiftool forum dump shows it in an iPhone 12 Pro file. gamut-dng's docs
-  also list `ProfileGainTableMap2` (52544). It is a rendering tag (a local tone map),
-  not a pixel-meaning tag, so it sits with `BaselineExposure` rather than with the
-  audit's §3 refusals.
-- **Samsung Expert RAW** writes DNG 1.7 with JPEG XL on recent Galaxy S and Z bodies
-  (a Samsung community article). Forum users dispute the bit depth and which modes use
-  it: *unverified*.
-- **Google Pixel:** no source found for JXL; one Pixel 10 Pro dump shows JPEG
-  compression. *Unverified.*
-- **Adobe:** since Lightroom 13.0 (October 2023), lossy DNG and derived DNGs (merge,
-  Enhance) use JPEG XL (an Adobe-verified community answer). Whether the standalone DNG
-  Converter offers JXL, and whether Leica writes it, are *unverified*.
-- **What irradiance returns today (read from `src/`, nothing run):**
-  - **ProRAW** fails before compression matters. Its raw IFD is LinearRaw with
-    `SamplesPerPixel = 3`. `is_sensor_ifd` requires `SamplesPerPixel == 1`
-    (`src/ifd.rs:2084`–`2088`), so `Container::sensor()` returns
-    `Error::NoSensorIfd` (`src/ifd.rs:2452`–`2456`). The container still parses, so
-    `irr ifd`-level metadata reads.
-  - **A JXL-compressed single-sample plane** (a JXL CFA DNG, for example) reaches the
-    plane decoder. `Compression::from_code` maps 52546 to `Compression::Other`
-    (`src/ifd.rs:576`), and `plane_kind` refuses it as
-    `Error::UnsupportedCompression { compression: 52546 }` (`src/plane.rs:1161`).
-  - **ProfileGainTableMap** has no reader: nothing in `src/` names tag 52525 or 52544,
-    so it is ignored. That is correct for a linear develop.
-  - Both are typed refusals, never a panic or a silent wrong image.
+**Delta table**
 
-**2. JPEG XL decoders in Rust.** Framed only as an option. Any of these would be a
-runtime dependency behind a feature, which conflicts with the zero-runtime-dependency
-rule and `no-new-top-level-deps-without-decision`; it would need a DEC. **Not
-recommended for adoption here.**
+| Tool | What changed since 2026-10-27 | Relevance to irradiance |
+|---|---|---|
+| **FlashRaw** (ybouane/flashraw) | Published to crates.io (`flashraw` / `flashraw-core`, first upload 2026-10-25, now 0.4.0 of 2026-11-20; MIT OR Apache-2.0), plus PyPI and npm. Adds JPEG XL DNG (Compression 52546) behind an optional `jpegxl` feature that pulls in `jxl-oxide`. README now says *"a few audited `unsafe` blocks"*. `docs/references.md` still gives no origin for its ~1,600 camera entries and ~800 colour matrices, only that they are kept "as data (with verification records)". | Unchanged verdict: no adopt, and the matrices are still not provenance-clean. But a crates.io release plus a CLI makes it a practical **second plane oracle, run as a tool** (see below). Raw-plane checksums don't touch the matrix question. |
+| **oxideav-mjpeg** (OxideAV) | 0.1.8 → 0.1.16 (2026-11-08). README now claims lossless SOF-3 **and** SOF-11 (arithmetic), hierarchical mode (Annex J), and **3-component** lossless layouts as well as single-component. MIT. | Removes the October caveat "single-component only". It is now a fuller permissive SOF-3 cross-check for PROJ-003 work. Still a reference, not a dependency. |
+| **kamadak-exif** | No longer stale: 0.6.2 released 2026-11-05 (was 0.5.5 of 2022). BSD-2-Clause unchanged. | Revives it as a linkable, dev-only metadata cross-check candidate. No change to the runtime-dependency position. |
+| **zenraw** (imazen) | No new release since 0.2.0 (2026-04-17); repo active. README now says the `rawler` backend handles "JXL DNG" and 10-bit lossless-JPEG ProRAW, while the default `rawloader` backend does not. AGPL-3.0-only OR commercial. | Still out (copyleft and a copyleft backend). Useful only as evidence that rawler decodes JXL DNG. |
+| **rawler / dnglab** | No release since 0.8.0 (2026-08-30, before the last survey). 0.8.0 added a bilinear X-Trans demosaic and new camera support. LGPL-2.1 unchanged. | Remains the primary oracle, run as a tool. Per zenraw's and FlashRaw's READMEs it decodes JXL DNG, so it can be the oracle for any future JXL work too. |
+| **`dng`** (grego / apertus) | 1.6.0 dated 2026-07-28, before the last survey; nothing newer. AGPL-3.0. | No change: run-only candidate container oracle, never read. |
+| **photocraft** (storytold) | Still no standalone `photocraft-raw` crate on crates.io; the RAW code lives in the app's workspace. Repo active (pushed 2026-11-24), still MIT OR Apache-2.0, still claims clean-room. | No change: a parallel effort to watch. |
+| **ssimulacra2** | Unchanged (0.5.1, 2024-12-29). | No change. |
 
-| Crate | Licence (declared) | Pure Rust / `unsafe` | Maintenance | Notes |
+**New entrants**
+
+| Tool | Licence (declared) | Provenance claim | Covers | Relevance |
 |---|---|---|---|---|
-| **jxl-oxide** | MIT OR Apache-2.0 | Says pure Rust; the top crate has no `forbid(unsafe_code)`; sub-crates *unverified* | 0.12.6, 2026-05-29; previous release 2025-09; slowing | Deps: `brotli-decompressor`, `tracing`, its own `jxl-*` crates; optional `lcms2` (C). No published conformance rate. rawler 0.8.0 uses it, so it is **not independent** of the current oracle. |
-| **jxl-rs** (crate `jxl`) | BSD-3-Clause, with a PATENTS file | Allows `unsafe` for SIMD, with safety comments and expert review | 0.8.0, 2026-10-19; active | The decoder Chrome and Firefox ship. No formal conformance numbers; 16-bit output not stated. gamut-jxl uses it for decode. |
-| **zenjxl-decoder** (imazen) | *unverified* (imazen ships zenraw as AGPL, so check) | `forbid(unsafe_code)` by default, opt-in `allow-unsafe` | 0.3.8 | A jxl-rs fork; reports 17/23 Level 5 conformance (2025-12). |
-| **oxideav-jpegxl** | MIT | Pure Rust; claims clean-room from the spec | `0.0`, immature | 4 of 6 committed conformance streams; 16-bit modular lossless on small fixtures. |
+| **`gamut-dng`** (justin13888/gamut; 1.0.0, 2026-07-21, missed by the October pass) | MIT OR Apache-2.0 | Claims "clean-slate from the official specs"; README says DNG is "Adobe DNG SDK-gated", read here as checked against the SDK | DNG 1.7.1 **encoder and decoder** over a shared TIFF/IFD core; part of a multi-format workspace | The first permissive pure-Rust DNG *writer* seen. Relevant as an independent cross-check for the DNG writer work (SPEC-061), run or, as provenance class 4, read with a ledger row. Its JXL support wraps libjxl (encode, C) and jxl-rs (decode), so the JXL path is not clean-slate. |
+| **`oxideav-jpegxl`** (OxideAV; 0.0.15, 2026-11-07) | MIT | Claims clean-room from ISO/IEC 18181 and conformance fixtures, "no external codec source is consulted" | JPEG XL decoder and encoder (Modular lossless, VarDCT lossy) | Pre-1.0. A permissive JXL decoder from the same organisation as oxideav-mjpeg. See the JXL section. |
+| **`jxl`** (libjxl/jxl-rs; 0.8.0, 2026-10-19) | BSD-3-Clause | The JPEG XL project's own Rust decoder; README says unsafe is limited to SIMD/performance code with non-author review | JPEG XL decode; ships in Chrome 155+ per Google's developer blog | The best-resourced Rust JXL decoder. `zenjxl-decoder` (imazen, BSD-3-Clause, 0.3.10) is a fork of it. |
+| **rawshift** (justin13888; 0.1.1, 2026-05-30) | MPL-2.0 | Not stated | Small RAW crate, 95 downloads | Weak (file-level) copyleft; set aside. |
+| **rraw** (rdespres87) | GPL-3.0-or-later | Decodes via `rawler` | Darkroom app (Metal/wgpu) | Out: copyleft, and its parsing is rawler. |
 
-Patent position: JPEG XL is royalty-free with royalty-free declarations from Google and
-Cloudinary. The 2022 Microsoft rANS patent was disputed, and the format's co-author
-says it does not affect JXL (The Register, 2022-02-17). Not on the patent-avoid list.
+No new permissive pure-Rust *demosaic* crate was found.
 
-**Question for the maintainer:** should irradiance ever decode JXL DNG? If so, the
-choices are (a) an optional dependency behind a feature (jxl-rs or jxl-oxide; a DEC
-amending the zero-dependency rule for that feature), (b) a clean-room decoder (large),
-or (c) a front end such as gamut-dng in a sibling crate. If not, the refusal stays and
-the README says so.
+**DNG 1.7 / JPEG XL in real files**
 
-**3. What changed since 2026-10-27 (and since the 11-12 memo).**
+What vendors write (all secondary sources, none read from a file in irradiance's corpus):
 
-- **photocraft-raw:** the clean-room raw crate landed (PR #65) inside the photocraft
-  repo; still not on crates.io. Repo licence MIT OR Apache-2.0; the PR itself states no
-  licence. Claims no code read from dcraw/LibRaw/rawspeed/rawler/rawloader/darktable and
-  no copied colour tables. No CR3, no JXL. *Claim unverified.*
-- **FlashRaw:** 0.3.0 (2026-11-14), 0.3.1 (2026-11-15) and 0.4.0 (2026-11-20), still
-  MIT OR Apache-2.0. 0.3.0 adds a **provenance statement**: decoders and the camera
-  database were "rewritten from format descriptions and sample files", with values
-  measured from samples or taken from Adobe DNG profiles. "Rewritten" suggests an
-  earlier derivation; *unverified*. 0.3.1 adds **Nikon High Efficiency NEF
-  (TicoRAW-based: patent / proprietary flag)**. JXL DNG is behind a non-default
-  `jpegxl` feature. `unsafe` is said to be confined to SIMD and mmap.
-- **oxideav-mjpeg:** 0.1.15 and 0.1.16 (2026-11-07/08), still MIT; now describes itself
-  as a full still-image JPEG codec including lossless, arithmetic and hierarchical modes.
-- **gamut-dng / gamut-jxl:** gamut-dng is still 1.0.0 on crates.io, `forbid(unsafe_code)`,
-  claims "clean-slate from the official specs" with LLM help credited. Its JXL comes
-  from gamut-jxl 0.5.0 (2026-10-23): decode through jxl-rs, encode through libjxl in an
-  opt-in `-sys` crate.
-- **filmcraft-dng:** no change (0.9.0, still no repository listed).
-- **zenraw, rawler/dnglab, grego/apertus `dng`:** no change (0.2.0 AGPL/commercial;
-  0.8.0 LGPL-2.1; 1.6.0 AGPL-3.0, repo now apertus-open-source-cinema/dng-rs).
+- **Apple ProRAW.** iPhone Settings → Camera → Formats offers "JPEG, JPEG-XL Lossless and JPEG-XL Lossy" (juniperphoton, 2026-01-25). Capture of JXL ProRAW is reported as iOS 18 on the iPhone 16 Pro line and later (PetaPixel 2024-09-18, MacRumors); iOS 17 added JXL *viewing*. Apple's own "About Apple ProRAW" page (published 2024-04-19) does not mention JXL. One developer observed **DNGVersion 1.7 with DNGBackwardVersion 1.3**. ProRAW is widely described as demosaiced **LinearRaw with 3 samples per pixel**, for both the legacy JPEG-lossless and the JXL variants. This was not confirmed from a file here. Community reports (pixls.us, LibRaw forum) say ProRAW carries the DNG 1.6 **ProfileGainTableMap** (tag 52525), which the DNG SDK's renderer applies.
+- **Samsung.** Samsung's CamCyclopedia says Expert RAW on the Galaxy S24 moved to DNG 1.7 with JPEG XL (Cloudinary blog, 2024-01-23). User reports describe the output as LinearRaw, i.e. demosaiced, not CFA (unverified). Adobe staff attribute a 2026 S26 Ultra 50 MP Expert RAW mis-rendering to camera-embedded metadata. FlashRaw's support matrix lists "Samsung Galaxy S22 (JPEG XL)".
+- **Google Pixel.** No evidence of JXL. Pixel DNGs remain CFA with a GainMap opcode (see PROJ-004).
+- **Dedicated cameras.** No camera vendor was found writing JXL DNG. Leica, the obvious candidate, showed nothing. Treat this as "not found", not "doesn't exist".
 
-**4. New entrants.**
+What irradiance returns today (read from `src/`, nothing run):
 
-- **RustDNG** (Henry-GongZY): a Rust translation of the Adobe DNG SDK 1.7.1 under the
-  SDK's source-available licence, decoding JXL through jxl-oxide. Not permissive OSS and
-  an Adobe-code derivative: **off-limits to read** under the clean-room rule. It does not
-  change build-vs-adopt.
-- No permissive rawler fork and no `image`-rs RAW effort found.
-- **Build-vs-adopt:** unchanged for develop, where irradiance is still the only crate in
-  this list that applies opcodes, refuses what it cannot honour, and pins its output.
-  For *decode coverage* (JXL, ProRAW-shaped LinearRaw), gamut-dng is the one permissive
-  candidate front end, as the 11-12 memo said.
+- **ProRAW and Samsung Expert RAW, JXL or not.** If the plane is LinearRaw with `SamplesPerPixel = 3`, the sensor-IFD gate in `Container::is_sensor_ifd` (`src/ifd.rs:2084`–`2091`) answers `No`, because it accepts only `SamplesPerPixel == 1`. No IFD qualifies, so the sensor lookup fails with **`Error::NoSensorIfd`** (built by `Container::no_sensor_ifd_error`, `src/ifd.rs:2124`; variant at `src/lib.rs:434`). The compression code is never inspected. So a legacy JPEG-lossless ProRAW file fails the same way, even though irradiance now decodes Compression 7. The message ("no IFD matched the sensor-plane rule …", `src/lib.rs:1293`) is accurate but doesn't say *why*: a multi-sample LinearRaw plane.
+- **A CFA or 1-sample LinearRaw plane with Compression 52546** (a hypothetical JXL Bayer DNG). The gate passes. `Compression::from_code` maps 52546 to `Compression::Other(52546)`, and `plane::plane_kind` (`src/plane.rs:1161`) returns **`Error::UnsupportedCompression { compression: 52546 }`** (variant at `src/lib.rs:452`). This is the clean typed refusal the error exists for.
+- **ProfileGainTableMap** (52525) is not read anywhere in `src/`, so it is silently ignored rather than refused. That matters only once irradiance renders a phone DNG, and today none reach the render path.
 
-**5. Second-oracle options** (run as separate tools, never linked; copyleft source never
-read):
+**A JPEG XL decoder: possible feature-gated option only**
 
-- **LibRaw sample tools** (LGPL-2.1 or CDDL-1.0): `unprocessed_raw` with black
-  subtraction and scaling off writes the raw plane as TIFF, a **bit-exact plane oracle**
-  independent of rawler. `4channels`, `raw-identify -v` (metadata) and `dcraw_emu`
-  (develop) round it out.
-- **rawpy** (MIT; bundles LibRaw): `raw_image` as `uint16` plus black/white levels,
-  CFA pattern and matrix. The easiest scriptable plane checksum, but the same engine as
-  LibRaw, so it is not a third independent source.
-- **FlashRaw CLI / Python** (MIT/Apache): decode, info and a `verify` subcommand; reads
-  JXL DNG behind a feature. Provenance self-reported.
-- **gamut-cli** (MIT/Apache): a possible permissive DNG/JXL oracle; capabilities not
-  checked.
-- **darktable-cli** (GPL, licence *unverified*): developed output only, on rawspeed.
-- **Not independent:** dnglab and zenraw both sit on rawler. For JXL, rawler and RustDNG
-  share jxl-oxide, so a JXL cross-check should use jxl-rs or libjxl's `djxl`.
+This is framing, not a recommendation. Any JXL decode would conflict with **zero runtime dependencies** (`Cargo.toml` `[dependencies]` is empty) and would need its own DEC. At most it would be an off-by-default feature, like the provenance ledger's rule for anything outside the default build.
 
-**Candidates for future-plans** (no commitment; default is to skip encumbered formats):
+| Decoder | Licence | `unsafe` | Dependencies | Maintenance |
+|---|---|---|---|---|
+| `jxl-oxide` (tirr-c) | MIT OR Apache-2.0 | GitHub code search finds `unsafe` in about 50 files (SIMD, grid views, colour transforms) | 0.12.6: 11 non-optional direct deps (9 own sub-crates, plus `brotli-decompressor` and `tracing`); optional `lcms2` adds C | jxl-render 0.12.4 on 2026-05-29; repo last pushed 2026-08-16. Used by FlashRaw's `jpegxl` feature. |
+| `jxl` (jxl-rs) | BSD-3-Clause | Some, in SIMD; non-author review policy | multi-crate workspace (`jxl_simd`, `jxl_cms`, `jxl_transforms`, …) | Active (pushed 2026-11-15); in Chrome 155+ |
+| `oxideav-jpegxl` | MIT | not checked | OxideAV crate family | Active, pre-1.0 (0.0.15) |
 
-- Add LibRaw `unprocessed_raw` (or rawpy) plane checksums as a second plane oracle next
-  to dnglab. *Patent: none. Licence: LGPL/CDDL tool, run only.*
-- Decide whether JXL-compressed DNG (52546) is ever in scope, and if so whether through
-  an optional dependency (jxl-rs / jxl-oxide) under a DEC. *Patent: royalty-free; no
-  flag.*
-- Decide whether 3-sample LinearRaw (ProRAW) is ever in scope. *Patent: none.*
-- Read `ProfileGainTableMap` / `ProfileGainTableMap2` (52525/52544) as typed metadata,
-  without applying them. *Patent: none.*
-- Collect a phone-DNG corpus (iPhone 16/17 Pro ProRAW JXL lossless and lossy, Samsung
-  Expert RAW, Lightroom lossy/Enhanced DNG) before any of the above. *Patent: none.*
-- Use `djxl` or jxl-rs as the JXL tile oracle if JXL lands, not jxl-oxide. *Patent:
-  none; BSD-3.*
-- Keep watching gamut-dng as the permissive decode front end or competitor. *Patent:
-  none; provenance self-asserted.*
-- Record Nikon HE/HE★ NEF (now in FlashRaw) as excluded. *Patent / proprietary
-  (TicoRAW): skip.*
-- Record RustDNG as off-limits to read. *Proprietary (Adobe SDK licence): do not read.*
+Every option would bring `unsafe` into a crate that is `#![forbid(unsafe_code)]` (`src/lib.rs:123`), unless the decoder is out-of-tree. The only exception is `oxideav-jpegxl`, whose `unsafe` use was not checked.
 
-_Sources (fetched 2026-11-24, treated as untrusted): macrumors.com (2024-09-09,
-2024-09-20), support.apple.com (iOS 26 ProRAW models; ProRAW page),
-developer.apple.com/videos/play/wwdc2021/10160, exiftool.org forum msg 75150,
-docs.rs/gamut-dng, r2.community.samsung.com (CamCyclopedia JPEG XL),
-us.community.samsung.com (Galaxy S24 thread), discuss.pixls.us (Pixel 10 Pro DNG),
-community.adobe.com (Lightroom JXL in derived DNG), github.com/tirr-c/jxl-oxide,
-crates.io API for jxl-oxide / jxl / flashraw / gamut-jxl / filmcraft-dng / zenraw /
-rawler / dng / oxideav-mjpeg, github.com/libjxl/jxl-rs, developer.chrome.com
-(JPEG XL in Chrome), docs.rs/zenjxl-decoder 0.3.8 README, github.com/oxideav/oxideav-jpegxl,
-github.com/ybouane/flashraw (README, CHANGELOG), github.com/visualcommons/gamut,
-github.com/storytold/photocraft (PR #65), github.com/Henry-GongZY/RustDNG (README only),
-libraw.org/docs/Samples-LibRaw.html, sources.debian.org (libraw COPYRIGHT),
-pypi.org/project/rawpy, letmaik.github.io/rawpy, docs.darktable.org (darktable-cli),
-theregister.com (2022-02-17)._
+**JPEG XL patent position** (not a legal conclusion). Google and Cloudinary have filed royalty-free patent declarations with ISO for JPEG XL. Microsoft holds a granted US patent (2022) on rANS refinements and has made **no ISO declaration**. JPEG XL's editor has said publicly that the patent does not affect JPEG XL; no newer status was found. Adobe's DNG patent grant covers Adobe's own DNG patents, not third-party codec patents inside a DNG. Under the "skip encumbered formats" default, JXL rates **caution: probably clean, one open question**, not clean.
+
+**Second-oracle options** (run, never linked)
+
+Goal: stop the plane checksum and the reference render both coming from dnglab/rawler.
+
+- **FlashRaw CLI** (`flashraw-cli`, MIT OR Apache-2.0): the strongest new option. Independent code, permissive, wide format coverage, and it reaches raw `u16` planes, so a plane-checksum comparison avoids the matrix-provenance question. Licence-wise it could even be read (class 4), but running it is enough.
+- **Adobe `dng_validate`** (already built locally at `tools/dng_sdk`, never vendored or in CI): the authority on DNG stage-2/stage-3 output. The SDK's terms keep it a local tool only.
+- **`gamut` CLI** (`gamut inspect`, MIT OR Apache-2.0): independent TIFF/DNG IFD and byte accounting. A container oracle that, unlike grego `dng`, may also be read.
+- **oxideav-mjpeg** (MIT): an independent check of SOF-3 plane decode only.
+- **grego `dng` `dump_dng`** (AGPL): unchanged since October. Run only, never read.
+- **LibRaw sample tools / darktable-cli** (copyleft): run only. They add independence but share decades of lineage with dcraw, so they are less independent than FlashRaw or the SDK.
+
+**Candidates for future-plans** (one line each, no commitments)
+
+- *Typed refusal for multi-sample LinearRaw*: report "LinearRaw with N samples" instead of a bare `NoSensorIfd`. **Clean** (DNG spec).
+- *Accept 3-sample LinearRaw planes* (ProRAW, Expert RAW; legacy JPEG-lossless ProRAW first): a new plane shape that is already demosaiced. **Clean** (DNG spec).
+- *Parse ProfileGainTableMap* (tag 52525) into a typed field without applying it. **Clean** (DNG 1.6 spec).
+- *JPEG XL DNG decode (Compression 52546)* behind an off-by-default feature; needs a DEC on dependencies and `unsafe`. **Caution**: probably clean, with the open Microsoft rANS question.
+- *FlashRaw CLI as a second plane-checksum oracle*, run in local verification only. **Clean** (tool).
+- *`gamut-dng` as an independent read-back check for DNG writer output* (SPEC-061). **Clean** (tool, or class-4 read with a ledger row).
+- *oxideav-mjpeg multi-component SOF-3 as a PROJ-003 cross-check*. **Clean**.
+- *Corpus: one JXL ProRAW and one Samsung Expert RAW DNG*, to confirm the LinearRaw and sample-count claims above from bytes. **Clean**.
+- *CR3/CRX, TicoRAW*: still **skip**: patent-encumbered/proprietary (unchanged).
+
+**Open questions for the maintainer**
+
+1. Are phone DNGs (3-sample LinearRaw, already demosaiced) in scope for irradiance at all, or do they belong to crustyimg? The answer decides whether the next three candidates matter.
+2. Would you ever accept an off-by-default feature that adds runtime dependencies and `unsafe` (JXL decode), or does "zero runtime dependencies" hold for every feature?
+3. Should FlashRaw CLI and/or `dng_validate` be formally added to the oracle set (a DEC), so the single-source-oracle risk is closed rather than noted?
+4. Is JXL's open rANS patent question acceptable at "caution", or should JXL be treated as encumbered and skipped by default?
+5. Should `gamut-dng` and `oxideav-jpegxl` be named in the provenance ledger as class-4 candidates to watch, as the October pass suggested for photocraft and oxideav-mjpeg?
+
+_Sources (fetched 2026-11-24, treated as untrusted): crates.io API listings for `flashraw`, `flashraw-core`, `oxideav-mjpeg`, `oxideav-jpegxl`, `kamadak-exif`, `ssimulacra2`, `dng`, `rawler`, `zenraw`, `gamut-dng`, `rawshift`, `jxl`, `jxl-oxide` (incl. its 0.12.6 dependency list), `zenjxl-decoder`, `ljpeg`, `quickraw`; GitHub READMEs of `ybouane/flashraw` (+ `docs/references.md`, workspace `Cargo.toml`s), `OxideAV/oxideav-mjpeg`, `OxideAV/oxideav-jpegxl`, `justin13888/gamut`, `tirr-c/jxl-oxide` (+ code search for `unsafe`), `libjxl/jxl-rs`, `imazen/zenraw`, `storytold/photocraft`, `rdespres87/rraw`, `kamadak/exif-rs`; `github.com/dnglab/dnglab/releases`; `support.apple.com/119916`; `juniperphoton.substack.com/p/supporting-jpeg-xl-compression-in`; `petapixel.com/2024/09/18/why-apple-uses-jpeg-xl-in-the-iphone-16-and-what-it-means-for-your-photos`; `macrumors.com/how-to/iphone-16-pro-choose-jpeg-xl-proraw-formats`; `cloudinary.com/blog/samsung-now-supports-dng-1-7-including-jpeg-xl`; Samsung CamCyclopedia "JPEG XL Image Codec"; `community.adobe.com` (S26 Ultra Expert RAW thread); `discuss.pixls.us/t/looking-for-samples-smartphone-dngs-with-embedded-gainmap/27296`; `libraw.org/node/2786`; `developer.chrome.com/blog/jpeg-xl-in-chrome`; `theregister.com/2022/02/17/microsoft_ans_patent/`; arXiv 2506.05987 (JPEG XL overview)._
+
+**Addendum: second pass, same day.** A separate research pass ran on 2026-11-24
+before the refresh above had merged. Most of what it found duplicates the refresh.
+The points below add to it or disagree with it. They follow the same untrusted-data
+rule.
+
+- **Adobe writes JXL DNG.** Since Lightroom 13.0 (October 2023), lossy DNG and
+  derived DNGs (merge, Enhance) use JPEG XL instead of JPEG (an Adobe-verified answer on
+  community.adobe.com). No camera vendor was found writing it, but Adobe software is a
+  source of 52546 files.
+- **iPhone 17 Pro.** Apple's iOS 26 guide lists the 17 Pro models as ProRAW devices. That
+  they keep the JXL options rests on one forum post, so it is *unverified*.
+- **FlashRaw provenance: the two passes disagree.** The 0.3.0 CHANGELOG (2026-11-14) adds
+  a statement that decoders, codecs and the camera database were "rewritten from format
+  descriptions and sample files", with values "measured from sample files or taken from
+  Adobe DNG profiles". The refresh above read `docs/references.md`, which still gives no
+  per-entry origin. Both may be true. Taking matrices from Adobe DNG profiles has its
+  own licence question, so the verdict (matrices not provenance-clean) stands.
+- **FlashRaw 0.3.1 added Nikon High Efficiency NEF**, which is TicoRAW-based.
+  **Patent / proprietary: skip.** This does not affect running FlashRaw as a plane
+  oracle on DNG files.
+- **RustDNG** (Henry-GongZY) is a Rust translation of the Adobe DNG SDK 1.7.1 under the
+  SDK's source-available licence, and it decodes JXL through jxl-oxide. **Proprietary,
+  and derived from Adobe code: do not read.** Only its README was seen.
+- **LibRaw's `unprocessed_raw`** (LGPL-2.1 or CDDL-1.0, run only) with black subtraction
+  and scaling turned off writes the raw plane as a TIFF. That makes it a bit-exact plane
+  oracle. The refresh above calls LibRaw "less independent" because it shares lineage
+  with dcraw. It is still independent of **rawler**, which is the single source that
+  needs replacing. rawpy (MIT, bundles LibRaw, 0.28.0 of 2026-10-31) exposes the same
+  plane as a `uint16` array and is the easiest to script.
+- **Choosing a JXL oracle.** rawler, FlashRaw's `jpegxl` feature and RustDNG all decode
+  through **jxl-oxide**. If JXL lands, check its tiles with jxl-rs or libjxl's `djxl`,
+  not with a jxl-oxide-based tool.
+- **zenjxl-decoder** (imazen's jxl-rs fork) is `forbid(unsafe_code)` by default with an
+  opt-in `allow-unsafe` feature. It reports 17 of 23 passing on Level 5 conformance
+  (README, December 2025). Of the JXL decoders listed above, it is the only one that
+  keeps `unsafe` out by default.
+- **Repo location.** `github.com/justin13888/gamut` redirects to `visualcommons/gamut`.
