@@ -6,7 +6,7 @@
 task:
   id: SPEC-091
   type: story                      # epic | story | task | bug | chore
-  cycle: frame                     # frame | design | build | verify | ship
+  cycle: build  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -32,13 +32,13 @@ repo:
 
 handoff:
   from_agent: claude-opus-5  # from .repo-context tier_map.design (DEC-005)
-  to_agent: null                   # filled when HANDOFF is created (any agent — see docs/porting.md)
-  created_at: null
+  to_agent: claude-opus-5
+  created_at: 2026-11-24
 
 references:
-  decisions: []                    # [DEC-NNN, DEC-MMM]
-  constraints: []                  # [constraint-id-1, constraint-id-2]
-  related_specs: []                # [SPEC-NNN]
+  decisions: [DEC-079, DEC-033, DEC-018, DEC-016, DEC-040, DEC-042, DEC-053, DEC-078, DEC-069, DEC-002]
+  constraints: [no-panics-on-untrusted-input, oracle-must-be-shown-red, test-before-implementation]
+  related_specs: [SPEC-092, SPEC-093, SPEC-033, SPEC-049, SPEC-050, SPEC-059]
 
 # Blocking dependencies: specs that must SHIP before this one can start.
 # Distinct from references.related_specs (informational). Feeds the ready-set
@@ -67,8 +67,16 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: null
-  sessions: []
+  tokens_estimate: 25000000
+  sessions:
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: 90
+      recorded_at: 2026-11-24
+      notes: "Main-loop design in the PROJ-006 orchestrator session (frame, onyx answers, STAGE-031 frame, the DEC-079 corpus probe, this design); not split per spec. Measured at the STAGE-031 close as orchestration cost."
   totals:
     tokens_total: 0
     estimated_usd: 0
@@ -76,11 +84,6 @@ cost:
 ---
 
 # SPEC-091: The white-balanced linear RGB step at sensor geometry, with the working-space DEC and the arithmetic decision for the new path
-
-> **OUTLINE — `cycle: frame`.** This spec exists so its ID is stable and
-> siblings can declare `depends_on: [SPEC-091]`. Capture **scope** (Context /
-> Goal / Non-Goals) and **dependencies** only — the *approach* is designed
-> just-in-time when this moves to `design`. Do not pre-design it here.
 
 ## Context
 
@@ -106,66 +109,181 @@ working space and the new path's arithmetic.
 
 ## Inputs
 
-What the implementer will read or consume.
-
-- **Files to read:** `path/to/file.ext` — why
-- **External APIs:** <name, docs link, auth requirements>
-- **Related code paths:** `src/some/module/`
+- **Files to read:**
+  - `decisions/DEC-079-...md`: the working space, the fold, and §3 arithmetic. This
+    spec implements the RGB step; the fold and the fixed-point row are SPEC-092's.
+  - `decisions/DEC-033` (f64 basic operations, committed constants), `DEC-018`
+    (`u16` full scale, clamp before round), `DEC-042` (the fused traversal and its one
+    green plane), `DEC-053` / `DEC-078` (required processing and malformed tags refuse
+    first), `DEC-069` (`GainMap`s at stage 2), `DEC-040` (CFA phase and level slot from the
+    ActiveArea origin).
+  - `src/color.rs`: the module doc (1 to 140), `with_normalizer!` (165),
+    `to_srgb_linear_into` (289), `develop_color_into` (393) and
+    `develop_color_u16_with` (407, the model: same body, a different sink),
+    `develop_color_f32_into` (485), `check_colour_required_processing` (650),
+    `check_color_buffers` (788), `CropScatter::slot_of` (908),
+    `interleaved_rgb_len` (936), `build_camera_to_srgb_linear` (972),
+    `quantize` (1575), `resolve_colour_gain_maps` (1583),
+    `resolve_colour_levels` (1708).
+  - `src/demosaic.rs`: `develop_color_fused` (753). It already visits every
+    pixel of the `width × height` plane, masked border included (the border's
+    green feeds its neighbours); today's sink drops what falls outside the crop.
+  - `tests/malformed_tags.rs` / `tests/misshapen_tags.rs` / `tests/unhonoured_tags.rs`
+    / `tests/required_processing.rs`: their `Entry` tables, which every colour entry
+    joins.
+  - `fuzz/fuzz_targets/demosaic.rs`: the colour-side fuzz target this spec extends.
+- **Corpus:** `$IRRADIANCE_CORPUS_DIR` = `~/PSeven/experiments/crustimg_redo_plus/images`.
+  The held colour files: `CANON-EOS-5D-MARK-III/5G4A9394.DNG`,
+  `GOOGLE-PIXEL-3A/IMG_20190918_164153.dng`, `GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng`,
+  `GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng`, `NIKON-D300S/_DSC4615.DNG`.
 
 ## Outputs
 
-What the implementer will produce.
+- **Files modified:**
+  - `src/color.rs`: two new public functions (Design §1), sharing the fused
+    traversal with `develop_color_into`; module doc gains a short "Sensor-geometry
+    plane" section pointing at DEC-079.
+  - `fuzz/fuzz_targets/demosaic.rs`: also calls both new entries on the unpacked plane.
+  - `tests/linear_plane.rs` (new): the AC tests below.
+  - The `Entry` tables in `tests/malformed_tags.rs`, `tests/misshapen_tags.rs`,
+    `tests/unhonoured_tags.rs` and `tests/required_processing.rs`: two new rows each,
+    refusing exactly as `develop_color_into` does.
+  - `CHANGELOG.md` `[Unreleased]` Added: the two functions, one line each.
+- **Not modified:** `Error` (no new variant; `tests/error_kind.rs` unchanged),
+  `DEVELOP_VERSION` (stays `"8"`), every existing function's output, every Tier-B pin.
+- **New public API:** `irradiance::color::srgb_linear_plane_into` and
+  `irradiance::color::srgb_linear_plane_f32_into`.
+- **New flags / options:** none.
 
-- **Files created:** `path/to/new.ext` — purpose
-- **Files modified:** `path/to/existing.ext` — what changes
-- **New endpoints / functions / components:** <names and signatures>
-- **New flags / options:** each flag's accepted values **and its default** — an
-  unstated default makes the implementer guess.
-- **Database changes:** <migrations, if any>
+## Design
+
+1. **Two entry points, sensor geometry.**
+   ```rust
+   pub fn srgb_linear_plane_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error>;
+   pub fn srgb_linear_plane_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> Result<(), Error>;
+   ```
+   `src` is the unpacked raw mosaic (`width·height`, as `develop_color_into` takes);
+   `dst` is interleaved RGB at `width·height·3`, pixel `(x, y)` at index
+   `3·(y·width + x)`. **Every** pixel of the plane is written, masked border included,
+   with exactly the value the fused traversal computes there (no crop, no orientation,
+   no warp: onyx draws and crops the plane itself, its DEC-036/052/063).
+2. **Same pipeline as `develop_color_into`.** Levels, `OpcodeList2` `GainMap`s,
+   Hamilton-Adams demosaic and the camera-to-linear-sRGB matrix `M`
+   (`build_camera_to_srgb_linear`) run exactly as today; only the sink changes, from
+   `CropScatter` to the identity. One internal `width·height` green plane, as today.
+3. **The two outputs.**
+   - `u16`: `quantize(m_i0·r + m_i1·g + m_i2·b)` per channel, today's expression in
+     today's order, so it is the existing colour pixel bit for bit (clamped to
+     `[0, 65535]`, round half up, DEC-018).
+   - `f32`: `((m_i0·r + m_i1·g + m_i2·b) / 65535.0) as f32`, the same `f64` sum
+     **unclamped and unquantised**, so 1.0 is white, a negative value is an
+     out-of-gamut colour, and a value above 1.0 is a white-balance over (DEC-079 fact 2).
+     This is the plane onyx's candidate mixes and quality study need. It is **not**
+     `develop_color_f32_into`'s rule (that one quantises first) and the doc comment says
+     so.
+4. **Refusals: identical to `develop_color_into`, in its order.** Required processing
+   and malformed tags (`DevelopPath::Colour`), then `ColorSourceWrongLength`, then the
+   geometry checks `develop_color_into` runs (ActiveArea, DefaultCrop, Orientation),
+   then `RgbBufferWrongLength { expected: width·height·3, .. }`, then levels, gain maps,
+   CFA and calibration. Rationale: the plane exists exactly when the developed colour
+   image does, so an onyx viewport and export never disagree about whether a file
+   opens. No new `DevelopPath`, no new `Error` variant. Nothing is written unless every
+   check passes (DEC-016).
+5. **Serial only.** Threaded variants are not in this spec (Non-Goals).
+6. **No output change anywhere else.** `DEVELOP_VERSION` stays `"8"`.
 
 ## Acceptance Criteria
 
-Testable outcomes. Each must map to at least one test. Cover happy
-path, error cases, edge cases.
+Pre-registered. Every check is exact except AC4's stated half-code bound on a cast.
 
-**Pre-register every numeric threshold.** A tolerance, bound or score an AC
-checks is written here at design, with its falsifier, before the build measures
-anything. A measured number outside it is reported, never fixed by widening the
-bound (signal `pre-register-the-tolerance`).
-
-- [ ] Criterion 1 (testable)
-- [ ] Criterion 2 (testable)
-- [ ] Criterion 3 (testable)
+- [ ] **AC1, equivalence with the developed image (Tier B).** For each held colour
+  file, on a clone of its `Sensor` with `orientation` set to `Some(1)`: the `u16`
+  plane, cut to the crop rectangle (ActiveArea origin + DefaultCropOrigin, size
+  DefaultCropSize, all from the public `Sensor` fields), equals
+  `develop_color_into`'s output byte for byte. Missing corpus skips loudly.
+- [ ] **AC2, the whole plane is written (Tier A).** On a synthetic Bayer fixture with
+  an **odd** ActiveArea top and left (so mutant (f) can fail), a masked border, and a
+  DefaultCrop smaller than the ActiveArea, orientation 1: (i) `dst` pre-filled with a
+  sentinel has no sentinel left after the call, masked border included; (ii) the pixels
+  inside the ActiveArea but outside the DefaultCrop equal `develop_color_into`'s output
+  for the same fixture with DefaultCrop widened to the whole ActiveArea (which changes
+  neither the CFA phase nor the levels, both indexed from the ActiveArea origin,
+  DEC-040); (iii) two calls give identical planes.
+- [ ] **AC3, the f32 plane is unclamped (Tier B, Canon 5D Mark III).** At least one
+  pixel has a negative f32 channel where the `u16` plane is 0, and the count of such
+  channel values is greater than zero on the Canon (DEC-079's probe found 3.23% of
+  pixels). On the Pixel 4a, at least one f32 channel exceeds 1.0 where the `u16` is
+  65535.
+- [ ] **AC4, the two planes agree where nothing clamps (Tier B, all five files).**
+  For every channel value whose `u16` is strictly between 0 and 65535,
+  `|f32·65535 − u16| ≤ 0.5 + 1e-3`; where `u16` is 0 the f32 is ≤ 0.5/65535 + 1e-7;
+  where `u16` is 65535 the f32 is ≥ (65535 − 0.5)/65535 − 1e-7.
+- [ ] **AC5, the f32 value is the unquantised sum (unit test in `src/color.rs`).** On
+  a small hand-built Bayer `Sensor` whose matrix is known, each f32 equals
+  `((M·cam)/65535.0) as f32` recomputed in the test from `build_camera_to_srgb_linear`
+  and the demosaiced camera values, exactly (`==` on `f32` bits).
+- [ ] **AC6, refusals match `develop_color_into`.** Both new entries join the `Entry`
+  tables in `tests/malformed_tags.rs`, `tests/misshapen_tags.rs`,
+  `tests/unhonoured_tags.rs` and `tests/required_processing.rs` with
+  `develop_color_into`'s `DevelopPath::Colour`, and every row there passes. Plus, in
+  `tests/linear_plane.rs`: a wrong `src` length is `ColorSourceWrongLength`; a `dst`
+  of `width·height·3 − 1` and `+ 1` is `RgbBufferWrongLength` with
+  `expected = width·height·3`; a non-CFA plane is `NotAColorFilterArray`; a sensor
+  with no `AsShotNeutral` is `MissingColorCalibration`. In every refusal, `dst` is
+  exactly its sentinel fill.
+- [ ] **AC7, `GainMap`s apply (Tier B, Pixel 7 Pro).** The plane differs from the
+  same file with its `OpcodeList2` removed from the clone (the control proving the
+  maps are applied), and AC1 already pins the applied value.
+- [ ] **AC8, nothing else moves.** The full suite passes unchanged with
+  `IRRADIANCE_CORPUS_DIR` set; `tests/error_kind.rs` count unchanged;
+  `DEVELOP_VERSION == "8"`; `just semver-check` reports only the two additions.
+- [ ] **AC9, fuzzed and panic-free.** `fuzz/fuzz_targets/demosaic.rs` calls both new
+  entries; a short `cargo fuzz run demosaic` (the toolchain brief's smoke length) finds
+  nothing; `just lint-ci` passes with the deny-level panic lints.
+- [ ] **AC10, the oracle can go red.** Each pre-registered mutant below, applied by
+  hand in build, fails at least one named test; the build's handback lists which.
 
 ## Failing Tests
 
-Written during the **design** cycle, BEFORE handoff. The implementer's
-job in **build** is to make these pass.
+- **`tests/linear_plane.rs`** (new; Tier A fixtures via `tests/support/dng_writer.rs`,
+  Tier B via the manifest):
+  - `ac1_the_plane_cropped_equals_the_developed_image` (Tier B)
+  - `ac2_every_pixel_of_the_plane_is_written`
+  - `ac3_the_f32_plane_keeps_negatives_and_overs` (Tier B)
+  - `ac4_the_two_planes_agree_where_nothing_clamps` (Tier B)
+  - `ac6_buffer_and_input_refusals_leave_dst_untouched`
+  - `ac7_gain_maps_apply_to_the_plane` (Tier B)
+- **`src/color.rs` unit tests:** `ac5_the_f32_plane_is_the_unquantised_sum`.
+- **The four `Entry` tables** (AC6): two new rows each.
 
-- **`path/to/test.file`**
-  - `"test description 1"` — asserts: ...
-  - `"test description 2"` — asserts: ...
+**Rule-clause map (Design §1 to §4; DEC-079's RGB-step consequence).**
 
-**Rule-clause map.** When this spec implements a `DEC-*` rule, map every clause
-of it (each malformed class, each entry point, each numeric path) to a named
-test above, and say which code path that test must reach. Name the path where the
-clause changes the output, not just one that runs it: a clause tested only where it
-is unobservable leaves a mutant the build's suite cannot see (signal
-`every-rule-clause-maps-to-a-reachable-test`).
+| Clause | Test | Path where it changes the output |
+|---|---|---|
+| §1 every pixel written | `ac2_…` | the identity sink, border pixels |
+| §2 same pipeline (levels, maps, demosaic, M) | `ac1_…`, `ac7_…` | the `u16` value inside the crop |
+| §3 u16 is today's quantise | `ac1_…` | byte equality with `develop_color_into` |
+| §3 f32 is unclamped and unquantised | `ac3_…`, `ac5_…` | negative and over values, exact bits |
+| §3 the two agree | `ac4_…` | the half-code bound |
+| §4 refusals in order, dst untouched | `ac6_…` and the four tables | the error variant, dst sentinel |
 
-**Distinguishing fixture.** For each pre-registered mutant, and for each quantifier
-(every / any), count (exactly one / many), ordering (lowest / first walked) or
-alternative formula in the rule, name the fixture on which the right and the wrong
-answer differ. A fixture where they agree (one value, a symmetric white balance, sets
-that do not interleave, a loop that always hits its cap) reaches the clause and still
-cannot fail (signal `a-designed-mutant-must-be-able-to-fail-on-its-fixture`).
+**Distinguishing fixtures (pre-registered mutants).**
+- (a) The sink still crops (identity replaced by `CropScatter`): `ac2_…`'s margin
+  fixture keeps sentinels. A fixture with no margin cannot tell.
+- (b) The f32 path quantises or clamps first (copies `develop_color_f32_into`): `ac3_…`
+  on the Canon (negatives) and Pixel 4a (overs). A file without out-of-gamut pixels
+  (the Pixel 7 Pro, 0.00%) cannot tell.
+- (c) The f32 path divides by 65536: `ac5_…`'s exact bits.
+- (d) `GainMap`s skipped: `ac7_…` and `ac1_…` on the Pixel 7 Pro (the three held Pixel
+  files carry `OpcodeList2` maps; the Canon and Nikon do not, so they cannot tell).
+- (e) Levels skipped or black not subtracted: `ac1_…` on every file.
+- (f) The CFA phase taken from the plane origin instead of the ActiveArea origin
+  (DEC-040): `ac2_…`'s margin fixture must use an **odd** ActiveArea top or left, so
+  the two phases differ.
+- (g) `dst` written before a late check fails: `ac6_…`'s missing-`AsShotNeutral` row
+  (the calibration check runs last).
 
-**Moved assertions.** When this spec changes, removes or reverses a behaviour
-(including a clause of an earlier `DEC-*`), grep the tests for every assertion that
-encodes the old behaviour (pins, refusal tests, hand-written oracles, fixtures built
-on the old shape) and list each one here as a pre-approved move, with what it becomes.
-A short list sends the build round the gate once per missed test (signal
-`a-changed-formula-lists-every-assertion-it-moves`).
+**Moved assertions.** None: no existing behaviour changes.
 
 ## Non-Goals
 
@@ -179,8 +297,15 @@ expand this one.
 
 ## Notes for the Implementer
 
-Gotchas, style preferences, reuse opportunities. Keep short — the full
-context graph lives in the handoff file.
+- Reuse `develop_color_u16_with`'s body: factor the sink so the crop sink and the
+  identity sink share the one traversal. Do not copy the traversal.
+- Keep the `u16` expression and operation order exactly as `develop_color_u16_with`'s
+  (AC1 is byte equality).
+- The f32 cast happens once, after the `f64` divide; no intermediate `f32` arithmetic.
+- `ac1_…` needs the crop rectangle from public `Sensor` fields; with `orientation`
+  forced to 1 no orientation mapping is needed in the test.
+- No new `Error` variant: PROJ-005's SPEC-061 is appending two in parallel, and this
+  spec stays out of the enum's tail.
 
 ---
 
