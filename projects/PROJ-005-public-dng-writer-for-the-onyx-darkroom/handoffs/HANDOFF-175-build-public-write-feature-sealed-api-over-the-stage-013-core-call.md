@@ -58,7 +58,7 @@ handback:
   pr: 329
   completed_at: 2026-11-24         # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit, from transcript d2a634a0-951d-47e7-93f0-1c1293abce88.jsonl (87 unique message.ids, all claude-opus-5-5, no subagents): input 177 + cache-creation 295,078 (1-hour) + cache-read 21,543,887 + output 113,393. Re-sum at ship. dng_validate: 12 of 12 outputs valid, no warnings." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-24
 ---
 
 # HANDOFF-175: Build SPEC-061, the public `write` feature's mono u16 DNG writer core

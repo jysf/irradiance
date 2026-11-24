@@ -58,7 +58,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/329
   completed_at: 2026-11-24         # YYYY-MM-DD
   notes: "floor, measured before the handback commit from transcript 185cfade-2523-4d39-9826-ef1001c04347.jsonl (the scratchpad UUID): 57 unique message.ids, all claude-opus-5-5, no subagents, deduplicated by message.id with each message's largest output_tokens. USD at $5/M input, $25/M output, cache read 0.1x, 1-hour cache writes 2x. Verdict punch-list: one required item, P1."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-24
 ---
 
 # HANDOFF-190: VERIFY: public `write` feature, sealed API over the STAGE-013 core (SPEC-061)
