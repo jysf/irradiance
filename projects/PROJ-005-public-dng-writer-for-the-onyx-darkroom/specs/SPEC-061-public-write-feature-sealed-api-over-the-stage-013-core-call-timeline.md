@@ -9,7 +9,7 @@ Cycle prompts live in `prompts/SPEC-061-<cycle>.md`.
 
 - [x] **frame** — 2026-11-20 (PR 284; DEC-072 amended in PR 291)
 - [x] **design** — completed 2026-11-21
-- [ ] **build** — prompt: `prompts/SPEC-061-build.md` (HANDOFF-175)
+- [~] **build** — prompt: `prompts/SPEC-061-build.md` (HANDOFF-175); in progress 2026-11-24
 - [ ] **verify** — prompt: pending (waiting on build)
 - [ ] **ship** — prompt: pending (waiting on verify)
 

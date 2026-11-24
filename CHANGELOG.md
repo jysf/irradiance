@@ -8,6 +8,24 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Added
+
+- **A public monochrome DNG writer behind the new `write` feature** (SPEC-061,
+  STAGE-017, PROJ-005, DEC-071 to DEC-075, DEC-080). `irradiance::dng::write`
+  writes one mono `u16` plane, unchanged, as an uncompressed little-endian DNG
+  (one IFD0, one strip) into a caller buffer: `written_len` (the size query),
+  `write_into` (no allocation, every byte written, deterministic) and
+  `write_to_vec`. `WriteOptions` carries the framing (`FullSensor`,
+  `FullActiveArea`, `StandardCrop`: framing and orientation are tags, samples
+  are cut only at the `ActiveArea` edge, DEC-073), the levels, orientation,
+  masked areas, the three opcode lists (copied verbatim; under a cutting
+  framing `OpcodeList1` may hold only `FixBadPixelsConstant`) and the required
+  `UniqueCameraModel`. The feature is off by default and adds no dependency.
+- **Two `Error` variants**, present in every build so `Error`'s shape does not
+  depend on features: `InvalidWriteInput(WriteInputError)` (`CallerError`,
+  fourteen reasons) and `UnsupportedOpcodeForFraming` (`Unsupported`).
+- A `dng_write` fuzz target and `just fuzz-dng-write`.
+
 ## [0.2.6] - 2026-11-23
 
 An empty or misshapen interpretation tag now refuses the develop that reads it, where it

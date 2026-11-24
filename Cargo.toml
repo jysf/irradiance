@@ -77,6 +77,11 @@ irr = []
 # published crate (default features) leaves it off and gains no construction
 # path. Carries no dependency.
 test-fixtures = []
+# The public DNG writer (SPEC-061, DEC-055, DEC-071 to DEC-075): compiles in
+# `irradiance::dng::write`. A real, published feature, unlike the three above,
+# but default OFF: a reader-only consumer compiles no writer. Carries no
+# dependency, so the crate keeps zero runtime dependencies.
+write = []
 
 # The profile `just test` runs every test under (SPEC-072, DEC-066). It inherits
 # `test` (which inherits `dev`), NOT `release`, on purpose: debug assertions and
@@ -111,7 +116,7 @@ opt-level = 3
 # path-only dev-dependency is stripped from the published manifest by
 # `cargo package`, so the released crate is unaffected; it adds no crate to the
 # graph (it is this crate), so "zero dependencies" and DEC-010 still hold.
-irradiance = { path = ".", features = ["test-fixtures", "irr"] }
+irradiance = { path = ".", features = ["test-fixtures", "irr", "write"] }
 
 # DEV-ONLY, and that is load-bearing: `toml` parses tests/corpus/manifest.toml
 # for the corpus tests and the `corpus-status` example. It is never compiled

@@ -42,6 +42,8 @@
 //!     fuzz/corpus/develop fuzz/seeds/develop -- -max_total_time=60
 //! ```
 
+#[path = "../tests/support/dng_write_fuzz.rs"]
+mod dng_write_fuzz;
 #[path = "../tests/support/dng_writer.rs"]
 mod dng_writer;
 #[path = "../tests/support/opcode.rs"]
@@ -1415,6 +1417,94 @@ fn write_seeds(
     Ok(written)
 }
 
+/// SPEC-061 §8: the `dng_write` target's seeds, encoded in its input format
+/// (`tests/support/dng_write_fuzz.rs`): one per framing, one with each opcode
+/// list, and one per refusal that is cheap to reach.
+fn dng_write_seeds() -> Vec<(&'static str, Vec<u8>)> {
+    use dng_write_fuzz::{baseline, encode, Case};
+    let with = |f: &dyn Fn(&mut Case)| {
+        let mut c = baseline();
+        f(&mut c);
+        encode(&c)
+    };
+    let fix_bad_pixels_constant = opcode::single_fix_bad_pixels_constant_list(0, 0, 0);
+    let fix_bad_pixels_list =
+        opcode::opcode_list(&[opcode::raw_opcode(5, 0x0103_0000, 0, &[0; 8])]);
+    let optional = opcode::opcode_list(&[opcode::raw_opcode(99, 0x0103_0000, 1, &[1, 2, 3])]);
+    vec![
+        (
+            "full-sensor",
+            with(&|c| {
+                c.framing = 0;
+                c.masked = vec![[0, 0, 1, 16], [1, 0, 11, 2]];
+            }),
+        ),
+        ("full-active-area", with(&|c| c.framing = 1)),
+        ("standard-crop", encode(&baseline())),
+        ("no-active-area", with(&|c| c.active_area = None)),
+        (
+            "black-pattern",
+            with(&|c| {
+                c.repeat_dim = Some([2, 2]);
+                c.black_level = vec![60, 61, 62, 63];
+            }),
+        ),
+        (
+            "opcode-list-1",
+            with(&|c| c.lists[0] = Some(fix_bad_pixels_constant.clone())),
+        ),
+        (
+            "opcode-list-2",
+            with(&|c| c.lists[1] = Some(optional.clone())),
+        ),
+        (
+            "opcode-list-3",
+            with(&|c| c.lists[2] = Some(optional.clone())),
+        ),
+        ("refuse-budget", with(&|c| c.max_pixels = 10)),
+        ("refuse-empty-plane", with(&|c| c.width = 0)),
+        ("refuse-sample-count", with(&|c| c.drop_one_sample = true)),
+        (
+            "refuse-active-area",
+            with(&|c| c.active_area = Some([5, 5, 5, 9])),
+        ),
+        ("refuse-crop", with(&|c| c.crop = Some([0, 0, 13, 1]))),
+        (
+            "refuse-masked-framing",
+            with(&|c| c.masked = vec![[0, 0, 1, 16]]),
+        ),
+        (
+            "refuse-masked-overlap",
+            with(&|c| {
+                c.framing = 0;
+                c.masked = vec![[0, 0, 4, 16]];
+            }),
+        ),
+        ("refuse-orientation", with(&|c| c.orientation = 9)),
+        ("refuse-black-count", with(&|c| c.black_level = vec![1, 2])),
+        (
+            "refuse-repeat-dim",
+            with(&|c| {
+                c.repeat_dim = Some([0, 1]);
+                c.black_level = Vec::new();
+            }),
+        ),
+        ("refuse-model-missing", with(&|c| c.model = None)),
+        (
+            "refuse-model-ascii",
+            with(&|c| c.model = Some(b"caf\xe9".to_vec())),
+        ),
+        (
+            "refuse-list-1-malformed",
+            with(&|c| c.lists[0] = Some(vec![0, 0, 0, 1, 0])),
+        ),
+        (
+            "refuse-list-1-shifting",
+            with(&|c| c.lists[0] = Some(fix_bad_pixels_list.clone())),
+        ),
+    ]
+}
+
 fn main() {
     if let Err(e) = write_seeds("ifd", "tiff", tiff::all()) {
         eprintln!("fuzz-seeds: {e}");
@@ -1450,6 +1540,10 @@ fn main() {
         std::process::exit(1);
     }
     if let Err(e) = write_seeds("ljpeg", "lj92", ljpeg_seeds()) {
+        eprintln!("fuzz-seeds: {e}");
+        std::process::exit(1);
+    }
+    if let Err(e) = write_seeds("dng_write", "bin", dng_write_seeds()) {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);
     }

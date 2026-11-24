@@ -97,5 +97,20 @@ fn main() -> std::process::ExitCode {
         ),
     }
 
+    // SPEC-061: the DNG writer's Adobe dng_validate acceptance
+    // (tests/dng_write_corpus.rs, oracle 8) runs the binary this variable
+    // names. Local only, never set in CI (DEC-069 §6).
+    const DNG_VALIDATE_ENV: &str = "IRRADIANCE_DNG_VALIDATE";
+    match std::env::var_os(DNG_VALIDATE_ENV) {
+        Some(bin) if !bin.is_empty() => println!(
+            "dng-validate: present  {} — the DNG writer's dng_validate acceptance will run",
+            std::path::Path::new(&bin).display()
+        ),
+        _ => println!(
+            "dng-validate: SKIP     ${DNG_VALIDATE_ENV} unset — the DNG writer's dng_validate \
+             acceptance (SPEC-061) will skip."
+        ),
+    }
+
     std::process::ExitCode::SUCCESS
 }

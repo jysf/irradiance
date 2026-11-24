@@ -12,6 +12,10 @@
 //!
 //! Tier-B only: it reads SDK outputs generated locally by
 //! `scripts/sdk-stage2.sh`, which are never committed.
+//!
+//! Each including test crate uses one of [`read`] and [`read_rgb`], so
+//! `dead_code` is allowed, as in the other `tests/support` modules.
+#![allow(dead_code)]
 
 /// A decoded stage-2 plane: `width × height` samples, row-major.
 pub struct Stage2 {
@@ -91,6 +95,19 @@ fn entry_values(r: &Reader<'_>, entry: usize, tag: u16) -> Result<Vec<u32>, Stri
 /// Parse a `dng_validate -2` stage-2 TIFF, refusing every shape it was not
 /// built for.
 pub fn read(bytes: &[u8]) -> Result<Stage2, String> {
+    read_samples(bytes, 1)
+}
+
+/// Parse a `dng_validate -16 -tif` render (`SPEC-061` oracle 8): the same
+/// shape as [`read`] but three 16-bit samples per pixel, interleaved
+/// (`PlanarConfiguration` 1). `samples` holds `width × height × 3` values,
+/// RGB per pixel. Every other shape is refused, as [`read`] refuses.
+pub fn read_rgb(bytes: &[u8]) -> Result<Stage2, String> {
+    read_samples(bytes, 3)
+}
+
+/// The shared reader: exactly `want_spp` 16-bit unsigned samples per pixel.
+fn read_samples(bytes: &[u8], want_spp: u32) -> Result<Stage2, String> {
     let little = match bytes.get(0..2) {
         Some(b"II") => true,
         Some(b"MM") => false,
@@ -143,7 +160,16 @@ pub fn read(bytes: &[u8]) -> Result<Stage2, String> {
     };
     let width = single(width, 256, "ImageWidth")?;
     let height = single(height, 257, "ImageLength")?;
-    let bits = single(bits, 258, "BitsPerSample")?;
+    // One BitsPerSample value per sample; every one must be 16.
+    let bits = match bits.as_deref() {
+        Some(v) if v.len() == want_spp as usize && v.iter().all(|&b| b == v[0]) => v[0],
+        Some(v) => {
+            return Err(format!(
+                "BitsPerSample (258): {v:?}, expected {want_spp} equal value(s)"
+            ))
+        }
+        None => return Err("BitsPerSample (258): missing".to_string()),
+    };
     let compression = single(compression, 259, "Compression")?;
     let spp = single(samples_per_pixel, 277, "SamplesPerPixel")?;
     if bits != 16 {
@@ -154,8 +180,8 @@ pub fn read(bytes: &[u8]) -> Result<Stage2, String> {
             "Compression {compression}, expected 1 (uncompressed)"
         ));
     }
-    if spp != 1 {
-        return Err(format!("SamplesPerPixel {spp}, expected 1"));
+    if spp != want_spp {
+        return Err(format!("SamplesPerPixel {spp}, expected {want_spp}"));
     }
     if let Some(p) = planar {
         let p = single(Some(p), 284, "PlanarConfiguration")?;
@@ -164,11 +190,15 @@ pub fn read(bytes: &[u8]) -> Result<Stage2, String> {
         }
     }
     // SampleFormat 1 (unsigned integer) is the TIFF default; a signed or
-    // floating-point 16-bit sample would be misread as unsigned.
+    // floating-point 16-bit sample would be misread as unsigned. One value per
+    // sample.
     if let Some(f) = sample_format {
-        let f = single(Some(f), 339, "SampleFormat")?;
-        if f != 1 {
-            return Err(format!("SampleFormat {f}, expected 1 (unsigned integer)"));
+        if f.len() != want_spp as usize || f.iter().any(|&v| v != 1) {
+            let values: Vec<String> = f.iter().map(u32::to_string).collect();
+            return Err(format!(
+                "SampleFormat {}, expected {want_spp} x 1 (unsigned integer)",
+                values.join(",")
+            ));
         }
     }
     let offsets = offsets.ok_or("StripOffsets (273): missing")?;
@@ -183,6 +213,7 @@ pub fn read(bytes: &[u8]) -> Result<Stage2, String> {
 
     let expected = (width as usize)
         .checked_mul(height as usize)
+        .and_then(|n| n.checked_mul(want_spp as usize))
         .and_then(|n| n.checked_mul(2))
         .ok_or("image size overflows")?;
     // Capped at the file's length: `expected` comes from the header, and a
@@ -194,7 +225,7 @@ pub fn read(bytes: &[u8]) -> Result<Stage2, String> {
     }
     if data.len() != expected {
         return Err(format!(
-            "strips hold {} bytes, expected {width}×{height}×2 = {expected}",
+            "strips hold {} bytes, expected {width}×{height}×{want_spp}×2 = {expected}",
             data.len()
         ));
     }

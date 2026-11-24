@@ -57,7 +57,7 @@ build:
 test:
     cargo run --quiet --all-features --profile corpus --example corpus-status
     cargo test --all-features --profile corpus
-    cargo test --all-features --test develop_scratch_alloc --test plane_units_alloc --test previews_alloc
+    cargo test --all-features --test develop_scratch_alloc --test plane_units_alloc --test previews_alloc --test dng_write_alloc
 
 # The same suite, unoptimised: the `dev`/`test` profile, exactly what `just
 # test` ran before SPEC-072 and what CI's test job runs. For the rare case an
@@ -391,11 +391,22 @@ fuzz-ljpeg seconds="60":
     PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ljpeg \
         fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time={{seconds}}
 
+# Run the DNG writer fuzz target (SPEC-061 §8, AGENTS.md §12 bar 2): decoded
+# planes of at most 64x64 with every WriteOptions field, checking that nothing
+# panics, that written_len and write_into agree, and that every Ok output
+# reads back. Same `+toolchain` trap and corpus/seed split as the others; the
+# seeds are tests/support/dng_write_fuzz.rs cases written by `just fuzz-seeds`.
+fuzz-dng-write seconds="60":
+    mkdir -p fuzz/corpus/dng_write
+    PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run dng_write \
+        fuzz/corpus/dng_write fuzz/seeds/dng_write -- -max_total_time={{seconds}}
+
 # Regenerate the committed fuzz seed corpus from tests/support/tiff.rs (`ifd`
 # target), examples/fuzz-seeds.rs's own plane/develop fixtures,
 # tests/opcode.rs's fuzz_seed_corpus() (`warp_opcode` target), and
 # tests/support/opcode.rs's fix_bad_pixels_fuzz_seed_corpus() (`opcode`
-# target), so a fixture added to any hostile-input lane lands in its fuzz
+# target) and tests/support/dng_write_fuzz.rs's cases (`dng_write` target,
+# SPEC-061), so a fixture added to any hostile-input lane lands in its fuzz
 # lane too.
 fuzz-seeds:
     cargo run --quiet --all-features --example fuzz-seeds
