@@ -32,11 +32,12 @@ value:
     - "onyx develops a colour Leica DNG to mono through the public mixer API"
     - "The mixer output is bit-exact against an analytic oracle and byte-identical across platforms (DEC-002)"
     - "A clipped channel never darkens or tints a highlight: the renormalisation oracle shows a monotone ramp through clipping"
-    - "Five filter presets ship, each ledgered as an approximation in docs/provenance-ledger.md"
+    - "Five filter presets ship as named weight sets, each ledgered as an approximation in docs/provenance-ledger.md"
+    - "A crates.io release onyx can pin exactly, with semver-check reporting additions only"
     - "Every existing develop output is unchanged (no DEVELOP_VERSION bump for existing paths)"
   risks_to_thesis:
-    - "The mix-space choice (white-balanced camera RGB vs a linear working space) decides whether a preset means the same thing on every camera; the wrong call makes presets per-camera guesses"
-    - "onyx may want free weights (a slider) more than presets, or may not need colour-to-mono before its Darkroom v1 ships"
+    - "Clip detection must happen on raw camera channels, but a linear working space mixes after the matrix, where a clipped channel has spread into all three; the clip rule may be harder than renormalisation"
+    - "onyx puts PROJ-006 on its later horizon, after its Darkroom v1, so real use may come well after this ships"
     - "Without spectral sensitivity in a DNG, filter presets are approximations; a user who expects a true Wratten 25 response will be disappointed"
     - "The tier-B corpus has no colour Leica DNG (only Canon, Pixel and Nikon colour files); the bodies the thesis names are untested until one is added"
     - "Clip renormalisation can make a visible step where one channel clips and its neighbour does not; a smooth version may be needed and must stay deterministic"
@@ -52,8 +53,9 @@ roadmap: []
 
 # PROJ-006: Spectral monochrome mixer (Bayer → mono)
 
-> **PROPOSED. Framed 2026-11-23.** The ID was reserved for this plan on 2026-11-21 when the
-> DNG writer took PROJ-005 (`docs/future-plans.md`). Status stays `proposed` until jysf
+> **PROPOSED. Framed 2026-11-23 (PR 324); re-framed the same day from onyx's answers,
+> with STAGE-031 framed.** The ID was reserved for this plan on 2026-11-21 when the DNG
+> writer took PROJ-005 (`docs/future-plans.md`). Status stays `proposed` until jysf
 > activates it.
 
 ## What This Project Is
@@ -88,22 +90,30 @@ existing output.
 ## Scope
 
 ### In scope
-- **The mix-space decision, first.** Weights in white-balanced camera RGB (as
-  `docs/future-plans.md` says: cheapest, white balance folds into the weights, but a
-  weight set is per camera) **or** in a linear working space after the colour matrix
-  (one weight set means the same on every camera, at the cost of the matrix step). Decided
-  at STAGE-031 design as a DEC, with a probe on the corpus's colour files (Canon 5D Mark III,
-  Pixel 3a/4a/7 Pro, Nikon D300S; no colour Leica yet, see Dependencies).
-- **The mixer primitive.** Colour Bayer DNG to a monochrome `u16` plane with the mono
-  develop's output dimensions (crop and orientation as `develop_color_into`), fixed-point
-  rational weights (DEC-018), validate-before-allocate, panic-free, fuzzed, and a threaded
-  variant byte-identical to the serial one (DEC-002).
-- **Clip-aware renormalisation.** A channel at or above the white level is dropped and the
-  remaining weights are renormalised to sum to one. Deterministic, per pixel, no spatial
-  reconstruction.
-- **Filter presets.** Yellow, Green, Orange, Red and Ortho (blue), each recorded in
-  `docs/provenance-ledger.md` as an **approximation** with its derivation, because a DNG
-  carries no spectral sensitivity.
+- **The working space, first.** Expected: a **linear working space** after the colour
+  matrix, so one weight set means the same on every body (onyx prefers it; jysf leans the
+  same way, 2026-11-23). Confirmed at SPEC-091 design as a DEC, with a test run on the
+  held colour files (Canon 5D Mark III, Pixel 3a/4a/7 Pro, Nikon D300S; no colour Leica
+  yet, see Dependencies). The alternative, white-balanced camera RGB, stays on the table
+  only if the test run says so.
+- **A public white-balanced linear RGB step** in front of the mixer, at sensor geometry
+  (onyx's colour reference view, its own candidate mixes, its quality study).
+- **The mixer, in two output shapes.** At sensor geometry (before crop, orientation and
+  warp) for onyx's GPU viewport, carrying its own black and white levels; and developed,
+  as an opt-in mix option on `develop_with_into` matching `output_dimensions_with`, so the
+  mix goes through the existing geometry and onyx's warp parity check carries over.
+  Weights-only API with rational fixed-point weights (DEC-018); validate-before-allocate,
+  panic-free, fuzzed, threaded variants byte-identical to serial (DEC-002).
+- **Clipping detected on the raw camera channels**, before white balance and any matrix
+  (onyx's point), with a deterministic per-pixel rule that keeps highlights monotone. No
+  spatial reconstruction.
+- **Filter presets as named weight sets.** Yellow, Green, Orange, Red and Ortho (blue),
+  each recorded in `docs/provenance-ledger.md` as an **approximation**, because a DNG
+  carries no spectral sensitivity. onyx stores resolved weights, never preset names, so a
+  later table change cannot alter an existing print.
+- **A crates.io release**, additions only: no change to the output bits of any existing
+  `develop_into`, `develop_with_into`, `develop_color_into`, `demosaic_into` or
+  `unpack_into` call (onyx takes only exact-pinned crates.io releases, its DEC-031/072).
 - **An oracle that can go red.** Analytic fixtures (known RGB in, exact mono out) plus, if
   the linear-space option wins, an identity: luminance weights must reproduce the Y of
   `to_srgb_linear_into`'s output to within rounding.
@@ -113,32 +123,41 @@ existing output.
 - Per-image interactive editing and tone (`crustyimg-lab`, or the caller's tone layer).
 - Spectral sensitivity measurement or per-camera spectral profiles.
 - X-Trans or other non-Bayer mosaics (refused as the colour path refuses them today).
-- A release. The mixer is new public API; a release spec is a separate call, made when
-  STAGE-031 ships and onyx says whether it needs crates.io or a path dependency.
+- Sony, Fuji and Hasselblad bodies (onyx: later).
 
-### Undecided, considered at STAGE-031 design
+### Undecided, considered at SPEC-092 design
 - **An `irr` hook** that renders a mixed mono for eyeballing (the dev/oracle binary only,
-  never a product surface). Worth it if it is the cheapest way to look at preset output on
-  real files; not decided now.
+  never a product surface). Worth it if it is the cheapest way to look at a mix on real
+  files; not decided now.
 
 ## Stage Plan
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [ ] STAGE-031 (not yet framed) — The mixer core: mix-space DEC, the public primitive (serial + threaded), fixed-point weights, clip-aware renormalisation, analytic oracle, fuzz target
-- [ ] STAGE-032 (not yet framed) — Filter presets: five presets as ledgered approximations, an oracle per preset, and the per-camera question the STAGE-031 DEC leaves open
+- [ ] STAGE-031 (proposed) — Colour to mono: SPEC-091 the white-balanced linear RGB step + working-space DEC, SPEC-092 the mixer at sensor geometry + clip rule, SPEC-093 the developed mix on `develop_with_into` (outlines, chained)
+- [ ] (not yet framed) — Filter presets: five named weight sets ledgered as approximations, Q3 and M11 colour fixtures, judged on a colour Leica file
+- [ ] (not yet framed) — The release: publish the mixer to crates.io, additions only, semver clean
 
-**Count:** 0 shipped / 0 active / 2 pending
+**Count:** 0 shipped / 0 active / 3 pending
 
-## Questions for onyx
+## onyx's answers (2026-11-23)
 
-Asked before STAGE-031 is framed, because the answers shape the API:
-1. Which colour bodies must the mixer cover first (Q2/Q3, M10/M11, SL2/SL3)?
-2. Presets only, free weights (a slider), or both?
-3. Should the output feed onyx's existing mono pipeline unchanged (same `u16` plane, same
-   dimensions as `develop::output_dimensions`), or does it want the mixed plane before
-   crop and orientation?
-4. When does onyx need it, and does it need it on crates.io or is a path dependency fine?
+The four framing questions went to onyx after PR 324. Its answers set this brief:
+1. **Bodies:** Q3 and M11 first, then Q2 and M10, then SL2/SL3; Sony, Fuji and Hasselblad
+   later. Confirmed by jysf 2026-11-23. Neither side holds a colour Leica frame yet.
+2. **Controls:** both, but the API takes weights only; presets are named weight sets.
+   onyx also asked for the white-balanced linear RGB plane as its own public step.
+3. **Output shape:** two outputs, sensor geometry (with its own levels) for the viewport
+   and developed (a mix option on `develop_with_into`) for export. Detect clipping on raw
+   camera channels.
+4. **Timing and delivery:** no rush (onyx's later horizon, after its Darkroom v1); must be
+   an exact-pinnable crates.io release, additions only, no change to existing output bits.
+
+onyx also prefers a linear working space and asked that the matrix step stay
+fixed-point. Today's matrix is f64, rounded per operation and CI-proven byte-identical
+across platforms; SPEC-091's design decides the new path's arithmetic, and the existing
+colour output may not change. onyx's own request 7 (`docs/upstream/irradiance-requests.md`
+in its repo) still describes a camera-RGB path and needs updating on its side.
 
 ## Dependencies
 
@@ -149,7 +168,7 @@ Asked before STAGE-031 is framed, because the answers shape the API:
 - **A colour Leica DNG in the tier-B corpus** (Q2/Q3, M10/M11 or SL2/SL3). The corpus has
   none today. STAGE-031 can build and prove the mixer on the Canon/Pixel/Nikon files, but
   STAGE-032's presets should not be judged until a Leica colour file is in.
-- External input (not a dependency): onyx's answers to the questions above.
+- External input (not a dependency): onyx's answers, above.
 
 ### Enables
 - onyx's Monochrom app developing colour Leica files in its mono darkroom.
