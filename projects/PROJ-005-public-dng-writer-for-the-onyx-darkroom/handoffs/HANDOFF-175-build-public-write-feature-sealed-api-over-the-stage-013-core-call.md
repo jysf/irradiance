@@ -201,6 +201,12 @@ If you cannot complete the task:
   - **FixBadPixelsConstant at the active-area edge.** `apply_fix_bad_pixels_constant` takes neighbours from the plane extent (SPEC-017 rule 1), so a bad pixel on the active-area edge borrows margin neighbours in the source but not after a cut. A cut file can then develop differently at that pixel. DEC-075 §5 calls id 4 position-independent, which is true of its parameters but not quite of its effect. The held files are unaffected (oracle 4 is exact on all four). It needs an architect call: accept it and document it in DEC-075, or refuse/flag such files.
   - `Sensor.white_level` absent on a 12/14-bit source: the caller must pass `2^bits − 1` explicitly, because the written file is 16-bit (the tests' `options_from_sensor` does this). This is worth a sentence in the rustdoc or onyx's integration notes.
 
+### Round 2 (punch list P1)
+
+- **Commit:** `15ed4fc` on `claude/spec-061-build`, fast-forwarded first onto the verify commits (`41d062b`, HANDOFF-190).
+- **Fix:** `scripts/lint-fuzz-red-proof.sh` now also copies `tests/support/dng_write_fuzz.rs` into its temp dir, because `fuzz_targets/dng_write.rs` includes it by path, so the control build compiles. `just lint-fuzz-red-proof`, `just fmt-check` and `just gate-audit` are green locally. PR 329's CI is 22 of 22 passing, including `rust / fuzz lint red-proof (must fail red)`.
+- **Tokens for this round:** 3,583,551 (about $1.95), a floor from the same transcript (`d2a634a0-…`), counting only messages after the round-2 request (10 unique message.ids, claude-opus-5-5, `basis: transcript`). The front-matter numbers above are round 1 only and are left unchanged.
+
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
