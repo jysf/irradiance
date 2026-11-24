@@ -546,6 +546,36 @@ fn dng_validate_accepts_and_renders_like_the_source() {
                     ));
                 }
                 if framing == Framing::FullActiveArea {
+                    // Verify-added (HANDOFF-190 item 2): anchor this render
+                    // to the source's too, so FullSensor's reference is not
+                    // only another output. Adobe applies the warp to the
+                    // whole active area and then crops, so the source's
+                    // render is this render's default-crop window. Upright
+                    // files only: a rotated render moves the window.
+                    if let (Some(src), Some(origin), Some(1) | None) = (
+                        source_render.as_ref(),
+                        sensor.default_crop_origin,
+                        sensor.orientation,
+                    ) {
+                        let (x0, y0) = (origin.x as usize, origin.y as usize);
+                        let (sw, sh) = (src.width as usize, src.height as usize);
+                        let rw = render.width as usize;
+                        let mut differ = 0usize;
+                        for row in 0..sh {
+                            let at = ((y0 + row) * rw + x0) * 3;
+                            let window = &render.samples[at..at + sw * 3];
+                            let want = &src.samples[row * sw * 3..(row + 1) * sw * 3];
+                            differ += window.iter().zip(want).filter(|(a, b)| a != b).count();
+                        }
+                        assert_eq!(
+                            differ, 0,
+                            "{label}: the default-crop window of the render differs from \
+                             the source's render in {differ} samples"
+                        );
+                        report.push(format!(
+                            "{label}: its default-crop window equals the source's render"
+                        ));
+                    }
                     full_active_render = Some(render);
                 }
                 warnings

@@ -118,6 +118,13 @@ pub struct WriteOptions<'a> {
     pub black_level_repeat_dim: Option<[u16; 2]>,
     /// `WhiteLevel`. Default 65535, the DNG default for 16-bit samples.
     /// Always written.
+    ///
+    /// The written file is always 16-bit, so a source with fewer bits needs
+    /// its own white level here. When the source has no `WhiteLevel` tag
+    /// ([`crate::ifd::Sensor::white_level`] is `None`), DNG's default for it
+    /// is `2^bits − 1` (4095 for 12-bit, 16383 for 14-bit): pass that
+    /// explicitly, or the written file's samples are read against 65535 and
+    /// develop several stops dark.
     pub white_level: u32,
     /// `MaskedAreas`, in stored-plane coordinates. Only
     /// [`Framing::FullSensor`] keeps the margin they describe, so a non-empty

@@ -940,6 +940,39 @@ fn opcode_list_1_allow_list_under_cutting_framings() {
     // A list of zero opcodes is well-formed.
     o.opcode_list_1 = Some(&[0, 0, 0, 0]);
     assert!(written_len(&samples, w, h, &o, BUDGET).is_ok());
+    // Verify-added (HANDOFF-190 mutant M11): the walk must account for EVERY
+    // byte, so a well-formed opcode followed by stray bytes is malformed too,
+    // not only a truncated one.
+    for extra in [&[0u8][..], &[0, 0, 0, 0]] {
+        let mut trailing = fix_constant.clone();
+        trailing.extend_from_slice(extra);
+        let mut o = base_options(); // StandardCrop: a cut, so list 1 is walked
+        o.opcode_list_1 = Some(&trailing);
+        let err = written_len(&samples, w, h, &o, BUDGET).unwrap_err();
+        assert_eq!(
+            format!("{err:?}"),
+            format!(
+                "{:?}",
+                Error::InvalidWriteInput(WriteInputError::MalformedOpcodeList { list: 1 })
+            ),
+            "{} trailing byte(s)",
+            extra.len()
+        );
+    }
+}
+
+/// Verify-added (HANDOFF-190 mutant M10): the budget refuses only
+/// `width × height > max_pixels`, so a plane of exactly `max_pixels` writes.
+#[test]
+fn a_plane_of_exactly_max_pixels_is_within_the_budget() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let o = base_options();
+    let exact = (w * h) as usize;
+    assert!(written_len(&samples, w, h, &o, exact).is_ok());
+    assert!(write_to_vec(&samples, w, h, &o, exact).is_ok());
+    let err = written_len(&samples, w, h, &o, exact - 1).unwrap_err();
+    assert!(matches!(err, Error::PlaneTooLarge { .. }), "{err:?}");
 }
 
 #[test]
@@ -1051,6 +1084,76 @@ fn develop_equivalence_synthetic() {
     let mut dst = vec![0u16; want_crop.len()];
     develop_into(&s2, &p2, &mut dst).unwrap();
     assert_eq!(dst, want_crop);
+}
+
+/// Pins a known limit of `DEC-075` §5, found at the SPEC-061 build and
+/// confirmed at verify (HANDOFF-190 item 4). `FixBadPixelsConstant` names no
+/// coordinates, but its effect is not position-independent: a bad pixel ON
+/// the active-area edge takes its median from neighbours across the whole
+/// stored plane (SPEC-017 rule 1), margin included, and a cut removes those.
+/// The cut file is a valid DNG; it develops differently at that one pixel.
+///
+/// This test asserts the divergence as it stands, and that it is confined to
+/// the edge pixel. If a later spec refuses or flags such input, or `DEC-075`
+/// changes the rule, this test is the one to rewrite.
+#[test]
+fn fix_bad_pixels_constant_on_the_active_area_edge_develops_differently_after_a_cut() {
+    let (w, h) = (20, 14);
+    let aa = margin_area();
+    // The margin reads bright, the active area dark, so the median of a
+    // corner pixel's neighbours depends on whether the margin is there.
+    let mut samples: Vec<u16> = (0..h)
+        .flat_map(|y| {
+            (0..w).map(move |x| {
+                let inside = (aa.top..aa.bottom).contains(&y) && (aa.left..aa.right).contains(&x);
+                if inside {
+                    200
+                } else {
+                    3000
+                }
+            })
+        })
+        .collect();
+    // The active area's top-left corner: five of its eight neighbours are in
+    // the margin.
+    let corner = (aa.top * w + aa.left) as usize;
+    samples[corner] = 0;
+    let l1 = list_1(); // FixBadPixelsConstant, constant 0
+
+    let mut o = base_options();
+    o.active_area = Some(aa);
+    o.white_level = 4000;
+    o.opcode_list_1 = Some(&l1);
+
+    o.framing = Framing::FullSensor;
+    let full_sensor = develop(&write(&samples, w, h, &o), &full_active_area()).unwrap();
+    o.framing = Framing::FullActiveArea;
+    let cut_file = develop(&write(&samples, w, h, &o), &full_active_area()).unwrap();
+
+    assert_eq!(full_sensor.len(), cut_file.len());
+    let differing: Vec<usize> = full_sensor
+        .iter()
+        .zip(&cut_file)
+        .enumerate()
+        .filter(|(_, (a, b))| a != b)
+        .map(|(i, _)| i)
+        .collect();
+    // Output index 0 is the active area's top-left corner.
+    assert_eq!(differing, [0], "only the edge pixel differs");
+    assert!(
+        full_sensor[0] > cut_file[0],
+        "the source's median took the bright margin, the cut file's could not"
+    );
+
+    // Negative control: the same bad pixel one step inside the edge has all
+    // eight neighbours in the active area, so the cut changes nothing.
+    samples[corner] = 200;
+    samples[corner + w as usize + 1] = 0;
+    o.framing = Framing::FullSensor;
+    let full_sensor = develop(&write(&samples, w, h, &o), &full_active_area()).unwrap();
+    o.framing = Framing::FullActiveArea;
+    let cut_file = develop(&write(&samples, w, h, &o), &full_active_area()).unwrap();
+    assert_eq!(full_sensor, cut_file);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

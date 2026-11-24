@@ -10,7 +10,7 @@ Cycle prompts live in `prompts/SPEC-061-<cycle>.md`.
 - [x] **frame** — 2026-11-20 (PR 284; DEC-072 amended in PR 291)
 - [x] **design** — completed 2026-11-21
 - [x] **build** — completed 2026-11-24 (PR 329; HANDOFF-175; 21,952,535 tokens, about $16.56, floor)
-- [ ] **verify** — prompt: `prompts/SPEC-061-verify.md` (HANDOFF-190)
+- [x] **verify** — 2026-11-24, ⚠ PUNCH LIST round 1 (HANDOFF-190; 10,145,002 tokens, about $7.58, floor). P1: `scripts/lint-fuzz-red-proof.sh` must copy `tests/support/dng_write_fuzz.rs`; CI red-proof job is red on PR 329
 - [ ] **ship** — prompt: pending (waiting on verify)
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` complete
