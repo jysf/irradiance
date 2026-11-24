@@ -10,7 +10,7 @@ Cycle prompts live in `prompts/SPEC-061-<cycle>.md`.
 - [x] **frame** — 2026-11-20 (PR 284; DEC-072 amended in PR 291)
 - [x] **design** — completed 2026-11-21
 - [x] **build** — completed 2026-11-24 (PR 329; HANDOFF-175; 21,952,535 tokens, about $16.56, floor)
-- [ ] **verify** — prompt: pending (waiting on build)
+- [ ] **verify** — prompt: `prompts/SPEC-061-verify.md` (HANDOFF-190)
 - [ ] **ship** — prompt: pending (waiting on verify)
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` complete
