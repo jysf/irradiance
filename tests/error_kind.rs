@@ -18,6 +18,7 @@
 
 use std::collections::BTreeSet;
 
+use irradiance::dng::write::{Framing, WriteInputError};
 use irradiance::{Error, ErrorKind};
 
 /// One representative of every `Error` variant, paired with `DEC-051`'s kind.
@@ -35,7 +36,9 @@ use irradiance::{Error, ErrorKind};
 /// `UnsupportedOpcodeVersion` (Unsupported) and `NonFiniteWarpCoefficients`
 /// (CallerError); SPEC-086/DEC-077 added `UnsupportedDngVersion` and
 /// `UnsupportedTag` (Unsupported) and `LjpegPrecisionMismatch` (Corrupt);
-/// SPEC-087/DEC-078 added `MalformedTag` (Corrupt)).
+/// SPEC-087/DEC-078 added `MalformedTag` (Corrupt); SPEC-061/DEC-075 added
+/// `InvalidWriteInput` (CallerError) and `UnsupportedOpcodeForFraming`
+/// (Unsupported)).
 fn dec_051_table() -> Vec<(Error, ErrorKind)> {
     use ErrorKind::{CallerError, Corrupt, Unsupported};
     vec![
@@ -428,6 +431,20 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
         // SPEC-087, DEC-078 §3: a tag the develop path reads is present but
         // malformed.
         (Error::MalformedTag { tag: 50717 }, Corrupt),
+        // SPEC-061, DEC-075 §7: the writer refused the caller's input.
+        (
+            Error::InvalidWriteInput(WriteInputError::MissingUniqueCameraModel),
+            CallerError,
+        ),
+        // SPEC-061, DEC-075 §5: an OpcodeList1 opcode a cut would shift.
+        (
+            Error::UnsupportedOpcodeForFraming {
+                list: 1,
+                opcode_id: 5,
+                framing: Framing::StandardCrop,
+            },
+            Unsupported,
+        ),
     ]
 }
 
@@ -445,8 +462,9 @@ fn variant_name(error: &Error) -> String {
 ///
 /// Reads the source text, so a variant added to the enum is seen here without
 /// this test being edited. A variant is a line indented exactly four spaces
-/// that starts with an uppercase identifier and ends in ` {` (struct variant)
-/// or `,` (unit variant) — the shape `cargo fmt` gives every variant today.
+/// that starts with an uppercase identifier and ends in ` {` (struct variant),
+/// `,` (unit variant) or `(..),` (tuple variant, SPEC-061's
+/// `InvalidWriteInput`) — the shape `cargo fmt` gives every variant today.
 fn declared_variants() -> BTreeSet<String> {
     let source = include_str!("../src/lib.rs");
     let body = source
@@ -460,6 +478,7 @@ fn declared_variants() -> BTreeSet<String> {
         .filter_map(|line| {
             line.strip_suffix(" {")
                 .or_else(|| line.strip_suffix(','))
+                .map(|name| name.split_once('(').map_or(name, |(head, _)| head))
                 .filter(|name| name.chars().all(|c| c.is_ascii_alphanumeric()))
                 .map(str::to_owned)
         })
@@ -491,8 +510,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        76,
-        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069, the 2026-11 review fixes, DEC-077 and DEC-078) classified 76",
+        78,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069, the 2026-11 review fixes, DEC-077, DEC-078 and DEC-075) classified 78",
         declared.len()
     );
 
@@ -516,10 +535,10 @@ fn every_variant_classified() {
     // Corrupt; DEC-063 one CallerError; DEC-069 one CallerError and one
     // Corrupt; the 2026-11 review fixes three Unsupported and one
     // CallerError; DEC-077 two Unsupported and one Corrupt; DEC-078 one
-    // Corrupt).
+    // Corrupt; DEC-075 one CallerError and one Unsupported).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
-    assert_eq!(count(ErrorKind::CallerError), 17);
-    assert_eq!(count(ErrorKind::Unsupported), 26);
+    assert_eq!(count(ErrorKind::CallerError), 18);
+    assert_eq!(count(ErrorKind::Unsupported), 27);
     assert_eq!(count(ErrorKind::Corrupt), 33);
 }
 

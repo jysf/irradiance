@@ -6,19 +6,19 @@
 task:
   id: SPEC-061
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -77,10 +77,40 @@ cost:
       duration_minutes: null
       recorded_at: 2026-11-21
       notes: "main-loop, not separately metered (AGENTS.md section 4); includes the dng_validate probe"
+    - cycle: build
+      handoff: HANDOFF-175
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 21952535
+      estimated_usd: 16.56
+      duration_minutes: 30
+      recorded_at: 2026-11-24
+      notes: "FLOOR taken before the handback commit, from transcript d2a634a0-951d-47e7-93f0-1c1293abce88.jsonl (87 unique message.ids, all claude-opus-5-5, no subagents): input 177 + cache-creation 295,078 (1-hour) + cache-read 21,543,887 + output 113,393. Re-sum at ship. dng_validate: 12 of 12 outputs valid, no warnings."
+    - cycle: verify
+      handoff: HANDOFF-190
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 10145002
+      estimated_usd: 7.58
+      duration_minutes: 60
+      recorded_at: 2026-11-24
+      notes: "floor, measured before the handback commit from transcript 185cfade-2523-4d39-9826-ef1001c04347.jsonl (the scratchpad UUID): 57 unique message.ids, all claude-opus-5-5, no subagents, deduplicated by message.id with each message's largest output_tokens. USD at $5/M input, $25/M output, cache read 0.1x, 1-hour cache writes 2x. Verdict punch-list: one required item, P1."
+    - cycle: build
+      handoff: HANDOFF-175
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 3583551
+      estimated_usd: 1.95
+      duration_minutes: null
+      recorded_at: 2026-11-24
+      notes: "round 2, punch list P1 (15ed4fc); floor from transcript d2a634a0, only messages after the round-2 request (10 unique message.ids), from the HANDOFF-175 Round 2 note; the front matter there holds round 1 only"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 35681088
+    estimated_usd: 26.09
+    session_count: 4
 ---
 
 # SPEC-061: Public `write` feature: the mono u16 DNG writer core (size query, caller buffer, framing as tags, typed errors, fuzz target, real-file acceptance)

@@ -559,9 +559,17 @@ mkdir -p fuzz/corpus/ljpeg
 PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ljpeg \
     fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=60
 
+# fuzz-dng-write — the public DNG writer's fuzz target (SPEC-061 §8):
+#              decoded 64x64-max planes with every WriteOptions field; nothing
+#              panics, written_len and write_into agree, every Ok output reads
+#              back. Same +toolchain trap and seed/corpus split as `fuzz` above.
+mkdir -p fuzz/corpus/dng_write
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run dng_write \
+    fuzz/corpus/dng_write fuzz/seeds/dng_write -- -max_total_time=60
+
 # fuzz-seeds — regenerate the committed seed corpus from tests/support/tiff.rs
 #              (ifd target) and examples/fuzz-seeds.rs's own fixtures (plane,
-#              develop, warp_opcode and opcode targets)
+#              develop, warp_opcode, opcode and dng_write targets)
 cargo run --quiet --all-features --example fuzz-seeds
 
 # gen-tone-table — regenerate the committed sRGB OETF encode tables

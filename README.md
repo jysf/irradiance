@@ -219,6 +219,36 @@ for preview in container.previews() {
 }
 ```
 
+### Writing a monochrome DNG (feature `write`)
+
+Behind the opt-in `write` feature (no dependency), `irradiance::dng::write`
+writes one monochrome `u16` plane, unchanged, as an uncompressed little-endian
+DNG into a buffer you size first. Framing and orientation are tags; samples are
+cut only at the `ActiveArea` edge:
+
+```rust
+use irradiance::dng::write::{write_into, written_len, Framing, WriteOptions};
+
+let mut options = WriteOptions::default();
+options.framing = Framing::StandardCrop;
+options.active_area = sensor.active_area;
+options.default_crop = sensor.default_crop_origin.zip(sensor.default_crop_size);
+options.black_level = &sensor.black_levels;
+options.white_level = sensor.white_level.unwrap_or(65535);
+options.opcode_list_3 = sensor.opcode_list_3.as_deref();
+options.unique_camera_model = Some("My Monochrome");
+
+let len = written_len(&plane, sensor.width, sensor.height, &options, max_pixels)?;
+let mut file = vec![0u8; len];
+write_into(&plane, sensor.width, sensor.height, &options, max_pixels, &mut file)?;
+```
+
+`written_len` and `write_into` allocate nothing and run the same checks in the
+same order, so `written_len` is also a preflight: a framing the source cannot
+be written at (an `OpcodeList1` a cut would shift) is refused before any buffer
+exists. Each written file is checked by irradiance's own reader and develop,
+`dnglab`, `exiftool` and Adobe's `dng_validate` 1.7.1 on the held mono files.
+
 ## Tested DNG modes
 
 What the public `plane::validate` → `plane::unpack_into` route accepts today,
@@ -303,6 +333,10 @@ waves:
   the largest black, and the colour refusal of white at or below it. The public
   clean-room DNG writer moved to `PROJ-005`; optical-black instruments are
   parked until a caller needs them.
+- **`PROJ-005` — public DNG writer** *(in progress)*: the mono `u16` writer
+  core behind the `write` feature is built (`SPEC-061`, unreleased); the EXIF
+  block, XMP, descriptive tags and rendering hints (`SPEC-081`) and an optional
+  preview (`SPEC-082`) follow.
 
 Intentionally **not** implemented yet (by design, not omission): lossless-JPEG
 component layouts other than `Nf = 1` and `Nf = 2`, compressions other than `1` and `7`,
