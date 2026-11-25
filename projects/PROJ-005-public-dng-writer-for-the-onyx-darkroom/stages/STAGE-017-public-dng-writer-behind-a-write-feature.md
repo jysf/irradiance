@@ -135,12 +135,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-061 (shipped on 2026-11-24, PR 329; 35.7M / $26.09, est. 35M) [M] Public `write` feature core: mono u16 uncompressed writer into a caller buffer, size query, options struct, framing and orientation as tags, levels/opcode pass-through, caller MaskedAreas, required `UniqueCameraModel` (`CallerError` if absent), `Error::kind()`, max_pixels, determinism, fuzz target, round-trip + dnglab/exiftool/dng_validate acceptance
 - [x] SPEC-081 (shipped on 2026-11-24, PR 332; 17.4M / $14.27, est. 25M) [M] EXIF block, XMP and IFD0 descriptive tags: opaque block at the fixed base offset with ExifIFD/GPSInfo pointers (DEC-072), XMLPacket, typed ASCII `Make`/`Model`/`LocalizedCameraModel`/`Artist`/`Copyright`/`DateTime`/`Software`/`CameraSerialNumber` (DEC-071 §3a), the rendering hints `BaselineExposure`/`BaselineNoise`/`BaselineSharpness`/`LinearResponseLimit` (DEC-074), exiftool parity on a hand-built block, red-proofs
-- [ ] SPEC-082 (frame) [S] Optional caller JPEG preview stored as a reduced-resolution subfile, read back by irradiance's preview accessors (DEC-057) and accepted by dng_validate
+- [ ] SPEC-082 (design done, build HANDOFF-193) [S] Optional caller JPEG preview stored as a reduced-resolution subfile, read back by irradiance's preview accessors (DEC-057) and accepted by dng_validate
 - [ ] [XS] Refuse an empty opcode list (`Some(&[])` is written as a count-0 tag today, the shape DEC-081 §2 refuses for XMP); a patch, since it changes SPEC-061 behaviour
 - [ ] [XS] CI `fuzz smoke — dng_write (60s)` job, like every other fuzz target's (SPEC-061 verify F3)
 - [ ] [XS] The three intra-doc links to `crate::dng` from always-compiled private items break under `--document-private-items` without `write`; use plain text or `cfg_attr` (SPEC-061 verify F4)
 
-**Count:** 2 shipped / 0 active / 1 pending (SPEC-082), plus 3 [XS]
+**Count:** 2 shipped / 1 active (SPEC-082) / 0 pending, plus 3 [XS]
 
 ## Design Notes
 
@@ -159,6 +159,12 @@ descriptive string written as an empty tag (held files carry them), an empty XMP
 refused, `Rational` for the hints with unsigned tags refusing negatives, the new checks
 between `UniqueCameraModel` and the `OpcodeList1` walk, and "inside the block" as room for
 the IFD's entry count. Re-estimated from S to M (25M).
+
+**2026-11-24, SPEC-082 designed.** DEC-082 (proposed) puts the caller's JPEG preview in a
+SubIFD of the raw IFD0, so SPEC-061's and SPEC-081's IFD0 is unchanged and a file without a
+preview stays byte-identical. The probe ruled out a next-IFD chain (`dng_validate` warns
+that DNG readers ignore it) and found the cameras' shape (preview IFD0, raw SubIFD) no
+better in any tool, including Quick Look.
 
 The requirement source is `monorail-000/DEC-075`. It is an external input: specs
 reference it in prose, never in `depends_on`.
