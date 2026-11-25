@@ -125,10 +125,10 @@ existing output.
 - X-Trans or other non-Bayer mosaics (refused as the colour path refuses them today).
 - Sony, Fuji and Hasselblad bodies (onyx: later).
 
-### Undecided, considered at SPEC-092 design
-- **An `irr` hook** that renders a mixed mono for eyeballing (the dev/oracle binary only,
-  never a product surface). Worth it if it is the cheapest way to look at a mix on real
-  files; not decided now.
+### Decided at SPEC-092 design (2026-11-25)
+- **No `irr` hook** for now: SPEC-093's developed mix is the natural thing to look at, and
+  SPEC-092 pins the plane with golden digests. The fixed-point row, `τ` and the weights
+  rule are `DEC-083`.
 
 ## Stage Plan
 
