@@ -138,6 +138,15 @@ pub mod plane;
 pub mod tone;
 pub mod warp;
 
+/// Writing DNG files, behind the `write` feature (`DEC-055`, `SPEC-061`).
+#[cfg(feature = "write")]
+pub mod dng;
+
+/// The two types the writer's [`Error`] variants carry, compiled in every
+/// build so `Error`'s shape does not depend on features (`DEC-080`). Named
+/// publicly at `dng::write` when the `write` feature is on.
+mod write_types;
+
 /// The SOF-3 lossless-JPEG decoder (DNG `Compression 7`, ITU-T T.81 Annex H).
 /// Crate-internal (`pub(crate)`): the container wiring and the public surface
 /// are STAGE-010's call, not this module's. `SPEC-036` built its entropy
@@ -1191,6 +1200,41 @@ pub enum Error {
         /// The tag number, e.g. 50717 for `WhiteLevel`.
         tag: u16,
     },
+
+    /// `SPEC-061`, `DEC-075` §7. The DNG writer (`dng::write`, feature
+    /// `write`) refused the caller's input; the reason says which argument.
+    /// Returned only by the writer, so it never occurs without the `write`
+    /// feature, but the variant exists in every build so `Error`'s shape does
+    /// not depend on features.
+    InvalidWriteInput(write_types::WriteInputError),
+
+    /// `SPEC-061`, `DEC-075` §5. The writer was asked for a framing that cuts
+    /// the margin, and `OpcodeList1` holds an opcode whose stored-plane
+    /// coordinates the cut would shift (only `FixBadPixelsConstant`, id 4, is
+    /// position-independent). The source can still be written at full-sensor
+    /// framing. Returned only by the writer.
+    UnsupportedOpcodeForFraming {
+        /// The opcode list, 1.
+        list: u8,
+        /// The first opcode id outside the allow-list.
+        opcode_id: u32,
+        /// The framing that was asked for.
+        framing: write_types::Framing,
+    },
+
+    /// `SPEC-091`. A row range passed to a band form of the sensor-geometry
+    /// linear-sRGB plane ([`color::srgb_linear_plane_rows_into`],
+    /// [`color::srgb_linear_plane_rows_f32_into`]) is empty, reversed, or ends
+    /// past the plane's height. `start..end` is in whole-plane rows, masked rows
+    /// included, so a valid range lies within `0..height` and holds a row.
+    InvalidRowRange {
+        /// The range's first row.
+        start: u32,
+        /// The range's end (exclusive).
+        end: u32,
+        /// The plane's height, `ImageLength`.
+        height: u32,
+    },
 }
 
 /// Why a preview IFD's bytes are not returned as one slice (`SPEC-062`,
@@ -1765,6 +1809,26 @@ impl fmt::Display for Error {
                     tag_name(*tag)
                 )
             }
+            Error::InvalidWriteInput(reason) => {
+                write!(f, "DNG writer input refused: {reason}")
+            }
+            Error::UnsupportedOpcodeForFraming {
+                list,
+                opcode_id,
+                framing,
+            } => {
+                write!(
+                    f,
+                    "OpcodeList{list} opcode {opcode_id} names stored-plane positions that a \
+                     {framing} cut would shift; write it at full-sensor framing"
+                )
+            }
+            Error::InvalidRowRange { start, end, height } => {
+                write!(
+                    f,
+                    "row range {start}..{end} is not a non-empty range within the plane's {height} row(s)"
+                )
+            }
         }
     }
 }
@@ -1863,7 +1927,9 @@ impl Error {
             | Error::ColorSourceWrongLength { .. }
             | Error::LjpegPlaneWrongLength { .. }
             | Error::InvalidWarpAlpha { .. }
-            | Error::NonFiniteWarpCoefficients => ErrorKind::CallerError,
+            | Error::NonFiniteWarpCoefficients
+            | Error::InvalidWriteInput(_)
+            | Error::InvalidRowRange { .. } => ErrorKind::CallerError,
 
             // Well-formed input this library does not decode. A non-TIFF or a
             // TIFF with no RAW sensor IFD is "not a file I read", and a file
@@ -1893,7 +1959,8 @@ impl Error {
             | Error::LjpegUnsupportedComponentCount { .. }
             | Error::LjpegUnsupportedPrecision { .. }
             | Error::LjpegUnsupportedPredictor { .. }
-            | Error::LjpegUnsupportedSampling { .. } => ErrorKind::Unsupported,
+            | Error::LjpegUnsupportedSampling { .. }
+            | Error::UnsupportedOpcodeForFraming { .. } => ErrorKind::Unsupported,
 
             // Malformed, truncated, inconsistent or hostile bytes, including
             // out-of-range values read from the file (the Invalid* variants).

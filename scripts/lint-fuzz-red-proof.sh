@@ -145,6 +145,9 @@ cp "${REPO_ROOT}/Cargo.toml" "${WORK_DIR}/Cargo.toml"
 cp -R "${REPO_ROOT}/src/." "${WORK_DIR}/src/"
 cp "${FUZZ_MANIFEST}" "${WORK_DIR}/fuzz/Cargo.toml"
 cp -R "${REPO_ROOT}/fuzz/fuzz_targets/." "${WORK_DIR}/fuzz/fuzz_targets/"
+# fuzz_targets/dng_write.rs includes this file by path (SPEC-061), so the copy needs it to compile.
+mkdir -p "${WORK_DIR}/tests/support"
+cp "${REPO_ROOT}/tests/support/dng_write_fuzz.rs" "${WORK_DIR}/tests/support/"
 # Copy a toolchain pin if one ever lands (there is none today). Without this the
 # copy would silently compile on a different toolchain than the repo, which
 # would make the control run answer a question nobody asked.

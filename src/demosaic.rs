@@ -546,6 +546,18 @@ pub(crate) fn is_supported_bayer(sensor: &Sensor) -> bool {
         .is_some_and(|cfa| BayerPhase::from_cfa(cfa).is_ok())
 }
 
+/// [`develop_color_fused`]'s own CFA check, alone and with its typed errors
+/// ([`Error::NotAColorFilterArray`], then [`BayerPhase::from_cfa`]'s), so a
+/// caller that must build the colour matrix before [`develop_rows_banded`] runs
+/// can refuse in the fused path's order: CFA first, then the matrix (`SPEC-091`).
+pub(crate) fn check_supported_bayer(sensor: &Sensor) -> Result<(), Error> {
+    let cfa = sensor
+        .color_filter
+        .as_ref()
+        .ok_or(Error::NotAColorFilterArray)?;
+    BayerPhase::from_cfa(cfa).map(|_| ())
+}
+
 /// Rows of halo a band develops beyond each side of its own rows (`DEC-044`):
 /// an output row reads green one row away, and that green reads mosaic samples
 /// two rows further — so three rows of real neighbours make a band's pixels

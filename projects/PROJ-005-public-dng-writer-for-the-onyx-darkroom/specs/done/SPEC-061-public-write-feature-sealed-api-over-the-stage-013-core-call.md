@@ -6,19 +6,19 @@
 task:
   id: SPEC-061
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -77,10 +77,41 @@ cost:
       duration_minutes: null
       recorded_at: 2026-11-21
       notes: "main-loop, not separately metered (AGENTS.md section 4); includes the dng_validate probe"
+    - cycle: build
+      handoff: HANDOFF-175
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 21952535
+      estimated_usd: 16.56
+      duration_minutes: 30
+      recorded_at: 2026-11-24
+      notes: "FLOOR taken before the handback commit, from transcript d2a634a0-951d-47e7-93f0-1c1293abce88.jsonl (87 unique message.ids, all claude-opus-5-5, no subagents): input 177 + cache-creation 295,078 (1-hour) + cache-read 21,543,887 + output 113,393. Re-sum at ship. dng_validate: 12 of 12 outputs valid, no warnings."
+    - cycle: verify
+      handoff: HANDOFF-190
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 10145002
+      estimated_usd: 7.58
+      duration_minutes: 60
+      recorded_at: 2026-11-24
+      notes: "floor, measured before the handback commit from transcript 185cfade-2523-4d39-9826-ef1001c04347.jsonl (the scratchpad UUID): 57 unique message.ids, all claude-opus-5-5, no subagents, deduplicated by message.id with each message's largest output_tokens. USD at $5/M input, $25/M output, cache read 0.1x, 1-hour cache writes 2x. Verdict punch-list: one required item, P1."
+    - cycle: build
+      handoff: HANDOFF-175
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 3583551
+      estimated_usd: 1.95
+      duration_minutes: null
+      recorded_at: 2026-11-24
+      notes: "round 2, punch list P1 (15ed4fc); floor from transcript d2a634a0, only messages after the round-2 request (10 unique message.ids), from the HANDOFF-175 Round 2 note; the front matter there holds round 1 only"
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 35681088
+    estimated_usd: 26.09
+    session_count: 4
+shipped_at: 2026-11-24
 ---
 
 # SPEC-061: Public `write` feature: the mono u16 DNG writer core (size query, caller buffer, framing as tags, typed errors, fuzz target, real-file acceptance)
@@ -292,8 +323,11 @@ Tier B (held corpus; `tests/dng_write_corpus.rs`; skips loudly per file when abs
 8. **Adobe `dng_validate`** (env-gated, local only, DEC-069 §6): when
    `$IRRADIANCE_DNG_VALIDATE` names the binary, every output above validates with no
    `Warning` or `Error` line, and for the Q2M the `-16 -tif` render of the StandardCrop
-   and the FullSensor outputs equals the source's render sample for sample, while the
-   item-5 file's render differs. Unset: a SKIP line (and `examples/corpus-status.rs`
+   output equals the source's render sample for sample, the FullSensor output's render
+   equals the FullActiveArea output's (§3 gives FullSensor the whole active area as its
+   crop), and that render's default-crop window equals the source's render, while the
+   item-5 file's render differs. *(Corrected at ship: the design text said the FullSensor
+   render equals the source's, which contradicts §3; ruled at verify, HANDOFF-190.)* Unset: a SKIP line (and `examples/corpus-status.rs`
    prints one). **Set but unusable** (missing binary, non-zero exit, unreadable TIFF):
    the test fails (set means must run). Extend `tests/support/stage2_tiff.rs` to read the
    3-sample `-tif` output, or add a sibling reader with the same refuse-don't-guess rule.
@@ -388,30 +422,30 @@ committed.
 
 ## Acceptance Criteria
 
-- [ ] **AC1 Feature gate.** `cargo check --no-default-features` and the default build
+- [x] **AC1 Feature gate.** `cargo check --no-default-features` and the default build
       compile no `dng` module; `--features write` and `--all-features` do. The crate keeps
       zero runtime dependencies.
-- [ ] **AC2 Round trip, tier A.** Oracle 1 holds for each framing × {no active area,
+- [x] **AC2 Round trip, tier A.** Oracle 1 holds for each framing × {no active area,
       active area with non-zero origin and margin} × {no opcodes, all three lists}, with
       masked areas under FullSensor.
-- [ ] **AC3 Tags.** The tag set, order, types and values of §4 hold; `DNGBackwardVersion`
+- [x] **AC3 Tags.** The tag set, order, types and values of §4 hold; `DNGBackwardVersion`
       follows the opcode rule; `Orientation` is written when left at its default.
-- [ ] **AC4 Validation.** Each `WriteInputError` reason, `PlaneTooLarge` and
+- [x] **AC4 Validation.** Each `WriteInputError` reason, `PlaneTooLarge` and
       `UnsupportedOpcodeForFraming` is returned for a minimal input that triggers it,
       by both `written_len` and `write_into`, with the documented `kind()`. No case panics.
-- [ ] **AC5 Size query.** For every `Ok` case, `write_into` succeeds exactly when
+- [x] **AC5 Size query.** For every `Ok` case, `write_into` succeeds exactly when
       `dst.len() == written_len(..)`, and `write_to_vec(..).len()` equals it.
-- [ ] **AC6 Develop equivalence, tier A and B.** Oracles 2 and 4.
-- [ ] **AC7 Red-proofs.** Oracles 3 and 5, each after its negative control.
-- [ ] **AC8 dnglab and exiftool.** Oracles 6 and 7, tool-gated.
-- [ ] **AC9 dng_validate.** Oracle 8 when `$IRRADIANCE_DNG_VALIDATE` is set; a SKIP line
+- [x] **AC6 Develop equivalence, tier A and B.** Oracles 2 and 4.
+- [x] **AC7 Red-proofs.** Oracles 3 and 5, each after its negative control.
+- [x] **AC8 dnglab and exiftool.** Oracles 6 and 7, tool-gated.
+- [x] **AC9 dng_validate.** Oracle 8 when `$IRRADIANCE_DNG_VALIDATE` is set; a SKIP line
       when unset; a failure when set but unusable. Run locally at build and at verify;
       the handback records the result.
-- [ ] **AC10 Determinism and allocation.** Oracles 9 and 10.
-- [ ] **AC11 Fuzz.** The target builds, its seeds are generated by `just fuzz-seeds`, and
+- [x] **AC10 Determinism and allocation.** Oracles 9 and 10.
+- [x] **AC11 Fuzz.** The target builds, its seeds are generated by `just fuzz-seeds`, and
       `just fuzz-dng-write` runs 60 s with no crash; `just lint-fuzz` and `just deny-fuzz`
       pass.
-- [ ] **AC12 Docs and gates.** Provenance row, CHANGELOG, README, AGENTS.md block;
+- [x] **AC12 Docs and gates.** Provenance row, CHANGELOG, README, AGENTS.md block;
       `just test`, `just test-debug` (or CI), `just lint-ci`, `just lint-no-allow`,
       `just fmt-check`, `just doc-check`, `just deny`, `just msrv`, `just validate`,
       `just gate-audit` and `just cost-audit` pass; `cargo semver-checks` reports only
@@ -479,31 +513,31 @@ committed.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — At design, check every oracle's wording against the framing table it tests, and every
+   "exists in every build" claim against the module its types live in. Both contradictions
+   (oracle 8's FullSensor render, and the `Error` payload types under a feature-gated
+   module, now DEC-080) were in the spec as designed and were caught only by the build.
+   Also list every gate CI runs in the build and verify handoffs, not only the `just`
+   recipes. `lint-fuzz-red-proof` was missing from both lists, and it was the only red
+   job (punch list P1).
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — Done this ship: DEC-080 accepted; DEC-075 §5 records the `FixBadPixelsConstant`
+   edge limit; oracle 8's text is corrected. Recorded in `guidance/signals.yaml`:
+   `fuzz-red-proof-copies-files-a-target-includes` (process-debt, N=1). The red-proof's
+   copy step is hand-written, so a fuzz target that includes a file outside `fuzz/` by
+   path breaks it.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Two [XS] items on STAGE-017's backlog: a CI `fuzz smoke — dng_write (60s)` job
+   (every other target has one), and the three intra-doc links to `crate::dng` that break
+   under `--document-private-items` without `write`. SPEC-081 (EXIF block, XMP, DEC-074
+   hints) is next, and onyx should hear about the DEC-075 §5 edge limit.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Write a monochrome DNG with irradiance (feature `write`): a caller's u16 plane goes
+   out at full sensor, full active area or standard crop, and Adobe `dng_validate` accepts
+   all 12 corpus outputs with no warnings. Before, irradiance could only read DNGs.

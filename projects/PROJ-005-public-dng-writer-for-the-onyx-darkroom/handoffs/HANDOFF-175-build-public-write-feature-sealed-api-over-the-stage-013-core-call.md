@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-21
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-061
@@ -46,19 +46,19 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 21952535           # REAL combined count — what cost-audit reads
+  estimated_usd: 16.56             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 30
+  branch: claude/spec-061-build
+  pr: 329
+  completed_at: 2026-11-24         # YYYY-MM-DD
+  notes: "FLOOR taken before the handback commit, from transcript d2a634a0-951d-47e7-93f0-1c1293abce88.jsonl (87 unique message.ids, all claude-opus-5-5, no subagents): input 177 + cache-creation 295,078 (1-hour) + cache-read 21,543,887 + output 113,393. Re-sum at ship. dng_validate: 12 of 12 outputs valid, no warnings." # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  synced_at: 2026-11-24
 ---
 
 # HANDOFF-175: Build SPEC-061, the public `write` feature's mono u16 DNG writer core
@@ -161,43 +161,59 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-061-build` → https://github.com/jysf/irradiance/pull/329
+- **Completed at:** 2026-11-24
+- **All acceptance criteria met?** Yes for AC1 to AC12, with one oracle adapted (deviation 1 below).
+- **Staleness check (designed 2026-11-21; main has since gained 0.2.5, 0.2.6 and SPEC-089):** it holds. The writer emits only well-formed counts (Orientation 1, BlackLevel matching the repeat dimensions, versions as 4 BYTEs). The backward version is at most 1.3, under DEC-077's 1.7.1 guard. Every round trip reads back with an empty `malformed_tags`. Oracle 4 is exact on all four held files, and the dng_validate numbers reproduce the probe table exactly (132,753,649 differing samples for the forbidden shape). No reader change was needed.
+- **Gates:** `just test` with the corpus and `IRRADIANCE_DNG_VALIDATE` set: 900 passed, 0 failed, 55 binaries. `lint-ci`, `lint-no-allow`, `fmt-check`, `doc-check`, `deny`, `deny-fuzz`, `lint-fuzz`, `msrv`, `validate`, `gate-audit` and `cost-audit` are all green. `cargo semver-checks --all-features`: no semver update required (202 pass). `cargo check --no-default-features` and `--features write` both build. `just fuzz-dng-write 60`: 3,612,299 runs, no crash.
+- **dng_validate 1.7.1 (AC9):**
+
+  | Output | Result |
+  |---|---|
+  | Q2M `L1021223` FullActiveArea | valid, no warnings |
+  | Q2M StandardCrop | valid, no warnings; `-16 -tif` render equals the source's (8368×5584, 140,180,736 samples, 0 differ) |
+  | Q2M FullSensor | valid, no warnings; render equals the FullActiveArea output's (8392×5632, 141,791,232 samples, 0 differ) |
+  | Q2M crop cut with the warp verbatim (DEC-073's forbidden shape) | render differs in 132,753,649 of 140,180,736 samples |
+  | K-3 III, M Monochrom, M Monochrom Typ 246 × 3 framings | valid, no warnings (9 of 9) |
+
+- **dnglab / exiftool (AC8):** on all four files, the FullSensor `--raw-checksum` equals dnglab's checksum of the source file, and the cut outputs equal the MD5 of the active-area plane. exiftool reads DNGVersion, UniqueCameraModel, BitsPerSample, ImageWidth, ActiveArea, DefaultCropSize and Orientation back as written at every framing.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 21,952,535 (a floor, taken before the handback commit)
+- **Estimated USD:** 16.56 (claude-opus-5-5: $5/M input, $25/M output, cache read at 0.1×, 1-hour cache writes at 2×)
+- **Duration (minutes):** about 30
+- **Source of the number:** this session's transcript `d2a634a0-951d-47e7-93f0-1c1293abce88.jsonl`, found by the scratchpad UUID and measured per docs/cost-tracking.md "Measuring a cycle": 87 unique message.ids, all claude-opus-5-5, no subagents, deduplicated by message.id with each message's largest output_tokens (`basis: transcript`).
 
 ### Drift and new artifacts
 
 - **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+  - `DEC-080` (proposed): the writer's error payload types are compiled in every build and named under `dng::write`. The spec requires both `Error` variants in every build, but names their payload types under a module AC1 compiles only with the feature.
 - **Deviations from spec:**
-  - [list]
+  1. **Oracle 8, the FullSensor render.** §7 item 8 asks that the Q2M FullSensor render equal the *source's* render. §3's table writes FullSensor's DefaultCrop as (0,0) plus the active-area size, so its render is 8392×5632 against the source's 8368×5584 and cannot be equal. (The design probe wrote the source crop at FullSensor.) The test instead requires the FullSensor render to equal the FullActiveArea output's render, sample for sample: the margin changes nothing. If FullSensor should carry the caller's crop, that is a §3/DEC-073 change for the architect.
+  2. `tests/error_kind.rs`'s variant parser now reads a tuple variant, because `InvalidWriteInput(WriteInputError)` is the first tuple variant in `Error`. Without this change it would silently miss the variant.
+  3. The self dev-dependency now also enables `write`, as it already does `test-fixtures`, so a bare `cargo test` compiles the writer tests.
+  4. Added two support files that the Outputs list does not name: `tests/support/dng_write_oracle.rs` (oracle 1, shared by both tiers) and `tests/support/dng_write_fuzz.rs` (the fuzz input format, shared by the target and the seed generator). Also added `fuzz_seeds_reach_their_named_outcome`.
+  5. `OutputTooLarge` is reached in tier A with a 4 GiB zeroed `OpcodeList2`. The OS maps it lazily and planning never reads it, so the test costs no real memory.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - **FixBadPixelsConstant at the active-area edge.** `apply_fix_bad_pixels_constant` takes neighbours from the plane extent (SPEC-017 rule 1), so a bad pixel on the active-area edge borrows margin neighbours in the source but not after a cut. A cut file can then develop differently at that pixel. DEC-075 §5 calls id 4 position-independent, which is true of its parameters but not quite of its effect. The held files are unaffected (oracle 4 is exact on all four). It needs an architect call: accept it and document it in DEC-075, or refuse/flag such files.
+  - `Sensor.white_level` absent on a 12/14-bit source: the caller must pass `2^bits − 1` explicitly, because the written file is 16-bit (the tests' `options_from_sensor` does this). This is worth a sentence in the rustdoc or onyx's integration notes.
+
+### Round 2 (punch list P1)
+
+- **Commit:** `15ed4fc` on `claude/spec-061-build`, fast-forwarded first onto the verify commits (`41d062b`, HANDOFF-190).
+- **Fix:** `scripts/lint-fuzz-red-proof.sh` now also copies `tests/support/dng_write_fuzz.rs` into its temp dir, because `fuzz_targets/dng_write.rs` includes it by path, so the control build compiles. `just lint-fuzz-red-proof`, `just fmt-check` and `just gate-audit` are green locally. PR 329's CI is 22 of 22 passing, including `rust / fuzz lint red-proof (must fail red)`.
+- **Tokens for this round:** 3,583,551 (about $1.95), a floor from the same transcript (`d2a634a0-…`), counting only messages after the round-2 request (10 unique message.ids, claude-opus-5-5, `basis: transcript`). The front-matter numbers above are round 1 only and are left unchanged.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Two places where the spec contradicts itself: oracle 8's "FullSensor render equals the source's" against §3's FullSensor crop, and "Error variants exist in every build" against payload types named under a feature-gated module. Both were resolvable, but neither was flagged at design.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-017/SPEC-017's neighbour rule for FixBadPixelsConstant (plane extent, not active area) bears directly on DEC-075 §5's allow-list claim. Also, `tests/error_kind.rs`'s text parser accepts only struct and unit variants, a trap for any spec that adds a tuple variant.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Run the dng_validate render comparison on the very first tier-B pass. It surfaced the oracle-8 contradiction in seconds, and checking it earlier would have let me flag it before writing the rest of the oracle.

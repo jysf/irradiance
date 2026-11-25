@@ -351,6 +351,19 @@ jobs:
       - run: mkdir -p fuzz/corpus/ljpeg
       - run: cargo +nightly fuzz run ljpeg fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=60
 
+  # SPEC-094 (SPEC-061 verify F3). The public DNG writer's `dng_write` target
+  # ran only locally (`just fuzz-dng-write`); it gets the same 60s smoke run
+  # as every other target. The fuzz crate turns the `write` feature on.
+  fuzz-dng-write:
+    name: rust / fuzz smoke — dng_write (60s)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: mkdir -p fuzz/corpus/dng_write
+      - run: cargo +nightly fuzz run dng_write fuzz/corpus/dng_write fuzz/seeds/dng_write -- -max_total_time=60
+
   # SPEC-056: rustdoc with warnings denied (both feature surfaces). 0.2.0
   # shipped 19 private intra-doc links because no job built the docs.
   docs:
@@ -371,6 +384,35 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: ./scripts/doc-check-red-proof.sh
+
+  # SPEC-096. The browser target: the "Anatomy of a RAW" demo
+  # (jysf/irradiance-demo) runs the published crate compiled to WebAssembly, and
+  # no other job compiles for wasm32. Builds the library for
+  # wasm32-unknown-unknown with default features and with `write`. A BUILD gate:
+  # std calls that compile on wasm32 and fail at run time are outside it.
+  wasm32:
+    name: rust / wasm32 build (browser target)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: ./scripts/wasm-check.sh
+
+  # The wasm32 gate's red-proof (oracle-must-be-shown-red covers gates; DEC-009):
+  # control green on an unmutated copy, then a unix-only std API and a 64-bit
+  # usize constant behind `write`, each native-green, must fail the gate by
+  # error code.
+  wasm32-red-proof:
+    name: rust / wasm32 red-proof — wasm-only faults (must fail red)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: ./scripts/wasm-check-red-proof.sh
 
   msrv:
     name: rust / MSRV (1.90.0)

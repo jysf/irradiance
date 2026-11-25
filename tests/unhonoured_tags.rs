@@ -15,7 +15,7 @@
 //! the IFD0 tags (the two versions) and the sensor tags sit where a camera
 //! writes them.
 //!
-//! §12 behavioural verification: each of the nine public develop entries is
+//! §12 behavioural verification: each of the thirteen public develop entries is
 //! exercised on its own, not one representative (mono entries on a mono
 //! fixture, the rest on an RGGB fixture).
 //!
@@ -28,7 +28,8 @@ mod tiff;
 
 use irradiance::color::{
     develop_color_f32_into, develop_color_f32_into_threaded, develop_color_into,
-    develop_color_into_threaded, to_srgb_linear_into,
+    develop_color_into_threaded, srgb_linear_plane_f32_into, srgb_linear_plane_into,
+    srgb_linear_plane_rows_f32_into, srgb_linear_plane_rows_into, to_srgb_linear_into,
 };
 use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
 use irradiance::develop::{
@@ -198,7 +199,7 @@ fn zeros(n: usize) -> Vec<(i32, i32)> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The nine public develop entries, each its own door (§12).
+// The thirteen public develop entries (SPEC-091 added four), each its own door (§12).
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,9 +213,13 @@ enum Entry {
     ToSrgbLinearInto,
     DemosaicInto,
     DemosaicIntoThreaded,
+    SrgbLinearPlaneInto,
+    SrgbLinearPlaneF32Into,
+    SrgbLinearPlaneRowsInto,
+    SrgbLinearPlaneRowsF32Into,
 }
 
-const ENTRIES: [Entry; 9] = [
+const ENTRIES: [Entry; 13] = [
     Entry::DevelopInto,
     Entry::DevelopWithScratchInto,
     Entry::DevelopColorInto,
@@ -224,6 +229,10 @@ const ENTRIES: [Entry; 9] = [
     Entry::ToSrgbLinearInto,
     Entry::DemosaicInto,
     Entry::DemosaicIntoThreaded,
+    Entry::SrgbLinearPlaneInto,
+    Entry::SrgbLinearPlaneF32Into,
+    Entry::SrgbLinearPlaneRowsInto,
+    Entry::SrgbLinearPlaneRowsF32Into,
 ];
 
 impl Entry {
@@ -306,6 +315,27 @@ fn run(entry: Entry, fx: &Fixture) -> (Result<(), Error>, Written) {
             let mut dst = u16s(raw3);
             let r = to_srgb_linear_into(sensor, &camera, &mut dst);
             (r, Written::U16(dst))
+        }
+        // SPEC-091: the sensor-geometry plane, whole and as the whole-plane band.
+        Entry::SrgbLinearPlaneInto => {
+            let mut dst = u16s(raw3);
+            let r = srgb_linear_plane_into(sensor, plane, &mut dst);
+            (r, Written::U16(dst))
+        }
+        Entry::SrgbLinearPlaneF32Into => {
+            let mut dst = f32s(raw3);
+            let r = srgb_linear_plane_f32_into(sensor, plane, &mut dst);
+            (r, bits(dst))
+        }
+        Entry::SrgbLinearPlaneRowsInto => {
+            let mut dst = u16s(raw3);
+            let r = srgb_linear_plane_rows_into(sensor, plane, 0..H, &mut dst);
+            (r, Written::U16(dst))
+        }
+        Entry::SrgbLinearPlaneRowsF32Into => {
+            let mut dst = f32s(raw3);
+            let r = srgb_linear_plane_rows_f32_into(sensor, plane, 0..H, &mut dst);
+            (r, bits(dst))
         }
         Entry::DemosaicInto => {
             let mut dst = u16s(raw3);

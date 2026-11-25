@@ -47,7 +47,7 @@ It is deliberately a **library, not an application**
 - **Edition 2021**, MSRV `1.90` (the measured floor; the true floor is lower
   but unmeasured — see [`Cargo.toml`](Cargo.toml)).
 
-> **Status:** early (0.2.6, on crates.io). Uncompressed **monochrome** and
+> **Status:** early (0.2.7, on crates.io). Uncompressed **monochrome** and
 > **Bayer** DNG develop work end to end. Sensor planes stored as strips or
 > **tiles**, uncompressed or `Compression 7` (lossless-JPEG, SOF-3), decode
 > bit-exact through the public `plane::unpack_into`, and can be split into
@@ -63,11 +63,18 @@ It is deliberately a **library, not an application**
 > and runs the illuminant weight to convergence, as Adobe's SDK does, and
 > refuses tags it cannot honour yet, a newer DNG backward version and a
 > malformed tag it reads, instead of developing them wrongly. 0.2.6 also
-> refuses a tag that reads cleanly but is empty or the wrong shape. Size the plane
+> refuses a tag that reads cleanly but is empty or the wrong shape. 0.2.7 adds a
+> monochrome DNG writer behind the opt-in `write` feature
+> ([below](#writing-a-monochrome-dng-feature-write)). Size the plane
 > buffer with `plane::validate` first: it checks the layout and your own pixel budget
 > before you allocate. See
 > [tested DNG modes](#tested-dng-modes), [`CHANGELOG.md`](CHANGELOG.md) and
 > [Scope](#scope-and-roadmap).
+
+**See it in the browser:** [Anatomy of a RAW](https://jysf.github.io/irradiance-demo/)
+runs the published crate compiled to WebAssembly and shows every pipeline stage on a
+real DNG ([source](https://github.com/jysf/irradiance-demo)). CI builds the library for
+`wasm32-unknown-unknown` on every change (`just wasm-check`).
 
 ## The pipeline
 
@@ -219,6 +226,48 @@ for preview in container.previews() {
 }
 ```
 
+### Writing a monochrome DNG (feature `write`)
+
+Behind the opt-in `write` feature (no dependency), `irradiance::dng::write`
+writes one monochrome `u16` plane, unchanged, as an uncompressed little-endian
+DNG into a buffer you size first. Framing and orientation are tags; samples are
+cut only at the `ActiveArea` edge:
+
+```rust
+use irradiance::dng::write::{write_into, written_len, Framing, WriteOptions};
+
+let mut options = WriteOptions::default();
+options.framing = Framing::StandardCrop;
+options.active_area = sensor.active_area;
+options.default_crop = sensor.default_crop_origin.zip(sensor.default_crop_size);
+options.black_level = &sensor.black_levels;
+options.white_level = sensor.white_level.unwrap_or(65535);
+options.opcode_list_3 = sensor.opcode_list_3.as_deref();
+options.unique_camera_model = Some("My Monochrome");
+
+let len = written_len(&plane, sensor.width, sensor.height, &options, max_pixels)?;
+let mut file = vec![0u8; len];
+write_into(&plane, sensor.width, sensor.height, &options, max_pixels, &mut file)?;
+```
+
+`WriteOptions` also carries, all optional: a caller-built EXIF block (placed
+verbatim at `EXIF_BLOCK_BASE`, never parsed or rebased), an XMP packet, eight
+descriptive ASCII tags (`make`, `model`, `software`, `date_time`, `artist`,
+`copyright`, `localized_camera_model`, `camera_serial_number`), four rendering
+hints (`baseline_exposure`, `baseline_noise`, `baseline_sharpness`,
+`linear_response_limit`) and a `preview`: JPEG bytes you encoded, stored as a
+reduced-resolution SubIFD and never decoded. `write_to_vec` does
+`written_len` and `write_into` in one call.
+
+`written_len` and `write_into` allocate nothing and run the same checks in the
+same order, so `written_len` is also a preflight: a plane over your pixel budget
+(`Error::PlaneTooLarge`), an option the writer refuses
+(`Error::InvalidWriteInput`, which names the reason: an empty opcode list among
+them), or a framing the source cannot be written at (an `OpcodeList1` a cut
+would shift, `Error::UnsupportedOpcodeForFraming`) is refused before any buffer
+exists. Each written file is checked by irradiance's own reader and develop,
+`dnglab`, `exiftool` and Adobe's `dng_validate` 1.7.1 on the held mono files.
+
 ## Tested DNG modes
 
 What the public `plane::validate` → `plane::unpack_into` route accepts today,
@@ -258,8 +307,10 @@ just lint-ci         # clippy AS CI SEES IT — run this before every push
 just deny            # permissive-only license gate
 just msrv            # compile against the pinned MSRV (1.90.0)
 just fuzz            # the ifd/container fuzz target (also: fuzz-plane,
-                     #   fuzz-develop, fuzz-warp, fuzz-opcode, fuzz-ljpeg)
+                     #   fuzz-develop, fuzz-warp, fuzz-opcode, fuzz-ljpeg,
+                     #   fuzz-dng-write)
 just doc-check       # cargo doc with warnings denied
+just wasm-check      # build the library for wasm32-unknown-unknown (the browser)
 ```
 
 Timing examples (release build, need the Tier-B corpus): `just unpack-timing`,
@@ -303,6 +354,10 @@ waves:
   the largest black, and the colour refusal of white at or below it. The public
   clean-room DNG writer moved to `PROJ-005`; optical-black instruments are
   parked until a caller needs them.
+- **`PROJ-005` — public DNG writer** *(in progress)*: the mono `u16` writer
+  behind the `write` feature, with the EXIF block, XMP, descriptive tags,
+  rendering hints and an optional caller JPEG preview, is released in 0.2.7
+  (`SPEC-061`, `SPEC-081`, `SPEC-082`, `SPEC-094`).
 
 Intentionally **not** implemented yet (by design, not omission): lossless-JPEG
 component layouts other than `Nf = 1` and `Nf = 2`, compressions other than `1` and `7`,

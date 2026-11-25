@@ -8,6 +8,105 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+### Added
+
+- **CI builds the library for the browser** (SPEC-096, STAGE-033). New gate
+  `just wasm-check` (CI `wasm32`) builds `--lib` for `wasm32-unknown-unknown`
+  with default features and with `write`; its red-proof `just
+  wasm-check-red-proof` (CI `wasm32-red-proof`) shows it failing on a unix-only
+  std API and on a 64-bit `usize` constant, both of which build natively. A build
+  gate only: std calls that compile on wasm32 and fail at run time are outside
+  it. The README links the live "Anatomy of a RAW" demo, which runs the
+  published crate compiled to WebAssembly. No library change.
+- **The white-balanced linear-sRGB plane at sensor geometry** (SPEC-091,
+  STAGE-031, PROJ-006, DEC-079). Four new functions in `irradiance::color` run
+  `develop_color_into`'s pipeline (levels, `OpcodeList2` `GainMap`s,
+  Hamilton-Adams, the camera-to-linear-sRGB matrix) but write every pixel of the
+  `width × height` plane, masked border included, with no crop, orientation or
+  warp: `srgb_linear_plane_into` (`u16`, the existing colour pixel bit for bit,
+  clamped), `srgb_linear_plane_f32_into` (the same `f64` sum divided by 65535
+  and cast once, **unclamped**: negatives are out-of-gamut colours, values above
+  1.0 white-balance overs), and the row-range forms `srgb_linear_plane_rows_into`
+  / `srgb_linear_plane_rows_f32_into`, whose strips tile to the whole plane bit
+  for bit with scratch proportional to the band. Refusals are
+  `develop_color_into`'s, in its order. No existing output changes and
+  `DEVELOP_VERSION` stays `"8"`.
+- **`Error::InvalidRowRange { start, end, height }`** (`CallerError`, SPEC-091):
+  a band form's row range is empty, reversed or ends past the plane's height.
+- **The colour path's determinism is measured** (SPEC-091): `tests/determinism.rs`
+  gains a dual-illuminant colour fixture whose `u16` and unclamped `f32`
+  sensor-geometry planes have committed hashes on the x86_64 and arm64 CI legs.
+
+## [0.2.7] - 2026-11-25
+
+irradiance can now write DNG: the opt-in `write` feature adds `irradiance::dng::write`,
+which writes one monochrome `u16` plane as an uncompressed DNG (PROJ-005 STAGE-017,
+DEC-055, DEC-071 to DEC-075, DEC-080 to DEC-082). A compatible patch release over 0.2.6:
+the feature is off by default and adds no dependency, and every other change is an
+addition, two variants on the `#[non_exhaustive]` `Error`. No reader, develop or colour
+code changed, so every input reads and develops as in 0.2.6, `DEVELOP_VERSION` stays
+`"8"`, and the MSRV stays 1.90. docs.rs documents the writer.
+
+### Added
+
+- **A public monochrome DNG writer behind the new `write` feature** (SPEC-061,
+  STAGE-017, PROJ-005, DEC-071 to DEC-075, DEC-080). `irradiance::dng::write`
+  writes one mono `u16` plane, unchanged, as an uncompressed little-endian DNG
+  (one IFD0, one strip) into a caller buffer: `written_len` (the size query),
+  `write_into` (no allocation, every byte written, deterministic) and
+  `write_to_vec`. `WriteOptions` carries the framing (`FullSensor`,
+  `FullActiveArea`, `StandardCrop`: framing and orientation are tags, samples
+  are cut only at the `ActiveArea` edge, DEC-073), the levels, orientation,
+  masked areas, the three opcode lists (copied verbatim; under a cutting
+  framing `OpcodeList1` may hold only `FixBadPixelsConstant`) and the required
+  `UniqueCameraModel`. The feature is off by default and adds no dependency.
+- **Two `Error` variants**, present in every build so `Error`'s shape does not
+  depend on features: `InvalidWriteInput(WriteInputError)` (`CallerError`,
+  22 reasons in this release: five from SPEC-081, two from SPEC-082, one from
+  SPEC-094, and fourteen here: `EmptyPlane`, `SampleCountMismatch`,
+  `ActiveAreaInvalid`, `DefaultCropInvalid`, `MaskedAreaInvalid`,
+  `MaskedAreasNeedFullSensor`, `OrientationInvalid`, `BlackLevelCount`,
+  `BlackLevelRepeatDimInvalid`, `MissingUniqueCameraModel`, `InvalidAscii`,
+  `MalformedOpcodeList`, `OutputTooLarge` and `OutputBufferWrongLength`) and
+  `UnsupportedOpcodeForFraming` (`Unsupported`). Only
+  the writer returns them. The writer also returns the existing
+  `Error::PlaneTooLarge` when `width × height` exceeds the caller's `max_pixels`,
+  checked first.
+- A `dng_write` fuzz target and `just fuzz-dng-write`.
+- **The writer carries a source's metadata** (SPEC-081, DEC-072, DEC-074,
+  DEC-081). New `WriteOptions` fields, all `None` by default: `exif_block` (an
+  `ExifBlock` of caller-built bytes plus the in-block offsets of its Exif and
+  GPS IFDs, copied verbatim to file offset `EXIF_BLOCK_BASE` (8), right after
+  the header, with `ExifIFD` / `GPSInfo` pointing into it; never parsed or
+  rebased, and `exif_block_base` names the base to build for), `xmp`
+  (`XMLPacket`, verbatim), the eight descriptive ASCII tags `make`, `model`,
+  `software`, `date_time`, `artist`, `copyright`, `localized_camera_model`,
+  `camera_serial_number` (an empty string writes an empty tag), and the four
+  rendering hints `baseline_exposure`, `baseline_noise`, `baseline_sharpness`,
+  `linear_response_limit` as `Rational`, written as given. Five new
+  `WriteInputError` reasons, all checked by `written_len` too:
+  `DateTimeInvalid`, `RationalInvalid`, `ExifBlockWithoutIfd`,
+  `ExifIfdOffsetInvalid`, `EmptyXmp`. Carrying `BaselineExposure` makes the
+  K-3 III's export render like its source in Adobe's reader.
+- **The writer stores an optional caller JPEG preview** (SPEC-082, DEC-071 §5,
+  DEC-082). The new `WriteOptions::preview` field (default `None`) takes a
+  `JpegPreview`: JPEG bytes the caller already encoded, their width and height,
+  and a `JpegPreviewColor` (`YCbCr`, the default, or `Gray`). It is written as
+  a reduced-resolution (`NewSubFileType` 1) `SubIFDs` child of the raw IFD0,
+  one JPEG-compressed strip between IFD0's values and the raw strip, and is
+  never decoded: the writer checks only the `FF D8` start marker and that each
+  dimension is 1 to 65535. Two new `WriteInputError` reasons, also checked by
+  `written_len`: `PreviewNotJpeg` and `PreviewDimensionsInvalid`. Without a
+  preview the output is byte-identical to before. `Container::previews`,
+  exiftool and Adobe `dng_validate` read the preview back unchanged, and
+  macOS Quick Look shows it (design probe).
+- **The writer refuses an empty opcode list** (SPEC-094, DEC-081 follow-up). A
+  new `WriteInputError::EmptyOpcodeList { list }` reason, checked by
+  `written_len` too, under every framing: `Some(&[])` for any of the three
+  lists used to be written as a count-0 tag, which has no count header and
+  which irradiance's own reader treats as malformed. Leave the option `None` to
+  write no list. A 4-byte list declaring 0 opcodes is still written verbatim.
+
 ## [0.2.6] - 2026-11-23
 
 An empty or misshapen interpretation tag now refuses the develop that reads it, where it

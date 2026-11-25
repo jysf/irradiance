@@ -18,9 +18,10 @@ Instructions for any AI agent working in this repository. Read this file first, 
     (instrument layer and consumer integration) are **shipped**.
   - `PROJ-002` (Bayer colour develop) is still `active`; its remaining work, the
     ColorChecker ΔE oracle (SPEC-035), is blocked on capturing the chart.
-  - `PROJ-005` (public DNG writer for onyx's Darkroom v1) is **proposed** and being
-    framed.
-  - The live release is **irradiance 0.2.6** on crates.io (2026-11-23).
+  - `PROJ-005` (public DNG writer for onyx's Darkroom v1) is **shipped** (closed
+    2026-11-25): STAGE-017 (the writer) and STAGE-032 (its release, 0.2.7).
+  - The live release is **irradiance 0.2.7** on crates.io (2026-11-25), the first with
+    the opt-in `write` feature.
   - Each project's `brief.md` is the source of truth; check `status:` there.
 
 See `.repo-context.yaml` for structured metadata.
@@ -207,7 +208,7 @@ borrowed band as soon as it has one.
   adopting it needs a `DEC-*` like any other dependency.
 - **Linter / Formatter:** `cargo clippy` (0.1.97) and `cargo fmt` (rustfmt 1.9.0).
   `cargo-deny` (0.19.9) enforces the licence policy.
-- **Hosting:** crates.io, published since 0.1.0 (DEC-028); 0.2.6 is the live
+- **Hosting:** crates.io, published since 0.1.0 (DEC-028); 0.2.7 is the live
   version. Releases are two-phase release specs: the build preps, the maintainer
   tags and runs `cargo publish`. crustyimg can depend on a registry version; its
   `raw-develop` integration is tracked in crustyimg's own STAGE-056.
@@ -278,7 +279,8 @@ and `just lint-fuzz-red-proof` (its red-proof); `SPEC-023` added `just gate-audi
 (the gate OVER the gates — scans the verdict-bearing `scripts/*.sh` for the
 mute-death shape) and `just gate-audit-red-proof` (its red-proof).
 `SPEC-016` added `just validate-red-proof`; `SPEC-056` added `just doc-check`
-and `just doc-check-red-proof`; `SPEC-067` added `just orient-timing`,
+and `just doc-check-red-proof`; `SPEC-096` added `just wasm-check` and
+`just wasm-check-red-proof` (the browser-target build gate); `SPEC-067` added `just orient-timing`,
 `SPEC-069` `just unpack-timing` and `SPEC-070` `just ljpeg-timing` (release-build
 measurements, not gates); `SPEC-071` added `just fuzz-ljpeg` (the SOF-3
 decoder's fuzz target, `SPEC-038`, which until then had no recipe) and listed
@@ -367,6 +369,21 @@ cargo fmt --check
 #              is rejected with rustdoc's private_intra_doc_links error naming
 #              it. Temp copy; working tree untouched.
 ./scripts/doc-check-red-proof.sh
+
+# wasm-check — builds the LIBRARY for wasm32-unknown-unknown, default features
+#              and --features write (SPEC-096), so the browser target the demo
+#              (jysf/irradiance-demo) depends on cannot break silently. A BUILD
+#              gate: Instant::now/std::fs compile on wasm32 and fail only at run
+#              time, so it cannot see them. Locally ~/.cargo/bin goes first on
+#              PATH (Homebrew's rust has no wasm32 std; the gate names that cause).
+#              CI runs it as the `wasm32` job.
+PATH="$HOME/.cargo/bin:$PATH" ./scripts/wasm-check.sh
+
+# wasm-check-red-proof — proves `wasm-check` bites (SPEC-096): the UNMUTATED
+#              copy passes, then a unix-only std API (E0433) and a 64-bit usize
+#              constant behind `write` (E0080), each still building natively,
+#              fail the gate. Temp copy; working tree untouched.
+PATH="$HOME/.cargo/bin:$PATH" ./scripts/wasm-check-red-proof.sh
 
 # lint-red-proof — proves the panic-free lint policy actually rejects a
 #              violating function injected into a copy of src/lib.rs, with the
@@ -559,9 +576,21 @@ mkdir -p fuzz/corpus/ljpeg
 PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ljpeg \
     fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=60
 
+# fuzz-dng-write — the public DNG writer's fuzz target (SPEC-061 §8):
+#              decoded 64x64-max planes with every WriteOptions field (SPEC-081
+#              added the EXIF block and its two IFD offsets, XMP, the eight
+#              descriptive strings and the four rendering hints; SPEC-082 the
+#              optional JPEG preview, its bytes, size and colour); nothing
+#              panics, written_len and write_into agree, every Ok output reads
+#              back, its preview too. Same +toolchain trap and seed/corpus split as `fuzz` above.
+#              CI runs it too, as `rust / fuzz smoke — dng_write (60s)` (SPEC-094).
+mkdir -p fuzz/corpus/dng_write
+PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run dng_write \
+    fuzz/corpus/dng_write fuzz/seeds/dng_write -- -max_total_time=60
+
 # fuzz-seeds — regenerate the committed seed corpus from tests/support/tiff.rs
 #              (ifd target) and examples/fuzz-seeds.rs's own fixtures (plane,
-#              develop, warp_opcode and opcode targets)
+#              develop, warp_opcode, opcode and dng_write targets)
 cargo run --quiet --all-features --example fuzz-seeds
 
 # gen-tone-table — regenerate the committed sRGB OETF encode tables

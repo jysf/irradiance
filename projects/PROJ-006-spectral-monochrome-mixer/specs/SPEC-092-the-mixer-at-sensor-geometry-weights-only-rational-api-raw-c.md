@@ -96,11 +96,48 @@ clipping on the raw camera channels, before white balance and before any matrix.
 With a linear working space (SPEC-091) the weights apply after the matrix, so the
 clip rule is this spec's hard design question (see the stage's Design Notes).
 
+**Settled before design (2026-11-24 probe, onyx's reply 2026-11-25; DEC-079
+"Clip rule" section).** Drop-and-renormalise is rejected: it darkens highlights on
+every held body. The plain fold is monotone on the photographed colours but not on
+every colour where the folded row has a negative entry (Canon and Nikon). The rule
+this spec designs is the **fade of negative weights**: positive-weight terms as
+folded, negative-weight terms multiplied by `1 − s`, where `s` ramps from 0 to 1 as
+the brightest level-normalised camera channel goes from a committed threshold to white;
+provably monotone for a threshold at or above half of white. onyx accepted it with
+these conditions, each of which becomes an AC:
+- **No parameter.** The threshold is a committed constant, not an API knob.
+- **Bit-identical to no fade** whenever the folded row has no negative entry.
+- **The threshold documented exactly:** which value is compared (per camera channel,
+  after levels and `GainMap`s, before white balance), against what (white, `65535`
+  after levels), and the fade range, so onyx's raw-plane clip overlay
+  (`mono-instruments`, its DEC-010) and the fade agree on what counts as clipping.
+  Design must say how the demosaiced (interpolated) channel the fade reads relates to
+  the raw photosite onyx's overlay reads.
+- **The fixed-point row is reproducible and visible.** The `f64 → fixed-point`
+  conversion of `v = wᵀ·M` is specified exactly (rounding rule, scale, width), pinned
+  per held file in a golden test, hashed in `tests/determinism.rs` on both CI legs,
+  and exposed (the row itself, or a digest) so onyx's oracle can check it.
+- **No clip mask output.** onyx takes clipping overlays from the raw CFA plane.
+- **Memory.** Like SPEC-091's, the mixer needs a row-range form so a 60 MP colour file
+  can be mixed in strips on iPad.
+
+From SPEC-091's ship (two follow-ups for this design to take up):
+
+- **`SPEC-091/FU-9`, a reusable band plan.** Each of SPEC-091's band calls clones the
+  `Sensor` (opcode-list bytes included) and re-resolves the levels, the GainMaps and
+  the matrix. A mixer tiled in many small strips pays that per strip.
+- **`SPEC-091/FU-10`, oracle blind spots.** A shared sink makes an "equals the old path"
+  oracle move with the mutant, and a reordered or fused (FMA) sum is absorbed by the
+  output's resolution. For every "no FMA" or "keep the order" rule in the mixer row,
+  pre-register an injected cancellation fixture per channel and per term.
+
 ## Goal
 
-Mix SPEC-091's linear RGB plane to a monochrome u16 plane at sensor geometry with
-caller-supplied rational weights, using a raw-channel clip mask and a clip rule
-that keeps highlights monotone, and report the plane's black and white levels.
+Mix a colour Bayer DNG to a monochrome u16 plane at sensor geometry, whole or in row
+strips, with caller-supplied rational weights applied as DEC-079's folded fixed-point
+row, the parameter-free fade of negative weights near clip so highlights stay
+monotone, an exposed and pinned fixed-point row, and the plane's black and white
+levels.
 
 ## Inputs
 

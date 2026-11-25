@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-031                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -130,11 +130,11 @@ a real spec at `cycle: frame` with a stable ID (so `depends_on:` can point at
 it) and rewrites the line in place. An optional `[S]`/`[M]`/`[L]` tag on the
 line is carried onto the spec as `task.complexity`.
 
-- [ ] SPEC-091 (frame) — [M] The white-balanced linear RGB step at sensor geometry, with the working-space DEC and the arithmetic decision for the new path
+- [x] SPEC-091 (shipped on 2026-11-25, PR 343; 58.6M / $38.30, est. 35M) [M] The white-balanced linear RGB step at sensor geometry, with the working-space DEC and the arithmetic decision for the new path
 - [ ] SPEC-092 (frame) — [M] The mixer at sensor geometry: weights-only rational API, raw-channel clip mask, the clip rule, the plane's black and white levels
 - [ ] SPEC-093 (frame) — [M] The developed mix: a mix option on develop_with_into, output_dimensions_with and scratch_len, through the existing geometry and resampling
 
-**Count:** 0 shipped / 3 active / 0 pending
+**Count:** 1 shipped / 2 active / 0 pending
 
 ## Design Notes
 

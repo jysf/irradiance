@@ -57,7 +57,7 @@ build:
 test:
     cargo run --quiet --all-features --profile corpus --example corpus-status
     cargo test --all-features --profile corpus
-    cargo test --all-features --test develop_scratch_alloc --test plane_units_alloc --test previews_alloc
+    cargo test --all-features --test develop_scratch_alloc --test plane_units_alloc --test previews_alloc --test dng_write_alloc
 
 # The same suite, unoptimised: the `dev`/`test` profile, exactly what `just
 # test` ran before SPEC-072 and what CI's test job runs. For the rare case an
@@ -115,6 +115,24 @@ doc-check:
 # private_intra_doc_links error naming the injected item. Working tree untouched.
 doc-check-red-proof:
     ./scripts/doc-check-red-proof.sh
+
+# wasm-check — builds the LIBRARY for wasm32-unknown-unknown, default features
+# and `--features write` (SPEC-096). The "Anatomy of a RAW" demo
+# (jysf/irradiance-demo) runs the published crate compiled to WebAssembly, and
+# nothing else compiles for wasm32. A BUILD gate: std calls that compile on
+# wasm32 and fail at run time (Instant::now, std::fs) are outside it. ~/.cargo/bin
+# goes first on PATH because Homebrew's rust has no wasm32 std; the script names
+# that cause if it is hit. CI runs it as the `wasm32` job on @stable.
+# Browser-target gate — the library builds for wasm32-unknown-unknown, both surfaces.
+wasm-check:
+    PATH="$HOME/.cargo/bin:$PATH" ./scripts/wasm-check.sh
+
+# SPEC-096's red-proof for `just wasm-check` (oracle-must-be-shown-red covers
+# gates; DEC-009). Temp copy: the gate passes the UNMUTATED copy, then fails on a
+# unix-only std API (E0433) and on a 64-bit usize constant behind `write` (E0080),
+# each of which still builds natively. Working tree untouched.
+wasm-check-red-proof:
+    PATH="$HOME/.cargo/bin:$PATH" ./scripts/wasm-check-red-proof.sh
 
 # Type check — Rust has no separate typecheck; `check` is the fast path
 typecheck:
@@ -391,11 +409,22 @@ fuzz-ljpeg seconds="60":
     PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ljpeg \
         fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time={{seconds}}
 
+# Run the DNG writer fuzz target (SPEC-061 §8, AGENTS.md §12 bar 2): decoded
+# planes of at most 64x64 with every WriteOptions field, checking that nothing
+# panics, that written_len and write_into agree, and that every Ok output
+# reads back. Same `+toolchain` trap and corpus/seed split as the others; the
+# seeds are tests/support/dng_write_fuzz.rs cases written by `just fuzz-seeds`.
+fuzz-dng-write seconds="60":
+    mkdir -p fuzz/corpus/dng_write
+    PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run dng_write \
+        fuzz/corpus/dng_write fuzz/seeds/dng_write -- -max_total_time={{seconds}}
+
 # Regenerate the committed fuzz seed corpus from tests/support/tiff.rs (`ifd`
 # target), examples/fuzz-seeds.rs's own plane/develop fixtures,
 # tests/opcode.rs's fuzz_seed_corpus() (`warp_opcode` target), and
 # tests/support/opcode.rs's fix_bad_pixels_fuzz_seed_corpus() (`opcode`
-# target), so a fixture added to any hostile-input lane lands in its fuzz
+# target) and tests/support/dng_write_fuzz.rs's cases (`dng_write` target,
+# SPEC-061), so a fixture added to any hostile-input lane lands in its fuzz
 # lane too.
 fuzz-seeds:
     cargo run --quiet --all-features --example fuzz-seeds

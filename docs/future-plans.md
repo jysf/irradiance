@@ -19,7 +19,8 @@ reconciled to current status (PROJ-001 published, PROJ-002 colour shipped, PROJ-
 closing) and the post-PROJ-003 sequence 2026-11-06; tooling-landscape survey
 refreshed 2026-11-24 (DNG 1.7 / JPEG XL, new entrants, second-oracle options); status,
 near-term and sequencing reconciled to 0.2.6 and the PROJ-001..006 state, and an
-adoption-push candidate drafted, 2026-11-24._
+adoption-push candidate drafted, 2026-11-24; status re-reconciled to 0.2.7, the PROJ-005
+close and SPEC-091, and a DNG-writer Later section added, 2026-11-25._
 
 ## The through-line
 
@@ -44,12 +45,12 @@ for every algorithm and decoder** naming its source and that source's licence.
 
 ## Where we are now
 
-Status as of 2026-11-24 (`origin/main` at `bf0ffdd`). Each project's `brief.md` is the
+Status as of 2026-11-25 (`origin/main` at `efac6b6`). Each project's `brief.md` is the
 source of truth.
 
-- **Release.** **`0.2.6`** is the live crate on crates.io (tagged 2026-11-23). `0.2.0`
-  (2026-11-11) was the first release with demosaic, colour and SOF-3; `0.2.1`..`0.2.6`
-  followed as correctness and refusal releases.
+- **Release.** **`0.2.7`** is the live crate on crates.io (published 2026-11-25). It
+  adds the public DNG writer. `0.2.0` (2026-11-11) was the first release with demosaic,
+  colour and SOF-3; `0.2.1`..`0.2.6` followed as correctness and refusal releases.
 - **`PROJ-001 — Monochrome DNG develop`** — **shipped** (2026-11-11).
 - **`PROJ-002 — Bayer develop (colour)`** — **active, with one stage open.** Demosaic
   (Hamilton-Adams, DEC-031), the colour transform, dual-illuminant interpolation,
@@ -61,19 +62,18 @@ source of truth.
   the test-only writer, tiled reader, GainMap, preview accessors and develop options.
   STAGE-004 (crustyimg integration) was cancelled here; crustyimg tracks the
   `raw-develop` integration in its own STAGE-056.
-- **`PROJ-005 — Public DNG writer for the onyx Darkroom`** — **proposed**. STAGE-017 is
-  framed; **SPEC-061** (the sealed public `write` API) is designed and at `cycle: build`,
-  ready to build. SPEC-081 and SPEC-082 are at frame.
-- **`PROJ-006 — Spectral monochrome mixer`** — **proposed**. onyx answered the four
-  framing questions on 2026-11-23, and **STAGE-031** is framed from those answers
-  (SPEC-091 → SPEC-092 → SPEC-093, all at frame; PR 325).
+- **`PROJ-005 — Public DNG writer for the onyx Darkroom`** — **shipped** (2026-11-25,
+  PR 350). The writer (`irradiance::dng::write`, feature `write`) is in `0.2.7`; its
+  follow-ups are under [Later — the DNG writer](#later--the-dng-writer-after-proj-005).
+- **`PROJ-006 — Spectral monochrome mixer`** — **STAGE-031 active.** SPEC-091 (the
+  white-balanced linear RGB plane, DEC-079) shipped (PR 351); SPEC-092 and SPEC-093 are
+  at frame.
+- **Wasm.** A `wasm32` build gate with a red-proof shipped (SPEC-096, STAGE-033).
 
-## Near-term: the writer, the mixer, and a decision on the chart
+## Near-term: the mixer, and a decision on the chart
 
-- **Build SPEC-061** (PROJ-005 / STAGE-017): the public `write` feature over the
-  STAGE-013 core. It is designed and runs in its own session.
-- **Design SPEC-091** (PROJ-006 / STAGE-031) once PR 325 has merged: the white-balanced
-  linear RGB step and the working-space DEC.
+- **Design SPEC-092** (PROJ-006 / STAGE-031): the mixer at sensor geometry, then
+  SPEC-093 (the developed mix).
 - **Decide STAGE-008**: capture a ColorChecker or cancel the stage and close PROJ-002.
   The options are in the 2026-11-24 landscape-refresh PR; nothing is decided yet.
 - **Audit leftovers.** Ranks 8, 9 and 11 of the 2026-11-21 parsed-but-unvalidated audit
@@ -104,25 +104,23 @@ shipped; `DEC-038` corrected the ColorMatrix-only white-balance path. The ColorC
 colour-geometry spec (crop/orient + `ActiveArea`-relative mosaic phase, from the external
 0.2.0 review §3B) is a likely addition. A parallel session owns the live colour thread.
 
-## Sequencing — `0.2.6` is live; writer and mixer next, adoption after
+## Sequencing — `0.2.7` is live with the writer; mixer next, adoption after
 
 The earlier order (close PROJ-003, review, cut `0.2.0`, then PROJ-004/006/adoption) is
-done up to PROJ-004: `0.2.0` was cut on 2026-11-11, PROJ-004 shipped on 2026-11-20, and
-`0.2.6` is live.
+done through PROJ-005: `0.2.0` was cut on 2026-11-11, PROJ-004 shipped on 2026-11-20,
+and PROJ-005 shipped the public writer in `0.2.7` on 2026-11-25.
 
-**Current order (2026-11-24; nothing here is a new decision):**
+**Current order (2026-11-25; nothing here is a new decision):**
 
-1. **PROJ-005: SPEC-061**, then SPEC-081 and SPEC-082, then a release that onyx can pin.
-2. **PROJ-006: STAGE-031** (SPEC-091 → 092 → 093). onyx has it on its later horizon,
-   after its Darkroom v1, so it does not need to race the writer. The two touch
-   different files and can run in parallel.
-3. **PROJ-002: STAGE-008.** The maintainer chooses: capture a chart, or cancel the stage
+1. **PROJ-006: STAGE-031** (SPEC-091 shipped; SPEC-092 → 093 next). onyx has it on its
+   later horizon, after its Darkroom v1.
+2. **PROJ-002: STAGE-008.** The maintainer chooses: capture a chart, or cancel the stage
    and close the project.
-4. **Then, order TBD:** the **adoption push** (unminted; see
+3. **Then, order TBD:** the **adoption push** (unminted; see
    [the candidate below](#project-candidate-not-minted-adoption-push)), a coverage
    decision on JXL-compressed DNG and 3-sample LinearRaw (ProRAW) (see the
    [2026-11-24 refresh](#refresh-2026-11-24)), and the audit leftovers.
-5. Any M10 / M11 / Q3 Monochrom conformance claim still waits for real Tier-B files and
+4. Any M10 / M11 / Q3 Monochrom conformance claim still waits for real Tier-B files and
    their rows in `docs/conformance-matrix.md`.
 
 ## PROJ-003 — Compressed planes: lossless JPEG (SOF-3) · *shipped 2026-11-06*
@@ -260,7 +258,7 @@ A bounded `SPIKE-NNN` on the held Q2M files (and the rest of the corpus):
   median over ~32 columns **removes banding or injects its own row noise** (and
   whether smoothing in y is then needed — which contradicts "zero blur").
 
-## PROJ-006 — Post-WB spectral monochrome mixer (Bayer → mono) · *proposed — STAGE-031 framed from onyx's answers*
+## PROJ-006 — Post-WB spectral monochrome mixer (Bayer → mono) · *STAGE-031 active — SPEC-091 shipped 2026-11-25*
 
 > **Renumbered 2026-11-21 (was PROJ-005).** This plan was never created under
 > `projects/`, so when the public DNG writer left PROJ-004 the ID tool gave it
@@ -288,6 +286,48 @@ M10/M11, SL2/SL3) — the PROJ-002 bridge for the monochrome app.
 - **Presets** (Schott Yellow 495, Green 530, Orange 550, Red 590, Ortho Blue 470):
   each recorded in `docs/provenance-ledger.md` as an **approximation**, because a
   DNG carries no sensor spectral sensitivity.
+
+## Later — the DNG writer (after PROJ-005)
+
+> **Added 2026-11-25, at the PROJ-005 close.** PROJ-005 shipped the public monochrome
+> writer (`irradiance::dng::write`, feature `write`) in irradiance 0.2.7: one `u16`
+> plane, uncompressed, one strip, little-endian, with levels, opcode lists, an EXIF
+> block, XMP, descriptive tags, rendering hints and an optional caller JPEG preview.
+> Nothing below is framed. Each item waits for the trigger named on it.
+
+**Checks for onyx, at its Darkroom v1 integration** (not specs):
+- Open written files (each framing, with a preview) in Lightroom Classic, Capture One
+  and Windows Explorer, and record the result. Until then DEC-082's confidence stays 0.8.
+- Write one real export with `diamond-exif`'s EXIF block (its SPEC-025), to test the
+  DEC-072 base-offset contract with the real builder, not a hand-built block.
+- Ask whether `mono-core` already builds `WriteOptions` from a `Sensor`.
+
+**Extensions, in value order, each on a consumer's request:**
+1. **`WriteOptions` from a `Sensor`.** *Trigger:* onyx says it would use it. A small
+   spec: `WriteOptions::from_sensor(&Sensor, Framing)` filling geometry, levels and opcode
+   lists only, with a DEC for the policy calls (white level when absent,
+   `BlackLevelRepeatDim` narrowing, masked areas only at full sensor, orientation). Ship
+   it in whichever release comes next.
+2. **Lossless compression (Compression 7) output.** *Trigger:* a consumer asks about file
+   size (a Q2 Monochrom is 95 MB uncompressed). Patent-clean (DEC-035), reuses the SOF-3
+   decoder as its oracle and the test-only encoder as a start. Not deflate: it needs
+   zlib, a new dependency.
+3. **Tiled output.** *Trigger:* very large planes, or parallel writes. The reader already
+   reads tiles (STAGE-015).
+4. **CFA planes with their colour tags.** *Trigger:* crustyimg's RAW-in/DNG-out, or the
+   Sony ARW wave wanting ARW-to-DNG. This makes the writer a permissive raw-to-DNG
+   converter and is a project of its own, not a spec.
+5. **Float or demosaiced LinearRaw RGB output.** *Trigger:* an HDR-merge or astro-stacking
+   consumer (the parked scientific linear-raw idea).
+
+**Not planned:** big-endian output, encoding a preview inside irradiance (the
+caller-encoded preview is the boundary), and editing and re-saving an existing DNG.
+
+**Hygiene patch, accepted at the PROJ-005 close** (signals
+`fuzz-targets-without-a-ci-smoke-job`,
+`ljpeg-private-doc-links-break-the-private-items-doc-build`): CI fuzz smoke jobs for
+`develop` and `demosaic` plus a `just fuzz-demosaic` recipe, and the 13 private `ljpeg`
+doc links. One `just new-patch`; neither touches the writer.
 
 ## Project candidate (not minted): adoption push
 
@@ -328,7 +368,7 @@ with a red-proof. The 11-12 memo's first gate (STAGE-016, GainMap) has since shi
   adapter (see the [2026-11-24 refresh](#refresh-2026-11-24)).
 - The outreach itself (issues or PRs on oculante and zenraw) goes out under the
   maintainer's GitHub account, so the maintainer sends it or approves each message.
-- Where it ranks against PROJ-005 and PROJ-006.
+- Where it ranks against PROJ-006 and the writer follow-ups above.
 
 ## Later — more sensors and vendor containers
 
@@ -337,6 +377,13 @@ Accepted direction, horizon "later" in the brief:
 - **X-Trans** sensors, including a **DHT demosaic**.
 - **Native Fuji RAF** container parsing.
 - **Nikon NEF**, including its **linearization curve**.
+- **Sony ARW**, a TIFF-based container with no published spec. Its
+  uncompressed and lossless-compressed variants come first, since they
+  reuse the IFD parser and the SOF-3 decoder. The lossy "compressed RAW"
+  block codec and the obfuscated SR2Private metadata each need a
+  provenance decision first: what is publicly known about them comes from
+  copyleft decoders the clean-room rule does not allow us to read. There is
+  no ARW in the corpus yet, so sample files are the first step.
 - Further vendor containers as demand and corpus coverage justify (PROJ-001
   explicitly fences out NEF/RAF/CR2/ARW/NRW).
 
