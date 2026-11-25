@@ -69,6 +69,18 @@ SPEC-061's writer (`irradiance::dng::write`, feature `write`) follows these rule
      other opcode is refused with `Error::UnsupportedOpcodeForFraming`
      (`ErrorKind::Unsupported`), naming the list, the opcode id and the framing;
    - a list whose headers cannot be walked is a `CallerError`.
+   - **Known limit (SPEC-061 verify, 2026-11-24).** `FixBadPixelsConstant` names no
+     coordinates, but its effect is not fully position-independent: a reader replaces a
+     bad pixel from neighbours on the stored plane (irradiance: SPEC-017 rule 1,
+     `apply_fix_bad_pixels_constant`). A bad pixel on the active area's edge borrows
+     margin neighbours in the source but cannot after a cut, so that pixel can develop
+     differently. This is a property of the format, not of irradiance: any reader runs
+     `OpcodeList1` on the stored plane. It is accepted, not refused: refusing would mean
+     scanning sample values on the edge, which the header-only walk is designed not to
+     do. The held files are unaffected (SPEC-061 oracle 4 is exact on all four), and the
+     test `fix_bad_pixels_constant_on_the_active_area_edge_develops_differently_after_a_cut`
+     pins the behaviour. A caller that needs bit-identical edge pixels writes full
+     sensor.
 6. **`MaskedAreas` only under full sensor.** Under the cutting framings the margin is not
    in the file, so a non-empty masked list is a `CallerError`, not silently dropped.
 7. **Two error variants.** Every caller-input refusal is
