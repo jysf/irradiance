@@ -26,6 +26,8 @@ mod dng_write_oracle;
 mod dng_writer;
 #[path = "support/exif_block.rs"]
 mod exif_block;
+#[path = "support/md5.rs"]
+mod md5;
 #[path = "support/opcode.rs"]
 mod opcode;
 #[path = "support/tiff.rs"]
@@ -1891,5 +1893,69 @@ fn rational_hints_refuse_zero_and_unsigned_negatives() {
                 );
             }
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-082 — the optional caller JPEG preview
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The three no-preview outputs oracle 2 pins: no metadata, every SPEC-081
+/// field set, and a FullSensor output with masked areas and all three opcode
+/// lists. Each is `(name, file)`.
+fn oracle_2_outputs() -> Vec<(&'static str, Vec<u8>)> {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let mut out = Vec::new();
+
+    let mut o = base_options();
+    o.active_area = Some(margin_area());
+    out.push(("no metadata", write(&samples, w, h, &o)));
+
+    let block = exif_block::build_odd(EXIF_BLOCK_BASE, exif_block::Shape::Both);
+    let mut o = base_options();
+    o.active_area = Some(margin_area());
+    o.black_level = &[64];
+    o.white_level = 60000;
+    set_all_metadata(&mut o, &block, XMP_ODD);
+    out.push(("every SPEC-081 field", write(&samples, w, h, &o)));
+
+    let (l1, l2, l3) = (list_1(), list_2(), list_3());
+    let masked = masked();
+    let mut o = base_options();
+    o.framing = Framing::FullSensor;
+    o.active_area = Some(margin_area());
+    o.black_level_repeat_dim = Some([1, 1]);
+    o.black_level = &[64];
+    o.white_level = 60000;
+    o.orientation = 3;
+    o.masked_areas = &masked;
+    o.opcode_list_1 = Some(&l1);
+    o.opcode_list_2 = Some(&l2);
+    o.opcode_list_3 = Some(&l3);
+    out.push(("FullSensor, masked, three lists", write(&samples, w, h, &o)));
+    out
+}
+
+/// Oracle 2 (AC3): with no preview the output is byte-identical to
+/// SPEC-081's. The MD5s were recorded on `main` at 165a096 (whose `src/` is
+/// identical to 386b4a7's) before any `src/` change for SPEC-082.
+#[test]
+fn no_preview_output_is_byte_identical_to_spec_081() {
+    const PINNED: [&str; 3] = [
+        "fb81830e8abeee795eb1c5ecb660209f",
+        "36160d2e0d02d0b303716dd9a342fff9",
+        "e5081b7db946fdc4461307e78b0ab592",
+    ];
+    let got: Vec<(&str, String)> = oracle_2_outputs()
+        .into_iter()
+        .map(|(name, file)| (name, md5::to_hex(&md5::hash(&file))))
+        .collect();
+    for (name, hex) in &got {
+        println!("{name}: {hex}");
+    }
+    assert_eq!(got.len(), PINNED.len());
+    for ((name, hex), want) in got.iter().zip(PINNED) {
+        assert_eq!(hex, want, "{name}");
     }
 }
