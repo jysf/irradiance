@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-25
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-096
@@ -46,19 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
-                                   #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model)
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 1212540            # REAL combined count — what cost-audit reads
+  estimated_usd: 1.68              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 4
+  branch: chore/spec-096-wasm32-build-gate
+  pr: 346
+  completed_at: 2026-11-25         # YYYY-MM-DD
+  notes: "Cold verify by a separate subagent; self-measured from its transcript agent-aa7bc8d73c353b98b.jsonl (14 unique message.ids): input 28 + cache-creation 94,265 + cache-read 1,110,937 + output 7,310, at 5 / 10 / 0.5 / 25 USD per million. APPROVED at cb00c38."
+  synced_at: 2026-11-25
 ---
 
 # HANDOFF-201: Verify SPEC-096, a wasm32 build gate and the live demo link
@@ -140,38 +139,49 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `chore/spec-096-wasm32-build-gate`, https://github.com/jysf/irradiance/pull/346
+- **Completed at:** 2026-11-25
+- **Verdict:** ✅ APPROVED at `cb00c38`. AC1-AC7 hold, and no finding blocks the ship.
+- **Reds observed by the verifier:** `just wasm-check-red-proof` passed with rc=0. The
+  control was green. Mutation A failed with E0433 naming `unix`. Mutation B failed with
+  E0080 after the default surface had built. With Homebrew first on PATH, the gate exits 1
+  with the named missing-std reason (AC3). A throwaway crate that calls `Instant::now()` and
+  `std::fs::read` builds for wasm32 with rc=0, so the spec's limit claim holds.
+- **Mutants** (copied gate, run by the copied red-proof): every mutant was killed. M1
+  (drop `--target`) and M1b (M1 with the rlib check removed) died. M2 (default surface
+  only) and M2b (counter starts at 1) died, M2b on mutation B. M3 (`|| true` on the cargo
+  builds) died. M4 was checked by reading the script.
+- **Other checks:** gate-audit (15 scripts), validate, fmt-check and decisions-audit
+  `--changed` all pass. The CI YAML parses. In CI, `wasm32` passed (13 s) and
+  `wasm32-red-proof` passed (31 s). The README claim is confirmed: the demo's
+  `demo-core` depends on `irradiance = "0.2.6"`.
+- **Process incident (the verifier's own, fixed):** during the first mutant runs, `src`
+  was symlinked into the temp dir, so mutation A was appended twice to the real
+  `src/lib.rs`. The verifier restored the file with git checkout and reran with real
+  copies. The orchestrator confirmed the tree was clean afterwards.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 1,212,540
+- **Estimated USD:** 1.68
+- **Duration (minutes):** about 4
+- **Source of the number:** the subagent's own transcript, deduplicated by message.id
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - FU-1: AC6's wording is inaccurate. The red-proof is excluded from gate-audit's scan
+    by design (gate-audit.sh line 79), so only `wasm-check.sh` is scanned.
+  - FU-2: the rlib-exists check is one path for both surfaces. After the default build
+    it proves nothing for `write`, which `set -e` and mutation B cover instead.
+  - FU-3: the red-proof's `cp -R` keeps a symlinked `src` as a symlink, so a mutation
+    can then write into the real tree. Use `cp -RL`.
+  - FU-4: the verifier saw the CI pass statuses but not the CI logs.
 
 ### Reflection (3 questions, short answers)
 
-1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
-
-2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
-
-3. **If you did this task again, what would you do differently?**
-   — <answer>
+1. **What was unclear?** — The mutant setup in the brief allowed a symlinked `src`, and
+   that led to the incident.
+2. **Missing constraint or decision?** — None.
+3. **Differently?** — Copy real files, never symlink, when a script mutates its copy.

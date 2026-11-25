@@ -6,19 +6,19 @@
 task:
   id: SPEC-096
   type: chore                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -79,10 +79,20 @@ cost:
       duration_minutes: 60
       recorded_at: 2026-11-25
       notes: "FLOOR taken before the handback commit, from transcript bc4383e8-214e-44a7-a105-8d69a9586e17.jsonl (52 unique message.ids, all claude-opus-5-5, no subagents): input 103 + cache-creation 161,883 (1-hour) + cache-read 8,602,932 + output 34,940, priced at 5 / 10 / 0.5 / 25 USD per million. INCLUDES the design cycle: one side session designed and built this spec, so design is not separately metered. Re-sum at ship."
+    - cycle: verify
+      handoff: HANDOFF-201
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 1212540
+      estimated_usd: 1.68
+      duration_minutes: 4
+      recorded_at: 2026-11-25
+      notes: "Cold verify by a separate subagent; self-measured from its transcript agent-aa7bc8d73c353b98b.jsonl (14 unique message.ids): input 28 + cache-creation 94,265 + cache-read 1,110,937 + output 7,310, at 5 / 10 / 0.5 / 25 USD per million. APPROVED at cb00c38."
   totals:
-    tokens_total: 8799858
-    estimated_usd: 6.79
-    session_count: 1
+    tokens_total: 10012398
+    estimated_usd: 8.47
+    session_count: 2
 ---
 
 # SPEC-096: a wasm32 build gate and the live demo link
