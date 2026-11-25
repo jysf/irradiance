@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -69,6 +69,14 @@ cost:
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 8000000
   sessions:
+    - cycle: design
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-11-25
+      notes: "main-loop, not separately metered (AGENTS.md section 4); the same side session designed and built, so the design tokens are inside the build row"
     - cycle: build
       handoff: HANDOFF-200
       agent: claude-opus-5-5
@@ -89,10 +97,19 @@ cost:
       duration_minutes: 4
       recorded_at: 2026-11-25
       notes: "Cold verify by a separate subagent; self-measured from its transcript agent-aa7bc8d73c353b98b.jsonl (14 unique message.ids): input 28 + cache-creation 94,265 + cache-read 1,110,937 + output 7,310, at 5 / 10 / 0.5 / 25 USD per million. APPROVED at cb00c38."
+    - cycle: ship
+      agent: claude-opus-5-5
+      interface: claude-code
+      tokens_total: null
+      estimated_usd: null
+      duration_minutes: null
+      recorded_at: 2026-11-25
+      notes: "main-loop, not separately metered (AGENTS.md section 4); the side session's tokens after the build floor (verify dispatch, this ship, the stage close) are STAGE-033's orchestration_cost"
   totals:
     tokens_total: 10012398
     estimated_usd: 8.47
-    session_count: 2
+    session_count: 4
+shipped_at: 2026-11-25
 ---
 
 # SPEC-096: a wasm32 build gate and the live demo link
@@ -172,20 +189,21 @@ tree, and the README links the live demo.
 
 ## Acceptance Criteria
 
-- [ ] AC1: `just wasm-check` on the honest tree exits 0 and reports 2 surfaces built (default,
+- [x] AC1: `just wasm-check` on the honest tree exits 0 and reports 2 surfaces built (default,
       `write`).
-- [ ] AC2: `just wasm-check-red-proof` exits 0: control green; mutation A native-green and
+- [x] AC2: `just wasm-check-red-proof` exits 0: control green; mutation A native-green and
       gate-red with E0433 naming `unix`; mutation B native-green (with `write`) and gate-red
       with E0080, after the default surface finished.
-- [ ] AC3: the gate fails with a named reason, not a compiler error, when the toolchain has no
+- [x] AC3: the gate fails with a named reason, not a compiler error, when the toolchain has no
       wasm32 std (checked by hand once at build with Homebrew's toolchain first on PATH;
       recorded in the handoff).
-- [ ] AC4: CI jobs `wasm32` and `wasm32-red-proof` exist and are green on the PR.
-- [ ] AC5: `README.md` links the live demo and its source repo; `AGENTS.md` §6 lists both
+- [x] AC4: CI jobs `wasm32` and `wasm32-red-proof` exist and are green on the PR.
+- [x] AC5: `README.md` links the live demo and its source repo; `AGENTS.md` §6 lists both
       recipes.
-- [ ] AC6: `just gate-audit` passes with the two new scripts in its scan (they are
-      `scripts/*.sh` gates and must not have the mute-death shape).
-- [ ] AC7: no change under `src/` or to `Cargo.toml`.
+- [x] AC6: `just gate-audit` passes with `scripts/wasm-check.sh` in its scan (it is a
+      `scripts/*.sh` gate and must not have the mute-death shape). Wording corrected at
+      ship (FU-1): `*-red-proof.sh` files are excluded from that scan by design.
+- [x] AC7: no change under `src/` or to `Cargo.toml`.
 
 No numeric tolerance is involved.
 
@@ -239,19 +257,37 @@ none.
 
 ## Reflection
 
-*Appended during **ship**. Three questions, short answers.*
-
 1. **What would I do differently next time?**
-   — <answer>
+   — Read `gate-audit.sh`'s exclusion list before writing an AC about its scan (FU-1), and
+   tell a verifier to copy real files, never symlink, when a script mutates its copy (the
+   verify's incident, fixed by FU-3).
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No template or constraint. DEC-002 (proposed) gains evidence for its Validation
+   section: the browser artifact exists and the wasm32 build is now gated. Accepting it
+   is the maintainer's call; not changed here.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No spec. A run-time wasm lane is closed for now (see FU-5); the demo repo's own
+   byte-identical hash check exercises the develop path at run time on each published
+   version.
 
 4. **Where was the worst defect caught?**
-   — <one word>
+   — design (the requested red-proof faults, `Instant::now` and `std::fs`, compile on
+   wasm32 and could never have gone red; the probe caught it before any script existed)
 
 5. **What can a user do now that they couldn't before?**
-   — <answer | none>
+   — Before: "irradiance runs in the browser" held by accident and nothing linked the
+   demo. After: every PR proves the library builds for `wasm32-unknown-unknown` (default
+   and `write`), the gate is shown red on two wasm-only faults, and the README links the
+   live "Anatomy of a RAW" demo.
+
+## Follow-ups
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | AC6 said both new scripts are in gate-audit's scan; red-proofs are excluded by design | `fixed` — AC6 reworded at ship |
+| `FU-2` | the rlib-exists check reads one path for both surfaces, so it proves nothing for `write` | `closed` — cargo's exit under `set -e` is the verdict for each surface, and mutation B proves the `write` surface is built; the check only guards the default surface's "built nothing" case |
+| `FU-3` | the red-proof's `cp -R` keeps a symlinked `src` as a symlink, so mutating the copy can write into the real tree | `fixed` — `scripts/wasm-check-red-proof.sh:42-44` copies with `cp -RL` |
+| `FU-4` | the verifier saw CI pass statuses, not the logs | `fixed` — CI run 45676320193 logs show cargo/rustc 1.100.0, both surfaces built, and the red-proof's attributed line |
+| `FU-5` | run-time-only wasm faults (`Instant::now`, `std::fs`, `std::thread::spawn`) compile and pass the build gate (design, build handback) | `closed` — the library does no I/O, takes no time and spawns no threads by constraint (`library-not-application`, DEC-002), and the demo repo checks a byte-identical run-time result on each published version; reopen as a spec if a release breaks the demo at run time |
