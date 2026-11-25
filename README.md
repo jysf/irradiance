@@ -288,7 +288,8 @@ just lint-ci         # clippy AS CI SEES IT — run this before every push
 just deny            # permissive-only license gate
 just msrv            # compile against the pinned MSRV (1.90.0)
 just fuzz            # the ifd/container fuzz target (also: fuzz-plane,
-                     #   fuzz-develop, fuzz-warp, fuzz-opcode, fuzz-ljpeg)
+                     #   fuzz-develop, fuzz-warp, fuzz-opcode, fuzz-ljpeg,
+                     #   fuzz-dng-write)
 just doc-check       # cargo doc with warnings denied
 ```
 
