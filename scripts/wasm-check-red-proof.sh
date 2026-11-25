@@ -39,7 +39,9 @@ mkdir -p "${COPY}"
 cp "${ROOT}/Cargo.toml" "${COPY}/"
 [ -f "${ROOT}/Cargo.lock" ] && cp "${ROOT}/Cargo.lock" "${COPY}/"
 [ -f "${ROOT}/README.md" ] && cp "${ROOT}/README.md" "${COPY}/"
-cp -R "${ROOT}/src" "${COPY}/src"
+# -L: a symlinked src must be copied as files, or mutating the copy writes
+# through to the real tree (SPEC-096/FU-3).
+cp -RL "${ROOT}/src" "${COPY}/src"
 PRISTINE="${TMP}/lib.rs.pristine"
 cp "${COPY}/src/lib.rs" "${PRISTINE}"
 # Keep the copy's build out of the caller's target dir (and the caller's out of

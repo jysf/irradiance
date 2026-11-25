@@ -10,6 +10,14 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **CI builds the library for the browser** (SPEC-096, STAGE-033). New gate
+  `just wasm-check` (CI `wasm32`) builds `--lib` for `wasm32-unknown-unknown`
+  with default features and with `write`; its red-proof `just
+  wasm-check-red-proof` (CI `wasm32-red-proof`) shows it failing on a unix-only
+  std API and on a 64-bit `usize` constant, both of which build natively. A build
+  gate only: std calls that compile on wasm32 and fail at run time are outside
+  it. The README links the live "Anatomy of a RAW" demo, which runs the
+  published crate compiled to WebAssembly. No library change.
 - **The white-balanced linear-sRGB plane at sensor geometry** (SPEC-091,
   STAGE-031, PROJ-006, DEC-079). Four new functions in `irradiance::color` run
   `develop_color_into`'s pipeline (levels, `OpcodeList2` `GainMap`s,

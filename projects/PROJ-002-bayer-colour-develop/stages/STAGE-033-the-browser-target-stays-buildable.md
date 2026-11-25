@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-033                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-25
-shipped_at: null
+shipped_at: 2026-11-25
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -40,7 +40,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 6617213
+      estimated_usd: 4.12
+      recorded_at: 2026-11-25
+      notes: "Floor, measured from the side session's transcript bc4383e8-214e-44a7-a105-8d69a9586e17.jsonl (claude-opus-5-5), the 29 unique message.ids after the 52 already counted in SPEC-096's build row: input 64 + cache-creation 35,243 (1-hour) + cache-read 6,562,353 + output 19,553, at 5 / 10 / 0.5 / 25 USD per million. Covers dispatching the cold verify, recording it, this ship and this close. The last messages of the close were not yet flushed when this was summed. The stage's framing is inside SPEC-096's build row (one session framed, designed and built)."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -81,16 +86,16 @@ what keeps that cost near zero.
 ### Explicitly out of scope
 - Running tests under a wasm runtime (wasmtime, node). The build gate cannot see APIs that
   compile on wasm32 and fail at run time (`Instant::now`, `std::fs`, `std::thread::spawn`);
-  SPEC-096 records that limit and files it as a follow-up.
+  SPEC-096 records that limit (closed at ship as SPEC-096/FU-5).
 - Any crate surface for the browser. The demo's bindings stay in `jysf/irradiance-demo`.
 
 ## Spec Backlog
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-096 (design) — [S] a wasm32 build gate with a red-proof, and the live demo link in the README
+- [x] SPEC-096 (shipped on 2026-11-25) — [S] a wasm32 build gate with a red-proof, and the live demo link in the README
 
-**Count:** 0 shipped / 1 active / 0 pending
+**Count:** 1 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -110,14 +115,26 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. PR 346 (merged as
+  `b866757`) added CI jobs `wasm32` and `wasm32-red-proof`. In CI run 45676320193 (rustc
+  1.100.0) both surfaces built, and the red-proof went red on both wasm-only faults with
+  attributed errors. The README links the live demo and its source.
+- **How many specs did it actually take?** One, SPEC-096, as planned. Expected S, actual
+  S: 10.0M / $8.47 against an 8M estimate.
 - **How many outlines survived unchanged?** Not framed with `just frame-stage`.
-- **What changed between starting and shipping?** <one sentence>
+- **What changed between starting and shipping?** The red-proof's faults. The design probe
+  showed that the requested examples (`Instant::now`, `std::fs`) compile for wasm32, so the
+  gate can only claim build-time breakage. That limit is written into the gate, the
+  recipes, AGENTS.md and the CHANGELOG.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** <note>
+  - None codified. A cold verify that mutates through a symlinked copy can write into the
+    real tree. That happened once (FU-3) and was fixed in the red-proof with `cp -RL`.
+    It is not a signal yet.
+- **Signals dispositioned at this close?** All 15 `watch` signals with `disposition_at:
+  stage-close` were walked and all stay `watch`.
+  `probe-the-hard-assumption-at-frame-time` was applied, not violated: the design probe
+  caught the wrong red-proof faults before any script existed.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items>
+  - No.
+- **Cost.** SPEC-096 10.01M / $8.47 (build including design 8.80M, verify 1.21M).
+  Orchestration 6.62M / $4.12 (floor). Stage about 16.6M / $12.59.
