@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-25
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-096
@@ -46,19 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
-                                   #   to_agent above is a prediction from tier_map
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model)
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 8799858            # REAL combined count — what cost-audit reads
+  estimated_usd: 6.79              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 60
+  branch: chore/spec-096-wasm32-build-gate
+  pr: 346
+  completed_at: 2026-11-25         # YYYY-MM-DD
+  notes: "FLOOR taken before the handback commit, from transcript bc4383e8-214e-44a7-a105-8d69a9586e17.jsonl (52 unique message.ids, all claude-opus-5-5, no subagents): input 103 + cache-creation 161,883 (1-hour) + cache-read 8,602,932 + output 34,940, priced at 5 / 10 / 0.5 / 25 USD per million. INCLUDES the design cycle: one side session designed and built this spec, so design is not separately metered. Re-sum at ship."
+  synced_at: 2026-11-25
 ---
 
 # HANDOFF-200: Build SPEC-096, a wasm32 build gate and the live demo link
@@ -137,38 +136,53 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `chore/spec-096-wasm32-build-gate`, https://github.com/jysf/irradiance/pull/346
+- **Completed at:** 2026-11-25
+- **All acceptance criteria met?** Yes locally (AC4, CI green, is checked on the PR):
+  - AC1: `just wasm-check` → `✓ wasm-check: 2 feature surfaces (default, write) built for wasm32-unknown-unknown.`
+  - AC2: `just wasm-check-red-proof` → control green, A native-green + E0433 naming `unix`,
+    B native-green with `write` + default surface built + E0080 on `write`; 12.6 s wall.
+  - AC3: with Homebrew first on PATH (`/opt/homebrew/bin/cargo`, rustc 1.99.1 Homebrew),
+    `./scripts/wasm-check.sh` exits 1 with: `✗ wasm-check: the toolchain at
+    /opt/homebrew/Cellar/rust/1.99.1 has no wasm32-unknown-unknown std (no
+    .../lib/rustlib/wasm32-unknown-unknown/lib). Install it with rustup target add
+    wasm32-unknown-unknown, and put rustup's toolchain first on PATH`.
+  - AC5: README status block + "Building and testing"; AGENTS.md §6 block and history line.
+  - AC6: `just gate-audit` 15 scripts scanned, clean. Note: it scans `wasm-check.sh`;
+    `*-red-proof.sh` files are excluded from its scan by design (gate-audit.sh line 79),
+    so the AC's "two new scripts" is one in practice.
+  - AC7: no `src/` or `Cargo.toml` change.
+  - Also green: `just validate`, `just cost-audit`, `just fmt-check`, `just lint-ci`,
+    `just name-length-check`, `just decisions-index --check`.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 8,799,858 (floor; includes design)
+- **Estimated USD:** 6.79
+- **Duration (minutes):** about 60
+- **Source of the number:** the session transcript, deduplicated by message.id
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none
 - **Deviations from spec:**
-  - [list]
+  - AC6 as noted (red-proofs are outside gate-audit's scan).
+  - The rlib-exists check after each surface reads the same path for both surfaces, so on
+    the `write` surface it can be satisfied by the default build's file; cargo's exit code
+    is the verdict there. Left as is.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - A run-time wasm lane (tests under `wasm32-wasip1` + wasmtime, or a clippy
+    `disallowed_methods` list for `Instant::now` / `SystemTime::now` / `std::fs` /
+    `std::thread::spawn` in library code). The build gate cannot see those.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing in the spec; the requesting brief's example faults (`Instant::now`, `std::fs`)
+   compile on wasm32, which the design probe caught before any script was written.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — gate-audit's exclusion of `*-red-proof.sh`, which made AC6 overclaim.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Read gate-audit's exclusion list at design, before writing the AC.

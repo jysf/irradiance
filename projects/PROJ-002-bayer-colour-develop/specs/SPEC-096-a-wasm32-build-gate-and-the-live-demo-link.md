@@ -6,7 +6,7 @@
 task:
   id: SPEC-096
   type: chore                      # epic | story | task | bug | chore
-  cycle: design                    # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -68,11 +68,21 @@ cost:
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
   tokens_estimate: 8000000
-  sessions: []
+  sessions:
+    - cycle: build
+      handoff: HANDOFF-200
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 8799858
+      estimated_usd: 6.79
+      duration_minutes: 60
+      recorded_at: 2026-11-25
+      notes: "FLOOR taken before the handback commit, from transcript bc4383e8-214e-44a7-a105-8d69a9586e17.jsonl (52 unique message.ids, all claude-opus-5-5, no subagents): input 103 + cache-creation 161,883 (1-hour) + cache-read 8,602,932 + output 34,940, priced at 5 / 10 / 0.5 / 25 USD per million. INCLUDES the design cycle: one side session designed and built this spec, so design is not separately metered. Re-sum at ship."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 8799858
+    estimated_usd: 6.79
+    session_count: 1
 ---
 
 # SPEC-096: a wasm32 build gate and the live demo link

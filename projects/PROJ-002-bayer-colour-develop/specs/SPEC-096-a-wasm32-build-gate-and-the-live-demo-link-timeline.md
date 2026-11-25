@@ -8,8 +8,8 @@ Cycle prompts live in `prompts/SPEC-096-<cycle>.md`.
 ## Instructions
 
 - [x] **design** — completed 2026-11-25 (no new DEC; cites DEC-002, copies SPEC-056's gate shape)
-- [~] **build** — HANDOFF-200, branch `chore/spec-096-wasm32-build-gate`
-- [ ] **verify** — HANDOFF-201, a separate cold agent
+- [x] **build** — HANDOFF-200, PR #346, 8,799,858 tokens (floor, includes design), about 6.79 USD, 2026-11-25
+- [~] **verify** — HANDOFF-201, a separate cold agent
 - [ ] **ship** — after the user merges
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` complete
