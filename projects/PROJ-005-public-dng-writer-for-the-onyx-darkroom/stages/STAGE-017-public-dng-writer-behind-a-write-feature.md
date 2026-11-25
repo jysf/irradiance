@@ -135,12 +135,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-061 (shipped on 2026-11-24, PR 329; 35.7M / $26.09, est. 35M) [M] Public `write` feature core: mono u16 uncompressed writer into a caller buffer, size query, options struct, framing and orientation as tags, levels/opcode pass-through, caller MaskedAreas, required `UniqueCameraModel` (`CallerError` if absent), `Error::kind()`, max_pixels, determinism, fuzz target, round-trip + dnglab/exiftool/dng_validate acceptance
 - [x] SPEC-081 (shipped on 2026-11-24, PR 332; 17.4M / $14.27, est. 25M) [M] EXIF block, XMP and IFD0 descriptive tags: opaque block at the fixed base offset with ExifIFD/GPSInfo pointers (DEC-072), XMLPacket, typed ASCII `Make`/`Model`/`LocalizedCameraModel`/`Artist`/`Copyright`/`DateTime`/`Software`/`CameraSerialNumber` (DEC-071 §3a), the rendering hints `BaselineExposure`/`BaselineNoise`/`BaselineSharpness`/`LinearResponseLimit` (DEC-074), exiftool parity on a hand-built block, red-proofs
-- [ ] SPEC-082 (design done, build HANDOFF-193) [S] Optional caller JPEG preview stored as a reduced-resolution subfile, read back by irradiance's preview accessors (DEC-057) and accepted by dng_validate
+- [x] SPEC-082 (shipped on 2026-11-25, PR 336; 20.1M / $15.62, est. 15M) [S] Optional caller JPEG preview stored as a reduced-resolution subfile, read back by irradiance's preview accessors (DEC-057) and accepted by dng_validate
 - [ ] [XS] Refuse an empty opcode list (`Some(&[])` is written as a count-0 tag today, the shape DEC-081 §2 refuses for XMP); a patch, since it changes SPEC-061 behaviour
 - [ ] [XS] CI `fuzz smoke — dng_write (60s)` job, like every other fuzz target's (SPEC-061 verify F3)
 - [ ] [XS] The three intra-doc links to `crate::dng` from always-compiled private items break under `--document-private-items` without `write`; use plain text or `cfg_attr` (SPEC-061 verify F4)
 
-**Count:** 2 shipped / 1 active (SPEC-082) / 0 pending, plus 3 [XS]
+**Count:** 3 shipped / 0 active / 0 pending, plus 3 [XS]
 
 ## Design Notes
 
