@@ -49,16 +49,6 @@
 //! an odd-length block, then IFD0. `ExifIFD` and `GPSInfo` are written as the
 //! base plus each in-block offset given:
 //!
-//! A [`JpegPreview`] (`SPEC-082`, `DEC-082`) is a reduced-resolution
-//! subfile: IFD0 gains a `SubIFDs` entry (330, `LONG`, count 1) pointing at
-//! one preview IFD, which has no next IFD (nor has IFD0). Its tags, in order:
-//! `NewSubFileType` 1, `ImageWidth` and `ImageLength` (the caller's),
-//! `BitsPerSample` (8, 8, 8 for YCbCr; 8 for gray), `Compression` 7,
-//! `PhotometricInterpretation` (6 YCbCr, 1 gray), `StripOffsets` (the JPEG),
-//! `SamplesPerPixel` (3 or 1), `RowsPerStrip` (the height), `StripByteCounts`
-//! (the JPEG's length), `PlanarConfiguration` 1. The JPEG is copied verbatim
-//! and never decoded. Without a preview none of this is written.
-//!
 //! ```text
 //! offset 0   II 42 <IFD0 offset>
 //! offset 8   the EXIF block, verbatim (when given), then a 0 pad if odd
@@ -70,6 +60,16 @@
 //! ```
 //!
 //! Every pad byte is 0.
+//!
+//! A [`JpegPreview`] (`SPEC-082`, `DEC-082`) is a reduced-resolution
+//! subfile: IFD0 gains a `SubIFDs` entry (330, `LONG`, count 1) pointing at
+//! one preview IFD, which has no next IFD (nor has IFD0). Its tags, in order:
+//! `NewSubFileType` 1, `ImageWidth` and `ImageLength` (the caller's),
+//! `BitsPerSample` (8, 8, 8 for YCbCr; 8 for gray), `Compression` 7,
+//! `PhotometricInterpretation` (6 YCbCr, 1 gray), `StripOffsets` (the JPEG),
+//! `SamplesPerPixel` (3 or 1), `RowsPerStrip` (the height), `StripByteCounts`
+//! (the JPEG's length), `PlanarConfiguration` 1. The JPEG is copied verbatim
+//! and never decoded. Without a preview none of this is written.
 //!
 //! Framing (`DEC-073`) is expressed as tags. Samples are cut only at the
 //! `ActiveArea` edge and never rotated:

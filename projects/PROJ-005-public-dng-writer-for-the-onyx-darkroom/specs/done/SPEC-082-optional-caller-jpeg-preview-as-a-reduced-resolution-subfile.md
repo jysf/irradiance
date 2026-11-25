@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -101,6 +101,7 @@ cost:
     tokens_total: 20127113
     estimated_usd: 15.62
     session_count: 3
+shipped_at: 2026-11-25
 ---
 
 # SPEC-082: Optional caller JPEG preview as a reduced-resolution subfile
@@ -315,20 +316,20 @@ throwaways in the scratchpad (`tests/zz_probe_082*.rs` removed), not committed.
 
 ## Acceptance Criteria
 
-- [ ] **AC1 Options.** The §1 API exists behind `write`; `preview` defaults to `None`.
-- [ ] **AC2 Tags and layout.** Oracle 1 for YCbCr and Gray.
-- [ ] **AC3 No change without a preview.** Oracle 2, hashes pinned from `main` before the
+- [x] **AC1 Options.** The §1 API exists behind `write`; `preview` defaults to `None`.
+- [x] **AC2 Tags and layout.** Oracle 1 for YCbCr and Gray.
+- [x] **AC3 No change without a preview.** Oracle 2, hashes pinned from `main` before the
       change.
-- [ ] **AC4 Round trip and reader.** Oracles 3 and 4 at every framing.
-- [ ] **AC5 Validation.** Both reasons through `written_len`, `write_into` and
+- [x] **AC4 Round trip and reader.** Oracles 3 and 4 at every framing.
+- [x] **AC5 Validation.** Both reasons through `written_len`, `write_into` and
       `write_to_vec`, with `kind()` `CallerError`, in the §4 order (oracle 9). No panics.
-- [ ] **AC6 Red-proof.** Oracle 5, after its negative control.
-- [ ] **AC7 exiftool.** Oracle 6, tool-gated.
-- [ ] **AC8 dng_validate.** Oracle 7 when `$IRRADIANCE_DNG_VALIDATE` is set; a SKIP line when
+- [x] **AC6 Red-proof.** Oracle 5, after its negative control.
+- [x] **AC7 exiftool.** Oracle 6, tool-gated.
+- [x] **AC8 dng_validate.** Oracle 7 when `$IRRADIANCE_DNG_VALIDATE` is set; a SKIP line when
       unset; a failure when set but unusable.
-- [ ] **AC9 Determinism, allocation, fuzz.** Oracle 8 and §6; `just fuzz-dng-write` 60 s
+- [x] **AC9 Determinism, allocation, fuzz.** Oracle 8 and §6; `just fuzz-dng-write` 60 s
       with no crash; `just lint-fuzz`, `just lint-fuzz-red-proof` and `just deny-fuzz` pass.
-- [ ] **AC10 Docs and gates.** Provenance row, CHANGELOG, AGENTS.md block, module docs (the
+- [x] **AC10 Docs and gates.** Provenance row, CHANGELOG, AGENTS.md block, module docs (the
       layout, the tags and the check order); `just test`, `just lint-ci`,
       `just lint-no-allow`, `just fmt-check`, `just doc-check`, `just deny`, `just msrv`,
       `just validate`, `just gate-audit`, `just cost-audit` and every CI job on the PR pass.
@@ -397,31 +398,29 @@ throwaways in the scratchpad (`tests/zz_probe_082*.rs` removed), not committed.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Write each red-proof so that it can compile against the old `src/`. "Run the new tests
+   against 165a096" could not compile, because the API is new. The verifier had to
+   substitute a stub that ignores the preview. Also, check tag order on a fixture that sets
+   every optional tag: one order check on a file without XMP let a misplaced `SubIFDs`
+   entry pass (mutant M6). The verify added that assertion.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — Done this ship: DEC-082 is accepted as designed, and the verify ruled all six of its
+   items sound. The module docs' preview paragraph moved below the layout diagram (the
+   verify's nit). The process lessons from SPEC-061 and SPEC-081 held: the hashes were
+   pinned before any `src/` edit, `handback-sync` went out in the same push as the advance,
+   and CI was green first time. No new signal.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None for previews. Lightroom and Windows are still untested readers, which is why
+   DEC-082's confidence is 0.8. STAGE-017 now has only its three [XS] items left, then the
+   stage close and the release spec that first publishes `write`.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Ship a written DNG with its own preview. Before, a written file had no preview, and
+   Quick Look and other viewers rendered the raw data. Now the caller's JPEG is stored
+   byte-identical as a SubIFD: irradiance's `previews()`, exiftool and Quick Look all read
+   it, and `dng_validate` gives no warnings on the K-3 III and Q2M with their own previews.

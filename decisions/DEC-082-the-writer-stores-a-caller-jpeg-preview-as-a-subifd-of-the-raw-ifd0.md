@@ -22,7 +22,7 @@ created_at: 2026-11-24
 supersedes: null
 superseded_by: null
 
-status: proposed                     # SPEC-082 design; jysf accepts at the design PR or at ship
+status: accepted                     # jysf, 2026-11-25, at the SPEC-082 ship (verify HANDOFF-194 ruled all six items sound)
 
 deciders: [claude]
 
