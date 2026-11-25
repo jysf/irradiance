@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-032                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-25
-shipped_at: null
+shipped_at: 2026-11-25
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -40,7 +40,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 23064958
+      estimated_usd: 15.09
+      recorded_at: 2026-11-25
+      notes: "Measured from the orchestrator transcript (session 0fd3fdc5, claude-opus-5-5, no subagents) from where the STAGE-017 close's figure stopped (2026-11-25T17:11:52Z) to the start of this ship (18:52Z): 101 unique message.ids, deduped by message.id, opus-5-5 rates (input 226 + cache-creation 166,200 (1-hour) + cache-read 22,817,792 + output 80,740). Covers the tail of the STAGE-017 close (PR 342), this stage's frame and SPEC-095's design (PR 344), dispatching the build and the cold verify, the CHANGELOG fix after PR 343 (PR 347), the post-publish clean-host checks, and the start of this ship. SPEC-095's design and ship rows are null for this reason; the build and verify are on its own rows."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -95,9 +100,9 @@ reader code has changed since 0.2.6, so the release is only the writer.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-095 (design done, build HANDOFF-197) — [S] irradiance 0.2.7 release: the public DNG writer
+- [x] SPEC-095 (shipped on 2026-11-25, PR 345; 21.5M / $15.60, est. 25M) — [S] irradiance 0.2.7 release: the public DNG writer
 
-**Count:** 0 shipped / 1 active / 0 pending
+**Count:** 1 shipped / 0 active / 0 pending
 
 ## Design Notes
 
@@ -123,21 +128,33 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes. irradiance 0.2.7 is on
+  crates.io (2026-11-25, annotated tag `v0.2.7` on `a360b4f`) with the writer behind
+  `write`. docs.rs builds with `write` and documents `irradiance::dng::write`. A
+  crates.io `=0.2.7` crate with `write` writes the Q2 Monochrom with the package check's
+  MD5s and `dng_validate` accepts it. Without `write` the writer is unreachable, and
+  the K-3 III develops identically on 0.2.6 and 0.2.7.
+- **How many specs did it actually take?** One, SPEC-095 [S], as planned;
+  complexity_actual S.
+- **How many outlines survived unchanged?** Not framed with `just frame-stage`.
+- **What changed between starting and shipping?** The build added the writer's
+  `PlaneTooLarge` budget refusal to the notes, which the design's list missed, and the
+  verify fixed three wording lines. Then PR 343 merged two minutes after the prep, so
+  the tag was cut by SHA and PR 347 moved its CHANGELOG entries out of `[0.2.7]`.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - Not codified (N=1): name the tag's commit by SHA in Phase 2, and have parallel PRs
+    rebase their CHANGELOG entries after a release prep merges. Recorded as the signal
+    `parallel-pr-changelog-entries-land-under-the-promoted-version`.
+  - Not codified (N=1): when a release's new surface sits behind a feature, build and
+    run the unpacked package with that feature on, since `cargo publish --dry-run`
+    builds default features only. This release's check found nothing wrong.
+- **Signals dispositioned at this close?** The stage-close signals were walked at the
+  STAGE-017 close earlier today. This release-only stage adds no instance to any of
+  them; they are bumped again with a one-line note. One new process-debt signal (above),
+  owned by the project close.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - Check the tag and the registry before giving the user Phase 2 steps; this session
+    re-posted the runbook after the user had already cut. Saved as an orchestrator note,
+    not a template change.
+- **Cost.** SPEC-095 21.5M / $15.60 (build 13.6M, verify 7.9M, estimate 25M).
+  Orchestration 23.1M / $15.09. Stage about 44.6M / $30.69.
