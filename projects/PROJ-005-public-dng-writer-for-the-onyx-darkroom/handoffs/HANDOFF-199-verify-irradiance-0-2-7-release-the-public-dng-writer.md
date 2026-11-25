@@ -58,7 +58,7 @@ handback:
   pr: 345
   completed_at: 2026-11-25         # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit, from transcript 680b6fef-017f-400e-9db9-3a5b42170bde.jsonl (the scratchpad UUID; 51 unique message.ids, all claude-opus-5-5, no subagents): input 101 + cache-creation 148,391 (1-hour) + cache-read 7,718,002 + output 29,347, deduplicated by message.id with each message's largest output_tokens, priced at 5 and 25 USD per million, cache read 0.1x, 1-hour cache writes 2x. Approved at candidate 252360b; wording fixes only (CHANGELOG names SPEC-061's fourteen reasons; two release-note lines). Own consumer on the Leica M Monochrom Typ 246 with EXIF block, XMP, descriptive tags, hints and its own JPEG preview: deterministic, sample-equal, dng_validate 1.7.1 clean."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-25
 ---
 
 # HANDOFF-199: VERIFY: irradiance 0.2.7 release, the public DNG writer (SPEC-095)

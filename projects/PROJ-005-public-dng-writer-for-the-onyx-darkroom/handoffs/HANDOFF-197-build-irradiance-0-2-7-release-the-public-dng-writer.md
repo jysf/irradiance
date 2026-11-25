@@ -58,7 +58,7 @@ handback:
   pr: 345
   completed_at: 2026-11-25         # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit, from transcript d03f493d-2edf-45a5-aaad-7ce96beb07f7.jsonl (the scratchpad UUID; 84 unique message.ids, all claude-opus-5-5, no subagents): input 170 + cache-creation 171,470 (1-hour) + cache-read 13,388,818 + output 44,383, deduplicated by message.id with each message's largest output_tokens, priced at 5 and 25 USD per million, cache read 0.1x, 1-hour cache writes 2x, as HANDOFF-191 did. Re-sum at ship. Semver clean both ways (202 pass, 58 skip); Error 40 bytes before and after; packaged-crate writer check green, dng_validate no warnings on all three Q2M framings."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-25
 ---
 
 # HANDOFF-197: irradiance 0.2.7 release: the public DNG writer

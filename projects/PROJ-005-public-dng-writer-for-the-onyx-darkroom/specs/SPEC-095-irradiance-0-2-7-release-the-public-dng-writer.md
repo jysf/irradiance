@@ -15,13 +15,15 @@
 task:
   id: SPEC-095
   type: release                    # epic | story | task | bug | chore | release
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
+  verify_verdict: approved
+  verify_rounds: [approved]
 
 project:
   id: PROJ-005
@@ -58,10 +60,30 @@ cost:
       duration_minutes: null
       recorded_at: 2026-11-25
       notes: "main-loop, not separately metered (AGENTS.md section 4); measured at the stage close as orchestration"
+    - cycle: build
+      handoff: HANDOFF-197
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 13604841
+      estimated_usd: 9.52
+      duration_minutes: 95
+      recorded_at: 2026-11-25
+      notes: "FLOOR taken before the handback commit, from transcript d03f493d-2edf-45a5-aaad-7ce96beb07f7.jsonl (the scratchpad UUID; 84 unique message.ids, all claude-opus-5-5, no subagents): input 170 + cache-creation 171,470 (1-hour) + cache-read 13,388,818 + output 44,383, deduplicated by message.id with each message's largest output_tokens, priced at 5 and 25 USD per million, cache read 0.1x, 1-hour cache writes 2x, as HANDOFF-191 did. Re-sum at ship. Semver clean both ways (202 pass, 58 skip); Error 40 bytes before and after; packaged-crate writer check green, dng_validate no warnings on all three Q2M framings."
+    - cycle: verify
+      handoff: HANDOFF-199
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 7895841
+      estimated_usd: 6.08
+      duration_minutes: 60
+      recorded_at: 2026-11-25
+      notes: "FLOOR taken before the handback commit, from transcript 680b6fef-017f-400e-9db9-3a5b42170bde.jsonl (the scratchpad UUID; 51 unique message.ids, all claude-opus-5-5, no subagents): input 101 + cache-creation 148,391 (1-hour) + cache-read 7,718,002 + output 29,347, deduplicated by message.id with each message's largest output_tokens, priced at 5 and 25 USD per million, cache read 0.1x, 1-hour cache writes 2x. Approved at candidate 252360b; wording fixes only (CHANGELOG names SPEC-061's fourteen reasons; two release-note lines). Own consumer on the Leica M Monochrom Typ 246 with EXIF block, XMP, descriptive tags, hints and its own JPEG preview: deterministic, sample-equal, dng_validate 1.7.1 clean."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 21500682
+    estimated_usd: 15.60
+    session_count: 3
 ---
 
 # SPEC-095: irradiance 0.2.7 release: the public DNG writer
