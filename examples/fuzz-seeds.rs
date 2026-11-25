@@ -1420,9 +1420,10 @@ fn write_seeds(
 /// SPEC-061 §8: the `dng_write` target's seeds, encoded in its input format
 /// (`tests/support/dng_write_fuzz.rs`): one per framing, one with each opcode
 /// list, and one per refusal that is cheap to reach; SPEC-081 adds one with
-/// every metadata field set and one per metadata refusal.
+/// every metadata field set and one per metadata refusal; SPEC-082 adds one
+/// with a preview (and one gray) and one per preview refusal.
 fn dng_write_seeds() -> Vec<(&'static str, Vec<u8>)> {
-    use dng_write_fuzz::{baseline, encode, with_all_metadata, Case};
+    use dng_write_fuzz::{baseline, encode, with_all_metadata, with_preview, Case};
     let with = |f: &dyn Fn(&mut Case)| {
         let mut c = baseline();
         f(&mut c);
@@ -1430,6 +1431,11 @@ fn dng_write_seeds() -> Vec<(&'static str, Vec<u8>)> {
     };
     let with_meta = |f: &dyn Fn(&mut Case)| {
         let mut c = with_all_metadata();
+        f(&mut c);
+        encode(&c)
+    };
+    let with_preview_case = |f: &dyn Fn(&mut Case)| {
+        let mut c = with_preview();
         f(&mut c);
         encode(&c)
     };
@@ -1527,6 +1533,20 @@ fn dng_write_seeds() -> Vec<(&'static str, Vec<u8>)> {
         ),
         ("refuse-exif-offset", with_meta(&|c| c.gps_ifd = Some(11))),
         ("refuse-empty-xmp", with_meta(&|c| c.xmp = Some(Vec::new()))),
+        // SPEC-082 §6: a preview of each colour, and one seed per new refusal.
+        ("preview", encode(&with_preview())),
+        (
+            "preview-gray",
+            with_preview_case(&|c| c.preview_gray = true),
+        ),
+        (
+            "refuse-preview-not-jpeg",
+            with_preview_case(&|c| c.preview = Some(vec![0xFF, 0xD9])),
+        ),
+        (
+            "refuse-preview-dimensions",
+            with_preview_case(&|c| c.preview_tall = true),
+        ),
     ]
 }
 

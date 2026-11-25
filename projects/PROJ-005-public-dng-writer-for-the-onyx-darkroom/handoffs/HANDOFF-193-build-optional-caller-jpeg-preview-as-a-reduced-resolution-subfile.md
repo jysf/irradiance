@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-24
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-082
@@ -46,19 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
-                                   #   to_agent above is a prediction from tier_map
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model)
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 11150285           # REAL combined count — what cost-audit reads
+  estimated_usd: 8.88              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 80
+  branch: claude/spec-082-build
+  pr: 336
+  completed_at: 2026-11-25         # YYYY-MM-DD
+  notes: "FLOOR taken before the handback commit, from transcript 017f3954-2929-4417-8fd6-5d796f797cfa.jsonl (61 unique message.ids, all claude-opus-5-5, no subagents): input 124 + cache-creation 207,801 (1-hour) + cache-read 10,888,159 + output 54,201, priced at 5 and 25 USD per million as HANDOFF-191 did. Re-sum at ship. Oracle 2 MD5s pinned on 165a096 before any src edit (commit a1d00cb). exiftool byte-identical PreviewImage (gray fixture and synthetic YCbCr); dng_validate no warnings on K-3 III (own 6192x4128 preview, gray fixture) and Q2M (own 8368x5584 preview), renders equal the no-preview renders."
+  synced_at: 2026-11-25
 ---
 
 # HANDOFF-193: Build SPEC-082, the writer's optional caller JPEG preview
@@ -155,38 +154,53 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-082-build`, https://github.com/jysf/irradiance/pull/336
+- **Completed at:** 2026-11-25
+- **All acceptance criteria met?** yes. AC1 to AC10 have evidence below. The local gates are green; CI is confirmed in the PR before reporting.
+- **Oracle 2's pinned MD5s** were taken on `165a096`, whose `src/` is identical to `386b4a7`'s. They were committed in `a1d00cb`, before any `src/` change, and still pass after it:
+  - no metadata: `fb81830e8abeee795eb1c5ecb660209f`
+  - every SPEC-081 field: `36160d2e0d02d0b303716dd9a342fff9`
+  - FullSensor, masked areas, three opcode lists: `e5081b7db946fdc4461307e78b0ab592`
+- **exiftool 13.55 (oracle 6):** `-b -SubIFD:PreviewImage` is byte-identical to the caller's JPEG for the gray fixture (6318 bytes, 64×48, Gray) and for a 9-byte synthetic YCbCr stand-in (odd length, declared 120×80). `SubfileType` 1, `ImageWidth`, `ImageHeight`, `Compression` 7 and `PhotometricInterpretation` (1 or 6) read back as written.
+- **dng_validate 1.7.1 (oracle 7, local only):** every SPEC-081 field was set and the framing was StandardCrop. There was no `Warning` or `Error` line in any of these runs:
+  - K-3 III with its own 6192×4128 YCbCr preview (6,440,502 bytes)
+  - K-3 III with the gray fixture
+  - Q2M with its own 8368×5584 YCbCr preview (2,576,384 bytes)
+
+  Each `-16 -tif` render equals the render of the same file without a preview: 6192×4128 for the K-3 III, 8368×5584 for the Q2M, 0 samples differ.
+- **Fuzz:** `just fuzz-dng-write` ran 4,009,773 runs in 61 s with no crash. There are 32 seeds: 4 new, and the 28 old ones are each the previous seed plus one inserted 00 byte (the preview flags), checked byte by byte.
+- **Gates run locally, all green:**
+  - `just test` with `IRRADIANCE_CORPUS_DIR` and `IRRADIANCE_DNG_VALIDATE` set
+  - `lint-ci`, `lint-no-allow`, `fmt-check`, `doc-check`
+  - `deny`, `deny-fuzz`, `lint-fuzz`, `lint-fuzz-red-proof`
+  - `msrv`, `validate`, `gate-audit`, `cost-audit`
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 11,150,285 (floor, measured before the handback commit)
+- **Estimated USD:** 8.88
+- **Duration (minutes):** about 80
+- **Source of the number:** the transcript, deduplicated by `message.id` per docs/cost-tracking.md. There were no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none. DEC-082 is left proposed.
 - **Deviations from spec:**
-  - [list]
+  - Spec §5 oracle 2 says the hashes come from `main` at `386b4a7`. They were taken on `165a096`, the up-to-date `main`. Its `src/` tree is identical to `386b4a7`'s, as the handoff's brief noted.
+  - To share layout and writing between IFD0 and the preview IFD, the IFD0 layout loop and the entry-writing loop moved, unchanged, into `place_ifd` and `write_ifd`. These are generic over the slot count. Oracle 2's hashes prove the no-preview bytes did not change.
+  - The fuzz format can set a "tall" flag that adds 65536 to the preview height, so the upper bound is reachable. Its `refuse-preview-dimensions` seed uses it.
+  - The SPEC-081 corpus test's metadata options were factored into `source_metadata` and `metadata_options`, so SPEC-082's oracle 7 builds the same file. The SPEC-081 test is otherwise unchanged and still passes.
+  - One extra tier-A test, `preview_dimension_and_marker_boundaries_pass`, covers 65535×65535, 1×1 and a two-byte JPEG.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - Quick Look was not re-checked on a written file in this build. The design probe already covered it with a Python-built file of the same layout.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little. Spec §5 oracle 2 named commit 386b4a7, but the brief explained that 165a096's `src/` is identical. The spec also did not say how the fuzz format should reach height 65536 with a u16, so I added one flag bit.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. One fact would help future writer specs: `tests/support/md5.rs` already exists. With it, a pinned-hash oracle needs no new code.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would write the raw IFD walker (`raw_ifd`) first. Every layout and tag assertion builds on it, and it keeps the oracle independent of the crate's reader.

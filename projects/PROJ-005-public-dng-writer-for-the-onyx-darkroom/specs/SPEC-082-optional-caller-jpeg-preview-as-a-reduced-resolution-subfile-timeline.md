@@ -9,8 +9,8 @@ Cycle prompts live in `prompts/SPEC-082-<cycle>.md`.
 
 - [x] **frame** — 2026-11-20 (PR 284)
 - [x] **design** — completed 2026-11-24 (DEC-082; preview-placement probe)
-- [ ] **build** — prompt: `prompts/SPEC-082-build.md` (HANDOFF-193)
-- [ ] **verify** — prompt: pending (waiting on build)
+- [x] **build** — completed 2026-11-25 (PR 336, HANDOFF-193; 11,150,285 tokens floor, about 8.88 USD)
+- [x] **verify** — completed 2026-11-25, APPROVED (HANDOFF-194; 8,976,828 tokens floor, about 6.74 USD)
 - [ ] **ship** — prompt: pending (waiting on verify)
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` complete
