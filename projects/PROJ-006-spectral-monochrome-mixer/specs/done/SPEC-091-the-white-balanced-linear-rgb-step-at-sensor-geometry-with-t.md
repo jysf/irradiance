@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -101,6 +101,7 @@ cost:
     tokens_total: 58644366
     estimated_usd: 38.30
     session_count: 3
+shipped_at: 2026-11-25
 ---
 
 # SPEC-091: The white-balanced linear RGB step at sensor geometry, with the working-space DEC and the arithmetic decision for the new path
@@ -266,12 +267,12 @@ Pre-registered. Every check is exact except AC4's stated half-code bound on a ca
 AC11 to AC13 and mutants (h) to (k) were added 2026-11-25 from onyx's reply (band form,
 determinism pin); the build had not started.
 
-- [ ] **AC1, equivalence with the developed image (Tier B).** For each held colour
+- [x] **AC1, equivalence with the developed image (Tier B).** For each held colour
   file, on a clone of its `Sensor` with `orientation` set to `Some(1)`: the `u16`
   plane, cut to the crop rectangle (ActiveArea origin + DefaultCropOrigin, size
   DefaultCropSize, all from the public `Sensor` fields), equals
   `develop_color_into`'s output byte for byte. Missing corpus skips loudly.
-- [ ] **AC2, the whole plane is written (Tier A).** On a synthetic Bayer fixture with
+- [x] **AC2, the whole plane is written (Tier A).** On a synthetic Bayer fixture with
   an **odd** ActiveArea top and left (so mutant (f) can fail), a masked border, and a
   DefaultCrop smaller than the ActiveArea, orientation 1: (i) `dst` pre-filled with a
   sentinel has no sentinel left after the call, masked border included; (ii) the pixels
@@ -279,20 +280,20 @@ determinism pin); the build had not started.
   for the same fixture with DefaultCrop widened to the whole ActiveArea (which changes
   neither the CFA phase nor the levels, both indexed from the ActiveArea origin,
   DEC-040); (iii) two calls give identical planes.
-- [ ] **AC3, the f32 plane is unclamped (Tier B, Canon 5D Mark III).** At least one
+- [x] **AC3, the f32 plane is unclamped (Tier B, Canon 5D Mark III).** At least one
   pixel has a negative f32 channel where the `u16` plane is 0, and the count of such
   channel values is greater than zero on the Canon (DEC-079's probe found 3.23% of
   pixels). On the Pixel 4a, at least one f32 channel exceeds 1.0 where the `u16` is
   65535.
-- [ ] **AC4, the two planes agree where nothing clamps (Tier B, all five files).**
+- [x] **AC4, the two planes agree where nothing clamps (Tier B, all five files).**
   For every channel value whose `u16` is strictly between 0 and 65535,
   `|f32·65535 − u16| ≤ 0.5 + 1e-3`; where `u16` is 0 the f32 is ≤ 0.5/65535 + 1e-7;
   where `u16` is 65535 the f32 is ≥ (65535 − 0.5)/65535 − 1e-7.
-- [ ] **AC5, the f32 value is the unquantised sum (unit test in `src/color.rs`).** On
+- [x] **AC5, the f32 value is the unquantised sum (unit test in `src/color.rs`).** On
   a small hand-built Bayer `Sensor` whose matrix is known, each f32 equals
   `((M·cam)/65535.0) as f32` recomputed in the test from `build_camera_to_srgb_linear`
   and the demosaiced camera values, exactly (`==` on `f32` bits).
-- [ ] **AC6, refusals match `develop_color_into`.** Both new entries join the `Entry`
+- [x] **AC6, refusals match `develop_color_into`.** Both new entries join the `Entry`
   tables in `tests/malformed_tags.rs`, `tests/misshapen_tags.rs`,
   `tests/unhonoured_tags.rs` and `tests/required_processing.rs` with
   `develop_color_into`'s `DevelopPath::Colour` (the band forms with `rows = 0..height`),
@@ -304,32 +305,32 @@ determinism pin); the build had not started.
   `6..5` and `0..height+1` are `InvalidRowRange` with those values and the plane's
   height, and a `dst` one short is `RgbBufferWrongLength` with the band's `expected`.
   In every refusal, `dst` is exactly its sentinel fill.
-- [ ] **AC7, `GainMap`s apply (Tier B, Pixel 7 Pro).** The plane differs from the
+- [x] **AC7, `GainMap`s apply (Tier B, Pixel 7 Pro).** The plane differs from the
   same file with its `OpcodeList2` removed from the clone (the control proving the
   maps are applied), and AC1 already pins the applied value.
-- [ ] **AC8, nothing else moves.** The full suite passes unchanged with
+- [x] **AC8, nothing else moves.** The full suite passes unchanged with
   `IRRADIANCE_CORPUS_DIR` set; `tests/error_kind.rs` gains exactly the one new row;
   every existing `tests/determinism.rs` constant is unchanged; `DEVELOP_VERSION == "8"`;
   `just semver-check` reports only the five additions.
-- [ ] **AC9, fuzzed and panic-free.** `fuzz/fuzz_targets/demosaic.rs` calls the four
+- [x] **AC9, fuzzed and panic-free.** `fuzz/fuzz_targets/demosaic.rs` calls the four
   new entries (the band forms with a fuzzer-chosen range, valid or not); a short `cargo fuzz run demosaic` (the toolchain brief's smoke length) finds
   nothing; `just lint-ci` passes with the deny-level panic lints.
-- [ ] **AC11, strips tile to the whole plane, bit for bit (Tier A and Tier B).** For both
+- [x] **AC11, strips tile to the whole plane, bit for bit (Tier A and Tier B).** For both
   sample types: on AC2's odd-ActiveArea fixture, every partition of `0..height` into
   strips from this set equals the whole-plane form exactly: one strip; strips of 1 row;
   strips of 7 rows (odd starts); and two strips split at an odd row inside the masked
   border. On the Pixel 7 Pro (GainMaps) and the Canon, strips of 256 rows with an odd
   remainder equal the whole plane (the `f32` compared by bits).
-- [ ] **AC12, determinism measured on both architectures.** `tests/determinism.rs`'s new
+- [x] **AC12, determinism measured on both architectures.** `tests/determinism.rs`'s new
   colour fixture asserts its committed `u16` and `f32` plane hashes; the CI
   `determinism` job passes on both legs, debug and release; the extended red-proof shows
   a one-bit change moves each new hash; and the fixture's f32 plane holds a negative and
   an above-1.0 value (asserted, so the hash covers the unclamped path).
-- [ ] **AC13, golden digests on the held files (Tier B).** `tests/linear_plane.rs` pins an
+- [x] **AC13, golden digests on the held files (Tier B).** `tests/linear_plane.rs` pins an
   FNV-1a digest of the `f32` plane (little-endian bits) and of the `u16` plane for each
   of the five held colour files, as committed constants. These run locally only (the
   corpus is not in CI); AC12 carries the cross-architecture evidence.
-- [ ] **AC10, the oracle can go red.** Each pre-registered mutant below, applied by
+- [x] **AC10, the oracle can go red.** Each pre-registered mutant below, applied by
   hand in build, fails at least one named test; the build's handback lists which.
 
 ## Failing Tests
@@ -427,31 +428,55 @@ expand this one.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Ask two questions of every pre-registered mutant at design: is the oracle meant to
+   catch it computed by the code the mutant changes, and is the mutant's effect larger
+   than the output's resolution? The first finds (f) and the verify's x4 (both sides of
+   AC1 and AC2 (ii) share the sink); the second finds (k) (a one-ulp FMA difference is
+   absorbed by the f32 cast). Also derive each tolerance from the final cast: AC4's
+   `0.5 + 1e-3` sat below half an f32 ulp at [0.5, 1), and a Canon pixel sat 0.5029 codes
+   away. For every "no X" rule, enumerate each site X could appear at (every channel,
+   every term), not one.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No DEC: DEC-079 holds as accepted, and DEC-051 gained one sentence for
+   `InvalidRowRange`. No template change now. The three design gaps are new evidence
+   for codified or watched lessons, recorded in `guidance/signals.yaml`:
+   `shared-path-oracle-tautology` (mutant (f) and x4),
+   `a-designed-mutant-must-be-able-to-fail-on-its-fixture` (mutant (k) and the single-site
+   FMA guard), and `analytic-oracle-premise-must-survive-rounding` (AC4's bound, N=1 to
+   N=2). The `demosaic` fuzz gap adds evidence to `fuzz-targets-without-a-ci-smoke-job`.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. SPEC-092 (already framed) takes the two design notes below: a reusable
+   band plan, and per-channel, per-term cancellation fixtures for its "no FMA" and "keep
+   the order" rules. The `demosaic` fuzz CI job is the hygiene patch PROJ-005's close
+   already scheduled.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — build
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, onyx could reach a white-balanced linear RGB plane only by composing
+   `demosaic_into` and `to_srgb_linear_into` by hand, with no contract and no
+   cross-architecture evidence. Now one public step gives it at sensor geometry, whole
+   or in row strips into a caller buffer (bit-identical to the whole plane), as u16 or
+   unclamped f32, with its u16 and f32 hashes measured equal on aarch64 and x86_64 in CI
+   and golden digests pinned on five held files.
+
+## Follow-ups
+
+Raised in HANDOFF-189 (build, `B`) and HANDOFF-198 (verify, `V`); neither handback
+numbered them, so they are numbered here.
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | B: AC4's bound `0.5 + 1e-3` is below the f32 cast's half-ulp (65535/2^25 codes) | `fixed` — build, `tests/linear_plane.rs` AC4 uses `0.5 + 65535/2^25 + 1e-9`; verify accepted (mutant (c) still red) |
+| `FU-2` | B: mutant (f) (CFA phase) was invisible to AC2 (i) to (iii), which share the fused traversal | `fixed` — build, AC2 check (iv) against `demosaic_into` then `to_srgb_linear_into` |
+| `FU-3` | B: mutant (k) (`mul_add` in the f32 sink) was invisible to every hash | `fixed` — build, `color::tests::the_f32_sink_never_fuses_a_multiply_and_an_add` |
+| `FU-4` | V: after the shared-sink refactor AC1 cannot see a reordered u16 sum (x4 passed 379 tests) | `fixed` — verify, `color::tests::the_u16_sink_keeps_todays_operation_order` |
+| `FU-5` | V: the build's FMA guard covered one site of nine | `fixed` — verify, `color::tests::the_f32_sink_fuses_no_term_of_any_channel` (18 cases) |
+| `FU-6` | V: "removing CalibrationIlluminant2 moves the hash" does not prove interpolation runs | `fixed` — verify, `tests/determinism.rs` `colour_fixture_interpolates_between_its_illuminants` |
+| `FU-7` | V: the `demosaic` fuzz target never reached the band forms' `RgbBufferWrongLength` | `fixed` — verify, `fuzz/fuzz_targets/demosaic.rs` sizes `dst` one short or one long on half the inputs |
+| `FU-8` | V: the `demosaic` fuzz target has no CI smoke job and no `just` recipe | `signal: fuzz-targets-without-a-ci-smoke-job` — already accepted and scheduled as one hygiene patch at the PROJ-005 close |
+| `FU-9` | B+V: each band call clones the `Sensor` (opcode bytes included) and re-resolves levels, GainMaps and the matrix | `spec: SPEC-092` — a reusable band plan; noted in its Context |
+| `FU-10` | V: a fixed-point mixer row has the same two blind spots (shared-path oracle, rounding-absorbed FMA or reorder) | `spec: SPEC-092` — pre-register a cancellation fixture per channel and per term; noted in its Context |
