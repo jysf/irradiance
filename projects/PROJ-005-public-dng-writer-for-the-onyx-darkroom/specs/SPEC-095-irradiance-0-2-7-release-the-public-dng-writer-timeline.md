@@ -9,7 +9,7 @@ Cycle prompts live in `prompts/SPEC-095-<cycle>.md`.
 
 - [x] **frame** — 2026-11-25 (STAGE-032 framed after the STAGE-017 close, PR 342)
 - [x] **design** — completed 2026-11-25 (0.2.7 patch, semver clean on 153f517 with and without all features; docs.rs metadata; writer-only, PR 343 held)
-- [ ] **build** — prompt: `prompts/SPEC-095-build.md` (HANDOFF-197)
+- [~] **build** — prompt: `prompts/SPEC-095-build.md` (HANDOFF-197), in progress 2026-11-25
 - [ ] **verify** — prompt: pending (cold verify, after the build)
 - [ ] **ship** — prompt: pending (after the user's tag and publish)
 

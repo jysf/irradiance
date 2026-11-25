@@ -8,6 +8,16 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-25
+
+irradiance can now write DNG: the opt-in `write` feature adds `irradiance::dng::write`,
+which writes one monochrome `u16` plane as an uncompressed DNG (PROJ-005 STAGE-017,
+DEC-055, DEC-071 to DEC-075, DEC-080 to DEC-082). A compatible patch release over 0.2.6:
+the feature is off by default and adds no dependency, and every other change is an
+addition, two variants on the `#[non_exhaustive]` `Error`. No reader, develop or colour
+code changed, so every input reads and develops as in 0.2.6, `DEVELOP_VERSION` stays
+`"8"`, and the MSRV stays 1.90. docs.rs documents the writer.
+
 ### Added
 
 - **A public monochrome DNG writer behind the new `write` feature** (SPEC-061,
@@ -23,8 +33,11 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   `UniqueCameraModel`. The feature is off by default and adds no dependency.
 - **Two `Error` variants**, present in every build so `Error`'s shape does not
   depend on features: `InvalidWriteInput(WriteInputError)` (`CallerError`,
-  fourteen reasons, nineteen with SPEC-081's) and `UnsupportedOpcodeForFraming`
-  (`Unsupported`).
+  22 reasons in this release: fourteen here, five from SPEC-081, two from SPEC-082
+  and one from SPEC-094) and `UnsupportedOpcodeForFraming` (`Unsupported`). Only
+  the writer returns them. The writer also returns the existing
+  `Error::PlaneTooLarge` when `width × height` exceeds the caller's `max_pixels`,
+  checked first.
 - A `dng_write` fuzz target and `just fuzz-dng-write`.
 - **The writer carries a source's metadata** (SPEC-081, DEC-072, DEC-074,
   DEC-081). New `WriteOptions` fields, all `None` by default: `exif_block` (an

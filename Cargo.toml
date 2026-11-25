@@ -1,6 +1,6 @@
 [package]
 name = "irradiance"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2021"
 # Measured, not guessed — see guidance/toolchain-brief.md and
 # projects/PROJ-001-monochrome-dng-develop/specs/SPEC-001-*.md. 1.90.0 is the
@@ -82,6 +82,13 @@ test-fixtures = []
 # but default OFF: a reader-only consumer compiles no writer. Carries no
 # dependency, so the crate keeps zero runtime dependencies.
 write = []
+
+# docs.rs builds default features unless told otherwise, so without this table
+# the published `write` feature would ship with no documentation (SPEC-095).
+# `write` only, never all features: `fuzzing`, `irr` and `test-fixtures` are
+# dev-only and stay off docs.rs. Adds no dependency.
+[package.metadata.docs.rs]
+features = ["write"]
 
 # The profile `just test` runs every test under (SPEC-072, DEC-066). It inherits
 # `test` (which inherits `dev`), NOT `release`, on purpose: debug assertions and
