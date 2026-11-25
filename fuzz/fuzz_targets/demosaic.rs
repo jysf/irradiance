@@ -122,6 +122,14 @@ fuzz_target!(|data: &[u8]| {
     else {
         return;
     };
+    // A third byte sometimes makes `dst` one short or one long, so the band
+    // forms' `RgbBufferWrongLength` is reachable too (SPEC-091 verify); half the
+    // inputs keep the exact length, so `Ok` stays common.
+    let band_len = match pick(3) % 4 {
+        2 => band_len.saturating_sub(1),
+        3 => band_len.saturating_add(1),
+        _ => band_len,
+    };
     let mut band = vec![0u16; band_len];
     let _ = srgb_linear_plane_rows_into(&sensor, &plane, start..end, &mut band);
     let mut band_f32 = vec![0f32; band_len];
