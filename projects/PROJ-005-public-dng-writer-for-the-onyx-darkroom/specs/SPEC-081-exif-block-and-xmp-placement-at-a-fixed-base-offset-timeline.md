@@ -7,4 +7,11 @@ Cycle prompts live in `prompts/SPEC-081-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **frame** — 2026-11-20 (PR 284)
+- [x] **design** — completed 2026-11-24 (DEC-081; dng_validate metadata probe)
+- [ ] **build** — prompt: `prompts/SPEC-081-build.md` (HANDOFF-191)
+- [ ] **verify** — prompt: pending (waiting on build)
+- [ ] **ship** — prompt: pending (waiting on verify)
+
+Markers: `[ ]` not started · `[~]` in progress · `[x]` complete
+· `[?]` blocked (one-line reason, needs human or external unblock).
