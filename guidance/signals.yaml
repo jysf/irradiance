@@ -925,7 +925,8 @@ signals:
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
 
   - id: handback-sync-treats-hash-as-comment-in-unquoted-notes
     type: process-debt
@@ -1208,9 +1209,10 @@ signals:
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch — APPLIED, not violated. The framing probe measured that every held file has whole-byte rows before the units were designed. ══
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, APPLIED not violated. SPEC-096's design probe built the requested red-proof faults (Instant::now, std::fs) for wasm32 before writing any script and found both compile, so the red-proof uses faults that really break the build. ══
 
   # --- lesson: a named algorithm/dependency can be patent-encumbered ----------
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, APPLIED not violated. SPEC-096's design probe built the requested red-proof faults (Instant::now, std::fs) for wasm32 before writing any script and found both compile, so the red-proof uses faults that really break the build. ══
   - id: patent-check-named-algorithms-at-frame
     type: lesson
     summary: "When a brief or stage names a specific algorithm or third-party dependency, patent-check it at FRAME time — clean-room reimplementation defeats copyright, NOT patents, so a live patent on a named method is a landmine for a permissive crate."
@@ -1251,9 +1253,10 @@ signals:
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
 
   # --- golden-path: a reusable bit-exact oracle harness --------------------------
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
   - id: reusable-bit-exact-oracle-harness
     type: golden-path
     summary: "Building the TYPE + analytic bit-exact oracle + red-proof + surfacing ONCE, as a foundation spec, makes every later kernel swap on it cheap and predictable."
@@ -1353,9 +1356,10 @@ signals:
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
 
   # --- lesson: a round-trip oracle is blind to a helper both halves share ------
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
   - id: shared-path-oracle-tautology
     type: lesson
     summary: "An encode->decode round-trip oracle cannot catch a regression in a helper that BOTH halves call — the error cancels — so a shared helper's sign/edge branches need a direct, hand-computed assertion, not just the round-trip."
@@ -1513,9 +1517,10 @@ signals:
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, residual risk unchanged. SPEC-070 rewrote the entropy reader under the restart path but kept its behaviour identical to the old reader (verbatim reference, synthetic restart streams); that proves no change, not that the T.81 restart rule is right, so the independent-oracle need stands. Subsampling is still rejected at parse (DEC-047). ══
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, residual risk unchanged (no ljpeg change this stage; 0.2.2 ships the decoder as SPEC-070 left it). ══
       ══ STAGE-017 CLOSE, 2026-11-25: revisited, no change: STAGE-017 did not touch the SOF-3 decoder. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
 
   # --- lesson: read the kernel before deciding the approach -------------------
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
   - id: read-the-kernel-before-deciding-the-approach
     type: lesson
     summary: "Read the exact code path a change hooks into (the real traversal/kernel, not your memory of it) BEFORE writing the decision's approach — the first design draft can commit to a mechanism the actual code makes wrong or needless."
@@ -1536,9 +1541,10 @@ signals:
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch — APPLIED, not violated. SPEC-069 and SPEC-070 each profiled the real kernel (macOS sample) before the DEC named an approach. ══
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
       ══ STAGE-017 CLOSE, 2026-11-25: N=1 -> N=2, stays watch. SPEC-061's design put the Error payload types in the feature-gated write module while claiming the variants exist in every build; the build found the contradiction in the code and DEC-080 moved them to src/write_types.rs. Related, not counted: SPEC-094's Context said every other fuzz target had a CI job, and develop and demosaic do not. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
 
   # --- process-debt: confirm a PR head advanced before treating a push as merged
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
   - id: confirm-pr-head-advanced-before-treating-pushed-commit-as-merged
     type: process-debt
     summary: "After pushing a follow-up commit to an open PR, confirm GitHub advanced the PR's recorded head to it before treating the PR as merged — a push landing on the branch is not the same as the PR recording it, and a merge can race the push and squash an earlier head."
@@ -1558,9 +1564,10 @@ signals:
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
 
   # --- lesson: a tolerant consumer cannot pin a structural property -----------
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
   - id: tolerant-oracle-cannot-pin-structure
     type: lesson
     summary: "When the design states a structural property that every consumer tolerates the absence of (sorted IFD entries, alignment, canonical ordering), the output oracle cannot catch its loss; pin it with its own direct assertion at design time."
@@ -1611,7 +1618,8 @@ signals:
 
       ══ STAGE-029 CLOSE, 2026-11-23: N=1 -> N=2 (a preserved rule with no fixture of its own), stays watch. ══
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch at N=2. SPEC-082's M6 (a tag-order check only on a fixture without XMP) falls under the codified a-designed-mutant-must-be-able-to-fail-on-its-fixture rule, not this one. ══
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
   - id: closed-form-numeric-needs-extreme-magnitude-fixtures
     type: lesson
     summary: "A closed-form numeric check specified as 'exact, no tolerance' was tested for NaN and degenerate shapes but not for finite extremes; huge finite inputs overflowed an intermediate and flipped a refusal into an admission. Give every numeric guard a fixture at the extremes of the finite range."
@@ -1632,7 +1640,8 @@ signals:
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
 
   - id: analytic-oracle-premise-must-survive-rounding
     type: lesson
@@ -1655,9 +1664,10 @@ signals:
       ══ STAGE-020 CLOSE, 2026-11-14: walked, stays watch, no new instance. ══
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
 
   # --- process-debt: whole-corpus tier-B tests are slow in the debug profile -----
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
   - id: slow-tier-b-tests-in-debug
     type: process-debt
     summary: "Tier-B tests that decode or develop every held file several times run in the debug profile under `just test` and now take about 10 minutes each, so every local full run (build, verify, each fix restart) pays for them."
@@ -1692,7 +1702,8 @@ signals:
       tally but one test, so it cannot race today; a second test there would.
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch at N=1. The race was fixed in PR 243 before this stage; SPEC-071 pinned the absolute Compression 7 count on the per-thread tally with no recurrence. ══
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
 
   - id: spec-must-carry-what-the-probe-number-depended-on
     type: lesson
@@ -1710,7 +1721,8 @@ signals:
       timing table depends on.
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch at N=1. Related but not the same outcome: SPEC-072's probe measured pass counts and digests, which optimisation cannot change, and missed that the allocation counters measure the compiler; recorded as its own signal (a-faster-test-lane-can-blind-tests-that-measure-the-compiler). ══
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
 
   - id: a-faster-test-lane-can-blind-tests-that-measure-the-compiler
     type: lesson
@@ -1727,7 +1739,8 @@ signals:
       allocators, black_box, inline attributes and timing bounds before changing a
       build profile, and red-proof each such test under the new profile.
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
 
   - id: generated-artifact-filenames-near-the-path-limit
     type: process-debt
@@ -1900,7 +1913,8 @@ signals:
       Low priority. Revisit when a tier-B test gains a tool gate: derive the lists from
       the tests (for example a grep check in validate) or update them in the same change.
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
   - id: fuzz-red-proof-copies-files-a-target-includes
     type: process-debt
     summary: "scripts/lint-fuzz-red-proof.sh copies a hand-written list of paths into its temp dir, so a fuzz target that includes a file outside fuzz/ by path breaks the control build, and only CI's red-proof job notices."
@@ -1916,13 +1930,14 @@ signals:
       the path attributes), or add a line to AGENTS.md's fuzz section and to the handoff
       gate lists. Handoffs should also name every CI job, not only the just recipes.
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no recurrence. SPEC-094 added the dng_write CI fuzz job over the same included file and the red-proof stayed green; its handoffs listed every CI job. ══
-    ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
   - id: fuzz-targets-without-a-ci-smoke-job
     type: process-debt
     summary: "Two of the eight fuzz targets, develop and demosaic, have no 60 s fuzz smoke job in CI, and demosaic has no just recipe either, so they run only when someone fuzzes them by hand."
     evidence: "N=1, SPEC-094 (PR 339): its Context said every other fuzz target had a CI smoke job; the verify (HANDOFF-196) found develop and demosaic have none. Predates PROJ-005."
     bar: null
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-11-25
     last_touched: 2026-11-25
@@ -1930,12 +1945,13 @@ signals:
     notes: |
       Recorded at the STAGE-017 close. Small: two CI jobs shaped like the dng_write one,
       plus a just fuzz-demosaic recipe and its README line. A patch, not a spec.
+      ══ PROJ-005 CLOSE, 2026-11-25: ACCEPTED, scheduled: one hygiene patch with ljpeg-private-doc-links-break-the-private-items-doc-build, listed in docs/future-plans.md (Later: the DNG writer). Two CI jobs shaped like the dng_write one plus a just fuzz-demosaic recipe. ══
   - id: ljpeg-private-doc-links-break-the-private-items-doc-build
     type: process-debt
     summary: "cargo doc --no-deps --document-private-items with warnings denied fails on 13 intra-doc links in the private ljpeg module, with or without features. just doc-check does not build private items, so nothing gates it."
     evidence: "N=1, measured at SPEC-094's design on 8787014 and confirmed by its verify (HANDOFF-196): after SPEC-094 fixed the writer's three links, only the 13 ljpeg links remain. Predates PROJ-005 (PROJ-003's decoder)."
     bar: null
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-11-25
     last_touched: 2026-11-25
@@ -1943,3 +1959,19 @@ signals:
     notes: |
       Recorded at the STAGE-017 close. Fix the 13 links (plain code or reachable paths);
       optionally add the private-items build to doc-check so they stay fixed.
+      ══ PROJ-005 CLOSE, 2026-11-25: ACCEPTED, scheduled: the same hygiene patch as fuzz-targets-without-a-ci-smoke-job. Fix the 13 links; decide there whether doc-check builds private items. ══
+  - id: parallel-pr-changelog-entries-land-under-the-promoted-version
+    type: process-debt
+    summary: "A PR that adds CHANGELOG entries under [Unreleased] and merges after a release prep (which renamed [Unreleased] to the version and opened a fresh one) merges cleanly, but its entries land under the released version's heading, and anything else merged before the tag would be in the release."
+    evidence: "N=1, STAGE-032 (0.2.7): PR 343 (SPEC-091) merged two minutes after PR 345, the 0.2.7 prep. Git placed its three entries under [0.2.7]; PR 347 moved them. The tag was right only because the user tagged a360b4f, the prep merge, and not main's tip."
+    bar: null
+    status: done
+    disposition_at: project-close
+    first_flagged: 2026-11-25
+    last_touched: 2026-11-25
+    raised_by: claude
+    notes: |
+      Recorded at the STAGE-032 close. If it recurs: the release-spec template's Phase 2
+      names the tag's commit by SHA (never "main"), and the prep's handback lists open PRs
+      that touch CHANGELOG.md so they rebase their entries into the new [Unreleased].
+      ══ PROJ-005 CLOSE, 2026-11-25: DONE: projects/_templates/release-spec.md's two-phase section now says to tag the Phase-1 merge by SHA and to rebase open PRs' CHANGELOG entries into the fresh [Unreleased] after the prep merges. ══

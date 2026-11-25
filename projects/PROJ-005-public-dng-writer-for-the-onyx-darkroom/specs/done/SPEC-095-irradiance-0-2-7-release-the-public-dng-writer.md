@@ -20,7 +20,7 @@ task:
   priority: high                   # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved
   verify_rounds: [approved]
@@ -84,6 +84,7 @@ cost:
     tokens_total: 21500682
     estimated_usd: 15.60
     session_count: 3
+shipped_at: 2026-11-25
 ---
 
 # SPEC-095: irradiance 0.2.7 release: the public DNG writer
@@ -495,7 +496,7 @@ repeated on the PR head; the handback has that result.
 - `[cut]`: verified by the user at Phase 2.
 - `N/A`: does not apply.
 
-- [ ] **1. Version / tag integrity & build provenance** — `[now]` done, the rest `[cut]`.
+- [x] **1. Version / tag integrity & build provenance** — `[now]` done, the rest `[cut]`.
   - `[now]` ✔:
     - `Cargo.toml` says `version = "0.2.7"`. `cargo publish --dry-run` ran in a detached
       scratch worktree of `252360b`, on a clean tree with no `--allow-dirty`. It reports
@@ -519,8 +520,16 @@ repeated on the PR head; the handback has that result.
     - The published `.crate`'s `.cargo_vcs_info.json` sha1 equals the tagged commit:
       `curl -sL https://static.crates.io/crates/irradiance/irradiance-0.2.7.crate | tar -xzO irradiance-0.2.7/.cargo_vcs_info.json`
       against `git rev-parse v0.2.7^{commit}`.
+  - `[cut]` ✔ (2026-11-25, orchestrator, after the user's cut): `v0.2.7` is annotated
+    (tag object `2cc619b`, tagged 13:30 -05:00) on `a360b4f`, the PR 345 merge, whose
+    `Cargo.toml` says 0.2.7; `ls-remote` shows `refs/tags/v0.2.7` and its `^{}` line. The
+    published `.cargo_vcs_info.json` sha1 is `a360b4f45208a67d226e319faeb30309e69b8f47`,
+    the tagged commit. (Not `252360b`: PR 345 was squash-merged, so the release commit is
+    its merge, with the same tree as the verified candidate plus records.) PR 343 merged
+    two minutes after PR 345 and is not in the tag or the crate: the published `src/`
+    has no `srgb_linear_plane` or `InvalidRowRange`.
 - [x] **2. Artifact trust on a clean host** — `N/A`: a source crate, no signed binary.
-- [ ] **3. Distribution-channel trust** — `[now]` proxy done, the rest `[cut]`.
+- [x] **3. Distribution-channel trust** — `[now]` proxy done, the rest `[cut]`.
   - `[now]` ✔:
     - `cargo publish --dry-run` packaged and verified the crate in isolation (default
       features). Its only warnings are the expected "ignoring example/test … not
@@ -541,8 +550,12 @@ repeated on the PR head; the handback has that result.
       bytes.
   - `[cut]`: on a clean host, `cargo add irradiance@=0.2.7 --features write && cargo
     build`. crates.io shows 0.2.7, and docs.rs is green and shows `irradiance::dng::write`.
+  - `[cut]` ✔: crates.io lists 0.2.7 (published 18:30 UTC, features `fuzzing`, `irr`,
+    `test-fixtures`, `write`); a fresh scratch crate on `irradiance = { version = "=0.2.7",
+    features = ["write"] }` resolves it from the registry and builds. docs.rs reports
+    `doc_status: true` for 0.2.7, and `/irradiance/0.2.7/irradiance/dng/write/` returns 200.
 - [x] **4. Data isolation** — `N/A`: a library with no I/O and no data store.
-- [ ] **5. Runtime smoke on a clean host** — `[now]` done on the candidate, `[cut]` on the
+- [x] **5. Runtime smoke on a clean host** — `[now]` done on the candidate, `[cut]` on the
   published crate.
   - `[now]` ✔:
     - `just test` (on `3f9df0b`, `src/`-identical) ran with `IRRADIANCE_CORPUS_DIR` and
@@ -571,12 +584,21 @@ repeated on the PR head; the handback has that result.
     - `develop_into` on the Pentax K-3 III Monochrome returns `Ok`, with an output hash
       equal to the same program built against 0.2.6, and
       `irradiance::DEVELOP_VERSION == "8"`.
-- [ ] **6. Rollback / uninstall** — `[cut]`.
+  - `[cut]` ✔: the build's step-9 consumer, re-pointed at crates.io `=0.2.7` with `write`,
+    wrote the Q2 Monochrom at all three framings and reproduced the package MD5s exactly
+    (`26a380eb…` FullSensor, `3e64fa3b…` FullActiveArea, `fc60668e…` StandardCrop); each
+    re-read equals the source region, and `dng_validate` 1.7.1 prints no warning or error
+    line on any. The K-3 III Monochrome `K3III.DNG`, developed by `develop_into` in two
+    scratch crates on crates.io `=0.2.6` and `=0.2.7` (Cargo will not link both in one),
+    gives 6192×4128 with the same FNV-1a digest `ab4b018e2b8cc1cd`, and
+    `DEVELOP_VERSION` is `8` on both.
+- [x] **6. Rollback / uninstall** — `[cut]`.
   - **Withdraw:** `cargo yank --version 0.2.7`, and dependents on `"0.2"` fall back to
     0.2.6 (which has no `write` feature, so a dependent that enabled it stops resolving
     until it pins 0.2.7 or drops the feature). `cargo yank --undo --version 0.2.7`
     reverses it.
   - **Git rollback:** revert the Phase-1 PR.
+  - Documented, not exercised: 0.2.7 is live and not yanked.
 
 **Gates on the candidate, all green** (2026-11-25, `IRRADIANCE_CORPUS_DIR` and
 `IRRADIANCE_DNG_VALIDATE` set):
@@ -618,12 +640,15 @@ repeated on the PR head; the handback has that result.
 
 ## Cut Record
 
-*One line, appended after Phase 2 by whoever runs the cut.* The user-facing
-outcome now live, plus the upgrade/clean-install check that confirms the
-publish landed — the one line a review or work-log would quote. E.g.
-*"v0.4.0→v0.5.0 `brew upgrade` clean; MCP-install now first-class; prod DB
-opened, 189 entries intact."* If the release is pure infra with no user-facing
-change, say so — a real, greppable outcome, not a blank.
+v0.2.6 → **v0.2.7 published 2026-11-25** (crates.io, by the user, 18:30 UTC; not yanked;
+checksum `0e84d76d51f861bf…`). Tag `v0.2.7` is **annotated** (`2cc619b`; `ls-remote` shows the `^{}`
+line) on `a360b4f`, the PR 345 merge; the published `.cargo_vcs_info.json` sha1 is that
+commit, and the crate carries no SPEC-091 code although PR 343 merged two minutes later.
+docs.rs builds with `write` and serves `irradiance::dng::write`. Clean-host check by the
+orchestrator: a crates.io `=0.2.7` crate with `write` writes the Q2 Monochrom at all three
+framings with the package check's MD5s, sample-equal and `dng_validate`-clean; the K-3 III
+Monochrome develops identically on 0.2.6 and 0.2.7. **irradiance can now write DNG from
+crates.io.**
 
 ---
 
@@ -632,20 +657,28 @@ change, say so — a real, greppable outcome, not a blank.
 *Appended during **ship**. Four questions, short answers.*
 
 1. **What would I do differently next release?**
-   — <answer>
+   — Check what can land on `main` between the prep and the tag, and say in the runbook
+   which commit to tag by SHA. PR 343 merged two minutes after PR 345; the tag was
+   right, but only because the user tagged the prep merge, not `main`'s tip. And 343's
+   CHANGELOG entries merged cleanly under `[0.2.7]`, because the prep had promoted
+   `[Unreleased]`; PR 347 moved them. Also: check the tag and the registry before
+   giving the user Phase 2 steps; I re-posted the runbook after they had already cut.
 
 2. **Does any template, constraint, or decision need updating?** (e.g. a new
    pre-flight category to add to this template)
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`. See `docs/signals.md`.>
+   — Recorded, not changed: `guidance/signals.yaml` gains
+   `parallel-pr-changelog-entries-land-under-the-promoted-version` (process-debt, N=1).
+   If it recurs, the release-spec template's Phase 2 should name the tag's commit by SHA
+   and tell parallel PRs to rebase their CHANGELOG entries after the prep merges. The
+   packaged-crate check with the feature on, new here, is worth keeping for any release
+   whose new surface sits behind a feature; also N=1, noted in the stage reflection.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — None for this release. onyx can now depend on `irradiance = "=0.2.7"` with
+   `write`. PROJ-006's SPEC-091 is on `main` and reaches users in its own release.
 
 4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
    the defect-escape distribution is greppable across specs:
    `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
    `none` (clean first try).
-   — <one word>
-   *(A release-phase `escaped` defect means a pre-flight category above was
-   missing or skipped — grow the checklist.)*
+   — build
