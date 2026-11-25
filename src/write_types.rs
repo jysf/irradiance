@@ -101,6 +101,31 @@ pub enum WriteInputError {
         /// The DNG tag name of the field.
         field: &'static str,
     },
+    /// `DateTime` is not in TIFF 6.0's `YYYY:MM:DD HH:MM:SS` form: 19 bytes,
+    /// ASCII digits at the digit places, `:` and one space where shown
+    /// (`DEC-071` §3a, `DEC-081` §6). The form is checked, not the calendar.
+    DateTimeInvalid,
+    /// A rendering hint (`DEC-074`) has a zero denominator, or one of the
+    /// three unsigned `RATIONAL` hints has a negative numerator or denominator
+    /// (`DEC-081` §3). `BaselineExposure` (`SRATIONAL`) takes any sign.
+    RationalInvalid {
+        /// The DNG tag name of the hint.
+        field: &'static str,
+    },
+    /// An EXIF block was given with neither an Exif nor a GPS IFD offset
+    /// (`DEC-072`, amended): there would be nothing to point at it.
+    ExifBlockWithoutIfd,
+    /// An IFD offset inside the EXIF block is odd, or leaves no room for the
+    /// IFD's 2-byte entry count inside the block (`DEC-072`, `DEC-081` §5).
+    ExifIfdOffsetInvalid {
+        /// `"Exif"` or `"GPS"`.
+        ifd: &'static str,
+        /// The caller's offset, relative to the block's start.
+        offset: u32,
+    },
+    /// The XMP packet is empty: a count-0 `XMLPacket` is malformed
+    /// (`DEC-081` §2). Leave the option `None` to write no packet.
+    EmptyXmp,
     /// An opcode list's headers cannot be walked: the declared count and the
     /// per-opcode parameter sizes do not add up to exactly the list's length.
     /// Only `OpcodeList1` is walked, and only under a framing that cuts.
@@ -156,6 +181,21 @@ impl fmt::Display for WriteInputError {
             WriteInputError::InvalidAscii { field } => {
                 write!(f, "{field} must be printable ASCII of at most 1024 bytes")
             }
+            WriteInputError::DateTimeInvalid => {
+                f.write_str("DateTime must have the form YYYY:MM:DD HH:MM:SS")
+            }
+            WriteInputError::RationalInvalid { field } => write!(
+                f,
+                "{field} has a zero denominator, or a negative part where the tag is unsigned"
+            ),
+            WriteInputError::ExifBlockWithoutIfd => {
+                f.write_str("the EXIF block names neither an Exif nor a GPS IFD offset")
+            }
+            WriteInputError::ExifIfdOffsetInvalid { ifd, offset } => write!(
+                f,
+                "the {ifd} IFD offset {offset} is odd or leaves no room for its entry count inside the EXIF block"
+            ),
+            WriteInputError::EmptyXmp => f.write_str("the XMP packet is empty"),
             WriteInputError::MalformedOpcodeList { list } => {
                 write!(
                     f,

@@ -12,6 +12,9 @@
 //! - Oracle 2, develop equivalence against a test-writer fixture of the source.
 //! - Oracle 3, the red-proof of oracle 1, negative control first.
 //! - Oracle 9, determinism over pre-filled buffers.
+//! - `SPEC-081` oracles 1, 2, 6, 7 and 8: the EXIF block at its base, the
+//!   fifteen metadata tags, the round trip with every metadata option set,
+//!   the pinned base, determinism, and the new refusals in their order.
 //!
 //! Nothing is written to the repo.
 
@@ -21,6 +24,8 @@ mod dng_write_fuzz;
 mod dng_write_oracle;
 #[path = "support/dng_writer.rs"]
 mod dng_writer;
+#[path = "support/exif_block.rs"]
+mod exif_block;
 #[path = "support/opcode.rs"]
 mod opcode;
 #[path = "support/tiff.rs"]
@@ -32,9 +37,10 @@ use irradiance::develop::{
     develop_into, develop_with_into, output_dimensions_with, DevelopOptions,
 };
 use irradiance::dng::write::{
-    write_into, write_to_vec, written_len, Framing, WriteInputError, WriteOptions,
+    exif_block_base, write_into, write_to_vec, written_len, ExifBlock, Framing, WriteInputError,
+    WriteOptions, EXIF_BLOCK_BASE,
 };
-use irradiance::ifd::{ActiveArea, Container, DefaultCropOrigin, DefaultCropSize};
+use irradiance::ifd::{ActiveArea, Container, DefaultCropOrigin, DefaultCropSize, Rational};
 use irradiance::{Error, ErrorKind};
 use opcode::{
     opcode_list, raw_opcode, single_fix_bad_pixels_constant_list, single_warp_rectilinear_list,
@@ -792,6 +798,155 @@ fn every_refusal_is_typed() {
     drop(huge);
     n += 1;
 
+    // SPEC-081 §4: the new reasons, one case each (and one per descriptive
+    // field for InvalidAscii).
+    let block: &'static [u8] = &[0u8; 8];
+    let meta = |f: &dyn Fn(&mut WriteOptions<'_>)| {
+        let mut o = good.clone();
+        f(&mut o);
+        o
+    };
+    let long_text: &'static str = Box::leak("a".repeat(1025).into_boxed_str());
+    type Set = fn(&mut WriteOptions<'static>, &'static str);
+    let fields: [(&str, Set); 8] = [
+        ("Make", |o, v| o.make = Some(v)),
+        ("Model", |o, v| o.model = Some(v)),
+        ("Software", |o, v| o.software = Some(v)),
+        ("DateTime", |o, v| o.date_time = Some(v)),
+        ("Artist", |o, v| o.artist = Some(v)),
+        ("Copyright", |o, v| o.copyright = Some(v)),
+        ("LocalizedCameraModel", |o, v| {
+            o.localized_camera_model = Some(v)
+        }),
+        ("CameraSerialNumber", |o, v| {
+            o.camera_serial_number = Some(v)
+        }),
+    ];
+    for (field, set) in fields {
+        for bad in ["caf\u{e9}", "tab\there", long_text] {
+            let mut o = good.clone();
+            set(&mut o, bad);
+            assert_refused(
+                field,
+                &samples,
+                w,
+                h,
+                &o,
+                BUDGET,
+                &reason(WriteInputError::InvalidAscii { field }),
+            );
+            n += 1;
+        }
+    }
+    let half = Rational { num: 1, den: 2 };
+    let zero_den = Rational { num: 1, den: 0 };
+    let new_cases: Vec<(&str, WriteOptions<'_>, Error)> = vec![
+        (
+            "date time form",
+            meta(&|o| o.date_time = Some("2026-11-24 10:00:00")),
+            reason(WriteInputError::DateTimeInvalid),
+        ),
+        (
+            "baseline exposure zero denominator",
+            meta(&|o| o.baseline_exposure = Some(zero_den)),
+            reason(WriteInputError::RationalInvalid {
+                field: "BaselineExposure",
+            }),
+        ),
+        (
+            "baseline noise negative",
+            meta(&|o| o.baseline_noise = Some(Rational { num: -1, den: 2 })),
+            reason(WriteInputError::RationalInvalid {
+                field: "BaselineNoise",
+            }),
+        ),
+        (
+            "baseline sharpness zero denominator",
+            meta(&|o| o.baseline_sharpness = Some(zero_den)),
+            reason(WriteInputError::RationalInvalid {
+                field: "BaselineSharpness",
+            }),
+        ),
+        (
+            "linear response limit negative denominator",
+            meta(&|o| o.linear_response_limit = Some(Rational { num: 1, den: -2 })),
+            reason(WriteInputError::RationalInvalid {
+                field: "LinearResponseLimit",
+            }),
+        ),
+        (
+            "exif block without an ifd",
+            meta(&|o| {
+                let mut b = ExifBlock::default();
+                b.bytes = block;
+                o.exif_block = Some(b);
+            }),
+            reason(WriteInputError::ExifBlockWithoutIfd),
+        ),
+        (
+            "exif ifd offset odd",
+            meta(&|o| {
+                let mut b = ExifBlock::default();
+                b.bytes = block;
+                b.exif_ifd = Some(1);
+                o.exif_block = Some(b);
+            }),
+            reason(WriteInputError::ExifIfdOffsetInvalid {
+                ifd: "Exif",
+                offset: 1,
+            }),
+        ),
+        (
+            // offset + 2 == len + 1: one byte short of the entry count.
+            "gps ifd offset past the block",
+            meta(&|o| {
+                let mut b = ExifBlock::default();
+                b.bytes = &block[..7];
+                b.gps_ifd = Some(6);
+                o.exif_block = Some(b);
+            }),
+            reason(WriteInputError::ExifIfdOffsetInvalid {
+                ifd: "GPS",
+                offset: 6,
+            }),
+        ),
+        (
+            "gps ifd offset odd beside a good exif offset",
+            meta(&|o| {
+                let mut b = ExifBlock::default();
+                b.bytes = block;
+                b.exif_ifd = Some(0);
+                b.gps_ifd = Some(3);
+                o.exif_block = Some(b);
+            }),
+            reason(WriteInputError::ExifIfdOffsetInvalid {
+                ifd: "GPS",
+                offset: 3,
+            }),
+        ),
+        (
+            "empty xmp",
+            meta(&|o| o.xmp = Some(&[])),
+            reason(WriteInputError::EmptyXmp),
+        ),
+    ];
+    for (name, o, want) in &new_cases {
+        assert_refused(name, &samples, w, h, o, BUDGET, want);
+        assert_eq!(want.kind(), ErrorKind::CallerError, "{name}");
+        n += 1;
+    }
+    // The boundaries that pass: offset + 2 == len, and BaselineExposure of
+    // either sign.
+    let mut b = ExifBlock::default();
+    b.bytes = block;
+    b.gps_ifd = Some(6);
+    let ok = meta(&|o| {
+        o.exif_block = Some(b);
+        o.baseline_exposure = Some(Rational { num: -1, den: 2 });
+        o.baseline_noise = Some(half);
+    });
+    assert!(written_len(&samples, w, h, &ok, BUDGET).is_ok());
+
     // OutputBufferWrongLength: write_into only.
     let len = written_len(&samples, w, h, &good, BUDGET).unwrap();
     let mut short = vec![0u8; len - 1];
@@ -808,7 +963,7 @@ fn every_refusal_is_typed() {
     );
     assert_eq!(err.kind(), ErrorKind::CallerError);
     n += 1;
-    assert_eq!(n, 29);
+    assert_eq!(n, 29 + 24 + 10);
 }
 
 #[test]
@@ -837,6 +992,20 @@ fn checks_run_in_the_documented_order() {
         right: 1,
     });
     o.opcode_list_1 = Some(&id5);
+    // SPEC-081 §4: every new check fails too, between UniqueCameraModel and
+    // the OpcodeList1 walk, each in its documented place.
+    let block: &'static [u8] = &[0u8; 8];
+    let mut bad_block = ExifBlock::default();
+    bad_block.bytes = block;
+    o.make = Some("tab\t");
+    o.copyright = Some("caf\u{e9}");
+    o.date_time = Some("2026:11:24T10:00:00");
+    o.baseline_exposure = Some(Rational { num: 1, den: 0 });
+    o.linear_response_limit = Some(Rational { num: -1, den: 1 });
+    o.exif_block = Some(bad_block);
+    o.xmp = Some(&[]);
+    let mut odd_block = bad_block;
+    odd_block.exif_ifd = Some(1);
     type Fix = Box<dyn Fn(&mut WriteOptions<'_>)>;
     let steps: Vec<(Fix, &str)> = vec![
         (Box::new(|_| {}), "ActiveAreaInvalid"),
@@ -850,8 +1019,31 @@ fn checks_run_in_the_documented_order() {
         (Box::new(|o| o.orientation = 1), "MissingUniqueCameraModel"),
         (
             Box::new(|o| o.unique_camera_model = Some(MODEL)),
-            "UnsupportedOpcodeForFraming",
+            "InvalidAscii { field: \"Make\" }",
         ),
+        (Box::new(|o| o.make = None), "DateTimeInvalid"),
+        (
+            Box::new(|o| o.date_time = None),
+            "InvalidAscii { field: \"Copyright\" }",
+        ),
+        (
+            Box::new(|o| o.copyright = None),
+            "RationalInvalid { field: \"BaselineExposure\" }",
+        ),
+        (
+            Box::new(|o| o.baseline_exposure = None),
+            "RationalInvalid { field: \"LinearResponseLimit\" }",
+        ),
+        (
+            Box::new(|o| o.linear_response_limit = None),
+            "ExifBlockWithoutIfd",
+        ),
+        (
+            Box::new(move |o| o.exif_block = Some(odd_block)),
+            "ExifIfdOffsetInvalid",
+        ),
+        (Box::new(|o| o.exif_block = None), "EmptyXmp"),
+        (Box::new(|o| o.xmp = None), "UnsupportedOpcodeForFraming"),
     ];
     // The budget and the sample count come before all of them.
     let err = written_len(&samples, w, h, &o, 1).unwrap_err();
@@ -863,11 +1055,14 @@ fn checks_run_in_the_documented_order() {
     );
     for (fix, want) in steps {
         fix(&mut o);
+        // Both entry points report the same, earliest refusal.
         let err = written_len(&samples, w, h, &o, BUDGET).unwrap_err();
         assert!(
             format!("{err:?}").contains(want),
             "want {want}, got {err:?}"
         );
+        let again = write_into(&samples, w, h, &o, BUDGET, &mut []).unwrap_err();
+        assert_eq!(format!("{err:?}"), format!("{again:?}"));
     }
     o.opcode_list_1 = None;
     assert!(written_len(&samples, w, h, &o, BUDGET).is_ok());
@@ -1214,6 +1409,8 @@ fn red_proof_round_trip_catches_a_flipped_sample_and_a_moved_crop() {
 fn write_is_deterministic_whatever_the_buffer_held() {
     let (w, h) = (20, 14);
     let samples = plane(w, h);
+    let odd_block = exif_block::build_odd(EXIF_BLOCK_BASE, exif_block::Shape::Both);
+    assert_eq!(odd_block.bytes.len() % 2, 1);
     let (l1, l2, l3) = (list_1(), list_2(), list_3());
     let masked = masked();
     for framing in FRAMINGS {
@@ -1229,6 +1426,9 @@ fn write_is_deterministic_whatever_the_buffer_held() {
         if framing == Framing::FullSensor {
             o.masked_areas = &masked;
         }
+        // SPEC-081 oracle 7: every metadata option, an odd-length block (its
+        // pad byte) and an odd-length XMP packet.
+        set_all_metadata(&mut o, &odd_block, XMP_ODD);
         let len = written_len(&samples, w, h, &o, BUDGET).unwrap();
         let mut zeros = vec![0x00u8; len];
         let mut ones = vec![0xFFu8; len];
@@ -1267,7 +1467,429 @@ fn fuzz_seeds_reach_their_named_outcome() {
             usize::from(case.max_pixels),
         );
         assert_eq!(got.is_err(), name.starts_with("refuse-"), "{name}: {got:?}");
+        // SPEC-081's seeds name the reason they reach.
+        let reasons = [
+            ("refuse-date-time", "DateTimeInvalid"),
+            (
+                "refuse-rational",
+                "RationalInvalid { field: \"BaselineNoise\" }",
+            ),
+            ("refuse-exif-without-ifd", "ExifBlockWithoutIfd"),
+            (
+                "refuse-exif-offset",
+                "ExifIfdOffsetInvalid { ifd: \"GPS\", offset: 11 }",
+            ),
+            ("refuse-empty-xmp", "EmptyXmp"),
+        ];
+        if let Some((_, want)) = reasons.iter().find(|(n, _)| *n == name) {
+            let err = format!("{:?}", got.as_ref().unwrap_err());
+            assert!(err.contains(want), "{name}: want {want}, got {err}");
+        }
+        if name == "all-metadata" {
+            assert!(o.exif_block.is_some() && o.xmp.is_some() && o.make.is_some());
+            assert!(o.baseline_exposure.is_some() && o.linear_response_limit.is_some());
+        }
         seen += 1;
     }
-    assert_eq!(seen, 22);
+    assert_eq!(seen, 28);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-081 — the EXIF block, XMP, descriptive tags and rendering hints
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// An XMP packet of even length, and one of odd length (its pad observable).
+const XMP: &[u8] = b"<x:xmpmeta xmlns:x='adobe:ns:meta/'></x:xmpmeta>";
+const XMP_ODD: &[u8] = b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>";
+
+const MAKE: &str = "IRRADIANCE";
+const MODEL_NAME: &str = "Mono Test";
+const SOFTWARE: &str = "irradiance SPEC-081";
+const DATE_TIME: &str = "2026:11:24 10:20:30";
+const ARTIST: &str = "A. Photographer";
+const COPYRIGHT: &str = "(c) 2026 nobody";
+const LOCALIZED: &str = "Mono Test (local)";
+const SERIAL: &str = "0042";
+const EXPOSURE: Rational = Rational { num: -7, den: 10 };
+const NOISE: Rational = Rational { num: 3, den: 4 };
+const SHARPNESS: Rational = Rational { num: 5, den: 4 };
+const LIMIT: Rational = Rational { num: 9, den: 10 };
+
+fn exif_of(block: &exif_block::Block) -> ExifBlock<'_> {
+    let mut b = ExifBlock::default();
+    b.bytes = &block.bytes;
+    b.exif_ifd = block.exif_ifd;
+    b.gps_ifd = block.gps_ifd;
+    b
+}
+
+/// Every SPEC-081 option, set to the constants above.
+fn set_all_metadata<'a>(o: &mut WriteOptions<'a>, block: &'a exif_block::Block, xmp: &'a [u8]) {
+    o.exif_block = Some(exif_of(block));
+    o.xmp = Some(xmp);
+    o.make = Some(MAKE);
+    o.model = Some(MODEL_NAME);
+    o.software = Some(SOFTWARE);
+    o.date_time = Some(DATE_TIME);
+    o.artist = Some(ARTIST);
+    o.copyright = Some(COPYRIGHT);
+    o.localized_camera_model = Some(LOCALIZED);
+    o.camera_serial_number = Some(SERIAL);
+    o.baseline_exposure = Some(EXPOSURE);
+    o.baseline_noise = Some(NOISE);
+    o.baseline_sharpness = Some(SHARPNESS);
+    o.linear_response_limit = Some(LIMIT);
+}
+
+fn nul(text: &str) -> Vec<u8> {
+    let mut v = text.as_bytes().to_vec();
+    v.push(0);
+    v
+}
+
+fn rational_bytes(r: Rational) -> Vec<u8> {
+    let mut v = r.num.to_le_bytes().to_vec();
+    v.extend_from_slice(&r.den.to_le_bytes());
+    v
+}
+
+/// The header's IFD0 offset.
+fn header_ifd0(file: &[u8]) -> u32 {
+    u32::from_le_bytes(file[4..8].try_into().unwrap())
+}
+
+#[test]
+fn exif_block_base_is_pinned_to_eight() {
+    assert_eq!(EXIF_BLOCK_BASE, 8);
+    assert_eq!(exif_block_base(&WriteOptions::default()), 8);
+    let block = exif_block::build(8, exif_block::Shape::Both);
+    let mut o = base_options();
+    set_all_metadata(&mut o, &block, XMP);
+    o.framing = Framing::FullSensor;
+    o.active_area = Some(margin_area());
+    o.black_level = &[1];
+    assert_eq!(exif_block_base(&o), 8);
+    // Every new field defaults to None.
+    let d = WriteOptions::default();
+    assert!(d.exif_block.is_none() && d.xmp.is_none());
+    for s in [
+        d.make,
+        d.model,
+        d.software,
+        d.date_time,
+        d.artist,
+        d.copyright,
+        d.localized_camera_model,
+        d.camera_serial_number,
+    ] {
+        assert!(s.is_none());
+    }
+    for r in [
+        d.baseline_exposure,
+        d.baseline_noise,
+        d.baseline_sharpness,
+        d.linear_response_limit,
+    ] {
+        assert!(r.is_none());
+    }
+    let b = ExifBlock::default();
+    assert!(b.bytes.is_empty() && b.exif_ifd.is_none() && b.gps_ifd.is_none());
+}
+
+#[test]
+fn every_new_tag_matches_the_spec_table() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let (byte, ascii, long, rational, srational) = (1u16, 2u16, 4u16, 5u16, 10u16);
+    for odd in [false, true] {
+        let block = if odd {
+            exif_block::build_odd(EXIF_BLOCK_BASE, exif_block::Shape::Both)
+        } else {
+            exif_block::build(EXIF_BLOCK_BASE, exif_block::Shape::Both)
+        };
+        assert_eq!(block.bytes.len() % 2 == 1, odd);
+        let xmp = if odd { XMP_ODD } else { XMP };
+        let mut o = base_options();
+        set_all_metadata(&mut o, &block, xmp);
+        let file = write(&samples, w, h, &o);
+        let entries = ifd0_entries(&file);
+        // Ascending: the 18 SPEC-061 tags these options fill, plus the 15.
+        let tags: Vec<u16> = entries.iter().map(|e| e.0).collect();
+        assert!(tags.windows(2).all(|p| p[0] < p[1]), "{tags:?}");
+        assert_eq!(entries.len(), 18 + 15, "{tags:?}");
+        let want: Vec<(u16, u16, u32, Vec<u8>)> = vec![
+            (271, ascii, 11, nul(MAKE)),
+            (272, ascii, 10, nul(MODEL_NAME)),
+            (305, ascii, 20, nul(SOFTWARE)),
+            (306, ascii, 20, nul(DATE_TIME)),
+            (315, ascii, 16, nul(ARTIST)),
+            (700, byte, xmp.len() as u32, xmp.to_vec()),
+            (33432, ascii, 16, nul(COPYRIGHT)),
+            (
+                34665,
+                long,
+                1,
+                (8 + block.exif_ifd.unwrap()).to_le_bytes().to_vec(),
+            ),
+            (
+                34853,
+                long,
+                1,
+                (8 + block.gps_ifd.unwrap()).to_le_bytes().to_vec(),
+            ),
+            (50709, ascii, 18, nul(LOCALIZED)),
+            (50730, srational, 1, rational_bytes(EXPOSURE)),
+            (50731, rational, 1, rational_bytes(NOISE)),
+            (50732, rational, 1, rational_bytes(SHARPNESS)),
+            (50734, rational, 1, rational_bytes(LIMIT)),
+            (50735, ascii, 5, nul(SERIAL)),
+        ];
+        for row in &want {
+            let got = entries
+                .iter()
+                .find(|e| e.0 == row.0)
+                .unwrap_or_else(|| panic!("tag {} missing (odd={odd})", row.0));
+            assert_eq!(got, row, "tag {} (odd={odd})", row.0);
+        }
+        // Every out-of-line value sits at an even offset.
+        let container = Container::parse(&file).unwrap();
+        for e in container.ifds()[0].entries() {
+            let len = container.payload(e).unwrap().len();
+            if len > 4 {
+                let at = u32::from_le_bytes(file_entry_word(&file, e.tag()));
+                assert_eq!(at % 2, 0, "tag {} at {at}", e.tag());
+            }
+        }
+    }
+}
+
+/// The 4-byte value field of IFD0's entry for `tag`, raw.
+fn file_entry_word(file: &[u8], tag: u16) -> [u8; 4] {
+    let ifd0 = header_ifd0(file) as usize;
+    let count = u16::from_le_bytes([file[ifd0], file[ifd0 + 1]]) as usize;
+    (0..count)
+        .map(|i| ifd0 + 2 + 12 * i)
+        .find(|&at| u16::from_le_bytes([file[at], file[at + 1]]) == tag)
+        .map(|at| file[at + 8..at + 12].try_into().unwrap())
+        .unwrap_or_else(|| panic!("tag {tag} not in IFD0"))
+}
+
+#[test]
+fn exif_block_sits_at_the_base_and_ifd0_follows_it() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    use exif_block::Shape;
+    let mut cases = 0;
+    for shape in [Shape::ExifOnly, Shape::GpsOnly, Shape::Both] {
+        for odd in [false, true] {
+            let block = if odd {
+                exif_block::build_odd(EXIF_BLOCK_BASE, shape)
+            } else {
+                exif_block::build(EXIF_BLOCK_BASE, shape)
+            };
+            let len = block.bytes.len();
+            let mut o = base_options();
+            o.exif_block = Some(exif_of(&block));
+            let file = write(&samples, w, h, &o);
+            let ifd0 = header_ifd0(&file) as usize;
+            assert_eq!(ifd0, 8 + len + len % 2, "{shape:?} odd={odd}");
+            assert_eq!(&file[8..8 + len], &block.bytes[..], "{shape:?} odd={odd}");
+            if odd {
+                assert_eq!(file[8 + len], 0, "{shape:?}: the pad byte is 0");
+            }
+            let entries = ifd0_entries(&file);
+            let pointer = |tag: u16| {
+                entries
+                    .iter()
+                    .find(|e| e.0 == tag)
+                    .map(|e| (e.1, e.2, le_u32s(&e.3)[0]))
+            };
+            assert_eq!(
+                pointer(34665),
+                block.exif_ifd.map(|off| (4, 1, 8 + off)),
+                "{shape:?} ExifIFD"
+            );
+            assert_eq!(
+                pointer(34853),
+                block.gps_ifd.map(|off| (4, 1, 8 + off)),
+                "{shape:?} GPSInfo"
+            );
+            // The pointed-at IFD's entry count is the builder's.
+            for (tag, want_count) in [(34665u16, 6u16), (34853, 3)] {
+                if let Some((_, _, at)) = pointer(tag) {
+                    let at = at as usize;
+                    assert_eq!(u16::from_le_bytes([file[at], file[at + 1]]), want_count);
+                }
+            }
+            // And the plane still reads back.
+            let (_, back) = read_back(&file).unwrap();
+            assert_eq!(back, samples);
+            cases += 1;
+        }
+    }
+    assert_eq!(cases, 6);
+    // Without a block, IFD0 follows the header as before.
+    let file = write(&samples, w, h, &base_options());
+    assert_eq!(header_ifd0(&file), 8);
+}
+
+#[test]
+fn absent_options_write_no_tag_and_empty_strings_write_count_one() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let new_tags = [
+        271u16, 272, 305, 306, 315, 700, 33432, 34665, 34853, 50709, 50730, 50731, 50732, 50734,
+        50735,
+    ];
+    let file = write(&samples, w, h, &base_options());
+    let entries = ifd0_entries(&file);
+    for tag in new_tags {
+        assert!(entries.iter().all(|e| e.0 != tag), "tag {tag} written");
+    }
+    let mut o = base_options();
+    o.make = Some("");
+    o.model = Some("");
+    o.software = Some("");
+    o.artist = Some("");
+    o.copyright = Some("");
+    o.localized_camera_model = Some("");
+    o.camera_serial_number = Some("");
+    o.copyright = Some("");
+    let entries = ifd0_entries(&write(&samples, w, h, &o));
+    for tag in [271u16, 272, 305, 315, 33432, 50709, 50735] {
+        let e = entries.iter().find(|e| e.0 == tag).expect("written");
+        assert_eq!((e.1, e.2, e.3.clone()), (2, 1, vec![0]), "tag {tag}");
+    }
+    // Four spaces, as the Q2M holds, are written as given.
+    o.artist = Some("    ");
+    let entries = ifd0_entries(&write(&samples, w, h, &o));
+    let e = entries.iter().find(|e| e.0 == 315).unwrap();
+    assert_eq!((e.2, e.3.clone()), (5, b"    \0".to_vec()));
+}
+
+#[test]
+fn round_trip_holds_with_every_new_option_set() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let block = exif_block::build_odd(EXIF_BLOCK_BASE, exif_block::Shape::Both);
+    let masked = masked();
+    let mut cases = 0;
+    for framing in FRAMINGS {
+        let mut o = base_options();
+        o.framing = framing;
+        o.active_area = Some(margin_area());
+        o.black_level = &[64];
+        o.white_level = 60000;
+        o.orientation = 6;
+        o.default_crop = Some((
+            DefaultCropOrigin { x: 1, y: 2 },
+            DefaultCropSize {
+                width: 9,
+                height: 5,
+            },
+        ));
+        if framing == Framing::FullSensor {
+            o.masked_areas = &masked;
+        }
+        set_all_metadata(&mut o, &block, XMP_ODD);
+        let file = write(&samples, w, h, &o);
+        let want = expected(&samples, w, h, &o);
+        if let Err(bad) = check_round_trip(&file, &want) {
+            panic!("{framing:?}: {bad:#?}");
+        }
+        // The hints read back through the reader as onyx reads them.
+        let container = Container::parse(&file).unwrap();
+        let ifd0 = container.ifd0().unwrap();
+        for (tag, want) in [
+            (50730u16, EXPOSURE),
+            (50731, NOISE),
+            (50732, SHARPNESS),
+            (50734, LIMIT),
+        ] {
+            let entry = ifd0.entry(tag).unwrap();
+            assert_eq!(container.rationals(entry).unwrap(), vec![want], "tag {tag}");
+        }
+        cases += 1;
+    }
+    assert_eq!(cases, 3);
+}
+
+#[test]
+fn date_time_form_is_checked_not_the_calendar() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let check = |text: &'static str| {
+        let mut o = base_options();
+        o.date_time = Some(text);
+        written_len(&samples, w, h, &o, BUDGET)
+    };
+    for good in ["2026:13:40 25:61:61", "0000:00:00 00:00:00", DATE_TIME] {
+        assert!(check(good).is_ok(), "{good}");
+    }
+    for bad in [
+        "2026-11-24 10:00:00",
+        "2026:11:24 10:00:0",
+        "2026:11:24 10:00:000",
+        "2026:1a:24 10:00:00",
+        "2026:11:24T10:00:00",
+        "2026:11:24  10:00:0",
+        "",
+    ] {
+        let err = check(bad).unwrap_err();
+        assert_eq!(
+            format!("{err:?}"),
+            format!("{:?}", reason(WriteInputError::DateTimeInvalid)),
+            "{bad:?}"
+        );
+    }
+}
+
+#[test]
+fn rational_hints_refuse_zero_and_unsigned_negatives() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    type Set = fn(&mut WriteOptions<'static>, Rational);
+    let hints: [(&str, Set, bool); 4] = [
+        (
+            "BaselineExposure",
+            |o, r| o.baseline_exposure = Some(r),
+            true,
+        ),
+        ("BaselineNoise", |o, r| o.baseline_noise = Some(r), false),
+        (
+            "BaselineSharpness",
+            |o, r| o.baseline_sharpness = Some(r),
+            false,
+        ),
+        (
+            "LinearResponseLimit",
+            |o, r| o.linear_response_limit = Some(r),
+            false,
+        ),
+    ];
+    let r = |num, den| Rational { num, den };
+    for (field, set, signed) in hints {
+        let run = |value: Rational| {
+            let mut o = base_options();
+            set(&mut o, value);
+            written_len(&samples, w, h, &o, BUDGET)
+        };
+        let refused = format!("{:?}", reason(WriteInputError::RationalInvalid { field }));
+        assert!(run(r(1, 2)).is_ok(), "{field} 1/2");
+        assert!(run(r(0, 1)).is_ok(), "{field} 0/1");
+        for zero in [r(1, 0), r(0, 0), r(-1, 0)] {
+            assert_eq!(format!("{:?}", run(zero).unwrap_err()), refused, "{field}");
+        }
+        for negative in [r(-1, 2), r(1, -2)] {
+            if signed {
+                assert!(run(negative).is_ok(), "{field} {negative:?}");
+            } else {
+                assert_eq!(
+                    format!("{:?}", run(negative).unwrap_err()),
+                    refused,
+                    "{field} {negative:?}"
+                );
+            }
+        }
+    }
 }

@@ -23,8 +23,24 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   `UniqueCameraModel`. The feature is off by default and adds no dependency.
 - **Two `Error` variants**, present in every build so `Error`'s shape does not
   depend on features: `InvalidWriteInput(WriteInputError)` (`CallerError`,
-  fourteen reasons) and `UnsupportedOpcodeForFraming` (`Unsupported`).
+  fourteen reasons, nineteen with SPEC-081's) and `UnsupportedOpcodeForFraming`
+  (`Unsupported`).
 - A `dng_write` fuzz target and `just fuzz-dng-write`.
+- **The writer carries a source's metadata** (SPEC-081, DEC-072, DEC-074,
+  DEC-081). New `WriteOptions` fields, all `None` by default: `exif_block` (an
+  `ExifBlock` of caller-built bytes plus the in-block offsets of its Exif and
+  GPS IFDs, copied verbatim to file offset `EXIF_BLOCK_BASE` (8), right after
+  the header, with `ExifIFD` / `GPSInfo` pointing into it; never parsed or
+  rebased, and `exif_block_base` names the base to build for), `xmp`
+  (`XMLPacket`, verbatim), the eight descriptive ASCII tags `make`, `model`,
+  `software`, `date_time`, `artist`, `copyright`, `localized_camera_model`,
+  `camera_serial_number` (an empty string writes an empty tag), and the four
+  rendering hints `baseline_exposure`, `baseline_noise`, `baseline_sharpness`,
+  `linear_response_limit` as `Rational`, written as given. Five new
+  `WriteInputError` reasons, all checked by `written_len` too:
+  `DateTimeInvalid`, `RationalInvalid`, `ExifBlockWithoutIfd`,
+  `ExifIfdOffsetInvalid`, `EmptyXmp`. Carrying `BaselineExposure` makes the
+  K-3 III's export render like its source in Adobe's reader.
 
 ## [0.2.6] - 2026-11-23
 

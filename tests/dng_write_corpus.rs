@@ -20,6 +20,21 @@
 //!   printed by `examples/corpus-status.rs`). Set but unusable: a failure.
 //!   Local only, never CI; its outputs go to the OS temp dir and are deleted.
 //!
+//! `SPEC-081` adds:
+//!
+//! - Oracle 3 (`exiftool_reads_the_block_and_the_new_tags`, tool-gated): a
+//!   block from `tests/support/exif_block.rs`, placed by the writer, reads
+//!   back through exiftool value for value, with the eight descriptive tags,
+//!   the four hints and an XMP property. Synthetic plane; no corpus needed.
+//! - Oracle 4 (`red_proof_a_block_built_for_another_base_is_caught`): the
+//!   same comparison fails for a block built for base 10, after its negative
+//!   control passes.
+//! - Oracle 5 (`dng_validate_accepts_metadata_and_the_k3_renders_like_its_source`,
+//!   env-gated like oracle 8): the K-3 III and Q2M with their own descriptive
+//!   tags and hints, the oracle-3 block and an XMP packet validate with no
+//!   warnings; the K-3 III renders like its source, and differently without
+//!   `BaselineExposure` (the hints' red-proof).
+//!
 //! Every written file goes to the OS temp dir, never the repo.
 
 #[path = "support/corpus.rs"]
@@ -28,6 +43,8 @@ mod corpus;
 mod dng_write_oracle;
 #[path = "support/dng_writer.rs"]
 mod dng_writer;
+#[path = "support/exif_block.rs"]
+mod exif_block;
 #[path = "support/md5.rs"]
 mod md5;
 #[path = "support/stage2_tiff.rs"]
@@ -44,8 +61,8 @@ use corpus::{CorpusRoot, Manifest};
 use dng_write_oracle::{check_round_trip, cut, expected, options_from_sensor, read_back};
 use dng_writer::{write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload, PlaneKind};
 use irradiance::develop::{develop_with_into, output_dimensions_with, DevelopOptions};
-use irradiance::dng::write::{write_to_vec, Framing};
-use irradiance::ifd::{ActiveArea, Sensor};
+use irradiance::dng::write::{write_to_vec, ExifBlock, Framing, WriteOptions, EXIF_BLOCK_BASE};
+use irradiance::ifd::{ActiveArea, Container, Rational, Sensor};
 
 /// The four held monochrome DNGs (`SPEC-061` §7 item 4).
 const FILES: [&str; 4] = [
@@ -55,6 +72,7 @@ const FILES: [&str; 4] = [
     "LEICA-M-MONOCHROM-TYP246/M2462362.DNG",
 ];
 const Q2M: &str = "LEICA-Q2-MONO/L1021223.DNG";
+const K3III: &str = "PENTAX-K3III-MONO/K3III.DNG";
 
 const FRAMINGS: [Framing; 3] = [
     Framing::FullSensor,
@@ -617,4 +635,432 @@ fn dng_validate_accepts_and_renders_like_the_source() {
     }
     // Shown with --nocapture; the handback quotes it.
     println!("dng_validate report:\n{}", report.join("\n"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-081 oracles 3 and 4 — exiftool reads the block and the new tags
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// An XMP packet with one `dc:description`, the property oracle 3 reads back.
+const XMP_DESCRIPTION: &str = "irradiance SPEC-081 XMP";
+
+fn xmp_packet() -> Vec<u8> {
+    format!(
+        "<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?>\
+         <x:xmpmeta xmlns:x='adobe:ns:meta/'>\
+         <rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>\
+         <rdf:Description rdf:about='' xmlns:dc='http://purl.org/dc/elements/1.1/'>\
+         <dc:description><rdf:Alt><rdf:li xml:lang='x-default'>{XMP_DESCRIPTION}</rdf:li>\
+         </rdf:Alt></dc:description></rdf:Description></rdf:RDF></x:xmpmeta>\
+         <?xpacket end='w'?>"
+    )
+    .into_bytes()
+}
+
+/// The descriptive values oracle 3 sets (all non-empty, so exiftool's `-`
+/// for absent cannot be confused with an empty value).
+const DESCRIPTIVE: [(&str, &str); 8] = [
+    ("IFD0:Make", "IRRADIANCE"),
+    ("IFD0:Model", "Mono Test"),
+    ("IFD0:Software", "irradiance SPEC-081"),
+    ("IFD0:ModifyDate", "2026:11:24 10:20:30"),
+    ("IFD0:Artist", "A. Photographer"),
+    ("IFD0:Copyright", "(c) 2026 nobody"),
+    ("IFD0:LocalizedCameraModel", "Mono Test (local)"),
+    ("IFD0:CameraSerialNumber", "0042"),
+];
+const HINTS: [(&str, Rational); 4] = [
+    ("IFD0:BaselineExposure", Rational { num: -7, den: 10 }),
+    ("IFD0:BaselineNoise", Rational { num: 3, den: 4 }),
+    ("IFD0:BaselineSharpness", Rational { num: 5, den: 4 }),
+    ("IFD0:LinearResponseLimit", Rational { num: 9, den: 10 }),
+];
+
+fn exif_of(block: &exif_block::Block) -> ExifBlock<'_> {
+    let mut b = ExifBlock::default();
+    b.bytes = &block.bytes;
+    b.exif_ifd = block.exif_ifd;
+    b.gps_ifd = block.gps_ifd;
+    b
+}
+
+/// A 24×16 synthetic plane written with `block`, the XMP packet, the eight
+/// descriptive strings and the four hints.
+fn synthetic_with_metadata(block: &exif_block::Block, xmp: &[u8]) -> Vec<u8> {
+    let (w, h) = (24u32, 16u32);
+    let samples: Vec<u16> = (0..w * h).map(|i| (i * 97 % 4096) as u16).collect();
+    let mut o = WriteOptions::default();
+    o.unique_camera_model = Some(MODEL);
+    o.exif_block = Some(exif_of(block));
+    o.xmp = Some(xmp);
+    let text = |i: usize| Some(DESCRIPTIVE[i].1);
+    o.make = text(0);
+    o.model = text(1);
+    o.software = text(2);
+    o.date_time = text(3);
+    o.artist = text(4);
+    o.copyright = text(5);
+    o.localized_camera_model = text(6);
+    o.camera_serial_number = text(7);
+    o.baseline_exposure = Some(HINTS[0].1);
+    o.baseline_noise = Some(HINTS[1].1);
+    o.baseline_sharpness = Some(HINTS[2].1);
+    o.linear_response_limit = Some(HINTS[3].1);
+    write_to_vec(&samples, w, h, &o, BUDGET).expect("synthetic write")
+}
+
+/// exiftool's decimal reading `text` equals `num / den`, compared by
+/// cross-multiplying (the decimal as an exact fraction), never by float.
+fn decimal_equals(text: &str, num: i64, den: i64) -> bool {
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let (whole, frac) = digits.split_once('.').unwrap_or((digits, ""));
+    let Ok(mut value) = format!("{whole}{frac}").parse::<i64>() else {
+        return false;
+    };
+    if negative {
+        value = -value;
+    }
+    let scale = 10i64.pow(frac.len() as u32);
+    value * den == num * scale
+}
+
+/// Every place where exiftool's reading of `file` differs from what the
+/// builder and the options set, for a block of `shape`. Empty means parity.
+fn block_mismatches(file: &[u8], shape: exif_block::Shape, label: &str) -> Vec<String> {
+    use exif_block::*;
+    let tmp = temp_file(file, label);
+    // `#` turns print conversion off per tag; GPSLatitude keeps it, with -c
+    // printing degrees, minutes and seconds apart so each rational is seen.
+    let mut args: Vec<String> = ["-s3", "-f", "-c", "%d %d %.6f"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let block_tags = [
+        "ExifIFD:ExposureTime#",
+        "ExifIFD:FNumber#",
+        "ExifIFD:ISO#",
+        "ExifIFD:ExifVersion#",
+        "ExifIFD:DateTimeOriginal#",
+        "InteropIFD:InteropIndex#",
+        "GPS:GPSVersionID#",
+        "GPS:GPSLatitudeRef#",
+        "GPS:GPSLatitude",
+    ];
+    for t in block_tags {
+        args.push(format!("-{t}"));
+    }
+    for (t, _) in DESCRIPTIVE {
+        args.push(format!("-{t}#"));
+    }
+    for (t, _) in HINTS {
+        args.push(format!("-{t}#"));
+    }
+    args.push("-XMP-dc:Description#".into());
+    let out = tools::run_tool("exiftool", &args, &tmp).expect("exiftool runs");
+    let _ = std::fs::remove_file(&tmp);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let lines: Vec<&str> = text.lines().collect();
+    let mut bad = Vec::new();
+    if lines.len() != block_tags.len() + DESCRIPTIVE.len() + HINTS.len() + 1 {
+        bad.push(format!(
+            "{label}: exiftool printed {} lines: {text:?}",
+            lines.len()
+        ));
+        return bad;
+    }
+    let exif = shape != Shape::GpsOnly;
+    let gps = shape != Shape::ExifOnly;
+    let check = |bad: &mut Vec<String>, i: usize, ok: bool, want: &str| {
+        if !ok {
+            bad.push(format!(
+                "{label}: {} read {:?}, want {want}",
+                args.get(i + 4).map_or("?", |s| s.as_str()),
+                lines[i]
+            ));
+        }
+    };
+    let absent = |i: usize| lines[i] == "-";
+    let (en, ed) = EXPOSURE_TIME;
+    let (fnn, fnd) = F_NUMBER;
+    let block_checks: [(bool, bool, String); 9] = [
+        (
+            exif,
+            decimal_equals(lines[0], en.into(), ed.into()),
+            format!("{en}/{ed}"),
+        ),
+        (
+            exif,
+            decimal_equals(lines[1], fnn.into(), fnd.into()),
+            format!("{fnn}/{fnd}"),
+        ),
+        (exif, lines[2] == ISO.to_string(), ISO.to_string()),
+        (exif, lines[3].as_bytes() == EXIF_VERSION, "0232".into()),
+        (
+            exif,
+            lines[4] == DATE_TIME_ORIGINAL,
+            DATE_TIME_ORIGINAL.into(),
+        ),
+        (exif, lines[5] == INTEROP_INDEX, INTEROP_INDEX.into()),
+        (
+            gps,
+            lines[6] == GPS_VERSION_ID.map(|b| b.to_string()).join(" "),
+            "2 3 0 0".into(),
+        ),
+        (gps, lines[7] == GPS_LATITUDE_REF, GPS_LATITUDE_REF.into()),
+        (
+            gps,
+            {
+                let parts: Vec<&str> = lines[8].split(' ').collect();
+                parts.len() == 3
+                    && parts
+                        .iter()
+                        .zip(GPS_LATITUDE)
+                        .all(|(p, (n, d))| decimal_equals(p, n.into(), d.into()))
+            },
+            format!("{GPS_LATITUDE:?}"),
+        ),
+    ];
+    for (i, (present, ok, want)) in block_checks.into_iter().enumerate() {
+        if present {
+            check(&mut bad, i, ok, &want);
+        } else {
+            check(&mut bad, i, absent(i), "absent");
+        }
+    }
+    let mut at = block_tags.len();
+    for (_, want) in DESCRIPTIVE {
+        check(&mut bad, at, lines[at] == want, want);
+        at += 1;
+    }
+    for (_, r) in HINTS {
+        let ok = decimal_equals(lines[at], r.num.into(), r.den.into());
+        check(&mut bad, at, ok, &format!("{}/{}", r.num, r.den));
+        at += 1;
+    }
+    check(&mut bad, at, lines[at] == XMP_DESCRIPTION, XMP_DESCRIPTION);
+    bad
+}
+
+#[test]
+fn exiftool_reads_the_block_and_the_new_tags() {
+    if !tools::exiftool_available() {
+        eprintln!(
+            "SKIP exiftool_reads_the_block_and_the_new_tags: exiftool is not on PATH — \
+             SPEC-081 oracle 3 did not run"
+        );
+        return;
+    }
+    use exif_block::Shape;
+    let xmp = xmp_packet();
+    let mut runs = 0;
+    for shape in [Shape::Both, Shape::ExifOnly, Shape::GpsOnly] {
+        for odd in [false, true] {
+            let block = if odd {
+                exif_block::build_odd(EXIF_BLOCK_BASE, shape)
+            } else {
+                exif_block::build(EXIF_BLOCK_BASE, shape)
+            };
+            let file = synthetic_with_metadata(&block, &xmp);
+            let bad = block_mismatches(&file, shape, &format!("oracle3-{shape:?}-{odd}"));
+            assert!(bad.is_empty(), "{bad:#?}");
+            runs += 1;
+        }
+    }
+    assert_eq!(runs, 6);
+}
+
+#[test]
+fn red_proof_a_block_built_for_another_base_is_caught() {
+    if !tools::exiftool_available() {
+        eprintln!(
+            "SKIP red_proof_a_block_built_for_another_base_is_caught: exiftool is not on PATH — \
+             SPEC-081 oracle 4 did not run"
+        );
+        return;
+    }
+    use exif_block::Shape;
+    let xmp = xmp_packet();
+    // Negative control: built for the base the writer uses, it passes.
+    let right = exif_block::build(EXIF_BLOCK_BASE, Shape::Both);
+    let control = block_mismatches(
+        &synthetic_with_metadata(&right, &xmp),
+        Shape::Both,
+        "control",
+    );
+    assert!(control.is_empty(), "negative control: {control:#?}");
+
+    // Built for base 10 and placed at 8: the builder did produce a different
+    // block (so a builder bug cannot pass this), and exiftool must misread it.
+    let wrong = exif_block::build(10, Shape::Both);
+    assert_eq!(wrong.bytes.len(), right.bytes.len());
+    assert_ne!(wrong.bytes, right.bytes, "the base-10 block differs");
+    let caught = block_mismatches(
+        &synthetic_with_metadata(&wrong, &xmp),
+        Shape::Both,
+        "base10",
+    );
+    assert!(
+        !caught.is_empty(),
+        "a block built for base 10 read back unchanged: the oracle cannot see a rebase"
+    );
+    println!(
+        "oracle 4: base-10 block caught by {} mismatches:\n{}",
+        caught.len(),
+        caught.join("\n")
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-081 oracle 5 — dng_validate with metadata, and the K-3 III render
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A source IFD0 ASCII tag as text, up to its first NUL; `None` when absent.
+fn source_ascii(container: &Container<'_>, tag: u16) -> Option<String> {
+    let entry = container.ifd0()?.entry(tag)?;
+    let bytes = container.payload(entry).ok()?;
+    let text = bytes.split(|&b| b == 0).next().unwrap_or(&[]);
+    Some(String::from_utf8_lossy(text).into_owned())
+}
+
+/// A source IFD0 hint, read as `mono-core` reads it.
+fn source_hint(container: &Container<'_>, tag: u16) -> Option<Rational> {
+    let entry = container.ifd0()?.entry(tag)?;
+    container.rationals(entry).ok()?.first().copied()
+}
+
+/// The source's descriptive strings, in tag order.
+const DESCRIPTIVE_TAGS: [u16; 8] = [271, 272, 305, 306, 315, 33432, 50709, 50735];
+const HINT_TAGS: [u16; 4] = [50730, 50731, 50732, 50734];
+
+#[test]
+fn dng_validate_accepts_metadata_and_the_k3_renders_like_its_source() {
+    let Some(bin) = dng_validate() else {
+        eprintln!(
+            "SKIP dng_validate_accepts_metadata_and_the_k3_renders_like_its_source — \
+             ${DNG_VALIDATE_ENV} unset"
+        );
+        return;
+    };
+    let block = exif_block::build(EXIF_BLOCK_BASE, exif_block::Shape::Both);
+    let xmp = xmp_packet();
+    let mut report = Vec::new();
+    for path in [K3III, Q2M] {
+        let Some((file_path, sensor, plane)) = source(path) else {
+            continue;
+        };
+        let bytes = std::fs::read(&file_path).unwrap();
+        let container = Container::parse(&bytes).unwrap();
+        let strings: Vec<Option<String>> = DESCRIPTIVE_TAGS
+            .iter()
+            .map(|&t| source_ascii(&container, t))
+            .collect();
+        let hints: Vec<Option<Rational>> = HINT_TAGS
+            .iter()
+            .map(|&t| source_hint(&container, t))
+            .collect();
+
+        let write_with = |baseline_exposure: bool| {
+            let mut o = options_from_sensor(&sensor, Framing::StandardCrop, MODEL);
+            o.exif_block = Some(exif_of(&block));
+            o.xmp = Some(&xmp);
+            let s = |i: usize| strings[i].as_deref();
+            o.make = s(0);
+            o.model = s(1);
+            o.software = s(2);
+            o.date_time = s(3);
+            o.artist = s(4);
+            o.copyright = s(5);
+            o.localized_camera_model = s(6);
+            o.camera_serial_number = s(7);
+            o.baseline_exposure = hints[0].filter(|_| baseline_exposure);
+            o.baseline_noise = hints[1];
+            o.baseline_sharpness = hints[2];
+            o.linear_response_limit = hints[3];
+            write_to_vec(&plane, sensor.width, sensor.height, &o, BUDGET)
+                .unwrap_or_else(|e| panic!("{path}: write with metadata: {e}"))
+        };
+        let present: Vec<u16> = DESCRIPTIVE_TAGS
+            .iter()
+            .zip(&strings)
+            .filter(|(_, s)| s.is_some())
+            .map(|(t, _)| *t)
+            .chain(
+                HINT_TAGS
+                    .iter()
+                    .zip(&hints)
+                    .filter(|(_, h)| h.is_some())
+                    .map(|(t, _)| *t),
+            )
+            .collect();
+        report.push(format!("{path}: carried source tags {present:?}"));
+
+        let file = write_with(true);
+        let tmp = temp_file(&file, &format!("{path}-metadata"));
+        let label = format!("{path} StandardCrop with metadata");
+        let k3 = path == K3III;
+        let warnings: Vec<String> = if k3 {
+            let (warnings, render) = validate_and_render(&bin, &tmp, &label);
+            let (_, source_render) = validate_and_render(&bin, &file_path, "k3-source");
+            assert_eq!(
+                (render.width, render.height),
+                (source_render.width, source_render.height),
+                "{label}: render size"
+            );
+            let differ = render
+                .samples
+                .iter()
+                .zip(&source_render.samples)
+                .filter(|(a, b)| a != b)
+                .count();
+            assert_eq!(
+                differ, 0,
+                "{label}: render differs from the source's in {differ}"
+            );
+            report.push(format!(
+                "{label}: render equals the source's ({}x{}, {} samples)",
+                render.width,
+                render.height,
+                render.samples.len()
+            ));
+
+            // The hints' red-proof: without BaselineExposure it renders
+            // differently (DEC-074 measured 76,681,557 samples).
+            assert!(hints[0].is_some(), "the K-3 III carries BaselineExposure");
+            let without = write_with(false);
+            let tmp2 = temp_file(&without, "k3-no-baseline-exposure");
+            let (w2, render2) = validate_and_render(&bin, &tmp2, "k3 without BaselineExposure");
+            let _ = std::fs::remove_file(&tmp2);
+            assert!(w2.is_empty(), "k3 without BaselineExposure: {w2:#?}");
+            let differ2 = render2
+                .samples
+                .iter()
+                .zip(&source_render.samples)
+                .filter(|(a, b)| a != b)
+                .count();
+            assert!(
+                differ2 > 0,
+                "dropping BaselineExposure must change the K-3 III render"
+            );
+            report.push(format!(
+                "{path} without BaselineExposure: render differs in {differ2} of {} samples",
+                source_render.samples.len()
+            ));
+            warnings
+        } else {
+            complaints(&run_validate(&bin, &[], &tmp))
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        };
+        let _ = std::fs::remove_file(&tmp);
+        assert!(
+            warnings.is_empty(),
+            "{label}: dng_validate complained: {warnings:#?}"
+        );
+        report.push(format!("{label}: valid, no warnings"));
+    }
+    println!("SPEC-081 dng_validate report:\n{}", report.join("\n"));
 }

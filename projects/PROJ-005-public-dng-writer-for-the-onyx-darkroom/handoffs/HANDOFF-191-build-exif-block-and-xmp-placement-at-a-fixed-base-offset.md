@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-24
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-081
@@ -46,19 +46,19 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 10624920           # REAL combined count — what cost-audit reads
+  estimated_usd: 9.02              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 45
+  branch: claude/spec-081-build
+  pr: 332
+  completed_at: 2026-11-24         # YYYY-MM-DD
+  notes: "FLOOR taken before the handback commit, from transcript 7b805486-c477-491d-8d27-b4e83a3837a9.jsonl (52 unique message.ids, all claude-opus-5-5, no subagents): input 108 + cache-creation 225,560 (1-hour) + cache-read 10,335,279 + output 63,973, priced at 5 and 25 USD per million as HANDOFF-175 did. Re-sum at ship. exiftool parity 6 of 6 block shapes, base-10 red-proof caught; dng_validate no warnings on K-3 III and Q2M; K-3 III render equal to source, 76,681,557 samples differ without BaselineExposure."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  synced_at: 2026-11-24
 ---
 
 # HANDOFF-191: Build SPEC-081, the writer's EXIF block, XMP, descriptive tags and rendering hints
@@ -167,43 +167,98 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
+*Filled in by the receiving agent.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-081-build`, https://github.com/jysf/irradiance/pull/332
+- **Completed at:** 2026-11-24
+- **All acceptance criteria met?** yes. AC1 to AC10 each have their named test, and all pass
+  locally with the corpus and `$IRRADIANCE_DNG_VALIDATE` set.
+
+**What was built.** `src/dng/write.rs` gains `EXIF_BLOCK_BASE` (8), `exif_block_base`,
+`ExifBlock` (`#[non_exhaustive]`, `Default`) and the 14 `WriteOptions` fields of Design §1.
+`SLOTS` grows from 25 to 40, still ascending by tag number. `IFD0_OFFSET` is gone: the header's
+IFD0 offset is a planned value, `8 + align2(block length)`, and the block is copied verbatim at 8
+after the head region is zeroed, so the pad byte is 0. Two new value kinds (`Rational`,
+`SRational`, 8 bytes, out of line) and a `Bytes` kind for `XMLPacket`. Checks 6a to 6d sit in
+`plan` between `UniqueCameraModel` and the `OpcodeList1` walk, in DEC-081 §4's order, so
+`written_len` and `write_into` agree. `src/write_types.rs` gains the five reasons with rustdoc
+and `Display` arms.
+
+**Tests.** `tests/dng_write.rs`: `every_new_tag_matches_the_spec_table` (odd and even block and
+XMP), `exif_block_sits_at_the_base_and_ifd0_follows_it` (Exif-only, GPS-only, both; odd and
+even), `absent_options_write_no_tag_and_empty_strings_write_count_one`,
+`round_trip_holds_with_every_new_option_set` (three framings; hints also read back through
+`Container::rationals`), `exif_block_base_is_pinned_to_eight`,
+`date_time_form_is_checked_not_the_calendar`,
+`rational_hints_refuse_zero_and_unsigned_negatives`; `every_refusal_is_typed` gains 34 cases
+(the 8 descriptive fields times 3 bad values, plus 10) and the `offset + 2 == len` boundary that
+passes; `checks_run_in_the_documented_order` gains 9 steps and checks `write_into` agrees at each;
+determinism, allocation and the seed test cover every new option. `tests/dng_write_corpus.rs`:
+oracles 3, 4 and 5. `tests/support/exif_block.rs`: the test-only builder.
+
+**exiftool 13.55 (oracle 3 and 4).** For each of the 6 block shapes (both, Exif-only, GPS-only;
+odd and even length), exiftool reads `ExposureTime` 1/250, `FNumber` 28/10, `ISO` 400,
+`ExifVersion` 0232, `DateTimeOriginal`, `InteropIndex` R98, `GPSVersionID` 2 3 0 0,
+`GPSLatitudeRef` N and `GPSLatitude` 47, 36, 12.34 exactly (rationals compared by
+cross-multiplying), the absent IFD's tags as absent, all eight descriptive tags, the four hints
+and `XMP-dc:Description`. Red-proof: the negative control (base 8) passes; the base-10 block
+(asserted to differ from the base-8 one) gives 5 mismatches: `ExposureTime` read 8.928571429,
+`FNumber` 0.0008105041336, `DateTimeOriginal` "26:11:24 09:30:15", `InteropIndex` absent,
+`GPSLatitude` 0 1 43.078925.
+
+**dng_validate 1.7.1 (oracle 5).** K-3 III at `StandardCrop` with its source tags 271, 272, 305,
+306, 315, 33432 and all four hints, the oracle-3 block and an XMP packet: no `Warning` or `Error`
+line; its `-16 -tif` render equals the source's (6192 x 4128, 76,681,728 samples, 0 differ).
+Without `BaselineExposure`: valid, and 76,681,557 of 76,681,728 samples differ, matching DEC-074's
+probe exactly. Q2M with its source tags 271, 272, 305, 306, 315, 33432, 50709, 50735 and all four
+hints, plus the block and XMP: no warnings.
+
+**Gates.** `just test` (corpus and dng_validate set): 912 passed, 0 failed, 55 binaries; only the
+two optional SDK cross-checks (SPEC-060, SPEC-085) skip. `just lint-ci` (clippy 0.1.98),
+`just lint-no-allow`, `just fmt-check`, `just doc-check`, `just deny`, `just deny-fuzz`,
+`just lint-fuzz`, `just lint-fuzz-red-proof`, `just msrv`, `just validate`, `just gate-audit`,
+`just cost-audit`: green. `just fuzz-dng-write`: 3,906,300 runs in 61 s, no crash.
+`cargo semver-checks`: 202 checks pass on the default surface. The `write` feature does not exist in
+the 0.2.6 baseline, so everything under it, including SPEC-081's additions, is new relative to
+crates.io; there is nothing under it to break.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 10,624,920 (floor, taken before the handback commit)
+- **Estimated USD:** 9.02 (per component, 5 and 25 USD per million, 1-hour cache writes at 2x)
+- **Duration (minutes):** about 45
+- **Source of the number:** this session's transcript (`7b805486-...jsonl`), deduplicated by
+  `message.id` per docs/cost-tracking.md
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none. DEC-081 covered every choice; its status is left `proposed`.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - Oracle 3 and 4 use a synthetic plane, not a held file, so they run wherever exiftool is
+    installed, with no corpus. Oracle 5 covers the held files.
+  - At `DateTime`'s position the printable-ASCII and length check runs before the form check, so a
+    `DateTime` with a non-ASCII byte is `InvalidAscii { field: "DateTime" }`, not
+    `DateTimeInvalid`. The spec says the form is checked "also"; this reads that as after.
+  - The fuzz input format gained a `u16` metadata-flag word and its fields after the model, so
+    all 22 existing seeds were regenerated (same cases, two bytes longer) beside the 6 new ones.
+  - `scripts/lint-fuzz-red-proof.sh` needed no change: the fuzz target still includes only
+    `tests/support/dng_write_fuzz.rs`, not the new `exif_block.rs`.
+- **Follow-up work identified:** none new. DEC-081's empty-opcode-list follow-up still stands.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   Very little. The probe table and §4's order made the build a transcription. The one choice
+   left open was whether `DateTime`'s ASCII check or its form check comes first; it is recorded
+   above.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   No. It would help to say up front that `cargo semver-checks` cannot see the `write` surface
+   until a release carries it, so "additions only" holds only for the default surface.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   Write the exiftool comparison as a function returning mismatches from the start (as here),
+   because the red-proof and the positive oracle then share one code path and the red-proof
+   cannot pass because of a different check.
