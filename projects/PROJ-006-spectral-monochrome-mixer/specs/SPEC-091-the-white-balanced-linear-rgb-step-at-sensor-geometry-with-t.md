@@ -67,7 +67,7 @@ cost:
   # design. Never a gate — its only job is to be compared with the actual
   # below (`just calibration`), so you learn whether you systematically
   # under- or over-estimate. null = didn't predict.
-  tokens_estimate: 25000000
+  tokens_estimate: 35000000
   sessions:
     - cycle: design
       agent: claude-opus-5-5
@@ -98,14 +98,22 @@ contract says that composition is the supported step.
 This spec also carries the stage's two root decisions, because the mixer and the
 developed mix build on them: the working space (linear is expected, onyx prefers
 it; the DEC records a test run on the held colour files) and the arithmetic of
-the new path (today's matrix is f64 with each operation rounded separately and
-CI-proven byte-identical; onyx asked for fixed-point).
+the new path (today's matrix is f64 with each operation rounded separately; the
+IEEE argument says it is the same on every platform, but no CI hash measures the
+colour path yet, `docs/determinism.md`; onyx asked for fixed-point).
+
+onyx's reply to the design (2026-11-25) accepted DEC-079 and added two asks this spec
+takes: the f32 plane must be bit-identical on aarch64 and x86_64 and pinned by a golden
+digest (its candidate mixes and quality study are stored and compared, its DEC-012),
+and a row-range (band) form into a caller-allocated buffer, because a 60 MP f32 plane
+is about 720 MB, too much on iPad (its PROJ-004).
 
 ## Goal
 
 Give a colour Bayer DNG one public, documented step to a white-balanced linear
-RGB plane at sensor geometry in the decided working space, with a DEC for the
-working space and the new path's arithmetic.
+RGB plane at sensor geometry in the decided working space, whole or in row strips,
+measured bit-identical across architectures, with a DEC for the working space and the
+new path's arithmetic.
 
 ## Inputs
 
@@ -140,19 +148,27 @@ working space and the new path's arithmetic.
 ## Outputs
 
 - **Files modified:**
-  - `src/color.rs`: two new public functions (Design §1), sharing the fused
+  - `src/color.rs`: four new public functions (Design §1 and §5), sharing the fused
     traversal with `develop_color_into`; module doc gains a short "Sensor-geometry
     plane" section pointing at DEC-079.
-  - `fuzz/fuzz_targets/demosaic.rs`: also calls both new entries on the unpacked plane.
+  - `fuzz/fuzz_targets/demosaic.rs`: also calls the four new entries on the unpacked
+    plane, the two band forms with a fuzzer-chosen row range.
+  - `src/lib.rs`: one new `Error` variant, `InvalidRowRange`, appended at the end of
+    the enum and classified `CallerError` in `Error::kind()` (DEC-051); its `Display`
+    arm and a `tests/error_kind.rs` row.
+  - `tests/determinism.rs`: a colour fixture and two committed hashes (Design §7).
+  - `docs/determinism.md`: the `color.rs` row moves from "unmeasured" to "measured" for
+    the sensor-geometry plane, which is `develop_color_into`'s pixels (AC1).
   - `tests/linear_plane.rs` (new): the AC tests below.
   - The `Entry` tables in `tests/malformed_tags.rs`, `tests/misshapen_tags.rs`,
-    `tests/unhonoured_tags.rs` and `tests/required_processing.rs`: two new rows each,
+    `tests/unhonoured_tags.rs` and `tests/required_processing.rs`: four new rows each,
     refusing exactly as `develop_color_into` does.
-  - `CHANGELOG.md` `[Unreleased]` Added: the two functions, one line each.
-- **Not modified:** `Error` (no new variant; `tests/error_kind.rs` unchanged),
-  `DEVELOP_VERSION` (stays `"8"`), every existing function's output, every Tier-B pin.
-- **New public API:** `irradiance::color::srgb_linear_plane_into` and
-  `irradiance::color::srgb_linear_plane_f32_into`.
+  - `CHANGELOG.md` `[Unreleased]` Added: the four functions and the variant.
+- **Not modified:** `DEVELOP_VERSION` (stays `"8"`), every existing function's output,
+  every existing determinism hash and Tier-B pin.
+- **New public API:** `irradiance::color::srgb_linear_plane_into`,
+  `srgb_linear_plane_f32_into`, `srgb_linear_plane_rows_into`,
+  `srgb_linear_plane_rows_f32_into`, and `Error::InvalidRowRange`.
 - **New flags / options:** none.
 
 ## Design
@@ -187,14 +203,48 @@ working space and the new path's arithmetic.
    then `RgbBufferWrongLength { expected: width·height·3, .. }`, then levels, gain maps,
    CFA and calibration. Rationale: the plane exists exactly when the developed colour
    image does, so an onyx viewport and export never disagree about whether a file
-   opens. No new `DevelopPath`, no new `Error` variant. Nothing is written unless every
-   check passes (DEC-016).
-5. **Serial only.** Threaded variants are not in this spec (Non-Goals).
-6. **No output change anywhere else.** `DEVELOP_VERSION` stays `"8"`.
+   opens. No new `DevelopPath`. Nothing is written unless every check passes (DEC-016).
+5. **Band forms (onyx, 2026-11-25: a 60 MP f32 plane is about 720 MB, too much on
+   iPad).**
+   ```rust
+   pub fn srgb_linear_plane_rows_into(sensor: &Sensor, src: &[u16], rows: core::ops::Range<u32>, dst: &mut [u16]) -> Result<(), Error>;
+   pub fn srgb_linear_plane_rows_f32_into(sensor: &Sensor, src: &[u16], rows: core::ops::Range<u32>, dst: &mut [f32]) -> Result<(), Error>;
+   ```
+   `rows` is in whole-plane coordinates (`0..height`, masked rows included). `dst` is
+   `(rows.end − rows.start)·width·3`, plane row `y` at index `3·((y − rows.start)·width + x)`.
+   Every value equals the same pixel of the whole-plane form **bit for bit**, so a caller
+   that tiles `0..height` in strips of any heights gets exactly the whole plane. Built on
+   `develop_rows_banded` (`src/demosaic.rs`), which already develops a row range with a
+   halo and an even-aligned local top and is proven equal to the whole-plane render by
+   the threaded colour path (SPEC-051). Internal scratch is proportional to the band
+   (its rows plus the halo, times `width`), never to the plane; `src` is still the
+   whole mosaic. Refusal order: §4's, with `InvalidRowRange { start, end, height }`
+   (empty, reversed, or `end > height`) after the geometry checks and before
+   `RgbBufferWrongLength`, whose `expected` depends on the range. The whole-plane forms
+   keep the single fused traversal (they are not rewritten as one band).
+6. **Serial only.** Threaded variants are not in this spec (Non-Goals); a caller can run
+   bands on its own threads.
+7. **Determinism, measured across architectures (onyx, 2026-11-25; its DEC-012).** The
+   plane uses only IEEE basic operations: the `f64` matrix build and apply are `+ − × ÷`
+   with committed constants (DEC-033), Rust never contracts a multiply and an add into
+   an FMA unless `mul_add` is called (the crate never calls it), there is no libm call,
+   and the final `f64 → f32` cast is IEEE round-to-nearest-even. So the plane is the
+   same on every conforming platform. Today that argument is **unmeasured** for the
+   colour path (`docs/determinism.md`); this spec measures it. `tests/determinism.rs`
+   gains a Tier-A colour fixture (synthetic Bayer with `AsShotNeutral`,
+   `ColorMatrix1`/`ColorMatrix2`, `ForwardMatrix1`/`ForwardMatrix2` and two
+   calibration illuminants, so illuminant interpolation runs), chosen so its f32 plane
+   holds at least one negative and one above-1.0 value. FNV-1a hashes of the `u16` and
+   `f32` planes are committed and asserted on both CI determinism legs (x86_64 Linux,
+   arm64 macOS), debug and release. The existing red-proof test extends to both new
+   hashes.
+8. **No output change anywhere else.** `DEVELOP_VERSION` stays `"8"`.
 
 ## Acceptance Criteria
 
 Pre-registered. Every check is exact except AC4's stated half-code bound on a cast.
+AC11 to AC13 and mutants (h) to (k) were added 2026-11-25 from onyx's reply (band form,
+determinism pin); the build had not started.
 
 - [ ] **AC1, equivalence with the developed image (Tier B).** For each held colour
   file, on a clone of its `Sensor` with `orientation` set to `Some(1)`: the `u16`
@@ -225,21 +275,40 @@ Pre-registered. Every check is exact except AC4's stated half-code bound on a ca
 - [ ] **AC6, refusals match `develop_color_into`.** Both new entries join the `Entry`
   tables in `tests/malformed_tags.rs`, `tests/misshapen_tags.rs`,
   `tests/unhonoured_tags.rs` and `tests/required_processing.rs` with
-  `develop_color_into`'s `DevelopPath::Colour`, and every row there passes. Plus, in
+  `develop_color_into`'s `DevelopPath::Colour` (the band forms with `rows = 0..height`),
+  and every row there passes. Plus, in
   `tests/linear_plane.rs`: a wrong `src` length is `ColorSourceWrongLength`; a `dst`
   of `width·height·3 − 1` and `+ 1` is `RgbBufferWrongLength` with
   `expected = width·height·3`; a non-CFA plane is `NotAColorFilterArray`; a sensor
-  with no `AsShotNeutral` is `MissingColorCalibration`. In every refusal, `dst` is
-  exactly its sentinel fill.
+  with no `AsShotNeutral` is `MissingColorCalibration`. For the band forms: `5..5`,
+  `6..5` and `0..height+1` are `InvalidRowRange` with those values and the plane's
+  height, and a `dst` one short is `RgbBufferWrongLength` with the band's `expected`.
+  In every refusal, `dst` is exactly its sentinel fill.
 - [ ] **AC7, `GainMap`s apply (Tier B, Pixel 7 Pro).** The plane differs from the
   same file with its `OpcodeList2` removed from the clone (the control proving the
   maps are applied), and AC1 already pins the applied value.
 - [ ] **AC8, nothing else moves.** The full suite passes unchanged with
-  `IRRADIANCE_CORPUS_DIR` set; `tests/error_kind.rs` count unchanged;
-  `DEVELOP_VERSION == "8"`; `just semver-check` reports only the two additions.
-- [ ] **AC9, fuzzed and panic-free.** `fuzz/fuzz_targets/demosaic.rs` calls both new
-  entries; a short `cargo fuzz run demosaic` (the toolchain brief's smoke length) finds
+  `IRRADIANCE_CORPUS_DIR` set; `tests/error_kind.rs` gains exactly the one new row;
+  every existing `tests/determinism.rs` constant is unchanged; `DEVELOP_VERSION == "8"`;
+  `just semver-check` reports only the five additions.
+- [ ] **AC9, fuzzed and panic-free.** `fuzz/fuzz_targets/demosaic.rs` calls the four
+  new entries (the band forms with a fuzzer-chosen range, valid or not); a short `cargo fuzz run demosaic` (the toolchain brief's smoke length) finds
   nothing; `just lint-ci` passes with the deny-level panic lints.
+- [ ] **AC11, strips tile to the whole plane, bit for bit (Tier A and Tier B).** For both
+  sample types: on AC2's odd-ActiveArea fixture, every partition of `0..height` into
+  strips from this set equals the whole-plane form exactly: one strip; strips of 1 row;
+  strips of 7 rows (odd starts); and two strips split at an odd row inside the masked
+  border. On the Pixel 7 Pro (GainMaps) and the Canon, strips of 256 rows with an odd
+  remainder equal the whole plane (the `f32` compared by bits).
+- [ ] **AC12, determinism measured on both architectures.** `tests/determinism.rs`'s new
+  colour fixture asserts its committed `u16` and `f32` plane hashes; the CI
+  `determinism` job passes on both legs, debug and release; the extended red-proof shows
+  a one-bit change moves each new hash; and the fixture's f32 plane holds a negative and
+  an above-1.0 value (asserted, so the hash covers the unclamped path).
+- [ ] **AC13, golden digests on the held files (Tier B).** `tests/linear_plane.rs` pins an
+  FNV-1a digest of the `f32` plane (little-endian bits) and of the `u16` plane for each
+  of the five held colour files, as committed constants. These run locally only (the
+  corpus is not in CI); AC12 carries the cross-architecture evidence.
 - [ ] **AC10, the oracle can go red.** Each pre-registered mutant below, applied by
   hand in build, fails at least one named test; the build's handback lists which.
 
@@ -253,8 +322,14 @@ Pre-registered. Every check is exact except AC4's stated half-code bound on a ca
   - `ac4_the_two_planes_agree_where_nothing_clamps` (Tier B)
   - `ac6_buffer_and_input_refusals_leave_dst_untouched`
   - `ac7_gain_maps_apply_to_the_plane` (Tier B)
+  - `ac11_strips_tile_to_the_whole_plane` (Tier A) and
+    `ac11_strips_tile_on_held_files` (Tier B)
+  - `ac13_golden_digests_of_the_held_files` (Tier B)
+- **`tests/determinism.rs`:** `colour_plane_hashes_match_committed` and the extended
+  `determinism_red_proof` (AC12).
 - **`src/color.rs` unit tests:** `ac5_the_f32_plane_is_the_unquantised_sum`.
-- **The four `Entry` tables** (AC6): two new rows each.
+- **The four `Entry` tables** (AC6): four new rows each.
+- **`tests/error_kind.rs`:** one row for `InvalidRowRange` (`CallerError`).
 
 **Rule-clause map (Design §1 to §4; DEC-079's RGB-step consequence).**
 
@@ -266,6 +341,9 @@ Pre-registered. Every check is exact except AC4's stated half-code bound on a ca
 | §3 f32 is unclamped and unquantised | `ac3_…`, `ac5_…` | negative and over values, exact bits |
 | §3 the two agree | `ac4_…` | the half-code bound |
 | §4 refusals in order, dst untouched | `ac6_…` and the four tables | the error variant, dst sentinel |
+| §5 strips equal the whole plane | `ac11_…` (both) | band edges, odd starts, the halo |
+| §5 the range refusal | `ac6_…` | `InvalidRowRange` fields |
+| §7 the same bits on both architectures | `colour_plane_hashes_match_committed` | the committed hashes on each CI leg |
 
 **Distinguishing fixtures (pre-registered mutants).**
 - (a) The sink still crops (identity replaced by `CropScatter`): `ac2_…`'s margin
@@ -282,6 +360,14 @@ Pre-registered. Every check is exact except AC4's stated half-code bound on a ca
   the two phases differ.
 - (g) `dst` written before a late check fails: `ac6_…`'s missing-`AsShotNeutral` row
   (the calibration check runs last).
+- (h) The band drops its halo (develops only its own rows): `ac11_…`'s strips of 1 and
+  7 rows differ at every strip edge. One whole-plane strip cannot tell.
+- (i) The band's local top is not rounded to an even row (Bayer phase flips on odd
+  starts): `ac11_…`'s 7-row strips. Even-only starts cannot tell.
+- (j) The band form indexes `dst` from plane row 0 instead of `rows.start`: any strip
+  after the first. A partition with one strip cannot tell.
+- (k) An `f64` multiply and add replaced by `mul_add` in the f32 sink: the committed
+  f32 hash (AC12) changes on the fixture whose values are not exact in `f64`.
 
 **Moved assertions.** None: no existing behaviour changes.
 
@@ -293,6 +379,8 @@ expand this one.
 
 - The mixer and the clip rule (SPEC-092).
 - Crop, orientation, warp or resampling of the RGB plane (SPEC-093 handles geometry for the mono plane only).
+- Threaded variants (a caller can run band forms on its own threads).
+- A band form of the existing cropped `develop_color_into` / `develop_color_f32_into`.
 - Any change to the output bits of `demosaic_into`, `to_srgb_linear_into` or `develop_color_into`.
 
 ## Notes for the Implementer
@@ -304,8 +392,13 @@ expand this one.
 - The f32 cast happens once, after the `f64` divide; no intermediate `f32` arithmetic.
 - `ac1_…` needs the crop rectangle from public `Sensor` fields; with `orientation`
   forced to 1 no orientation mapping is needed in the test.
-- No new `Error` variant: PROJ-005's SPEC-061 is appending two in parallel, and this
-  spec stays out of the enum's tail.
+- One new `Error` variant, `InvalidRowRange`, at the very end of the enum. PROJ-005's
+  writer variants have shipped; take the tail from `origin/main` at build start.
+- The band forms call `develop_rows_banded` directly; do not reach them through
+  `run_row_bands` (that splits the output for threads, which this spec does not do).
+- The determinism fixture must not change the bytes any existing fixture hashes; add a
+  new fixture rather than adding tags to an existing one.
+- `docs/determinism.md`: change the `color.rs` row only for what AC12 measures.
 
 ---
 

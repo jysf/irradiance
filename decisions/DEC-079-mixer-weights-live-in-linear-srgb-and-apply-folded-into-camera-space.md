@@ -4,7 +4,7 @@
 insight:
   id: DEC-079
   type: decision
-  confidence: 0.8
+  confidence: 0.85
   audience:
     - developer
     - agent
@@ -21,7 +21,7 @@ repo:
 created_at: 2026-11-24
 supersedes: null
 superseded_by: null
-status: proposed
+status: accepted
 deciders: [jysf, claude]
 
 affected_scope:
@@ -135,12 +135,44 @@ clamp; not clamping does.
    DEC-034, DEC-076); the RGB step applies it per pixel in `f64` as today, so its `u16`
    form equals the existing composition bit for bit.
 2. The mixer builds `v = wᵀ · M` once per image in `f64`, from the caller's rational
-   weights, then quantises each entry once to a signed fixed-point integer (scale and
-   width chosen at SPEC-092 design; the scale must keep a one-code error bound on a
-   16-bit input). Every per-pixel step is integer multiply, add, round half up, clamp.
+   weights, then quantises each entry once to a signed fixed-point integer (scale,
+   width and rounding rule chosen at SPEC-092 design; the scale must keep a one-code
+   error bound on a 16-bit input). Every per-pixel step, the fade included, is integer
+   multiply, add, round half up, clamp. The row is pinned per held file and exposed.
 3. Determinism comes from the same two facts as DEC-033 (committed constants, IEEE basic
    operations only, no FMA) for the once-per-image build, plus exact integer arithmetic
    per pixel. The per-pixel oracle is therefore exact.
+
+### Clip rule evidence (2026-11-24 probe) and onyx's reply (2026-11-25)
+
+A second throwaway probe (not committed) tested clip rules for the folded row on two
+sets: about 260k colours sampled from the five held files, each ramped in exposure
+until it clipped, and every raw colour ratio on a 300×300 grid. Weight sets:
+luminance, an illustrative red `[0.8, 0.2, 0]` and ortho `[0, 0.5, 0.5]`.
+"Non-monotone" means a pixel gets darker as it gets brighter; codes are on `65535`.
+
+| Rule | Photographed colours | Every colour | Steps |
+|---|---|---|---|
+| Drop the clipped channel and renormalise | 14% to 100% of colours non-monotone, drops up to 56039 | not run | up to 26176 |
+| White once any channel clips | monotone | monotone | up to 65299 (posterises) |
+| Plain fold, clamp once | monotone | Canon luminance 16.6%, Nikon luminance 8.4%, Canon ortho 2.8%, Pixel 3a red 0.2% non-monotone; drops up to 15552 | none |
+| Fade negative weights near clip (τ = 0.9) | monotone | monotone | none |
+
+The fade: `F = Σ_{vᵢ≥0} vᵢ·xᵢ + (1 − s)·Σ_{vᵢ<0} vᵢ·xᵢ`, clamped to `[0, white]`, with
+`s = clamp((maxᵢ xᵢ / white − τ) / (1 − τ), 0, 1)` on the level-normalised camera
+channels `xᵢ`. It is monotone along every exposure ray for any `τ ≥ 0.5` (in the fade
+band the slope is at least the sum of the positive terms; past clip only positive terms
+remain), and it is the plain fold exactly when no `vᵢ` is negative. Cost: on the Canon
+and Nikon a neutral grey reaches white at 92% to 95% of raw white instead of 100%.
+
+onyx (2026-11-25) accepted linear sRGB with the fold, the f32 plane for its candidate
+mixes, fixed-point in the mixer only, and the fade in place of drop-and-renormalise,
+on conditions SPEC-091 and SPEC-092 carry as ACs: the f32 plane and the fixed-point row
+are bit-identical on aarch64 and x86_64 and pinned by golden digests; the row is exposed;
+the fade has no parameter and is bit-identical to no fade when no weight is negative;
+the clip threshold is documented exactly; no clip mask is output; and both the plane and
+the mix have a row-range form for iPad memory. onyx refers to this record as
+`irradiance/DEC-079`, since it has its own DEC-079.
 
 ## Validation
 
@@ -158,4 +190,5 @@ clamp; not clamping does.
 - Related decisions: DEC-018 (u16 full scale), DEC-033 (f64 basic ops, committed
   constants), DEC-034 (illuminant interpolation), DEC-076 (calibration), DEC-002
   (determinism)
-- Discussions: onyx's PROJ-006 answers (recorded in the PROJ-006 brief), PR 324, PR 325
+- Discussions: onyx's PROJ-006 answers (recorded in the PROJ-006 brief), PR 324, PR 325,
+  PR 328, onyx's design reply (2026-11-25)
