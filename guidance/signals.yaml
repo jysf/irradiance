@@ -1922,7 +1922,7 @@ signals:
     summary: "Two of the eight fuzz targets, develop and demosaic, have no 60 s fuzz smoke job in CI, and demosaic has no just recipe either, so they run only when someone fuzzes them by hand."
     evidence: "N=1, SPEC-094 (PR 339): its Context said every other fuzz target had a CI smoke job; the verify (HANDOFF-196) found develop and demosaic have none. Predates PROJ-005."
     bar: null
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-11-25
     last_touched: 2026-11-25
@@ -1930,12 +1930,13 @@ signals:
     notes: |
       Recorded at the STAGE-017 close. Small: two CI jobs shaped like the dng_write one,
       plus a just fuzz-demosaic recipe and its README line. A patch, not a spec.
+      ══ PROJ-005 CLOSE, 2026-11-25: ACCEPTED, scheduled: one hygiene patch with ljpeg-private-doc-links-break-the-private-items-doc-build, listed in docs/future-plans.md (Later: the DNG writer). Two CI jobs shaped like the dng_write one plus a just fuzz-demosaic recipe. ══
   - id: ljpeg-private-doc-links-break-the-private-items-doc-build
     type: process-debt
     summary: "cargo doc --no-deps --document-private-items with warnings denied fails on 13 intra-doc links in the private ljpeg module, with or without features. just doc-check does not build private items, so nothing gates it."
     evidence: "N=1, measured at SPEC-094's design on 8787014 and confirmed by its verify (HANDOFF-196): after SPEC-094 fixed the writer's three links, only the 13 ljpeg links remain. Predates PROJ-005 (PROJ-003's decoder)."
     bar: null
-    status: open
+    status: accepted
     disposition_at: project-close
     first_flagged: 2026-11-25
     last_touched: 2026-11-25
@@ -1943,12 +1944,13 @@ signals:
     notes: |
       Recorded at the STAGE-017 close. Fix the 13 links (plain code or reachable paths);
       optionally add the private-items build to doc-check so they stay fixed.
+      ══ PROJ-005 CLOSE, 2026-11-25: ACCEPTED, scheduled: the same hygiene patch as fuzz-targets-without-a-ci-smoke-job. Fix the 13 links; decide there whether doc-check builds private items. ══
   - id: parallel-pr-changelog-entries-land-under-the-promoted-version
     type: process-debt
     summary: "A PR that adds CHANGELOG entries under [Unreleased] and merges after a release prep (which renamed [Unreleased] to the version and opened a fresh one) merges cleanly, but its entries land under the released version's heading, and anything else merged before the tag would be in the release."
     evidence: "N=1, STAGE-032 (0.2.7): PR 343 (SPEC-091) merged two minutes after PR 345, the 0.2.7 prep. Git placed its three entries under [0.2.7]; PR 347 moved them. The tag was right only because the user tagged a360b4f, the prep merge, and not main's tip."
     bar: null
-    status: open
+    status: done
     disposition_at: project-close
     first_flagged: 2026-11-25
     last_touched: 2026-11-25
@@ -1957,3 +1959,4 @@ signals:
       Recorded at the STAGE-032 close. If it recurs: the release-spec template's Phase 2
       names the tag's commit by SHA (never "main"), and the prep's handback lists open PRs
       that touch CHANGELOG.md so they rebase their entries into the new [Unreleased].
+      ══ PROJ-005 CLOSE, 2026-11-25: DONE: projects/_templates/release-spec.md's two-phase section now says to tag the Phase-1 merge by SHA and to rebase open PRs' CHANGELOG entries into the fresh [Unreleased] after the prep merges. ══

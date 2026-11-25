@@ -18,8 +18,8 @@ Instructions for any AI agent working in this repository. Read this file first, 
     (instrument layer and consumer integration) are **shipped**.
   - `PROJ-002` (Bayer colour develop) is still `active`; its remaining work, the
     ColorChecker ΔE oracle (SPEC-035), is blocked on capturing the chart.
-  - `PROJ-005` (public DNG writer for onyx's Darkroom v1): STAGE-017 (the writer) and
-    STAGE-032 (its release) have shipped.
+  - `PROJ-005` (public DNG writer for onyx's Darkroom v1) is **shipped** (closed
+    2026-11-25): STAGE-017 (the writer) and STAGE-032 (its release, 0.2.7).
   - The live release is **irradiance 0.2.7** on crates.io (2026-11-25), the first with
     the opt-in `write` feature.
   - Each project's `brief.md` is the source of truth; check `status:` there.

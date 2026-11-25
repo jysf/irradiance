@@ -117,6 +117,12 @@ gated by a human/coordinator. Structure it so the reversible work lands first:
   `tag` and, after the push, that `git ls-remote --tags origin '<tag>*'` shows a `^{}`
   line. A lightweight tag (irradiance 0.2.5's) still publishes, but `git describe`
   skips it.
+  Tag and publish the Phase-1 merge commit **by its SHA**, not `main`'s tip: another
+  PR can merge between the prep and the cut, and tagging the tip would ship it
+  (irradiance 0.2.7, where PR 343 merged two minutes after the prep). For the same
+  reason, any open PR that adds CHANGELOG entries must rebase them into the fresh
+  `[Unreleased]` after the prep merges; otherwise git merges them cleanly under the
+  released version's heading.
 
 ## Release Pre-Flight
 
