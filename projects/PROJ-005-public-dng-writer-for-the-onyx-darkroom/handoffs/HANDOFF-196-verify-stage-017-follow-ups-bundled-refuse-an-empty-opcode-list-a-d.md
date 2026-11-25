@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-25
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-094
@@ -46,19 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
-                                   #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model)
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 4815284            # REAL combined count — what cost-audit reads
+  estimated_usd: 3.75              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 45
+  branch: claude/spec-094-verify-base
+  pr: 339
+  completed_at: 2026-11-25         # YYYY-MM-DD
+  notes: "FLOOR taken before the handback commit, from transcript feabd2f5-7a5e-476b-a230-5264f1068e0b.jsonl (35 unique message.ids, all claude-opus-5-5, no subagents): input 69 + cache-creation 100,834 (1-hour) + cache-read 4,698,805 + output 15,576, priced at 5 and 25 USD per million. Re-sum at ship. Approved at e833553's src (no src change in the verify)."
+  synced_at: 2026-11-25
 ---
 
 # HANDOFF-196: VERIFY: STAGE-017's three follow-ups, bundled (SPEC-094)
@@ -195,43 +194,74 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-094-verify-base`, fast-forwarded into `claude/spec-094-build`, https://github.com/jysf/irradiance/pull/339
+- **Completed at:** 2026-11-25
+- **All acceptance criteria met?** yes, AC1 to AC7, against the spec as designed at `6eab1b8`.
+- **Verdict:** ✅ APPROVED. The code under review is `e833553` (PR 339's build head). The verify changes no `src/` or `.github/` file; it adds one test assertion (below) and this handback.
+
+**Gates.** `gh pr checks 339` read first: 23 of 23 pass at `e833553`, `rust / fuzz smoke — dng_write (60s)` among them. Re-run locally:
+- `just test` with `IRRADIANCE_CORPUS_DIR` and `IRRADIANCE_DNG_VALIDATE` set: exit 0, 55 binaries, 923 passed, 1 ignored, corpus 12/12 present, `dng_validate` present and its acceptance tests ran. (`IRRADIANCE_SDK_STAGE2_DIR` was unset, so the SPEC-060 stage-2 cross-check skipped, as in prior verifies.)
+- `lint-ci`, `lint-no-allow`, `fmt-check`, `doc-check` (2 feature surfaces, 0 warnings): all exit 0.
+- `deny`, `deny-fuzz`, `lint-fuzz`, `lint-fuzz-red-proof` (control clean, injection exit 101 with the flag, exit 0 without), `msrv`: all exit 0.
+- `validate` (98 artifacts), `gate-audit` (14 scripts), `cost-audit`, `semver-check` ("no semver update required"): all exit 0.
+- `just decisions-audit --changed`: advisory only, flags DEC-004 for `tests/dng_write.rs`. Consistent: the tests read tag bytes back, no image comparison.
+- `just fuzz-dng-write`: 3,835,115 runs in 61 s, 33 seeds, no crash.
+
+**Red proof (item 4).** Dropping only the check from `plan` (mutant M9, the rest of `da50aed` kept) gives 29 passed, 5 failed in `tests/dng_write.rs`: `checks_run_in_the_documented_order`, `empty_opcode_list_is_refused_under_every_framing`, `every_refusal_is_typed`, `fuzz_seeds_reach_their_named_outcome`, `opcode_list_1_allow_list_under_cutting_framings`. That is the build's five, exactly.
+
+**Mutants (item 2).** Each run on its own copy of `src/dng/write.rs` with `cargo test --all-features --test dng_write --no-fail-fast`. All killed.
+
+| # | Mutant | Killed by |
+|---|---|---|
+| M1 | check only list 1 | `empty_opcode_list_…`, `every_refusal_is_typed`, `checks_run_…`, `fuzz_seeds_…` |
+| M2 | check only under cutting framings (FullSensor accepts) | `empty_opcode_list_is_refused_under_every_framing` |
+| M3 | check only on the write path (`write_into`, `write_to_vec`), not in `plan` | `empty_opcode_list_…`, `every_refusal_is_typed`, `checks_run_…`, `fuzz_seeds_…`, `opcode_list_1_allow_list_…` (`written_len` returns `Ok`) |
+| M4 | check after the `OpcodeList1` walk | `checks_run_…` (gets `UnsupportedOpcodeForFraming`), `empty_opcode_list_…`, `every_refusal_is_typed`, `opcode_list_1_allow_list_…` (gets `MalformedOpcodeList`) |
+| M5 | lists in order 3, 2, 1 | `checks_run_in_the_documented_order` (gets `{ list: 3 }`) |
+| M6 | refuse `len < 4` | `opcode_list_1_allow_list_…` (its 3-byte list 2); after the verify's assertion also `count_zero_opcode_list_header_is_still_written_verbatim` |
+| M7 | also refuse a 4-byte count-0 list | `count_zero_opcode_list_header_is_still_written_verbatim`, `opcode_list_1_allow_list_…` |
+| M8 | wrong `list` number (`list % 3 + 1`) | `empty_opcode_list_…`, `every_refusal_is_typed`, `checks_run_…`, `fuzz_seeds_…`, `opcode_list_1_allow_list_…` |
+| M9 | drop the check | the five red-proof tests above |
+
+**Rule-clause map.** Every row reaches a test that fails when its clause is wrong. One row was mis-pointed by the design: "only zero bytes" names `count_zero_…` as the killer of a `len < 4` mutant, but that test passes only 4-byte lists, so `len < 4` never fired there (M6 was caught by `opcode_list_1_allow_list_…`'s 3-byte list 2 instead). **Verify-added, tests only:** `count_zero_opcode_list_header_is_still_written_verbatim` now also writes a 1-byte list 2 and list 3 at FullSensor and StandardCrop and reads each tag back as exactly that byte, so the named test kills M6 itself.
+
+**Rulings on the build's deviations (item 3).**
+- (a) **Accepted.** The moved assertion in `opcode_list_1_allow_list_under_cutting_framings` is the only one. I grepped every writer-side builder: `tests/dng_write.rs` (literals and the `list_1/2/3()` helpers, all non-empty; `[0xFF; 3]`, `[0xFF; 7]`, `[0, 0, 0, 0]` are non-empty), `tests/dng_write_alloc.rs` (built by `opcode_list`, non-empty), `tests/dng_write_corpus.rs` and `tests/support/dng_write_oracle.rs` (copied from corpus sensors, which the reader never yields empty), and the fuzz decoder, where `bytes()` with a length byte of 0 gives `Some(vec![])`. That last one reaches the refusal through the new seed (`EmptyOpcodeList { list: 2 }`), and every other seed still reaches its named outcome (`fuzz_seeds_reach_their_named_outcome`, 33 seen). The `Some(Vec::new())` at `tests/support/dng_write_fuzz.rs:474` is a descriptive string, not a list.
+- (b) **Accepted.** No file counts CI jobs. `guidance/toolchain-brief.md` names none; no handoff template lists gates by job; `lint-fuzz-red-proof` copies no job or seed list. The only stale list is README's `just fuzz` line, already a named follow-up (out of scope).
+- (c) **Accepted.** `every_refusal_is_typed` is the reason-catalogue test at one framing; the per-framing claim is `empty_opcode_list_is_refused_under_every_framing` (3 lists × 3 framings × `written_len`, `write_into`, `write_to_vec` via `assert_refused`), which is what killed M2.
+
+**The CI job (item 5).** Line for line the same as `fuzz-ifd`, `fuzz-plane` and `fuzz-ljpeg`: `ubuntu-latest`, `dtolnay/rust-toolchain@nightly`, `cargo install cargo-fuzz --locked`, `mkdir -p fuzz/corpus/dng_write`, then `cargo +nightly fuzz run dng_write fuzz/corpus/dng_write fuzz/seeds/dng_write -- -max_total_time=60`. Features: `fuzz/Cargo.toml` depends on irradiance with `features = ["fuzzing", "write"]`, so the target builds with `write` exactly as the local recipe does. Its log on PR 339 (job 139024455713): "seed corpus: files: 33", INITED at cov 1802, "Done 2921496 runs in 61 second(s)" at cov 2173. It ran on the real seeds and was not a no-op.
+
+**Doc links (item 6).** `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --document-private-items`, re-run at the build's tree: without features, 13 unresolved links; with `--all-features`, 13 unresolved links. In both they are exactly the `ljpeg` ones (`HuffTable` ×3, `HuffTable::build`, `ScanReader` ×3, `ScanReader::restart`, `parse_headers` ×2, `Frame`, `decode_into`, `reconstruct`). No `crate::dng` link remains. `just doc-check` passes. **Ruling on `src/lib.rs`:** plain code is right. The comment is the doc of `mod write_types;`, a private module, so rustdoc shows it only in a private-items build, never in public docs of any feature set. A `cfg_attr` pair would buy nothing a reader of the public docs could see.
+
+**No panics, no allocation (item 7).** `dng_write_alloc` passes in `just test`; `lint-no-allow` passes. The fuzz target reaches the refusal through the `refuse-empty-opcode-list` seed and through its own length byte (`bytes()` with n = 0).
+
+**Docs (item 8).** The module docs' "Checks and their order" now reads "the opcode lists (none empty, then `OpcodeList1`'s walk under a cut)". The reason's doc comment is the spec's text verbatim, and `Display` is "OpcodeList{list} is empty" (asserted per list in the new test). The CHANGELOG `[Unreleased]` entry and DEC-081's Follow-up ("Resolved by SPEC-094") are present and accurate.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 4,815,284 (floor, measured before the handback commit)
+- **Estimated USD:** 3.75
+- **Duration (minutes):** about 45
+- **Source of the number:** the transcript, deduplicated by `message.id` per docs/cost-tracking.md. There were no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none. No IDs minted.
+- **Deviations from spec:** none in the verify. The build's three are accepted above.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - The spec's Context says every other fuzz target has a CI smoke job. Two do not: `develop` and `demosaic` are in `fuzz/Cargo.toml` but have no job in `ci.yml`. This predates SPEC-094 and is not a defect of it. Worth weighing at the STAGE-017 close.
+  - Already known: README's `just fuzz` line omits `fuzz-dng-write`, and the 13 `ljpeg` private links.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Nothing blocked. One rule-clause-map row named a test that could not kill its mutant (a 4-byte list never trips `len < 4`); the mutant run showed it, and one assertion fixed it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing material. Running the mutants and code gates in a scratch copy with its own target directory, while `just test` ran in the worktree, kept the whole verify under an hour.

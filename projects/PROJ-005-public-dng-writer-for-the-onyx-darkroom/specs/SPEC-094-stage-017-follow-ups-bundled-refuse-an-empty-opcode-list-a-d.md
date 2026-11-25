@@ -6,19 +6,19 @@
 task:
   id: SPEC-094
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -77,10 +77,30 @@ cost:
       duration_minutes: null
       recorded_at: 2026-11-25
       notes: "main-loop, not separately metered (AGENTS.md section 4)"
+    - cycle: build
+      handoff: HANDOFF-195
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 8051192
+      estimated_usd: 5.80
+      duration_minutes: 60
+      recorded_at: 2026-11-25
+      notes: "FLOOR taken before the handback commit, from transcript 60060586-abbf-424f-aa19-b005f940fab7.jsonl (53 unique message.ids, all claude-opus-5-5, no subagents): input 112 + cache-creation 128,968 (1-hour) + cache-read 7,899,577 + output 22,535, priced at 5 and 25 USD per million as HANDOFF-193 did. Re-sum at ship. fuzz-dng-write 2,811,502 runs in 61 s, no crash, 33 seeds."
+    - cycle: verify
+      handoff: HANDOFF-196
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 4815284
+      estimated_usd: 3.75
+      duration_minutes: 45
+      recorded_at: 2026-11-25
+      notes: "FLOOR taken before the handback commit, from transcript feabd2f5-7a5e-476b-a230-5264f1068e0b.jsonl (35 unique message.ids, all claude-opus-5-5, no subagents): input 69 + cache-creation 100,834 (1-hour) + cache-read 4,698,805 + output 15,576, priced at 5 and 25 USD per million. Re-sum at ship. Approved at e833553's src (no src change in the verify)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 12866476
+    estimated_usd: 9.55
+    session_count: 3
 ---
 
 # SPEC-094: STAGE-017 follow-ups, bundled: refuse an empty opcode list, a dng_write fuzz CI job, writer doc links

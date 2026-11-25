@@ -10,7 +10,7 @@ Cycle prompts live in `prompts/SPEC-094-<cycle>.md`.
 - [x] **frame** — 2026-11-25 (bundled from STAGE-017's three [XS] backlog items)
 - [x] **design** — completed 2026-11-25 (no new DEC; the refusal extends DEC-081's follow-up)
 - [x] **build** — prompt: `prompts/SPEC-094-build.md` (HANDOFF-195), PR #339, 8,051,192 tokens (floor), about 5.80 USD, 2026-11-25
-- [ ] **verify** — prompt: `prompts/SPEC-094-verify.md` (HANDOFF-196)
+- [x] **verify** — prompt: `prompts/SPEC-094-verify.md` (HANDOFF-196), APPROVED at e833553 (no src change; one test assertion added), 4,815,284 tokens (floor), about 3.75 USD, 2026-11-25
 - [ ] **ship** — prompt: pending (waiting on verify)
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` complete

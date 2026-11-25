@@ -57,7 +57,7 @@ handback:
   pr: 339
   completed_at: 2026-11-25         # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit, from transcript 60060586-abbf-424f-aa19-b005f940fab7.jsonl (53 unique message.ids, all claude-opus-5-5, no subagents): input 112 + cache-creation 128,968 (1-hour) + cache-read 7,899,577 + output 22,535, priced at 5 and 25 USD per million as HANDOFF-193 did. Re-sum at ship. fuzz-dng-write 2,811,502 runs in 61 s, no crash, 33 seeds."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-25
 ---
 
 # HANDOFF-195: Build SPEC-094, STAGE-017's three follow-ups, bundled

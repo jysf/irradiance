@@ -1302,6 +1302,27 @@ fn count_zero_opcode_list_header_is_still_written_verbatim() {
                 "{framing:?} tag {tag}"
             );
         }
+        // Verify-added (HANDOFF-196 mutant M6): only zero bytes is empty. A
+        // list shorter than the 4-byte count header is still copied verbatim
+        // where nothing walks it (lists 2 and 3, at every framing).
+        let short: &[u8] = &[0xAB];
+        let mut o = base_options();
+        o.framing = framing;
+        o.active_area = Some(margin_area());
+        o.opcode_list_2 = Some(short);
+        o.opcode_list_3 = Some(short);
+        let entries = ifd0_entries(&write(&samples, w, h, &o));
+        for tag in [51009u16, 51022] {
+            let entry = entries
+                .iter()
+                .find(|e| e.0 == tag)
+                .unwrap_or_else(|| panic!("{framing:?}: short tag {tag} written"));
+            assert_eq!(
+                (entry.1, entry.2, entry.3.as_slice()),
+                (7, 1, short),
+                "{framing:?} short tag {tag}"
+            );
+        }
     }
 }
 
