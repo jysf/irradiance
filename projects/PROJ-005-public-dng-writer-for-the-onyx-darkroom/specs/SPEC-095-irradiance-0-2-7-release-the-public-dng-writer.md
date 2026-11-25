@@ -252,9 +252,9 @@ A compatible 0.2.x release: run `cargo update -p irradiance`, then enable the wr
     Pentax K-3 III Monochrome's export render like its source in Adobe's reader;
   - `preview`: a `JpegPreview` of JPEG bytes you encoded, with their width, height and
     colour (`YCbCr`, the default, or `Gray`). It is stored as a reduced-resolution SubIFD
-    of IFD0 and never decoded. Without a preview the output is byte-identical to a file
-    written without the field.
-- **Refusals,** each checked by `written_len` too, before anything is written:
+    of IFD0 and never decoded. With no preview, IFD0 has no `SubIFDs` entry.
+- **Refusals,** each checked before anything is written, and each but the buffer length
+  checked by `written_len` too:
   - `Error::PlaneTooLarge` (an existing variant) when `width × height` exceeds your
     `max_pixels`, checked first;
   - `Error::InvalidWriteInput(WriteInputError)`, kind `CallerError`, with 22 reasons
@@ -376,7 +376,9 @@ reachable only with `write` on; the default build gains only the two `Error` var
       with a matching `Err(invalid(WriteInputError::…))` site in `src/dng/write.rs`, plus
       the one `UnsupportedOpcodeForFraming` site. The CHANGELOG names every reason across
       its four entries (fourteen in SPEC-061's, five in SPEC-081's, two in SPEC-082's,
-      one in SPEC-094's).
+      one in SPEC-094's). *Verify correction (HANDOFF-199):* as built, SPEC-061's entry
+      only counted its fourteen; the cold verify added their names, so the sentence
+      above is now true.
   - **Corrected (the design's refusal list was short by one).** The writer's first check
     returns the existing `Error::PlaneTooLarge { pixels, limit }` when `width × height`
     exceeds `max_pixels` (`plan`, before any size arithmetic). The design listed only

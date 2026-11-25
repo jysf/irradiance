@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-25
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-095
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved                # verify handoffs: approved | punch-list | rejected
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 7895841            # REAL combined count — what cost-audit reads
+  estimated_usd: 6.08              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 60
+  branch: claude/spec-095-verify-base
+  pr: 345
+  completed_at: 2026-11-25         # YYYY-MM-DD
+  notes: "FLOOR taken before the handback commit, from transcript 680b6fef-017f-400e-9db9-3a5b42170bde.jsonl (the scratchpad UUID; 51 unique message.ids, all claude-opus-5-5, no subagents): input 101 + cache-creation 148,391 (1-hour) + cache-read 7,718,002 + output 29,347, deduplicated by message.id with each message's largest output_tokens, priced at 5 and 25 USD per million, cache read 0.1x, 1-hour cache writes 2x. Approved at candidate 252360b; wording fixes only (CHANGELOG names SPEC-061's fourteen reasons; two release-note lines). Own consumer on the Leica M Monochrom Typ 246 with EXIF block, XMP, descriptive tags, hints and its own JPEG preview: deterministic, sample-equal, dng_validate 1.7.1 clean."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -196,38 +196,171 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-095-verify-base` (PR 345's head `cdf42ed` plus the verify
+  handoff, then this verify's commits), fast-forwarded onto `release/0.2.7-prep` so
+  https://github.com/jysf/irradiance/pull/345 carries them. Not merged, tagged or published.
+- **Completed at:** 2026-11-25
+- **All acceptance criteria met?** yes. All ten "What to check hard" items pass. Fixes
+  are wording only.
+- **For `verify`:** ✅ **APPROVED at `252360b`** (`252360bcea981dc8dfb46179a9a2be91ee0b6933`,
+  the candidate that gets tagged once it merges). The records and wording on top of it
+  change no `src/`, test, fuzz, `.github/` or `Cargo.toml` line.
+
+**Evidence, item by item** (re-run by me; the build's numbers not reused):
+
+1. **The cut.** `git diff --stat 153f517 252360b -- src Cargo.toml` is `Cargo.toml` only,
+   +8/−1: the version line and the commented `[package.metadata.docs.rs] features =
+   ["write"]` table. `git diff --stat 153f517 origin/main -- src Cargo.toml` is empty
+   (`origin/main` = `3f9df0b`). `gh pr view 343`: `state OPEN`, `mergedAt null`, so PR 343
+   is still unmerged and not in the release.
+2. **Changed inputs, re-derived.** `git diff --stat v0.2.6 252360b -- src/ Cargo.toml`: the
+   three new writer files, `src/lib.rs` (+47/−3) and `Cargo.toml`. I read the whole
+   `src/lib.rs` diff: the gated `pub mod dng`, the private `mod write_types`, the two
+   variants, two `Display` arms and two `kind()` arms (the −3 are the arms' line ends). No
+   reader, develop, colour, `irr` or `ErrorKind` line. A grep for both new variants outside
+   `src/lib.rs` finds constructions only in `src/dng/write.rs` (line 633's `invalid()` and
+   line 860). **`PlaneTooLarge`:** `plan()` step 1 returns the existing
+   `Error::PlaneTooLarge { pixels, limit }` when `width × height` exceeds `max_pixels`,
+   before any other check; it keeps its existing kind (no `kind()` line changed). The notes,
+   CHANGELOG and README describe it correctly. **Refusal count:** `WriteInputError` has 22
+   variants, and every one is constructed in `src/dng/write.rs` (`InvalidAscii`,
+   `RationalInvalid`, `OutputTooLarge` and `OutputBufferWrongLength` at two sites each).
+   Every `Err(` in the file is one of those, `PlaneTooLarge` or the one
+   `UnsupportedOpcodeForFraming`; the `too_large()` sites inside the strip copy are
+   `OutputTooLarge`. No refusal is missing from the notes, which name all 22 in prose.
+   One gap was in the CHANGELOG, which named only the eight later reasons and counted
+   SPEC-061's fourteen; fixed (wording).
+3. **Semver** (`cargo-semver-checks 0.51.0`, clean detached worktree of `252360b`): `just
+   semver-check` and `cargo semver-checks --all-features` both print "v0.2.6 -> v0.2.7
+   (minor change) … 202 checks: 202 pass, 58 skip … no semver update required".
+   `size_of::<irradiance::Error>()`: 40 (align 8) on `v0.2.6` and on the unpacked
+   package, with and without `write` (my own scratch crates).
+4. **Packaged crate, independently.** `cargo package` on that clean worktree: `Packaged 22
+   files, 1.9MiB (416.6KiB compressed)`, verified; `.cargo_vcs_info.json` `sha1`
+   `252360bcea981dc8dfb46179a9a2be91ee0b6933`. The normalised manifest keeps
+   `[package.metadata.docs.rs] features = ["write"]`, `version = "0.2.7"`, `rust-version =
+   "1.90"` and an empty `[dependencies]`. Its only dev-dependencies are `ssimulacra2` and
+   `toml`, with no self dev-dependency. `irr` is `required-features = ["irr"]`. In the
+   unpacked package: `cargo build --features write` and `--no-default-features` exit 0;
+   `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --features write` exit 0 and generates
+   `irradiance/dng/write/` (`write_into`, `write_to_vec`, `written_len`, `exif_block_base`,
+   `EXIF_BLOCK_BASE`, `Framing`, `JpegPreviewColor`, `WriteInputError`, `ExifBlock`,
+   `JpegPreview`, `WriteOptions`). **My consumer** (written cold, release build, path
+   dependency on the unpacked package with `write`) reads the **Leica M Monochrom (Typ 246)
+   `LEICA-M-MONOCHROM-TYP246/M2462362.DNG`**: 5984×4000, 12-bit, no `ActiveArea`, crop
+   4,4 + 5976×3992, black 0, white 3750, no opcode lists. It writes the file at all three
+   framings with:
+   - its eight descriptive tags read from IFD0 (`Make`, `Model`, `Software`, an empty
+     `Artist` and `Copyright`, `CameraSerialNumber`; `DateTime` and
+     `LocalizedCameraModel` absent);
+   - its four hints;
+   - an XMP packet;
+   - a hand-built Exif IFD whose `ExposureTime` value is out of line at an absolute offset
+     built for `exif_block_base()`;
+   - the file's own 160×120 YCbCr JPEG preview (5,929 bytes).
+   For each output, `written_len` equals the length, and `write_into` into a 0xAA-filled
+   buffer equals `write_to_vec`. The re-read samples equal the source, 23,936,000 of
+   23,936,000, and `previews()` returns the caller's JPEG byte for byte. exiftool reads
+   back `ExposureTime 1/125`, ISO 320, `ExifVersion 0232`, `Rating 3`, the strings and
+   the crop. The output is 47,878,962 bytes at every framing. MD5s:
+   - `FullSensor` and `FullActiveArea`: `53baf35064fae33489da78b63877b22f`, identical
+     as expected, since the file has no `ActiveArea` and so no margin;
+   - `StandardCrop`: `47ea338228c300a733ed75781aea261c`.
+   A second run gave the same three MD5s. Adobe `dng_validate` 1.7.1 on each: exit 0,
+   "Validation complete", no `Warning` or `Error` line. The README's example, compiled
+   verbatim in the same crate, runs and writes 47,872,272 bytes. A second consumer
+   without `write` fails with `error[E0433]` ("the item is gated behind the `write`
+   feature"). `cargo package --list` on `v0.2.6` and `252360b`, diffed: 19 → 22, the
+   additions exactly `src/dng/mod.rs`, `src/dng/write.rs`, `src/write_types.rs`.
+   (The M Monochrom CCD, `L1000622.DNG`, was tried first: it has no JPEG preview, so the
+   Typ 246 is the file.)
+5. **Release Notes, line by line.** True of the code and tests:
+   - the headline: determinism is pinned by `write_is_deterministic_whatever_the_buffer_held`;
+     the no-allocation claim by `tests/dng_write_alloc.rs`; `[dependencies]` is empty;
+     `dng_validate` covers all four held mono files at three framings in the suite, plus
+     my Typ 246 run;
+   - every Added item;
+   - "Breaking: none";
+   - every Known limitation.
+   Two lines fixed (wording):
+   - "Refusals, each checked by `written_len` too" overstated it, since the
+     buffer-length reason is `write_into`'s alone;
+   - "Without a preview the output is byte-identical to a file written without the field"
+     was circular. It now says IFD0 gets no `SubIFDs` entry, as the module docs say.
+   Nothing missing.
+6. **CHANGELOG.** `## [0.2.7] - 2026-11-25` with a lead paragraph and a fresh empty
+   `## [Unreleased]`. The stale count is corrected to 22, and every entry is true of the
+   code (including SPEC-094's "a 4-byte list declaring 0 opcodes is still written",
+   which `walk_list_1` accepts). Fix: SPEC-061's fourteen reasons are now named, so the
+   CHANGELOG names all 22, as step 5 asked.
+7. **README.** The writer section lists every SPEC-081 and SPEC-082 option, SPEC-094's
+   empty-list refusal, `PlaneTooLarge` and `UnsupportedOpcodeForFraming`, and `write_to_vec`.
+   Its example is not compiled anywhere in the repository; I compiled and ran it (item 4).
+8. **Pre-Flight and runbook.** Each `[now]` reproduced: dry run 22 files, clean tree,
+   no `v0.2.7` tag locally or on origin, `v0.2.6` annotated, the vcs sha1, the manifest
+   fields, the package list, `deny`, `package-targets-check` and the consumer checks.
+   Each `[cut]` is runnable. The runbook confirms PR 343 is unmerged (step 1), uses
+   `git tag -a`, and checks `cat-file -t` and `ls-remote … '^{}'`. The `[cut]` smoke on
+   `=0.2.7` with `write` would tell 0.2.7 from 0.2.6, because 0.2.6 has no `write`
+   feature and the MD5 pin is the package's.
+9. **The build's deviations, ruled:**
+   - **`PlaneTooLarge`: upheld.** It is the existing variant with its existing kind,
+     checked first, and the notes are right about it. The design missed it; this was not
+     a defect.
+   - **`write` on the self dev-dependency: upheld.** `cargo package` strips it; the
+     packaged manifest has no self dev-dependency. Records only.
+   - **The `dng_validate` path: upheld, records only.** The binary is at
+     `~/PSeven/experiments/crustimg_redo_plus/tools/dng_sdk/build/dng_validate`. The
+     spec's "Notes for the Implementer" still says "under `tools/dng_sdk`", which is
+     correct relative to the experiments folder; left as is.
+10. **Gates.** `gh pr checks 345` read first: 23 of 23 pass on `cdf42ed`. `just test` on
+    `f8721cf` (`src/` identical to `252360b`) with the corpus and `dng_validate` set:
+    55 results, 923 passed, 0 failed, 1 ignored, exit 0. It printed "corpus: 12/12
+    present", exiftool and dnglab on PATH, and "dng-validate: present". The three writer
+    `dng_validate` tests ran and passed (`..._renders_like_the_source`,
+    `..._the_k3_renders_like_its_source`, `..._a_written_preview`). The SDK colour and
+    stage-2 lanes SKIPped by design. On the clean `252360b` worktree these exited 0:
+    `lint-ci`, `lint-no-allow`, `lint-fuzz`, `lint-fuzz-red-proof`, `fmt-check`,
+    `doc-check` (2 surfaces, 0 warnings), `msrv` (`cargo +1.90.0`), `gate-audit`,
+    `name-length-check`, `deny`, `deny-fuzz`, `package-targets-check` and `cargo publish
+    --dry-run` ("aborting upload due to dry run"). The records gates (`validate`,
+    `cost-audit`, `decisions-index --check`) ran on the verify tip after
+    `advance-cycle` and `handback-sync`.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 7,895,841 (a floor, measured before the handback commit)
+- **Estimated USD:** 6.08
+- **Duration (minutes):** about 60
+- **Source of the number:** the session transcript `680b6fef-017f-400e-9db9-3a5b42170bde.jsonl`,
+  deduplicated by `message.id` per docs/cost-tracking.md (basis: transcript). 51 unique
+  messages, all `claude-opus-5-5`, no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none of my own. My wording fixes:
+  - `CHANGELOG.md`: SPEC-061's fourteen reasons named;
+  - the spec's Release Notes: the refusal lead-in and the preview line;
+  - the internal record: a note that the CHANGELOG sentence was made true by the verify.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - none blocking;
+  - observation for Phase 2: the CHANGELOG heading is dated 2026-11-25. If the tag lands
+    on a later day, the date will not match the publish; 0.2.6 has the same exposure.
+  - The README's writer example is compiled nowhere in CI. A doctest or an example
+    target would pin it; that is a `src/` or tests change, for a later spec.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little. The handoff's "different held monochrome DNG" left me to find which
+   one has a JPEG preview. The M Monochrom CCD has none; the Typ 246 has a 160×120 one.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-050 was listed for `PlaneTooLarge`, and that was enough.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Pick a held file with an `ActiveArea` margin and a preview for the consumer, if one
+   exists outside the Q2M. The Typ 246 has no margin, so its `FullSensor` and
+   `FullActiveArea` outputs are identical. The suite covers the margin on all four files,
+   but my independent run did not exercise it.

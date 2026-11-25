@@ -33,8 +33,13 @@ code changed, so every input reads and develops as in 0.2.6, `DEVELOP_VERSION` s
   `UniqueCameraModel`. The feature is off by default and adds no dependency.
 - **Two `Error` variants**, present in every build so `Error`'s shape does not
   depend on features: `InvalidWriteInput(WriteInputError)` (`CallerError`,
-  22 reasons in this release: fourteen here, five from SPEC-081, two from SPEC-082
-  and one from SPEC-094) and `UnsupportedOpcodeForFraming` (`Unsupported`). Only
+  22 reasons in this release: five from SPEC-081, two from SPEC-082, one from
+  SPEC-094, and fourteen here: `EmptyPlane`, `SampleCountMismatch`,
+  `ActiveAreaInvalid`, `DefaultCropInvalid`, `MaskedAreaInvalid`,
+  `MaskedAreasNeedFullSensor`, `OrientationInvalid`, `BlackLevelCount`,
+  `BlackLevelRepeatDimInvalid`, `MissingUniqueCameraModel`, `InvalidAscii`,
+  `MalformedOpcodeList`, `OutputTooLarge` and `OutputBufferWrongLength`) and
+  `UnsupportedOpcodeForFraming` (`Unsupported`). Only
   the writer returns them. The writer also returns the existing
   `Error::PlaneTooLarge` when `width × height` exceeds the caller's `max_pixels`,
   checked first.
