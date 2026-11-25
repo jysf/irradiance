@@ -1514,6 +1514,12 @@ fn dng_write_seeds() -> Vec<(&'static str, Vec<u8>)> {
             "refuse-list-1-shifting",
             with(&|c| c.lists[0] = Some(fix_bad_pixels_list.clone())),
         ),
+        // SPEC-094: an empty list (a length byte of 0), list 2 so no walk
+        // could reach it first.
+        (
+            "refuse-empty-opcode-list",
+            with(&|c| c.lists[1] = Some(Vec::new())),
+        ),
         // SPEC-081 §6: every metadata field set, and one seed per new refusal.
         ("all-metadata", encode(&with_all_metadata())),
         (

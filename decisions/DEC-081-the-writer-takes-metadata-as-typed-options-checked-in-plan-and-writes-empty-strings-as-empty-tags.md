@@ -114,7 +114,9 @@ warnings with the source's metadata, an XMP packet and GPS added to SPEC-061's o
 - **Negative:** RATIONAL hints above `i32::MAX` cannot be written. No consumer has one.
 - **Follow-up:** SPEC-061 writes an empty opcode list (`Some(&[])`) as a count-0 tag, the
   same shape §2 refuses for XMP. Refusing it would change shipped behaviour, so it is left
-  for a later patch, not changed here.
+  for a later patch, not changed here. **Resolved by SPEC-094:** the writer refuses it
+  with `WriteInputError::EmptyOpcodeList { list }` under every framing, in `plan`, before
+  the `OpcodeList1` walk.
 
 ## Validation
 
