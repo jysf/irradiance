@@ -134,12 +134,12 @@ this writer as an external gate, together with `diamond-exif`'s EXIF block seria
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-061 (shipped on 2026-11-24, PR 329; 35.7M / $26.09, est. 35M) [M] Public `write` feature core: mono u16 uncompressed writer into a caller buffer, size query, options struct, framing and orientation as tags, levels/opcode pass-through, caller MaskedAreas, required `UniqueCameraModel` (`CallerError` if absent), `Error::kind()`, max_pixels, determinism, fuzz target, round-trip + dnglab/exiftool/dng_validate acceptance
-- [ ] SPEC-081 (frame) [S] EXIF block, XMP and IFD0 descriptive tags: opaque block at the fixed base offset with ExifIFD/GPSInfo pointers (DEC-072), XMLPacket, typed ASCII `Make`/`Model`/`LocalizedCameraModel`/`Artist`/`Copyright`/`DateTime`/`Software`/`CameraSerialNumber` (DEC-071 §3a), the rendering hints `BaselineExposure`/`BaselineNoise`/`BaselineSharpness`/`LinearResponseLimit` (DEC-074), exiftool parity on a hand-built block, red-proofs
+- [ ] SPEC-081 (design done, build HANDOFF-191) [M] EXIF block, XMP and IFD0 descriptive tags: opaque block at the fixed base offset with ExifIFD/GPSInfo pointers (DEC-072), XMLPacket, typed ASCII `Make`/`Model`/`LocalizedCameraModel`/`Artist`/`Copyright`/`DateTime`/`Software`/`CameraSerialNumber` (DEC-071 §3a), the rendering hints `BaselineExposure`/`BaselineNoise`/`BaselineSharpness`/`LinearResponseLimit` (DEC-074), exiftool parity on a hand-built block, red-proofs
 - [ ] SPEC-082 (frame) [S] Optional caller JPEG preview stored as a reduced-resolution subfile, read back by irradiance's preview accessors (DEC-057) and accepted by dng_validate
 - [ ] [XS] CI `fuzz smoke — dng_write (60s)` job, like every other fuzz target's (SPEC-061 verify F3)
 - [ ] [XS] The three intra-doc links to `crate::dng` from always-compiled private items break under `--document-private-items` without `write`; use plain text or `cfg_attr` (SPEC-061 verify F4)
 
-**Count:** 0 shipped / 1 active / 2 pending
+**Count:** 1 shipped / 1 active / 1 pending (plus 2 [XS])
 
 ## Design Notes
 
@@ -151,6 +151,13 @@ All three are `proposed` until jysf accepts them. onyx agreed to all three in
 `monorail-000/DEC-076` and its two asks (descriptive tags, explicit XMP) are folded into
 DEC-071. `diamond-exif` accepted DEC-072's contract in `diamond-exif/DEC-015`
 (2026-11-21); DEC-072 was amended the same day so a GPS-only block is valid.
+
+**2026-11-24, SPEC-081 designed.** DEC-081 (proposed) settles what DEC-071 §3a, DEC-072
+and DEC-074 left open: `ExifBlock` and the base constant and function, an empty
+descriptive string written as an empty tag (held files carry them), an empty XMP packet
+refused, `Rational` for the hints with unsigned tags refusing negatives, the new checks
+between `UniqueCameraModel` and the `OpcodeList1` walk, and "inside the block" as room for
+the IFD's entry count. Re-estimated from S to M (25M).
 
 The requirement source is `monorail-000/DEC-075`. It is an external input: specs
 reference it in prose, never in `depends_on`.
