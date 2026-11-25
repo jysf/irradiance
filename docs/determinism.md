@@ -70,7 +70,10 @@ measures it.
 hashes the `u16` and the unclamped `f32` sensor-geometry planes (`DEC-079`) against
 two committed constants. It also asserts the `f32` plane holds a negative and an
 above-1.0 value (so the hash covers values a clamp would change) and that removing
-the second illuminant changes the plane (so the interpolation is in the hash).
+the second illuminant changes the plane. `colour_fixture_interpolates_between_its_illuminants`
+(added at `SPEC-091`'s verify) shows the fixture's weight is strictly between the two
+calibrations: the plane differs from both controls whose two calibrations are the same
+matrices, so the interpolation itself, not a weight clamped to one end, is in the hash.
 `colour_determinism_red_proof` checks the control, then flips one interior sample's
 least-significant bit and requires both hashes to move. The constants were recorded
 on macOS arm64; the x86_64 leg passing is the cross-arch evidence that onyx's
@@ -83,7 +86,10 @@ hashes unchanged (measured at `SPEC-091`'s build: the `mul_add` mutant passed ev
 hash and the exact-bits AC5 test). The no-FMA rule is pinned instead by
 `color::tests::the_f32_sink_never_fuses_a_multiply_and_an_add`, an injected matrix
 whose sum is pure cancellation (`0.1·3 − 0.3`), so a fused and a separate sum differ
-by a factor of two.
+by a factor of two. That test places the cancellation in channel 0's first term
+only; `color::tests::the_f32_sink_fuses_no_term_of_any_channel` (added at
+`SPEC-091`'s verify) places it at every term of every channel, so a `mul_add` on any
+of the nine products is caught.
 
 ## If a hash diverges
 

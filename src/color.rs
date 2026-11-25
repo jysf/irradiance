@@ -3418,6 +3418,35 @@ mod tests {
     /// at each other term `k`, so whichever multiply is fused into an add that
     /// already holds `−0.3`, one case sees `2^-55` instead of `2^-54`.
     #[test]
+    fn the_u16_sink_keeps_todays_operation_order() {
+        // `SPEC-091` verify: `store_u16` is shared by `develop_color_into` and
+        // the plane, so AC1 (plane vs developed image) cannot see a reordered
+        // sum: both sides move together. On real data `quantize` almost always
+        // absorbs the one-ulp difference, so no hash sees it either. This row
+        // sums to just under `2635.5` in today's order `(m0·r + m1·g) + m2·b`
+        // and to just over it in every other order, so the round-half-up
+        // differs. (Swapping the first two terms is exact, so it is not tested.)
+        let row = [1.1f64, 0.3, -0.1];
+        let cam = [476u16, 15845, 26416];
+        let [r, g, b] = cam.map(f64::from);
+        let today = (row[0] * r + row[1] * g) + row[2] * b;
+        let reordered = (row[2] * b + row[1] * g) + row[0] * r;
+        assert_ne!(
+            quantize(today),
+            quantize(reordered),
+            "the fixture must tell the two orders apart"
+        );
+        for i in 0..3 {
+            let mut m = [[0.0f64; 3]; 3];
+            m[i] = row;
+            let mut out = [0u16; 3];
+            store_u16(&mut out, &m, cam);
+            assert_eq!(out[i], quantize(today), "channel {i}");
+            assert_eq!(out[i], 2636, "channel {i}");
+        }
+    }
+
+    #[test]
     fn the_f32_sink_fuses_no_term_of_any_channel() {
         let separate = ((0.1f64 * 3.0 - 0.3) / 65535.0) as f32;
         let fused = (0.1f64.mul_add(3.0, -0.3) / 65535.0) as f32;
