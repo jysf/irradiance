@@ -26,11 +26,18 @@
 //! | 2 | `max_pixels`, `u16` LE |
 //! | 1 + n | each flagged opcode list: length, bytes |
 //! | 1 + n | the model (if flagged): length, bytes |
+//! | 2 | metadata flags (`SPEC-081`), `u16` LE: bit 0 EXIF block, 1 Exif IFD offset, 2 GPS IFD offset, 3 XMP, 4 to 11 the eight descriptive strings in tag order, 12 to 15 the four hints in tag order |
+//! | 1 + n | the EXIF block (if flagged): length, bytes |
+//! | 1, 1 | the Exif and GPS IFD offsets inside the block (each if flagged) |
+//! | 1 + n | the XMP packet (if flagged): length, bytes |
+//! | 1 + n | each flagged descriptive string: length, bytes |
+//! | 2 | each flagged hint: numerator, denominator, as `i8` |
 //! | rest | samples, `u16` LE, repeated to fill the plane |
 #![allow(dead_code)]
 
+use irradiance::dng::write::ExifBlock;
 use irradiance::dng::write::{Framing, WriteOptions};
-use irradiance::ifd::{ActiveArea, DefaultCropOrigin, DefaultCropSize};
+use irradiance::ifd::{ActiveArea, DefaultCropOrigin, DefaultCropSize, Rational};
 
 /// One decoded case, owning everything [`Case::options`] borrows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +57,17 @@ pub struct Case {
     pub lists: [Option<Vec<u8>>; 3],
     pub model: Option<Vec<u8>>,
     pub drop_one_sample: bool,
+    /// The EXIF block's bytes (`SPEC-081`).
+    pub exif_block: Option<Vec<u8>>,
+    pub exif_ifd: Option<u8>,
+    pub gps_ifd: Option<u8>,
+    pub xmp: Option<Vec<u8>>,
+    /// `Make`, `Model`, `Software`, `DateTime`, `Artist`, `Copyright`,
+    /// `LocalizedCameraModel`, `CameraSerialNumber`.
+    pub strings: [Option<Vec<u8>>; 8],
+    /// `BaselineExposure`, `BaselineNoise`, `BaselineSharpness`,
+    /// `LinearResponseLimit`, each as numerator and denominator.
+    pub hints: [Option<[i8; 2]>; 4],
 }
 
 /// What [`Case::options`] borrows from: the widened values.
@@ -57,6 +75,7 @@ pub struct Owned {
     pub black_level: Vec<u32>,
     pub masked: Vec<ActiveArea>,
     pub model: Option<String>,
+    pub strings: [Option<String>; 8],
 }
 
 fn rect(r: [u8; 4]) -> ActiveArea {
@@ -85,6 +104,10 @@ impl Case {
                 .model
                 .as_ref()
                 .map(|m| String::from_utf8_lossy(m).into_owned()),
+            strings: self
+                .strings
+                .clone()
+                .map(|s| s.as_ref().map(|b| String::from_utf8_lossy(b).into_owned())),
         }
     }
 
@@ -115,6 +138,34 @@ impl Case {
         o.opcode_list_2 = self.lists[1].as_deref();
         o.opcode_list_3 = self.lists[2].as_deref();
         o.unique_camera_model = owned.model.as_deref();
+        o.exif_block = self.exif_block.as_deref().map(|bytes| {
+            let mut b = ExifBlock::default();
+            b.bytes = bytes;
+            b.exif_ifd = self.exif_ifd.map(u32::from);
+            b.gps_ifd = self.gps_ifd.map(u32::from);
+            b
+        });
+        o.xmp = self.xmp.as_deref();
+        let [make, model, software, date_time, artist, copyright, localized, serial] =
+            &owned.strings;
+        o.make = make.as_deref();
+        o.model = model.as_deref();
+        o.software = software.as_deref();
+        o.date_time = date_time.as_deref();
+        o.artist = artist.as_deref();
+        o.copyright = copyright.as_deref();
+        o.localized_camera_model = localized.as_deref();
+        o.camera_serial_number = serial.as_deref();
+        let hint = |h: Option<[i8; 2]>| {
+            h.map(|[n, d]| Rational {
+                num: i32::from(n),
+                den: i32::from(d),
+            })
+        };
+        o.baseline_exposure = hint(self.hints[0]);
+        o.baseline_noise = hint(self.hints[1]);
+        o.baseline_sharpness = hint(self.hints[2]);
+        o.linear_response_limit = hint(self.hints[3]);
         o
     }
 }
@@ -170,6 +221,14 @@ pub fn decode(data: &[u8]) -> Case {
     ];
     let model = bit(6).then(|| r.bytes());
     let drop_one_sample = bit(7);
+    let meta = r.u16();
+    let on = |n: u16| meta & (1 << n) != 0;
+    let exif_block = on(0).then(|| r.bytes());
+    let exif_ifd = on(1).then(|| r.u8());
+    let gps_ifd = on(2).then(|| r.u8());
+    let xmp = on(3).then(|| r.bytes());
+    let strings = core::array::from_fn(|i| on(4 + i as u16).then(|| r.bytes()));
+    let hints = core::array::from_fn(|i| on(12 + i as u16).then(|| [r.u8() as i8, r.u8() as i8]));
 
     let pixels = (width * height) as usize;
     let raw: Vec<u16> = r
@@ -207,6 +266,12 @@ pub fn decode(data: &[u8]) -> Case {
         lists,
         model,
         drop_one_sample,
+        exif_block,
+        exif_ifd,
+        gps_ifd,
+        xmp,
+        strings,
+        hints,
     }
 }
 
@@ -262,10 +327,51 @@ pub fn encode(c: &Case) -> Vec<u8> {
         out.push(m.len().min(255) as u8);
         out.extend_from_slice(&m[..m.len().min(255)]);
     }
+    let mut meta = 0u16;
+    let present = [
+        c.exif_block.is_some(),
+        c.exif_ifd.is_some(),
+        c.gps_ifd.is_some(),
+        c.xmp.is_some(),
+    ]
+    .into_iter()
+    .chain(c.strings.iter().map(Option::is_some))
+    .chain(c.hints.iter().map(Option::is_some));
+    for (n, on) in present.enumerate() {
+        if on {
+            meta |= 1 << n;
+        }
+    }
+    out.extend_from_slice(&meta.to_le_bytes());
+    if let Some(b) = &c.exif_block {
+        push_bytes(&mut out, b);
+    }
+    if let Some(o) = c.exif_ifd {
+        out.push(o);
+    }
+    if let Some(o) = c.gps_ifd {
+        out.push(o);
+    }
+    if let Some(x) = &c.xmp {
+        push_bytes(&mut out, x);
+    }
+    for s in c.strings.iter().flatten() {
+        push_bytes(&mut out, s);
+    }
+    for [n, d] in c.hints.iter().flatten() {
+        out.push(*n as u8);
+        out.push(*d as u8);
+    }
     for s in &c.samples {
         out.extend_from_slice(&s.to_le_bytes());
     }
     out
+}
+
+/// A length byte (capped at 255) then that many bytes.
+fn push_bytes(out: &mut Vec<u8>, b: &[u8]) {
+    out.push(b.len().min(255) as u8);
+    out.extend_from_slice(&b[..b.len().min(255)]);
 }
 
 /// A valid baseline: a 16×12 plane with an active area and a crop, standard
@@ -287,5 +393,34 @@ pub fn baseline() -> Case {
         lists: [None, None, None],
         model: Some(b"fuzz mono".to_vec()),
         drop_one_sample: false,
+        exif_block: None,
+        exif_ifd: None,
+        gps_ifd: None,
+        xmp: None,
+        strings: Default::default(),
+        hints: [None; 4],
     }
+}
+
+/// [`baseline`] with every `SPEC-081` field set and valid: a 12-byte block
+/// with an empty Exif IFD at 0 and an empty GPS IFD at 6 (count 0, next 0),
+/// an XMP packet, the eight strings, the four hints.
+pub fn with_all_metadata() -> Case {
+    let mut c = baseline();
+    c.exif_block = Some(vec![0; 12]);
+    c.exif_ifd = Some(0);
+    c.gps_ifd = Some(6);
+    c.xmp = Some(b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>".to_vec());
+    c.strings = [
+        Some(b"Fuzz".to_vec()),
+        Some(b"Mono".to_vec()),
+        Some(b"irradiance".to_vec()),
+        Some(b"2026:11:24 10:00:00".to_vec()),
+        Some(Vec::new()),
+        Some(b"    ".to_vec()),
+        Some(b"Fuzz Mono".to_vec()),
+        Some(b"0042".to_vec()),
+    ];
+    c.hints = [Some([-1, 2]), Some([3, 4]), Some([1, 1]), Some([9, 10])];
+    c
 }

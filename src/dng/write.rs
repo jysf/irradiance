@@ -34,6 +34,29 @@
 //! `BlackLevelRepeatDim`, `ActiveArea`, `MaskedAreas` and the three opcode
 //! lists when the options carry them and the framing keeps them.
 //!
+//! Metadata a source carries (`SPEC-081`) is written whenever its option is
+//! `Some`, under every framing: the eight descriptive ASCII tags (`Make`,
+//! `Model`, `Software`, `DateTime`, `Artist`, `Copyright`,
+//! `LocalizedCameraModel`, `CameraSerialNumber`; an empty string writes an
+//! empty tag, `DEC-081` §2), `XMLPacket` (the XMP packet as `BYTE`s, never
+//! parsed), and the four rendering hints `BaselineExposure` (`SRATIONAL`),
+//! `BaselineNoise`, `BaselineSharpness` and `LinearResponseLimit`
+//! (`RATIONAL`), written as given (`DEC-074`).
+//!
+//! An [`ExifBlock`] is copied verbatim to file offset [`EXIF_BLOCK_BASE`] (8),
+//! right after the header, and never parsed or rebased (`DEC-072`): the caller
+//! builds it for that base (ask [`exif_block_base`]). One 0 pad byte follows
+//! an odd-length block, then IFD0. `ExifIFD` and `GPSInfo` are written as the
+//! base plus each in-block offset given:
+//!
+//! ```text
+//! offset 0   II 42 <IFD0 offset>
+//! offset 8   the EXIF block, verbatim (when given), then a 0 pad if odd
+//!            IFD0
+//!            out-of-line values, in tag order, each at an even offset
+//!            the strip, at an even offset
+//! ```
+//!
 //! Framing (`DEC-073`) is expressed as tags. Samples are cut only at the
 //! `ActiveArea` edge and never rotated:
 //!
@@ -55,7 +78,11 @@
 //! checks `dst`'s length. The order is: the pixel budget
 //! ([`Error::PlaneTooLarge`], before any size arithmetic), the sample count,
 //! the geometry (active area, default crop, masked areas), the levels, the
-//! orientation, `UniqueCameraModel`, the opcode lists, the output size. Every
+//! orientation, `UniqueCameraModel`, the descriptive strings in tag order
+//! (printable ASCII of at most 1024 bytes, then `DateTime`'s form), the
+//! rendering hints in tag order, the EXIF block's IFD offsets (at least one,
+//! each even and leaving room for its entry count inside the block), the XMP
+//! packet (not empty), the opcode lists, the output size. Every
 //! refusal is [`Error::InvalidWriteInput`] with a [`WriteInputError`] reason
 //! (`ErrorKind::CallerError`), except an `OpcodeList1` opcode a cut would
 //! shift, which is [`Error::UnsupportedOpcodeForFraming`]
@@ -69,11 +96,14 @@
 //!
 //! **Provenance** (`docs/provenance-ledger.md`): TIFF 6.0 §2 and §8, the Adobe
 //! DNG Specification 1.7.1 (tag set and placement, the opcode-list header
-//! layout, `DNGBackwardVersion` 1.3 for opcode lists) and `DEC-008` in the
-//! writing direction; the layout follows this repository's own test writer
+//! layout, `DNGBackwardVersion` 1.3 for opcode lists, tags 50709 and 50730 to
+//! 50735), Exif 2.32 §4.6.3 (the `ExifIFD` and `GPSInfo` pointers), XMP
+//! Specification Part 3 §1.1.4 (tag 700), `DEC-072`, `DEC-074`, `DEC-081` and
+//! `DEC-008` in the writing direction; the layout follows this repository's own test writer
 //! (`tests/support/dng_writer.rs`, `SPEC-057`). No writer implementation was
 //! read.
 
+use crate::ifd::Rational;
 use crate::ifd::{
     ActiveArea, DefaultCropOrigin, DefaultCropSize, TAG_ACTIVE_AREA, TAG_BITS_PER_SAMPLE,
     TAG_BLACK_LEVEL, TAG_BLACK_LEVEL_REPEAT_DIM, TAG_COMPRESSION, TAG_DEFAULT_CROP_ORIGIN,
@@ -139,6 +169,80 @@ pub struct WriteOptions<'a> {
     /// `UniqueCameraModel`. Required (`DEC-071` §3a): printable ASCII, 1 to
     /// 1024 bytes, not only spaces.
     pub unique_camera_model: Option<&'a str>,
+    /// The caller-built EXIF block, placed verbatim at [`EXIF_BLOCK_BASE`]
+    /// (`DEC-072`), with `ExifIFD` / `GPSInfo` pointing into it. `None`
+    /// writes neither.
+    pub exif_block: Option<ExifBlock<'a>>,
+    /// The XMP packet, written verbatim as `XMLPacket` (tag 700, `BYTE`) and
+    /// never parsed. Must not be empty (`DEC-081` §2).
+    pub xmp: Option<&'a [u8]>,
+    /// `Make`. Each descriptive string (`DEC-071` §3a) is printable ASCII of
+    /// at most 1024 bytes; an empty string writes an empty tag (`DEC-081`
+    /// §2) and `None` writes none.
+    pub make: Option<&'a str>,
+    /// `Model`, as [`WriteOptions::make`].
+    pub model: Option<&'a str>,
+    /// `Software`, as [`WriteOptions::make`].
+    pub software: Option<&'a str>,
+    /// `DateTime`, as [`WriteOptions::make`] and also exactly
+    /// `YYYY:MM:DD HH:MM:SS` (TIFF 6.0). The form is checked, not the
+    /// calendar. The writer never stamps a time itself.
+    pub date_time: Option<&'a str>,
+    /// `Artist`, as [`WriteOptions::make`].
+    pub artist: Option<&'a str>,
+    /// `Copyright`, as [`WriteOptions::make`]: one string, the photographer
+    /// part only.
+    pub copyright: Option<&'a str>,
+    /// `LocalizedCameraModel`, as [`WriteOptions::make`] (ASCII in v1).
+    pub localized_camera_model: Option<&'a str>,
+    /// `CameraSerialNumber`, as [`WriteOptions::make`].
+    pub camera_serial_number: Option<&'a str>,
+    /// `BaselineExposure` (`SRATIONAL`, `DEC-074`), written as given. Any
+    /// sign; a zero denominator is refused.
+    pub baseline_exposure: Option<Rational>,
+    /// `BaselineNoise` (`RATIONAL`), written as given. A zero denominator or
+    /// a negative part is refused (`DEC-081` §3).
+    pub baseline_noise: Option<Rational>,
+    /// `BaselineSharpness` (`RATIONAL`), as [`WriteOptions::baseline_noise`].
+    pub baseline_sharpness: Option<Rational>,
+    /// `LinearResponseLimit` (`RATIONAL`), as
+    /// [`WriteOptions::baseline_noise`].
+    pub linear_response_limit: Option<Rational>,
+}
+
+/// A caller-built EXIF block (`DEC-072`, `DEC-081` §1): the source's Exif,
+/// GPS and Interop IFDs as one little-endian byte run, built for
+/// [`EXIF_BLOCK_BASE`], every offset inside it already absolute.
+///
+/// The writer copies `bytes` verbatim to file offset [`EXIF_BLOCK_BASE`] and
+/// never parses or rebases them; it checks only that each given IFD offset is
+/// even and leaves room for the IFD's 2-byte entry count inside the block.
+/// `#[non_exhaustive]`: start from [`ExifBlock::default`] and assign fields.
+#[derive(Debug, Clone, Copy, Default)]
+#[non_exhaustive]
+pub struct ExifBlock<'a> {
+    /// The block, built for [`EXIF_BLOCK_BASE`], little-endian, every offset
+    /// in it already absolute. Copied verbatim; never parsed.
+    pub bytes: &'a [u8],
+    /// The Exif IFD's offset inside `bytes` (the file offset minus the base).
+    /// Written as `ExifIFD` = base + offset.
+    pub exif_ifd: Option<u32>,
+    /// The GPS IFD's offset inside `bytes`. Written as `GPSInfo` = base +
+    /// offset.
+    pub gps_ifd: Option<u32>,
+}
+
+/// Where the EXIF block starts in every written file (`DEC-072`): right after
+/// the 8-byte header. Pinned by a test; changing it is a breaking change that
+/// needs a DEC.
+pub const EXIF_BLOCK_BASE: u32 = 8;
+
+/// The base the caller must build its EXIF block for. Always
+/// [`EXIF_BLOCK_BASE`] today; `DEC-072` asks for a function of the options so
+/// that a later layout can say otherwise without a new API.
+pub fn exif_block_base(options: &WriteOptions<'_>) -> u32 {
+    let _ = options;
+    EXIF_BLOCK_BASE
 }
 
 impl Default for WriteOptions<'_> {
@@ -156,6 +260,20 @@ impl Default for WriteOptions<'_> {
             opcode_list_2: None,
             opcode_list_3: None,
             unique_camera_model: None,
+            exif_block: None,
+            xmp: None,
+            make: None,
+            model: None,
+            software: None,
+            date_time: None,
+            artist: None,
+            copyright: None,
+            localized_camera_model: None,
+            camera_serial_number: None,
+            baseline_exposure: None,
+            baseline_noise: None,
+            baseline_sharpness: None,
+            linear_response_limit: None,
         }
     }
 }
@@ -243,12 +361,33 @@ pub fn write_to_vec(
 const TAG_PLANAR_CONFIGURATION: u16 = 284;
 /// DNG `UniqueCameraModel`.
 const TAG_UNIQUE_CAMERA_MODEL: u16 = 50708;
+/// TIFF 6.0 descriptive tags (§8).
+const TAG_MAKE: u16 = 271;
+const TAG_MODEL: u16 = 272;
+const TAG_SOFTWARE: u16 = 305;
+const TAG_DATE_TIME: u16 = 306;
+const TAG_ARTIST: u16 = 315;
+/// XMP Specification Part 3 §1.1.4: the packet in TIFF.
+const TAG_XML_PACKET: u16 = 700;
+const TAG_COPYRIGHT: u16 = 33432;
+/// Exif 2.32 §4.6.3: the IFD0 pointers to the Exif and GPS IFDs.
+const TAG_EXIF_IFD: u16 = 34665;
+const TAG_GPS_INFO: u16 = 34853;
+/// DNG 1.7.1 descriptive and rendering-hint tags.
+const TAG_LOCALIZED_CAMERA_MODEL: u16 = 50709;
+const TAG_BASELINE_EXPOSURE: u16 = 50730;
+const TAG_BASELINE_NOISE: u16 = 50731;
+const TAG_BASELINE_SHARPNESS: u16 = 50732;
+const TAG_LINEAR_RESPONSE_LIMIT: u16 = 50734;
+const TAG_CAMERA_SERIAL_NUMBER: u16 = 50735;
 
 const TYPE_BYTE: u16 = 1;
 const TYPE_ASCII: u16 = 2;
 const TYPE_SHORT: u16 = 3;
 const TYPE_LONG: u16 = 4;
+const TYPE_RATIONAL: u16 = 5;
 const TYPE_UNDEFINED: u16 = 7;
+const TYPE_SRATIONAL: u16 = 10;
 
 /// DNG `LinearRaw`.
 const PHOTOMETRIC_LINEAR_RAW: u16 = 34892;
@@ -265,12 +404,9 @@ const MAX_ASCII_LEN: usize = 1024;
 /// (`DEC-075` §5): `FixBadPixelsConstant`. Widening it needs a DEC.
 const LIST_1_POSITION_INDEPENDENT: [u32; 1] = [4];
 
-/// The header: `II`, 42, and the IFD0 offset.
-const HEADER_LEN: u64 = 8;
-/// IFD0 sits right after the header in this spec. SPEC-081 moves it after the
-/// EXIF block (`DEC-072`), which is why the header's IFD0 offset is a planned
-/// value and not hard-coded to the header's end.
-const IFD0_OFFSET: u64 = HEADER_LEN;
+/// `DateTime`'s form, TIFF 6.0: `YYYY:MM:DD HH:MM:SS`. `D` is an ASCII digit;
+/// every other byte must match exactly.
+const DATE_TIME_FORM: &[u8; 19] = b"DDDD:DD:DD DD:DD:DD";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Field values
@@ -291,7 +427,13 @@ enum Value<'a> {
     Bytes4([u8; 4]),
     /// Written with a terminating NUL, which the count includes.
     Ascii(&'a [u8]),
+    /// `BYTE`s, verbatim (`XMLPacket`).
+    Bytes(&'a [u8]),
     Undefined(&'a [u8]),
+    /// One `RATIONAL`: numerator, denominator.
+    Rational(u32, u32),
+    /// One `SRATIONAL`: numerator, denominator.
+    SRational(i32, i32),
     /// The strip's offset, a LONG known only after layout.
     StripOffset,
 }
@@ -306,9 +448,11 @@ impl Value<'_> {
             | Value::Longs(_)
             | Value::Rects(_)
             | Value::StripOffset => TYPE_LONG,
-            Value::Bytes4(_) => TYPE_BYTE,
+            Value::Bytes4(_) | Value::Bytes(_) => TYPE_BYTE,
             Value::Ascii(_) => TYPE_ASCII,
             Value::Undefined(_) => TYPE_UNDEFINED,
+            Value::Rational(..) => TYPE_RATIONAL,
+            Value::SRational(..) => TYPE_SRATIONAL,
         }
     }
 
@@ -316,13 +460,17 @@ impl Value<'_> {
     fn count(&self) -> Option<u64> {
         let len = |n: usize| u64::try_from(n).ok();
         match self {
-            Value::Short(_) | Value::Long(_) | Value::StripOffset => Some(1),
+            Value::Short(_)
+            | Value::Long(_)
+            | Value::StripOffset
+            | Value::Rational(..)
+            | Value::SRational(..) => Some(1),
             Value::Shorts2(_) | Value::Longs2(_) => Some(2),
             Value::Longs4(_) | Value::Bytes4(_) => Some(4),
             Value::Longs(v) => len(v.len()),
             Value::Rects(v) => len(v.len())?.checked_mul(4),
             Value::Ascii(v) => len(v.len())?.checked_add(1),
-            Value::Undefined(v) => len(v.len()),
+            Value::Undefined(v) | Value::Bytes(v) => len(v.len()),
         }
     }
 
@@ -331,6 +479,7 @@ impl Value<'_> {
         let unit: u64 = match self.field_type() {
             TYPE_SHORT => 2,
             TYPE_LONG => 4,
+            TYPE_RATIONAL | TYPE_SRATIONAL => 8,
             _ => 1,
         };
         self.count()?.checked_mul(unit)
@@ -345,7 +494,7 @@ struct Entry<'a> {
 
 /// One slot per tag the writer can emit, in ascending tag order, so the IFD
 /// is a fixed-size array (no allocation) and sorted by construction.
-const SLOTS: usize = 25;
+const SLOTS: usize = 40;
 
 /// Everything [`serialize`] needs, decided and checked by [`plan`].
 #[derive(Debug)]
@@ -354,6 +503,11 @@ struct Plan<'a> {
     /// The offset of each slot's out-of-line value; 0 for an inline one.
     value_offsets: [u32; SLOTS],
     entry_count: u16,
+    /// The header's IFD0 offset: after the header and the EXIF block, even.
+    ifd0_offset: u32,
+    /// The EXIF block, copied verbatim to [`EXIF_BLOCK_BASE`]; empty without
+    /// one.
+    exif_block: &'a [u8],
     strip_offset: u32,
     /// The stored-plane rectangle written, as rows `top..bottom` and columns
     /// `left..right`.
@@ -498,6 +652,70 @@ fn plan<'a>(
         }));
     }
 
+    // 6a. The descriptive strings, in tag order (DEC-071 §3a, DEC-081 §4).
+    let descriptive = [
+        ("Make", options.make),
+        ("Model", options.model),
+        ("Software", options.software),
+        ("DateTime", options.date_time),
+        ("Artist", options.artist),
+        ("Copyright", options.copyright),
+        ("LocalizedCameraModel", options.localized_camera_model),
+        ("CameraSerialNumber", options.camera_serial_number),
+    ];
+    for (field, value) in descriptive {
+        let Some(text) = value else { continue };
+        let bytes = text.as_bytes();
+        if bytes.len() > MAX_ASCII_LEN || !bytes.iter().all(|b| (0x20..=0x7E).contains(b)) {
+            return Err(invalid(WriteInputError::InvalidAscii { field }));
+        }
+        if field == "DateTime" && !date_time_form(bytes) {
+            return Err(invalid(WriteInputError::DateTimeInvalid));
+        }
+    }
+
+    // 6b. The rendering hints, in tag order (DEC-074, DEC-081 §3).
+    let baseline_exposure = match options.baseline_exposure {
+        Some(r) if r.den == 0 => {
+            return Err(invalid(WriteInputError::RationalInvalid {
+                field: "BaselineExposure",
+            }))
+        }
+        Some(r) => Some(Value::SRational(r.num, r.den)),
+        None => None,
+    };
+    let baseline_noise = unsigned_hint("BaselineNoise", options.baseline_noise)?;
+    let baseline_sharpness = unsigned_hint("BaselineSharpness", options.baseline_sharpness)?;
+    let linear_response_limit =
+        unsigned_hint("LinearResponseLimit", options.linear_response_limit)?;
+
+    // 6c. The EXIF block (DEC-072, DEC-081 §5). Only the offsets are looked
+    // at; no byte of the block is read.
+    if let Some(block) = options.exif_block {
+        if block.exif_ifd.is_none() && block.gps_ifd.is_none() {
+            return Err(invalid(WriteInputError::ExifBlockWithoutIfd));
+        }
+        let given = [("Exif", block.exif_ifd), ("GPS", block.gps_ifd)];
+        for (ifd, offset) in given {
+            let Some(offset) = offset else { continue };
+            let inside = usize::try_from(offset)
+                .ok()
+                .and_then(|o| o.checked_add(2))
+                .is_some_and(|end| end <= block.bytes.len());
+            if offset % 2 != 0 || !inside {
+                return Err(invalid(WriteInputError::ExifIfdOffsetInvalid {
+                    ifd,
+                    offset,
+                }));
+            }
+        }
+    }
+
+    // 6d. The XMP packet (DEC-081 §2): never parsed, but never empty.
+    if options.xmp.is_some_and(<[u8]>::is_empty) {
+        return Err(invalid(WriteInputError::EmptyXmp));
+    }
+
     // 7. The opcode lists (DEC-075 §5). Only list 1 works on stored-plane
     // coordinates, so only list 1 is walked, and only when the cut can move
     // them.
@@ -552,7 +770,32 @@ fn plan<'a>(
         BACKWARD_WITHOUT_OPCODES
     };
 
+    // The EXIF block sits at the base, then one pad byte when its length is
+    // odd, then IFD0 (DEC-072). Its pointers are the base plus the caller's
+    // in-block offsets.
+    let exif_block = options.exif_block.map_or(&[][..], |b| b.bytes);
+    let block_len = u64::try_from(exif_block.len()).map_err(|_| too_large())?;
+    let ifd0_offset = u64::from(EXIF_BLOCK_BASE)
+        .checked_add(align2(block_len)?)
+        .ok_or_else(too_large)?;
+    let pointer = |offset: Option<u32>| -> Result<Option<Value<'a>>, Error> {
+        offset
+            .map(|o| {
+                EXIF_BLOCK_BASE
+                    .checked_add(o)
+                    .map(Value::Long)
+                    .ok_or_else(too_large)
+            })
+            .transpose()
+    };
+    let exif_pointer = pointer(options.exif_block.and_then(|b| b.exif_ifd))?;
+    let gps_pointer = pointer(options.exif_block.and_then(|b| b.gps_ifd))?;
+    let ascii = |text: Option<&'a str>| text.map(|t| Value::Ascii(t.as_bytes()));
+
     let e = |tag: u16, value: Value<'a>| Some(Entry { tag, value });
+    // Optional tags: the slot is filled only when the option is `Some`.
+    let o = |tag: u16, value: Option<Value<'a>>| value.map(|value| Entry { tag, value });
+    // Ascending tag order: the IFD's order is this array's order.
     let entries: [Option<Entry<'a>>; SLOTS] = [
         e(TAG_NEW_SUBFILE_TYPE, Value::Long(0)),
         e(TAG_IMAGE_WIDTH, Value::Long(out_width)),
@@ -560,15 +803,28 @@ fn plan<'a>(
         e(TAG_BITS_PER_SAMPLE, Value::Short(16)),
         e(TAG_COMPRESSION, Value::Short(1)),
         e(TAG_PHOTOMETRIC, Value::Short(PHOTOMETRIC_LINEAR_RAW)),
+        o(TAG_MAKE, ascii(options.make)),
+        o(TAG_MODEL, ascii(options.model)),
         e(TAG_STRIP_OFFSETS, Value::StripOffset),
         e(TAG_ORIENTATION, Value::Short(options.orientation)),
         e(TAG_SAMPLES_PER_PIXEL, Value::Short(1)),
         e(TAG_ROWS_PER_STRIP, Value::Long(out_height)),
         e(TAG_STRIP_BYTE_COUNTS, Value::Long(strip_byte_count)),
         e(TAG_PLANAR_CONFIGURATION, Value::Short(1)),
+        o(TAG_SOFTWARE, ascii(options.software)),
+        o(TAG_DATE_TIME, ascii(options.date_time)),
+        o(TAG_ARTIST, ascii(options.artist)),
+        o(TAG_XML_PACKET, options.xmp.map(Value::Bytes)),
+        o(TAG_COPYRIGHT, ascii(options.copyright)),
+        o(TAG_EXIF_IFD, exif_pointer),
+        o(TAG_GPS_INFO, gps_pointer),
         e(TAG_DNG_VERSION, Value::Bytes4(DNG_VERSION)),
         e(TAG_DNG_BACKWARD_VERSION, Value::Bytes4(backward)),
         e(TAG_UNIQUE_CAMERA_MODEL, Value::Ascii(model_bytes(options))),
+        o(
+            TAG_LOCALIZED_CAMERA_MODEL,
+            ascii(options.localized_camera_model),
+        ),
         options
             .black_level_repeat_dim
             .and_then(|d| e(TAG_BLACK_LEVEL_REPEAT_DIM, Value::Shorts2(d))),
@@ -578,6 +834,14 @@ fn plan<'a>(
         e(TAG_WHITE_LEVEL, Value::Long(options.white_level)),
         e(TAG_DEFAULT_CROP_ORIGIN, Value::Longs2(crop_origin)),
         e(TAG_DEFAULT_CROP_SIZE, Value::Longs2(crop_size)),
+        o(TAG_BASELINE_EXPOSURE, baseline_exposure),
+        o(TAG_BASELINE_NOISE, baseline_noise),
+        o(TAG_BASELINE_SHARPNESS, baseline_sharpness),
+        o(TAG_LINEAR_RESPONSE_LIMIT, linear_response_limit),
+        o(
+            TAG_CAMERA_SERIAL_NUMBER,
+            ascii(options.camera_serial_number),
+        ),
         written_active.and_then(|a| {
             e(
                 TAG_ACTIVE_AREA,
@@ -598,15 +862,16 @@ fn plan<'a>(
             .and_then(|b| e(TAG_OPCODE_LIST_3, Value::Undefined(b))),
     ];
 
-    // The layout (DEC-075 §1): header, IFD0, out-of-line values in tag order,
-    // then the strip, each value and the strip at an even offset.
+    // The layout (DEC-075 §1, DEC-072): header, the EXIF block and its pad,
+    // IFD0, out-of-line values in tag order, then the strip, each value and
+    // the strip at an even offset.
     let entry_count = entries.iter().flatten().count();
     let ifd_len = u64::try_from(entry_count)
         .ok()
         .and_then(|n| n.checked_mul(12))
         .and_then(|n| n.checked_add(6)) // 2-byte count + 4-byte next-IFD offset
         .ok_or_else(too_large)?;
-    let mut pos = IFD0_OFFSET.checked_add(ifd_len).ok_or_else(too_large)?;
+    let mut pos = ifd0_offset.checked_add(ifd_len).ok_or_else(too_large)?;
     let mut value_offsets = [0u32; SLOTS];
     for (slot, offset) in entries.iter().zip(value_offsets.iter_mut()) {
         let Some(entry) = slot else { continue };
@@ -632,6 +897,8 @@ fn plan<'a>(
         entries,
         value_offsets,
         entry_count: u16::try_from(entry_count).map_err(|_| too_large())?,
+        ifd0_offset: u32::try_from(ifd0_offset).map_err(|_| too_large())?,
+        exif_block,
         strip_offset,
         cut,
         plane_width: width,
@@ -642,6 +909,35 @@ fn plan<'a>(
 /// `UniqueCameraModel`'s bytes, already validated by [`plan`].
 fn model_bytes<'a>(options: &WriteOptions<'a>) -> &'a [u8] {
     options.unique_camera_model.unwrap_or("").as_bytes()
+}
+
+/// Whether `bytes` has `DateTime`'s form (`DATE_TIME_FORM`): the form, not
+/// the calendar (`DEC-081` §6).
+fn date_time_form(bytes: &[u8]) -> bool {
+    bytes.len() == DATE_TIME_FORM.len()
+        && bytes.iter().zip(DATE_TIME_FORM).all(|(&b, &f)| {
+            if f == b'D' {
+                b.is_ascii_digit()
+            } else {
+                b == f
+            }
+        })
+}
+
+/// One of the three unsigned (`RATIONAL`) hints: a zero denominator or a
+/// negative part is refused (`DEC-074`, `DEC-081` §3).
+fn unsigned_hint<'a>(
+    field: &'static str,
+    hint: Option<Rational>,
+) -> Result<Option<Value<'a>>, Error> {
+    let Some(r) = hint else { return Ok(None) };
+    let refuse = || invalid(WriteInputError::RationalInvalid { field });
+    if r.den == 0 {
+        return Err(refuse());
+    }
+    let num = u32::try_from(r.num).map_err(|_| refuse())?;
+    let den = u32::try_from(r.den).map_err(|_| refuse())?;
+    Ok(Some(Value::Rational(num, den)))
 }
 
 /// `n` rounded up to an even offset (TIFF 6.0 §2: values begin on a word
@@ -706,12 +1002,14 @@ fn serialize(plan: &Plan<'_>, samples: &[u16], dst: &mut [u8]) -> Result<(), Err
     let (head, strip) = dst.split_at_mut_checked(strip_at).ok_or_else(too_large)?;
     head.fill(0);
 
-    let ifd0 = u32::try_from(IFD0_OFFSET).map_err(|_| too_large())?;
     put(head, 0, b"II")?;
     put(head, 2, &42u16.to_le_bytes())?;
-    put(head, 4, &ifd0.to_le_bytes())?;
+    put(head, 4, &plan.ifd0_offset.to_le_bytes())?;
+    // The EXIF block, verbatim (DEC-072); its pad byte, if any, stays 0.
+    let base = usize::try_from(EXIF_BLOCK_BASE).map_err(|_| too_large())?;
+    put(head, base, plan.exif_block)?;
 
-    let mut at = usize::try_from(IFD0_OFFSET).map_err(|_| too_large())?;
+    let mut at = usize::try_from(plan.ifd0_offset).map_err(|_| too_large())?;
     at = put(head, at, &plan.entry_count.to_le_bytes())?;
     for (slot, &offset) in plan.entries.iter().zip(&plan.value_offsets) {
         let Some(entry) = slot else { continue };
@@ -785,6 +1083,14 @@ fn emit(value: Value<'_>, out: &mut [u8], strip_offset: u32) {
             }
         }
         Value::Bytes4(v) => copy(out, &v),
+        Value::Rational(num, den) => longs(out, &[num, den]),
+        Value::SRational(num, den) => {
+            let [n, d] = out.as_chunks_mut::<4>().0 else {
+                return;
+            };
+            *n = num.to_le_bytes();
+            *d = den.to_le_bytes();
+        }
         Value::Ascii(v) => {
             // The NUL terminator is the byte after the text: `out` is
             // `v.len() + 1` long and the caller zeroed it, but write it anyway
@@ -794,7 +1100,7 @@ fn emit(value: Value<'_>, out: &mut [u8], strip_offset: u32) {
                 *last = 0;
             }
         }
-        Value::Undefined(v) => copy(out, v),
+        Value::Undefined(v) | Value::Bytes(v) => copy(out, v),
     }
 }
 

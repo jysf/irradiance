@@ -1,4 +1,4 @@
-//! `SPEC-061` AC10, oracle 10 — `written_len` and `write_into` perform no heap
+//! `SPEC-061` AC10, oracle 10 (and `SPEC-081` AC8, every metadata option set) — `written_len` and `write_into` perform no heap
 //! allocation (`DEC-075` §9, the `DEC-016` promise applied to the writer).
 //!
 //! Its own test binary on purpose: the counting `#[global_allocator]` below
@@ -14,8 +14,8 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use irradiance::dng::write::{write_into, written_len, Framing, WriteOptions};
-use irradiance::ifd::{ActiveArea, DefaultCropOrigin, DefaultCropSize};
+use irradiance::dng::write::{write_into, written_len, ExifBlock, Framing, WriteOptions};
+use irradiance::ifd::{ActiveArea, DefaultCropOrigin, DefaultCropSize, Rational};
 use opcode::{opcode_list, raw_opcode, single_fix_bad_pixels_constant_list};
 
 struct Counting;
@@ -95,6 +95,10 @@ fn written_len_and_write_into_allocate_nothing() {
         },
     ];
     let blacks = [60, 61, 62, 63];
+    // SPEC-081: an odd-length block (empty Exif IFD at 0, GPS IFD at 6) and
+    // an XMP packet.
+    let block = [0u8; 13];
+    let xmp = b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>";
 
     let mut total_calls = 0;
     for framing in [
@@ -124,6 +128,25 @@ fn written_len_and_write_into_allocate_nothing() {
         o.opcode_list_2 = Some(&list_2);
         o.opcode_list_3 = Some(&list_3);
         o.unique_camera_model = Some("Allocation Monochrome");
+        // SPEC-081 AC8: every metadata option set.
+        let mut exif = ExifBlock::default();
+        exif.bytes = &block;
+        exif.exif_ifd = Some(0);
+        exif.gps_ifd = Some(6);
+        o.exif_block = Some(exif);
+        o.xmp = Some(xmp);
+        o.make = Some("Allocation");
+        o.model = Some("Monochrome");
+        o.software = Some("irradiance");
+        o.date_time = Some("2026:11:24 10:00:00");
+        o.artist = Some("");
+        o.copyright = Some("    ");
+        o.localized_camera_model = Some("Allocation Monochrome");
+        o.camera_serial_number = Some("0001");
+        o.baseline_exposure = Some(Rational { num: -1, den: 2 });
+        o.baseline_noise = Some(Rational { num: 1, den: 1 });
+        o.baseline_sharpness = Some(Rational { num: 3, den: 2 });
+        o.linear_response_limit = Some(Rational { num: 1, den: 1 });
 
         // Sized outside the count, by a first uncounted query.
         let len = written_len(&samples, w, h, &o, 1 << 20).expect("valid input");

@@ -560,7 +560,9 @@ PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ljpeg \
     fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=60
 
 # fuzz-dng-write — the public DNG writer's fuzz target (SPEC-061 §8):
-#              decoded 64x64-max planes with every WriteOptions field; nothing
+#              decoded 64x64-max planes with every WriteOptions field (SPEC-081
+#              added the EXIF block and its two IFD offsets, XMP, the eight
+#              descriptive strings and the four rendering hints); nothing
 #              panics, written_len and write_into agree, every Ok output reads
 #              back. Same +toolchain trap and seed/corpus split as `fuzz` above.
 mkdir -p fuzz/corpus/dng_write

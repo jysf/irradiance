@@ -1419,11 +1419,17 @@ fn write_seeds(
 
 /// SPEC-061 §8: the `dng_write` target's seeds, encoded in its input format
 /// (`tests/support/dng_write_fuzz.rs`): one per framing, one with each opcode
-/// list, and one per refusal that is cheap to reach.
+/// list, and one per refusal that is cheap to reach; SPEC-081 adds one with
+/// every metadata field set and one per metadata refusal.
 fn dng_write_seeds() -> Vec<(&'static str, Vec<u8>)> {
-    use dng_write_fuzz::{baseline, encode, Case};
+    use dng_write_fuzz::{baseline, encode, with_all_metadata, Case};
     let with = |f: &dyn Fn(&mut Case)| {
         let mut c = baseline();
+        f(&mut c);
+        encode(&c)
+    };
+    let with_meta = |f: &dyn Fn(&mut Case)| {
+        let mut c = with_all_metadata();
         f(&mut c);
         encode(&c)
     };
@@ -1502,6 +1508,25 @@ fn dng_write_seeds() -> Vec<(&'static str, Vec<u8>)> {
             "refuse-list-1-shifting",
             with(&|c| c.lists[0] = Some(fix_bad_pixels_list.clone())),
         ),
+        // SPEC-081 §6: every metadata field set, and one seed per new refusal.
+        ("all-metadata", encode(&with_all_metadata())),
+        (
+            "refuse-date-time",
+            with_meta(&|c| c.strings[3] = Some(b"2026-11-24 10:00:00".to_vec())),
+        ),
+        (
+            "refuse-rational",
+            with_meta(&|c| c.hints[1] = Some([-3, 4])),
+        ),
+        (
+            "refuse-exif-without-ifd",
+            with_meta(&|c| {
+                c.exif_ifd = None;
+                c.gps_ifd = None;
+            }),
+        ),
+        ("refuse-exif-offset", with_meta(&|c| c.gps_ifd = Some(11))),
+        ("refuse-empty-xmp", with_meta(&|c| c.xmp = Some(Vec::new()))),
     ]
 }
 
