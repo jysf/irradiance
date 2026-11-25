@@ -277,6 +277,48 @@ M10/M11, SL2/SL3) — the PROJ-002 bridge for the monochrome app.
   each recorded in `docs/provenance-ledger.md` as an **approximation**, because a
   DNG carries no sensor spectral sensitivity.
 
+## Later — the DNG writer (after PROJ-005)
+
+> **Added 2026-11-25, at the PROJ-005 close.** PROJ-005 shipped the public monochrome
+> writer (`irradiance::dng::write`, feature `write`) in irradiance 0.2.7: one `u16`
+> plane, uncompressed, one strip, little-endian, with levels, opcode lists, an EXIF
+> block, XMP, descriptive tags, rendering hints and an optional caller JPEG preview.
+> Nothing below is framed. Each item waits for the trigger named on it.
+
+**Checks for onyx, at its Darkroom v1 integration** (not specs):
+- Open written files (each framing, with a preview) in Lightroom Classic, Capture One
+  and Windows Explorer, and record the result. Until then DEC-082's confidence stays 0.8.
+- Write one real export with `diamond-exif`'s EXIF block (its SPEC-025), to test the
+  DEC-072 base-offset contract with the real builder, not a hand-built block.
+- Ask whether `mono-core` already builds `WriteOptions` from a `Sensor`.
+
+**Extensions, in value order, each on a consumer's request:**
+1. **`WriteOptions` from a `Sensor`.** *Trigger:* onyx says it would use it. A small
+   spec: `WriteOptions::from_sensor(&Sensor, Framing)` filling geometry, levels and opcode
+   lists only, with a DEC for the policy calls (white level when absent,
+   `BlackLevelRepeatDim` narrowing, masked areas only at full sensor, orientation). Ship
+   it in whichever release comes next.
+2. **Lossless compression (Compression 7) output.** *Trigger:* a consumer asks about file
+   size (a Q2 Monochrom is 95 MB uncompressed). Patent-clean (DEC-035), reuses the SOF-3
+   decoder as its oracle and the test-only encoder as a start. Not deflate: it needs
+   zlib, a new dependency.
+3. **Tiled output.** *Trigger:* very large planes, or parallel writes. The reader already
+   reads tiles (STAGE-015).
+4. **CFA planes with their colour tags.** *Trigger:* crustyimg's RAW-in/DNG-out, or the
+   Sony ARW wave wanting ARW-to-DNG. This makes the writer a permissive raw-to-DNG
+   converter and is a project of its own, not a spec.
+5. **Float or demosaiced LinearRaw RGB output.** *Trigger:* an HDR-merge or astro-stacking
+   consumer (the parked scientific linear-raw idea).
+
+**Not planned:** big-endian output, encoding a preview inside irradiance (the
+caller-encoded preview is the boundary), and editing and re-saving an existing DNG.
+
+**Hygiene patch, accepted at the PROJ-005 close** (signals
+`fuzz-targets-without-a-ci-smoke-job`,
+`ljpeg-private-doc-links-break-the-private-items-doc-build`): CI fuzz smoke jobs for
+`develop` and `demosaic` plus a `just fuzz-demosaic` recipe, and the 13 private `ljpeg`
+doc links. One `just new-patch`; neither touches the writer.
+
 ## Later — more sensors and vendor containers
 
 Accepted direction, horizon "later" in the brief:
