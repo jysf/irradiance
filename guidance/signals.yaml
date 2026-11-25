@@ -1364,7 +1364,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-05
-    last_touched: 2026-11-13
+    last_touched: 2026-11-25
     raised_by: claude
     notes: |
       ══ SPEC-065 SHIP, 2026-11-13: N=2 -> N=3, a new shape. ══ Not a round-trip
@@ -1414,6 +1414,11 @@ signals:
       ══ STAGE-019 CLOSE, 2026-11-13: CODIFIED (N=3, bar N=2). ══ Landed as AGENTS.md
       §16 rule 5, "an oracle must be able to see the property", merged with
       tolerant-oracle-cannot-pin-structure (the indifference side of the same rule).
+      ══ SPEC-091 SHIP, 2026-11-25: N=3 -> N=4 (already codified). ══ The shared-sink
+      refactor made AC2 (i) to (iii) blind to mutant (f) and AC1 blind to a reordered u16
+      sum (verify's x4 passed 379 tests). Fixed by an independent composition check and a
+      cancellation-row unit test. The §16 rule 5 held in the template; the design did not
+      apply it to the refactor the Notes themselves asked for.
 
   # --- lesson: probe the decode input, not just the container -----------------
   - id: probe-the-decode-input-not-just-the-container
@@ -1637,7 +1642,7 @@ signals:
   - id: analytic-oracle-premise-must-survive-rounding
     type: lesson
     summary: "An analytic oracle stated in exact arithmetic ('the output is uniform', 'equals the mono output') can be false after the pipeline's integer rounding; derive the premise in the integer form the code uses, and assert it in the test, before naming it as the oracle."
-    evidence: "N=1, STAGE-019 2026-11-13. SPEC-066's design wrote AC2 and AC5 as 'a plane of black[pos] + k develops to a uniform normalize(k)'. Distinct per-position blacks give distinct ranges (white - black), and round-half-up over those ranges diverges at large k: at k = 15345 positions 0/1 gave 65535 and 2/3 gave 65531. The build (HANDOFF-139) re-derived the fixtures, asserting the exact per-position value at every k and uniformity only where the ranges round alike; AC5 asserts its own rounding premise. In the same design an 'odd ActiveArea origin plus odd DefaultCrop origin' fixture landed on even parity and could not separate the plane origin from the crop origin; the build moved the crop origin to (1, 2)."
+    evidence: "N=2. SPEC-091 (2026-11-25): AC4's half-code bound ignored the f32 cast's own half-ulp. Instance 1, STAGE-019 2026-11-13. SPEC-066's design wrote AC2 and AC5 as 'a plane of black[pos] + k develops to a uniform normalize(k)'. Distinct per-position blacks give distinct ranges (white - black), and round-half-up over those ranges diverges at large k: at k = 15345 positions 0/1 gave 65535 and 2/3 gave 65531. The build (HANDOFF-139) re-derived the fixtures, asserting the exact per-position value at every k and uniformity only where the ranges round alike; AC5 asserts its own rounding premise. In the same design an 'odd ActiveArea origin plus odd DefaultCrop origin' fixture landed on even parity and could not separate the plane origin from the crop origin; the build moved the crop origin to (1, 2)."
     bar: "N=3 same-outcome"
     status: watch
     disposition_at: stage-close
@@ -1656,6 +1661,10 @@ signals:
       ══ STAGE-021 CLOSE, 2026-11-18: walked, stays watch, no new instance. ══
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
       ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
+      ══ SPEC-091 SHIP, 2026-11-25: N=1 -> N=2. ══ AC4's bound |f32·65535 − u16| ≤ 0.5 + 1e-3
+      was stated without the f64 to f32 cast, whose half-ulp at [0.5, 1) is 65535/2^25 ≈
+      0.00195 codes; a Canon pixel sat 0.5029 codes away. The build widened the slack by
+      exactly that half-ulp; the verify confirmed mutant (c) still fails.
 
   # --- process-debt: whole-corpus tier-B tests are slow in the debug profile -----
   - id: slow-tier-b-tests-in-debug
@@ -1826,7 +1835,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-20
-    last_touched: 2026-11-23
+    last_touched: 2026-11-25
     raised_by: claude
     notes: |
       ══ STAGE-027 CLOSE, 2026-11-22: CODIFIED. ══ Bar reached (N=5). projects/_templates/spec.md's
@@ -1845,6 +1854,12 @@ signals:
       sized 3 x ColorPlanes' stayed green until the cold verify (HANDOFF-186 V1). The
       template line held as written; the design applied it per tag, not per count rule.
       Watch for a second recurrence before tightening the wording.
+      ══ SPEC-091 SHIP, 2026-11-25: a new shape, the effect below the output's resolution. ══
+      Mutant (k) (an FMA in the f64 sum) moved the result by one ulp, which the f32 cast
+      absorbs on all but about 1 in 2^29 values, so no hash could fail. The build's guard
+      then put its cancellation at one site of nine, and the verify widened it to 18 cases.
+      Falsifier at design: compare the mutant's effect with the output's quantum, and
+      enumerate every site a "no X" rule covers.
   - id: validate-does-not-parse-feedback-or-docs
     type: process-debt
     summary: "`just validate` parses front matter only under projects/ and decisions/, so feedback/ and docs/ front matter is never checked, and an AC that says 'validate parses it' is unenforced."
@@ -1920,7 +1935,7 @@ signals:
   - id: fuzz-targets-without-a-ci-smoke-job
     type: process-debt
     summary: "Two of the eight fuzz targets, develop and demosaic, have no 60 s fuzz smoke job in CI, and demosaic has no just recipe either, so they run only when someone fuzzes them by hand."
-    evidence: "N=1, SPEC-094 (PR 339): its Context said every other fuzz target had a CI smoke job; the verify (HANDOFF-196) found develop and demosaic have none. Predates PROJ-005."
+    evidence: "N=1, SPEC-094 (PR 339): its Context said every other fuzz target had a CI smoke job; the verify (HANDOFF-196) found develop and demosaic have none. Predates PROJ-005. N=2, SPEC-091 (HANDOFF-198): four new public entries joined the demosaic target, still with no CI job."
     bar: null
     status: accepted
     disposition_at: project-close
@@ -1931,6 +1946,9 @@ signals:
       Recorded at the STAGE-017 close. Small: two CI jobs shaped like the dng_write one,
       plus a just fuzz-demosaic recipe and its README line. A patch, not a spec.
       ══ PROJ-005 CLOSE, 2026-11-25: ACCEPTED, scheduled: one hygiene patch with ljpeg-private-doc-links-break-the-private-items-doc-build, listed in docs/future-plans.md (Later: the DNG writer). Two CI jobs shaped like the dng_write one plus a just fuzz-demosaic recipe. ══
+      ══ SPEC-091 SHIP, 2026-11-25: N=1 -> N=2. ══ SPEC-091 added four public entries to the
+      demosaic target (HANDOFF-198 follow-up); they are fuzzed only by hand until the
+      scheduled hygiene patch lands.
   - id: ljpeg-private-doc-links-break-the-private-items-doc-build
     type: process-debt
     summary: "cargo doc --no-deps --document-private-items with warnings denied fails on 13 intra-doc links in the private ljpeg module, with or without features. just doc-check does not build private items, so nothing gates it."
