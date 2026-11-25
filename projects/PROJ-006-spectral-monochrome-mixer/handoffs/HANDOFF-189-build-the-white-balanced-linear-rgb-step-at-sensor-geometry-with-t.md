@@ -66,9 +66,12 @@ handback:
 ## Delegation Summary
 
 `claude-opus-5` (acting as architect) hands `SPEC-091` to a cold `claude-opus-5`
-session (acting as implementer) for the **`build`** cycle: two new public functions in
+session (acting as implementer) for the **`build`** cycle: four new public functions in
 `src/color.rs` that write the white-balanced linear-sRGB plane at sensor geometry, `u16`
-(today's values) and `f32` (unclamped), with no change to any existing output.
+(today's values) and `f32` (unclamped), whole or as a row range (band), plus one
+`Error` variant for a bad range, a cross-architecture determinism hash for the plane,
+and no change to any existing output. The band form and the determinism pin were added
+on 2026-11-25 from onyx's reply to the design (see the spec's Context).
 
 ## Context the Receiving Agent Needs
 
@@ -79,7 +82,7 @@ list tight, but don't omit anything necessary.
 
 - **Project brief:** `./projects/PROJ-006-spectral-monochrome-mixer/brief.md`
 - **Stage:** `./projects/PROJ-006-spectral-monochrome-mixer/stages/STAGE-031-colour-to-mono-the-linear-rgb-step-the-mixer-and-the-develop.md`
-- **Spec:** `./projects/PROJ-006-spectral-monochrome-mixer/specs/SPEC-091-the-white-balanced-linear-rgb-step-at-sensor-geometry-with-t.md` (Design, AC1 to AC10, Failing Tests, the mutant list)
+- **Spec:** `./projects/PROJ-006-spectral-monochrome-mixer/specs/SPEC-091-the-white-balanced-linear-rgb-step-at-sensor-geometry-with-t.md` (Design §1 to §8, AC1 to AC13, Failing Tests, mutants (a) to (k))
 - **Decision:** `./decisions/DEC-079-mixer-weights-live-in-linear-srgb-and-apply-folded-into-camera-space.md`
 - **Toolchain brief:** `./guidance/toolchain-brief.md` — this repo's test
   framework, lint quirks, runtime globals and gotchas. Read it; it exists so a
@@ -95,7 +98,9 @@ list tight, but don't omit anything necessary.
 - `DEC-042` — the fused traversal and its single green plane: reuse it, do not copy it
 - `DEC-053`, `DEC-078` — required processing and malformed tags refuse first, `DevelopPath::Colour`
 - `DEC-069` — `GainMap`s at stage 2 (AC7)
-- `DEC-002` — determinism; no new nondeterministic arithmetic
+- `DEC-002` — determinism; Design §7 and AC12 measure it for the plane on both CI legs
+- `DEC-044` / `SPEC-051` — `develop_rows_banded`, the halo'd row-range develop the band forms reuse
+- `DEC-051` — the new `InvalidRowRange` variant is classified in `Error::kind()` with no wildcard arm
 
 ### Constraints that apply
 
@@ -112,10 +117,11 @@ apply to the paths touched by this task:
 
 - `SPEC-049` / `SPEC-050` — the fused colour develop and its crop sink, which this spec generalises
 - PR 324, PR 325 — PROJ-006 brief and STAGE-031 frame (onyx's answers are in the brief)
-- **Parallel work:** PROJ-005's SPEC-061 build (the DNG writer) runs in another session.
-  It appends two `Error` variants and edits `CHANGELOG.md` [Unreleased],
-  `fuzz/Cargo.toml`, `app.just`, `docs/provenance-ledger.md`. This spec adds **no**
-  `Error` variant. On a conflict in a shared file, keep both sides' entries.
+- `SPEC-041` — `tests/determinism.rs` and the CI determinism job (x86_64 Linux, arm64
+  macOS) that AC12 extends; read `docs/determinism.md` first
+- PROJ-005's writer specs have shipped and appended their `Error` variants; take the
+  enum's tail from current `origin/main`. On a conflict in a shared file
+  (`CHANGELOG.md`, `src/lib.rs`), keep both sides' entries.
 
 ## Expected Deliverables
 
@@ -152,9 +158,10 @@ the stage's backlog, not expand this handoff.
 
 - The mixer, the folded row and the fixed-point arithmetic (SPEC-092).
 - Any developed or cropped output, `DevelopOptions` changes (SPEC-093).
-- Threaded variants of the new entries.
-- Any change to an existing function's output, a new `Error` variant, or a
-  `DEVELOP_VERSION` bump. If one seems necessary, stop and hand back blocked.
+- Threaded variants of the new entries (callers can run bands on their own threads).
+- Any change to an existing function's output or existing determinism hash, any
+  `Error` variant other than `InvalidRowRange`, or a `DEVELOP_VERSION` bump. If one
+  seems necessary, stop and hand back blocked.
 
 **Repo gotchas.** Run `just test`, not `just test --all-features` (the recipe already
 passes it). Set `IRRADIANCE_CORPUS_DIR=~/PSeven/experiments/crustimg_redo_plus/images`

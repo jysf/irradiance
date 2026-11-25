@@ -159,6 +159,21 @@ across platforms; SPEC-091's design decides the new path's arithmetic, and the e
 colour output may not change. onyx's own request 7 (`docs/upstream/irradiance-requests.md`
 in its repo) still describes a camera-RGB path and needs updating on its side.
 
+## onyx's reply to the design (2026-11-25)
+
+onyx accepted DEC-079 (linear sRGB, weights folded into the matrix), which it cites as
+`irradiance/DEC-079`. It will use the unclamped f32 plane for candidate mixes and the
+quality study; the u16 plane only feeds its colour reference view. Fixed-point in the
+mixer only is enough, provided the row is built bit-identically everywhere, pinned per
+test file and exposed. It accepted the fade of negative weights near clip in place of
+drop-and-renormalise, on three conditions: no parameter, bit-identical to no fade when no
+weight is negative, and the clip threshold documented exactly. It does not need a clip
+mask; its overlays come from the raw CFA plane. New asks: the f32 plane bit-identical on
+aarch64 and x86_64 with a golden digest, and a row-range (band) form for iPad memory
+(about 720 MB for a 60 MP f32 plane). SPEC-091 took the plane's asks on 2026-11-25; the
+mixer's are recorded in SPEC-092's outline. onyx will look for Q3 and M11 colour DNGs
+before STAGE-032. Who supplies them is still open.
+
 ## Dependencies
 
 ### Depends on
