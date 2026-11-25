@@ -69,6 +69,11 @@ It is deliberately a **library, not an application**
 > [tested DNG modes](#tested-dng-modes), [`CHANGELOG.md`](CHANGELOG.md) and
 > [Scope](#scope-and-roadmap).
 
+**See it in the browser:** [Anatomy of a RAW](https://jysf.github.io/irradiance-demo/)
+runs the published crate compiled to WebAssembly and shows every pipeline stage on a
+real DNG ([source](https://github.com/jysf/irradiance-demo)). CI builds the library for
+`wasm32-unknown-unknown` on every change (`just wasm-check`).
+
 ## The pipeline
 
 | Module | Responsibility |
@@ -291,6 +296,7 @@ just fuzz            # the ifd/container fuzz target (also: fuzz-plane,
                      #   fuzz-develop, fuzz-warp, fuzz-opcode, fuzz-ljpeg,
                      #   fuzz-dng-write)
 just doc-check       # cargo doc with warnings denied
+just wasm-check      # build the library for wasm32-unknown-unknown (the browser)
 ```
 
 Timing examples (release build, need the Tier-B corpus): `just unpack-timing`,
