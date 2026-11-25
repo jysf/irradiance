@@ -8,16 +8,6 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ## [Unreleased]
 
-## [0.2.7] - 2026-11-25
-
-irradiance can now write DNG: the opt-in `write` feature adds `irradiance::dng::write`,
-which writes one monochrome `u16` plane as an uncompressed DNG (PROJ-005 STAGE-017,
-DEC-055, DEC-071 to DEC-075, DEC-080 to DEC-082). A compatible patch release over 0.2.6:
-the feature is off by default and adds no dependency, and every other change is an
-addition, two variants on the `#[non_exhaustive]` `Error`. No reader, develop or colour
-code changed, so every input reads and develops as in 0.2.6, `DEVELOP_VERSION` stays
-`"8"`, and the MSRV stays 1.90. docs.rs documents the writer.
-
 ### Added
 
 - **The white-balanced linear-sRGB plane at sensor geometry** (SPEC-091,
@@ -38,6 +28,19 @@ code changed, so every input reads and develops as in 0.2.6, `DEVELOP_VERSION` s
 - **The colour path's determinism is measured** (SPEC-091): `tests/determinism.rs`
   gains a dual-illuminant colour fixture whose `u16` and unclamped `f32`
   sensor-geometry planes have committed hashes on the x86_64 and arm64 CI legs.
+
+## [0.2.7] - 2026-11-25
+
+irradiance can now write DNG: the opt-in `write` feature adds `irradiance::dng::write`,
+which writes one monochrome `u16` plane as an uncompressed DNG (PROJ-005 STAGE-017,
+DEC-055, DEC-071 to DEC-075, DEC-080 to DEC-082). A compatible patch release over 0.2.6:
+the feature is off by default and adds no dependency, and every other change is an
+addition, two variants on the `#[non_exhaustive]` `Error`. No reader, develop or colour
+code changed, so every input reads and develops as in 0.2.6, `DEVELOP_VERSION` stays
+`"8"`, and the MSRV stays 1.90. docs.rs documents the writer.
+
+### Added
+
 - **A public monochrome DNG writer behind the new `write` feature** (SPEC-061,
   STAGE-017, PROJ-005, DEC-071 to DEC-075, DEC-080). `irradiance::dng::write`
   writes one mono `u16` plane, unchanged, as an uncompressed little-endian DNG
