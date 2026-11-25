@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-017                     # stable, zero-padded, continuous across the repo
-  status: active                    # proposed | active | shipped | cancelled | on_hold
+  status: shipped                   # proposed | active | shipped | cancelled | on_hold
   priority: high                    # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -15,7 +15,7 @@ repo:
   id: irradiance
 
 created_at: 2026-11-11
-shipped_at: null
+shipped_at: 2026-11-25
 
 # What part of the project's value thesis this stage advances.
 # If you can't articulate value_contribution, the stage may be
@@ -53,7 +53,12 @@ value_contribution:
 # orchestration genuinely has no observable split, add it to
 # STAGE_ORCH_COST_GRANDFATHERED by name rather than inventing a figure.
 orchestration_cost:
-  sessions: []                      # - tokens_total: N
+  sessions:
+    - tokens_total: 62715868
+      estimated_usd: 44.24
+      recorded_at: 2026-11-25
+      notes: "Measured from the orchestrator transcript (session 0fd3fdc5, claude-opus-5-5, no subagents) from its start (2026-11-24T21:09Z) to the start of this close (2026-11-25T17:11Z): 313 unique message.ids, deduped by message.id, opus-5-5 rates (input 719 + cache-creation 798,070 (1-hour) + cache-read 61,700,693 + output 216,386). Covers dispatching SPEC-061's build and verify and its ship, the design, dispatch and ship of SPEC-081, SPEC-082 and SPEC-094, and the preview-placement probe; every design and ship row is null for this reason, so nothing is counted twice. Not measured: the 2026-11-11 frame, the 2026-11-20 re-frame and SPEC-061's design (2026-11-21), which ran in earlier sessions, and the tail of this close."
+                                    # - tokens_total: N
                                     #   estimated_usd: N
                                     #   recorded_at: YYYY-MM-DD
                                     #   notes: "framing + spec breakdown"
@@ -211,21 +216,58 @@ preview and EXIF/XMP specs are in. SPEC-061 keeps its ID and is re-scoped to the
 
 ## Stage-Level Reflection
 
-*Filled in when status moves to shipped. Run Prompt 1c (Stage Ship) in
-FIRST_SESSION_PROMPTS.md to draft this.*
-
-- **Did we deliver the outcome in "What This Stage Is"?** <yes/no + notes>
-- **How many specs did it actually take?** <number vs. plan>
-- **How many outlines survived unchanged?** <n of m — only if this stage was
-  framed with `just frame-stage`. Counts outlines whose scope held from frame to
-  ship. A low number means framing ran ahead of what was knowable; a high one
-  means it's paying for itself.>
-- **What changed between starting and shipping?** <one sentence>
+- **Did we deliver the outcome in "What This Stage Is"?** Yes, with one manual check open.
+  `irradiance::dng::write` (feature `write`) writes a monochrome u16 DNG into a caller
+  buffer at three framings, with the source's levels and opcode lists, the caller's EXIF
+  block, XMP, descriptive tags, rendering hints and an optional JPEG preview. Against the
+  success criteria:
+  - Feature gating: the default build gains nothing; the error payload types are always
+    compiled so `Error`'s shape does not depend on features (DEC-080).
+  - Round trip and acceptance: every framing re-parses bit for bit, and `dng_validate`
+    gives no warnings on all 12 corpus outputs (SPEC-061), the K-3 III and Q2M with
+    metadata (SPEC-081) and with previews (SPEC-082). exiftool reads the same EXIF and
+    GPS values and the preview byte-identical.
+  - Determinism, panic-freedom and semver: identical bytes for identical input, a
+    `dng_write` fuzz target that now runs 60 s in CI (SPEC-094), `#[non_exhaustive]`
+    public types.
+  - Manual check: the Lightroom Classic / Capture One open is **not recorded**. It was
+    never gated; onyx's own validation repeats it, and DEC-082's confidence (0.8) says
+    the same about previews.
+  - Not yet usable by onyx: `write` reaches crates.io only with the release spec, next.
+- **How many specs did it actually take?** Four: the three of the 2026-11-20 re-frame
+  (SPEC-061 [M], SPEC-081 [M], SPEC-082 [S]) plus SPEC-094 [S], which bundled the three
+  [XS] follow-ups the verifies found.
+- **How many outlines survived unchanged?** Not framed with `just frame-stage`. All three
+  re-frame outlines shipped in scope; SPEC-081 was re-estimated from S to M at design.
+- **What changed between starting and shipping?** The 2026-11-20 re-frame from onyx's
+  `monorail-000/DEC-075` cut CFA, tiles, big-endian and colour metadata, and added the
+  preview and EXIF/XMP specs; after that the scope held.
 - **Lessons that should update AGENTS.md, templates, or constraints?**
-  - <one-line updates>
-- **Signals dispositioned at this close?** (Prompt 1d step 7) Every
-  `type: lesson` signal in `/guidance/signals.yaml` owned by this stage close
-  was walked — codified (at its bar), left `watch`, or dropped. No silent carry.
-  - <note what codified / what's still watch + its N>
+  - None to codify. The spec template's three test-design rules already covered this
+    stage's misses, and each was missed once: SPEC-082's tag-order check ran only on a
+    fixture without XMP (distinguishing fixture); SPEC-094's design missed an existing
+    test that encoded the old behaviour (moved assertions) and pointed one rule-clause
+    row at a test that could not catch its mutant (rule-clause map). Every one was
+    caught by the build or the cold verify, which is what the verify is for, so the
+    rules stand unchanged.
+  - Applied and held: listing every CI job in the handoffs (after SPEC-061's red-proof
+    miss), and `handback-sync` in the same push as the advance to ship. CI was green on
+    the first run for SPEC-081, SPEC-082 and SPEC-094.
+- **Signals dispositioned at this close?** All 15 `disposition_at: stage-close` signals
+  that were `open` or `watch` were walked and bumped to 2026-11-25.
+  `read-the-kernel-before-deciding-the-approach` went from N=1 to N=2 (SPEC-061's design
+  put the error payload types behind the feature it claimed they did not depend on). The
+  rest gained no same-outcome evidence and stay `watch`. Two new `process-debt` signals,
+  owned by the project close: `fuzz-targets-without-a-ci-smoke-job` (`develop`,
+  `demosaic`) and `ljpeg-private-doc-links-break-the-private-items-doc-build` (13 links).
+  Both predate PROJ-005 and are a small patch each.
 - **Should any spec-level reflections be promoted to stage-level lessons?**
-  - <one-line items — record below-bar ones as `watch` signals; don't codify yet>
+  - SPEC-081's "write the order of checks within a field, not only between fields" is
+    N=1 and the field-ordering rule now lives in DEC-081 §4; not promoted.
+- **Follow-up work.** The release spec (`just new-release-spec`) that first publishes
+  `write` is the next step and the only thing between this stage and onyx. The README's
+  fuzz line now names `fuzz-dng-write` (this close). The two process-debt items above are
+  for the project close or a hygiene patch.
+- **Cost.** SPEC-061 35.7M / $26.09, SPEC-081 17.4M / $14.27, SPEC-082 20.1M / $15.62,
+  SPEC-094 12.9M / $9.55: specs 86.1M / $65.53 against 83M estimated. Orchestration
+  62.7M / $44.24 (measured part only). Stage about 148.8M / $109.77.
