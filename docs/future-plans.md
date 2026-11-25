@@ -284,6 +284,13 @@ Accepted direction, horizon "later" in the brief:
 - **X-Trans** sensors, including a **DHT demosaic**.
 - **Native Fuji RAF** container parsing.
 - **Nikon NEF**, including its **linearization curve**.
+- **Sony ARW**, a TIFF-based container with no published spec. Its
+  uncompressed and lossless-compressed variants come first, since they
+  reuse the IFD parser and the SOF-3 decoder. The lossy "compressed RAW"
+  block codec and the obfuscated SR2Private metadata each need a
+  provenance decision first: what is publicly known about them comes from
+  copyleft decoders the clean-room rule does not allow us to read. There is
+  no ARW in the corpus yet, so sample files are the first step.
 - Further vendor containers as demand and corpus coverage justify (PROJ-001
   explicitly fences out NEF/RAF/CR2/ARW/NRW).
 
