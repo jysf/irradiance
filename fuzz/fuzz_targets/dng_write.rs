@@ -13,6 +13,8 @@
 //! 3. On `Ok`, the output parses, `sensor()` succeeds, and `unpack_into`
 //!    returns the expected samples: the whole plane at full-sensor framing,
 //!    otherwise the active-area cut.
+//! 4. On `Ok` with a preview (`SPEC-082`), `previews()` yields exactly one
+//!    `Ok` preview whose bytes are the caller's JPEG; without one, none.
 //!
 //! Run with the rustup shim first on PATH (see `fuzz_targets/ifd.rs`):
 //!
@@ -84,4 +86,13 @@ fuzz_target!(|data: &[u8]| {
         })
         .collect();
     assert_eq!(plane, expected, "the written samples read back unchanged");
+
+    let previews: Vec<_> = container.previews().collect();
+    match options.preview {
+        Some(p) => assert!(
+            matches!(previews.as_slice(), [Ok(q)] if q.bytes == p.jpeg),
+            "the preview reads back byte for byte: {previews:?}"
+        ),
+        None => assert!(previews.is_empty(), "no preview written: {previews:?}"),
+    }
 });

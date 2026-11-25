@@ -41,6 +41,18 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   `DateTimeInvalid`, `RationalInvalid`, `ExifBlockWithoutIfd`,
   `ExifIfdOffsetInvalid`, `EmptyXmp`. Carrying `BaselineExposure` makes the
   K-3 III's export render like its source in Adobe's reader.
+- **The writer stores an optional caller JPEG preview** (SPEC-082, DEC-071 §5,
+  DEC-082). The new `WriteOptions::preview` field (default `None`) takes a
+  `JpegPreview`: JPEG bytes the caller already encoded, their width and height,
+  and a `JpegPreviewColor` (`YCbCr`, the default, or `Gray`). It is written as
+  a reduced-resolution (`NewSubFileType` 1) `SubIFDs` child of the raw IFD0,
+  one JPEG-compressed strip between IFD0's values and the raw strip, and is
+  never decoded: the writer checks only the `FF D8` start marker and that each
+  dimension is 1 to 65535. Two new `WriteInputError` reasons, also checked by
+  `written_len`: `PreviewNotJpeg` and `PreviewDimensionsInvalid`. Without a
+  preview the output is byte-identical to before. `Container::previews`,
+  exiftool and Adobe `dng_validate` read the preview back unchanged, and
+  macOS Quick Look shows it (design probe).
 
 ## [0.2.6] - 2026-11-23
 

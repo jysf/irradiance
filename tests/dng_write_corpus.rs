@@ -35,6 +35,17 @@
 //!   warnings; the K-3 III renders like its source, and differently without
 //!   `BaselineExposure` (the hints' red-proof).
 //!
+//! `SPEC-082` adds:
+//!
+//! - Oracle 6 (`exiftool_extracts_the_preview_byte_for_byte`, tool-gated):
+//!   `exiftool -b -SubIFD:PreviewImage` returns the caller's JPEG exactly, and
+//!   the preview IFD's tags read back as written. Synthetic plane.
+//! - Oracle 7 (`dng_validate_accepts_a_written_preview`, env-gated like
+//!   oracle 8): the K-3 III and Q2M at StandardCrop with every SPEC-081 field
+//!   and their own largest JPEG preview validate with no warnings and render
+//!   exactly as without the preview; so does the K-3 III with the committed
+//!   gray fixture as a Gray preview.
+//!
 //! Every written file goes to the OS temp dir, never the repo.
 
 #[path = "support/corpus.rs"]
@@ -61,8 +72,10 @@ use corpus::{CorpusRoot, Manifest};
 use dng_write_oracle::{check_round_trip, cut, expected, options_from_sensor, read_back};
 use dng_writer::{write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload, PlaneKind};
 use irradiance::develop::{develop_with_into, output_dimensions_with, DevelopOptions};
-use irradiance::dng::write::{write_to_vec, ExifBlock, Framing, WriteOptions, EXIF_BLOCK_BASE};
-use irradiance::ifd::{ActiveArea, Container, Rational, Sensor};
+use irradiance::dng::write::{
+    write_to_vec, ExifBlock, Framing, JpegPreview, JpegPreviewColor, WriteOptions, EXIF_BLOCK_BASE,
+};
+use irradiance::ifd::{ActiveArea, Compression, Container, Rational, Sensor};
 
 /// The four held monochrome DNGs (`SPEC-061` §7 item 4).
 const FILES: [&str; 4] = [
@@ -935,6 +948,47 @@ fn source_hint(container: &Container<'_>, tag: u16) -> Option<Rational> {
 const DESCRIPTIVE_TAGS: [u16; 8] = [271, 272, 305, 306, 315, 33432, 50709, 50735];
 const HINT_TAGS: [u16; 4] = [50730, 50731, 50732, 50734];
 
+/// The source's descriptive strings and hints, in tag order.
+fn source_metadata(container: &Container<'_>) -> (Vec<Option<String>>, Vec<Option<Rational>>) {
+    let strings = DESCRIPTIVE_TAGS
+        .iter()
+        .map(|&t| source_ascii(container, t))
+        .collect();
+    let hints = HINT_TAGS
+        .iter()
+        .map(|&t| source_hint(container, t))
+        .collect();
+    (strings, hints)
+}
+
+/// StandardCrop options carrying the oracle-3 block, `xmp` and the source's
+/// own strings and hints (SPEC-081 oracle 5's file).
+fn metadata_options<'a>(
+    sensor: &'a Sensor,
+    block: &'a exif_block::Block,
+    xmp: &'a [u8],
+    strings: &'a [Option<String>],
+    hints: &[Option<Rational>],
+) -> WriteOptions<'a> {
+    let mut o = options_from_sensor(sensor, Framing::StandardCrop, MODEL);
+    o.exif_block = Some(exif_of(block));
+    o.xmp = Some(xmp);
+    let s = |i: usize| strings[i].as_deref();
+    o.make = s(0);
+    o.model = s(1);
+    o.software = s(2);
+    o.date_time = s(3);
+    o.artist = s(4);
+    o.copyright = s(5);
+    o.localized_camera_model = s(6);
+    o.camera_serial_number = s(7);
+    o.baseline_exposure = hints[0];
+    o.baseline_noise = hints[1];
+    o.baseline_sharpness = hints[2];
+    o.linear_response_limit = hints[3];
+    o
+}
+
 #[test]
 fn dng_validate_accepts_metadata_and_the_k3_renders_like_its_source() {
     let Some(bin) = dng_validate() else {
@@ -953,32 +1007,11 @@ fn dng_validate_accepts_metadata_and_the_k3_renders_like_its_source() {
         };
         let bytes = std::fs::read(&file_path).unwrap();
         let container = Container::parse(&bytes).unwrap();
-        let strings: Vec<Option<String>> = DESCRIPTIVE_TAGS
-            .iter()
-            .map(|&t| source_ascii(&container, t))
-            .collect();
-        let hints: Vec<Option<Rational>> = HINT_TAGS
-            .iter()
-            .map(|&t| source_hint(&container, t))
-            .collect();
+        let (strings, hints) = source_metadata(&container);
 
         let write_with = |baseline_exposure: bool| {
-            let mut o = options_from_sensor(&sensor, Framing::StandardCrop, MODEL);
-            o.exif_block = Some(exif_of(&block));
-            o.xmp = Some(&xmp);
-            let s = |i: usize| strings[i].as_deref();
-            o.make = s(0);
-            o.model = s(1);
-            o.software = s(2);
-            o.date_time = s(3);
-            o.artist = s(4);
-            o.copyright = s(5);
-            o.localized_camera_model = s(6);
-            o.camera_serial_number = s(7);
-            o.baseline_exposure = hints[0].filter(|_| baseline_exposure);
-            o.baseline_noise = hints[1];
-            o.baseline_sharpness = hints[2];
-            o.linear_response_limit = hints[3];
+            let mut o = metadata_options(&sensor, &block, &xmp, &strings, &hints);
+            o.baseline_exposure = o.baseline_exposure.filter(|_| baseline_exposure);
             write_to_vec(&plane, sensor.width, sensor.height, &o, BUDGET)
                 .unwrap_or_else(|e| panic!("{path}: write with metadata: {e}"))
         };
@@ -1063,4 +1096,179 @@ fn dng_validate_accepts_metadata_and_the_k3_renders_like_its_source() {
         report.push(format!("{label}: valid, no warnings"));
     }
     println!("SPEC-081 dng_validate report:\n{}", report.join("\n"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-082 oracles 6 and 7 — the preview through exiftool and dng_validate
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A one-component baseline JPEG, 64×48, of a synthetic XOR pattern (our own
+/// content, no camera data). Made once on macOS 26.6.2: a Python script wrote
+/// an 8-bit gray TIFF with sample `((x * 4) ^ (y * 5)) & 0xFF`, then
+/// `sips -s format jpeg gray.tif --out preview-gray-64x48.jpg`. Its SOF0
+/// header says 64×48 and one component.
+const GRAY_FIXTURE: &[u8] = include_bytes!("fixtures/preview-gray-64x48.jpg");
+
+fn jpeg_preview(jpeg: &[u8], width: u32, height: u32, color: JpegPreviewColor) -> JpegPreview<'_> {
+    let mut p = JpegPreview::default();
+    p.jpeg = jpeg;
+    p.width = width;
+    p.height = height;
+    p.color = color;
+    p
+}
+
+/// Oracle 6 (AC7): exiftool extracts the preview byte for byte and reads its
+/// IFD's tags as written, for a Gray (the fixture) and a YCbCr preview.
+#[test]
+fn exiftool_extracts_the_preview_byte_for_byte() {
+    if !tools::exiftool_available() {
+        eprintln!(
+            "SKIP exiftool_extracts_the_preview_byte_for_byte: exiftool is not on PATH — \
+             SPEC-082 oracle 6 did not run"
+        );
+        return;
+    }
+    let (w, h) = (24u32, 16u32);
+    let samples: Vec<u16> = (0..w * h).map(|i| (i * 97 % 4096) as u16).collect();
+    // A synthetic YCbCr stand-in: the writer and exiftool's extraction never
+    // decode it. Odd length, so the pad before the raw strip is exercised.
+    let ycbcr: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0, 2, 0xFF, 0xD9, 7];
+    let cases = [
+        ("gray", GRAY_FIXTURE, 64, 48, JpegPreviewColor::Gray, "1"),
+        ("ycbcr", ycbcr, 120, 80, JpegPreviewColor::YCbCr, "6"),
+    ];
+    for (label, jpeg, pw, ph, color, photometric) in cases {
+        let mut o = WriteOptions::default();
+        o.unique_camera_model = Some(MODEL);
+        o.preview = Some(jpeg_preview(jpeg, pw, ph, color));
+        let file = write_to_vec(&samples, w, h, &o, BUDGET).expect("synthetic write");
+        let tmp = temp_file(&file, &format!("preview-{label}"));
+
+        let args: Vec<String> = ["-b", "-SubIFD:PreviewImage"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let out = tools::run_tool("exiftool", &args, &tmp).expect("exiftool -b");
+        assert_eq!(out.stdout, jpeg, "{label}: exiftool's PreviewImage");
+
+        let args: Vec<String> = [
+            "-n",
+            "-s3",
+            "-f",
+            "-SubIFD:SubfileType",
+            "-SubIFD:ImageWidth",
+            "-SubIFD:ImageHeight",
+            "-SubIFD:Compression",
+            "-SubIFD:PhotometricInterpretation",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let out = tools::run_tool("exiftool", &args, &tmp).expect("exiftool");
+        let _ = std::fs::remove_file(&tmp);
+        let text = String::from_utf8_lossy(&out.stdout);
+        let (pw, ph) = (pw.to_string(), ph.to_string());
+        assert_eq!(
+            text.lines().collect::<Vec<_>>(),
+            vec!["1", pw.as_str(), ph.as_str(), "7", photometric],
+            "{label}: exiftool said {text:?}"
+        );
+    }
+}
+
+/// Oracle 7 (AC8, DEC-069 §6): the K-3 III and Q2M at StandardCrop with
+/// every SPEC-081 field and their own largest JPEG preview (its declared
+/// size and colour are the source's) validate with no warnings, and render
+/// exactly as without the preview; the K-3 III also with the gray fixture.
+#[test]
+fn dng_validate_accepts_a_written_preview() {
+    let Some(bin) = dng_validate() else {
+        eprintln!("SKIP dng_validate_accepts_a_written_preview — ${DNG_VALIDATE_ENV} unset");
+        return;
+    };
+    let block = exif_block::build(EXIF_BLOCK_BASE, exif_block::Shape::Both);
+    let xmp = xmp_packet();
+    let mut report = Vec::new();
+    for path in [K3III, Q2M] {
+        let Some((file_path, sensor, plane)) = source(path) else {
+            continue;
+        };
+        let bytes = std::fs::read(&file_path).unwrap();
+        let container = Container::parse(&bytes).unwrap();
+        let (strings, hints) = source_metadata(&container);
+        let largest = container
+            .previews()
+            .flatten()
+            .filter(|p| p.compression == Compression::Jpeg)
+            .max_by_key(|p| u64::from(p.width) * u64::from(p.height))
+            .unwrap_or_else(|| panic!("{path}: the source has a JPEG preview"));
+        let color = match (largest.photometric, largest.samples_per_pixel) {
+            (Some(1), 1) => JpegPreviewColor::Gray,
+            (Some(6) | None, 3) => JpegPreviewColor::YCbCr,
+            other => panic!("{path}: unexpected preview colour {other:?}"),
+        };
+
+        let base = metadata_options(&sensor, &block, &xmp, &strings, &hints);
+        let write = |preview: Option<JpegPreview<'_>>| {
+            let mut o = base.clone();
+            o.preview = preview;
+            write_to_vec(&plane, sensor.width, sensor.height, &o, BUDGET)
+                .unwrap_or_else(|e| panic!("{path}: write: {e}"))
+        };
+        let plain = temp_file(&write(None), &format!("{path}-no-preview"));
+        let (w0, render0) = validate_and_render(&bin, &plain, &format!("{path} no preview"));
+        let _ = std::fs::remove_file(&plain);
+        assert!(w0.is_empty(), "{path} no preview: {w0:#?}");
+
+        let mut runs = vec![(
+            format!(
+                "{path} with its own {}x{} {color:?} preview ({} bytes)",
+                largest.width,
+                largest.height,
+                largest.bytes.len()
+            ),
+            jpeg_preview(largest.bytes, largest.width, largest.height, color),
+        )];
+        if path == K3III {
+            runs.push((
+                format!("{path} with the gray fixture"),
+                jpeg_preview(GRAY_FIXTURE, 64, 48, JpegPreviewColor::Gray),
+            ));
+        }
+        for (label, preview) in runs {
+            let file = write(Some(preview));
+            // The preview reads back through irradiance too.
+            let back = Container::parse(&file).unwrap();
+            let got: Vec<_> = back.previews().collect();
+            assert!(
+                matches!(got.as_slice(), [Ok(q)] if q.bytes == preview.jpeg),
+                "{label}: {got:?}"
+            );
+            let tmp = temp_file(&file, &label);
+            let (warnings, render) = validate_and_render(&bin, &tmp, &label);
+            let _ = std::fs::remove_file(&tmp);
+            assert!(
+                warnings.is_empty(),
+                "{label}: dng_validate complained: {warnings:#?}"
+            );
+            assert_eq!(
+                (render.width, render.height),
+                (render0.width, render0.height),
+                "{label}: render size"
+            );
+            let differ = render
+                .samples
+                .iter()
+                .zip(&render0.samples)
+                .filter(|(a, b)| a != b)
+                .count();
+            assert_eq!(differ, 0, "{label}: the preview changed the raw render");
+            report.push(format!(
+                "{label}: valid, no warnings; render equals the no-preview render ({}x{})",
+                render.width, render.height
+            ));
+        }
+    }
+    println!("SPEC-082 dng_validate report:\n{}", report.join("\n"));
 }

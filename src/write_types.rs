@@ -126,6 +126,12 @@ pub enum WriteInputError {
     /// The XMP packet is empty: a count-0 `XMLPacket` is malformed
     /// (`DEC-081` §2). Leave the option `None` to write no packet.
     EmptyXmp,
+    /// The preview's bytes are empty or do not start with the JPEG SOI marker
+    /// `FF D8` (`DEC-082` §5). Only those two bytes are looked at.
+    PreviewNotJpeg,
+    /// The preview's width or height is 0 or above 65535, JPEG's own limit
+    /// (`DEC-082` §5).
+    PreviewDimensionsInvalid,
     /// An opcode list's headers cannot be walked: the declared count and the
     /// per-opcode parameter sizes do not add up to exactly the list's length.
     /// Only `OpcodeList1` is walked, and only under a framing that cuts.
@@ -196,6 +202,12 @@ impl fmt::Display for WriteInputError {
                 "the {ifd} IFD offset {offset} is odd or leaves no room for its entry count inside the EXIF block"
             ),
             WriteInputError::EmptyXmp => f.write_str("the XMP packet is empty"),
+            WriteInputError::PreviewNotJpeg => {
+                f.write_str("the preview is empty or does not start with the JPEG SOI marker")
+            }
+            WriteInputError::PreviewDimensionsInvalid => {
+                f.write_str("the preview's width and height must each be 1 to 65535")
+            }
             WriteInputError::MalformedOpcodeList { list } => {
                 write!(
                     f,

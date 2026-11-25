@@ -49,13 +49,27 @@
 //! an odd-length block, then IFD0. `ExifIFD` and `GPSInfo` are written as the
 //! base plus each in-block offset given:
 //!
+//! A [`JpegPreview`] (`SPEC-082`, `DEC-082`) is a reduced-resolution
+//! subfile: IFD0 gains a `SubIFDs` entry (330, `LONG`, count 1) pointing at
+//! one preview IFD, which has no next IFD (nor has IFD0). Its tags, in order:
+//! `NewSubFileType` 1, `ImageWidth` and `ImageLength` (the caller's),
+//! `BitsPerSample` (8, 8, 8 for YCbCr; 8 for gray), `Compression` 7,
+//! `PhotometricInterpretation` (6 YCbCr, 1 gray), `StripOffsets` (the JPEG),
+//! `SamplesPerPixel` (3 or 1), `RowsPerStrip` (the height), `StripByteCounts`
+//! (the JPEG's length), `PlanarConfiguration` 1. The JPEG is copied verbatim
+//! and never decoded. Without a preview none of this is written.
+//!
 //! ```text
 //! offset 0   II 42 <IFD0 offset>
 //! offset 8   the EXIF block, verbatim (when given), then a 0 pad if odd
 //!            IFD0
 //!            out-of-line values, in tag order, each at an even offset
-//!            the strip, at an even offset
+//!            the preview IFD and its out-of-line values (with a preview)
+//!            the JPEG (with a preview), at an even offset
+//!            the raw strip, at an even offset, last
 //! ```
+//!
+//! Every pad byte is 0.
 //!
 //! Framing (`DEC-073`) is expressed as tags. Samples are cut only at the
 //! `ActiveArea` edge and never rotated:
@@ -82,7 +96,8 @@
 //! (printable ASCII of at most 1024 bytes, then `DateTime`'s form), the
 //! rendering hints in tag order, the EXIF block's IFD offsets (at least one,
 //! each even and leaving room for its entry count inside the block), the XMP
-//! packet (not empty), the opcode lists, the output size. Every
+//! packet (not empty), the preview (its bytes start `FF D8`, then each
+//! dimension is 1 to 65535), the opcode lists, the output size. Every
 //! refusal is [`Error::InvalidWriteInput`] with a [`WriteInputError`] reason
 //! (`ErrorKind::CallerError`), except an `OpcodeList1` opcode a cut would
 //! shift, which is [`Error::UnsupportedOpcodeForFraming`]
@@ -98,8 +113,9 @@
 //! DNG Specification 1.7.1 (tag set and placement, the opcode-list header
 //! layout, `DNGBackwardVersion` 1.3 for opcode lists, tags 50709 and 50730 to
 //! 50735), Exif 2.32 §4.6.3 (the `ExifIFD` and `GPSInfo` pointers), XMP
-//! Specification Part 3 §1.1.4 (tag 700), `DEC-072`, `DEC-074`, `DEC-081` and
-//! `DEC-008` in the writing direction; the layout follows this repository's own test writer
+//! Specification Part 3 §1.1.4 (tag 700), TIFF Technical Note 2 and TIFF/EP
+//! (the JPEG preview subfile), ITU-T T.81 (the SOI marker only), `DEC-072`,
+//! `DEC-074`, `DEC-081`, `DEC-082` and `DEC-008` in the writing direction; the layout follows this repository's own test writer
 //! (`tests/support/dng_writer.rs`, `SPEC-057`). No writer implementation was
 //! read.
 
@@ -110,7 +126,7 @@ use crate::ifd::{
     TAG_DEFAULT_CROP_SIZE, TAG_DNG_BACKWARD_VERSION, TAG_DNG_VERSION, TAG_IMAGE_LENGTH,
     TAG_IMAGE_WIDTH, TAG_MASKED_AREAS, TAG_NEW_SUBFILE_TYPE, TAG_OPCODE_LIST_1, TAG_OPCODE_LIST_2,
     TAG_OPCODE_LIST_3, TAG_ORIENTATION, TAG_PHOTOMETRIC, TAG_ROWS_PER_STRIP, TAG_SAMPLES_PER_PIXEL,
-    TAG_STRIP_BYTE_COUNTS, TAG_STRIP_OFFSETS, TAG_WHITE_LEVEL,
+    TAG_STRIP_BYTE_COUNTS, TAG_STRIP_OFFSETS, TAG_SUB_IFDS, TAG_WHITE_LEVEL,
 };
 use crate::Error;
 
@@ -208,6 +224,48 @@ pub struct WriteOptions<'a> {
     /// `LinearResponseLimit` (`RATIONAL`), as
     /// [`WriteOptions::baseline_noise`].
     pub linear_response_limit: Option<Rational>,
+    /// A caller-encoded JPEG preview (`DEC-071` §5, `DEC-082`), stored as a
+    /// reduced-resolution `SubIFDs` child of IFD0 and never decoded. `None`
+    /// writes no preview, and the file is then byte for byte what it was
+    /// before previews existed.
+    pub preview: Option<JpegPreview<'a>>,
+}
+
+/// A caller-encoded JPEG preview (`DEC-071` §5, `DEC-082`). The writer never
+/// decodes it: it checks only that `jpeg` starts with the SOI marker
+/// (`FF D8`) and that the dimensions are 1 to 65535, and writes `width`,
+/// `height` and `color` as given. They must describe the JPEG; no reader the
+/// design probed checks them against the stream.
+///
+/// Named `JpegPreview`, not `Preview`, because [`crate::ifd::Preview`] is the
+/// reader's type. `#[non_exhaustive]` (`DEC-052`): start from
+/// [`JpegPreview::default`] and assign fields.
+#[derive(Debug, Clone, Copy, Default)]
+#[non_exhaustive]
+pub struct JpegPreview<'a> {
+    /// The JPEG file's bytes, from its SOI marker on. Copied verbatim.
+    pub jpeg: &'a [u8],
+    /// The JPEG's width in pixels, 1 to 65535, as its SOF header says.
+    pub width: u32,
+    /// The JPEG's height in pixels, 1 to 65535, as its SOF header says.
+    pub height: u32,
+    /// What the JPEG's components are. Default [`JpegPreviewColor::YCbCr`].
+    pub color: JpegPreviewColor,
+}
+
+/// The colour of a [`JpegPreview`]'s components, which sets the preview
+/// IFD's `PhotometricInterpretation`, `SamplesPerPixel` and `BitsPerSample`
+/// (`DEC-082` §3). `#[non_exhaustive]` (`DEC-052`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum JpegPreviewColor {
+    /// Three components, YCbCr: `PhotometricInterpretation` 6,
+    /// `BitsPerSample` 8, 8, 8.
+    #[default]
+    YCbCr,
+    /// One component: `PhotometricInterpretation` 1 (`BlackIsZero`),
+    /// `BitsPerSample` 8.
+    Gray,
 }
 
 /// A caller-built EXIF block (`DEC-072`, `DEC-081` §1): the source's Exif,
@@ -274,6 +332,7 @@ impl Default for WriteOptions<'_> {
             baseline_noise: None,
             baseline_sharpness: None,
             linear_response_limit: None,
+            preview: None,
         }
     }
 }
@@ -397,6 +456,17 @@ const DNG_VERSION: [u8; 4] = [1, 4, 0, 0];
 const BACKWARD_WITH_OPCODES: [u8; 4] = [1, 3, 0, 0];
 const BACKWARD_WITHOUT_OPCODES: [u8; 4] = [1, 1, 0, 0];
 
+/// The JPEG start-of-image marker (ITU T.81 B.2.1), the only preview bytes
+/// the writer looks at (`DEC-082` §5).
+const JPEG_SOI: [u8; 2] = [0xFF, 0xD8];
+/// JPEG's own limit on a dimension (a 16-bit SOF field), and the preview's.
+const MAX_PREVIEW_DIMENSION: u32 = 65535;
+/// TIFF Technical Note 2 JPEG compression, for the preview.
+const COMPRESSION_JPEG: u16 = 7;
+/// TIFF 6.0 `PhotometricInterpretation` for a preview.
+const PHOTOMETRIC_BLACK_IS_ZERO: u16 = 1;
+const PHOTOMETRIC_YCBCR: u16 = 6;
+
 /// The longest ASCII field the writer accepts, in bytes before the NUL.
 const MAX_ASCII_LEN: usize = 1024;
 
@@ -418,6 +488,8 @@ const DATE_TIME_FORM: &[u8; 19] = b"DDDD:DD:DD DD:DD:DD";
 enum Value<'a> {
     Short(u16),
     Shorts2([u16; 2]),
+    /// The YCbCr preview's `BitsPerSample` (`DEC-082` §3).
+    Shorts3([u16; 3]),
     Long(u32),
     Longs2([u32; 2]),
     Longs4([u32; 4]),
@@ -436,18 +508,26 @@ enum Value<'a> {
     SRational(i32, i32),
     /// The strip's offset, a LONG known only after layout.
     StripOffset,
+    /// The preview IFD's offset (IFD0's `SubIFDs`), a LONG known only after
+    /// layout.
+    PreviewIfdOffset,
+    /// The JPEG's offset (the preview IFD's `StripOffsets`), a LONG known
+    /// only after layout.
+    PreviewStripOffset,
 }
 
 impl Value<'_> {
     fn field_type(&self) -> u16 {
         match self {
-            Value::Short(_) | Value::Shorts2(_) => TYPE_SHORT,
+            Value::Short(_) | Value::Shorts2(_) | Value::Shorts3(_) => TYPE_SHORT,
             Value::Long(_)
             | Value::Longs2(_)
             | Value::Longs4(_)
             | Value::Longs(_)
             | Value::Rects(_)
-            | Value::StripOffset => TYPE_LONG,
+            | Value::StripOffset
+            | Value::PreviewIfdOffset
+            | Value::PreviewStripOffset => TYPE_LONG,
             Value::Bytes4(_) | Value::Bytes(_) => TYPE_BYTE,
             Value::Ascii(_) => TYPE_ASCII,
             Value::Undefined(_) => TYPE_UNDEFINED,
@@ -463,9 +543,12 @@ impl Value<'_> {
             Value::Short(_)
             | Value::Long(_)
             | Value::StripOffset
+            | Value::PreviewIfdOffset
+            | Value::PreviewStripOffset
             | Value::Rational(..)
             | Value::SRational(..) => Some(1),
             Value::Shorts2(_) | Value::Longs2(_) => Some(2),
+            Value::Shorts3(_) => Some(3),
             Value::Longs4(_) | Value::Bytes4(_) => Some(4),
             Value::Longs(v) => len(v.len()),
             Value::Rects(v) => len(v.len())?.checked_mul(4),
@@ -494,7 +577,31 @@ struct Entry<'a> {
 
 /// One slot per tag the writer can emit, in ascending tag order, so the IFD
 /// is a fixed-size array (no allocation) and sorted by construction.
-const SLOTS: usize = 40;
+const SLOTS: usize = 41;
+
+/// The preview IFD's entries (`DEC-082` §3), all always written.
+const PREVIEW_SLOTS: usize = 11;
+
+/// The offsets [`emit`] fills in for the values known only after layout.
+#[derive(Debug, Clone, Copy)]
+struct Resolved {
+    /// The raw strip's offset (IFD0's `StripOffsets`).
+    strip: u32,
+    /// The preview IFD's offset (IFD0's `SubIFDs`); 0 without a preview.
+    preview_ifd: u32,
+    /// The JPEG's offset (the preview IFD's `StripOffsets`); 0 without one.
+    jpeg: u32,
+}
+
+/// The preview's part of the [`Plan`] (`DEC-082`).
+#[derive(Debug)]
+struct PreviewPlan<'a> {
+    entries: [Option<Entry<'a>>; PREVIEW_SLOTS],
+    value_offsets: [u32; PREVIEW_SLOTS],
+    entry_count: u16,
+    /// The JPEG's bytes, copied verbatim to [`Resolved::jpeg`].
+    jpeg: &'a [u8],
+}
 
 /// Everything [`serialize`] needs, decided and checked by [`plan`].
 #[derive(Debug)]
@@ -508,7 +615,10 @@ struct Plan<'a> {
     /// The EXIF block, copied verbatim to [`EXIF_BLOCK_BASE`]; empty without
     /// one.
     exif_block: &'a [u8],
-    strip_offset: u32,
+    /// The preview IFD and its JPEG; `None` without a preview.
+    preview: Option<PreviewPlan<'a>>,
+    /// The offsets known only after layout.
+    resolved: Resolved,
     /// The stored-plane rectangle written, as rows `top..bottom` and columns
     /// `left..right`.
     cut: ActiveArea,
@@ -716,6 +826,18 @@ fn plan<'a>(
         return Err(invalid(WriteInputError::EmptyXmp));
     }
 
+    // 6e. The preview (DEC-082 §5): the SOI marker, then the dimensions. No
+    // byte past the first two is read.
+    if let Some(preview) = options.preview {
+        if !preview.jpeg.starts_with(&JPEG_SOI) {
+            return Err(invalid(WriteInputError::PreviewNotJpeg));
+        }
+        let fits = |n: u32| (1..=MAX_PREVIEW_DIMENSION).contains(&n);
+        if !fits(preview.width) || !fits(preview.height) {
+            return Err(invalid(WriteInputError::PreviewDimensionsInvalid));
+        }
+    }
+
     // 7. The opcode lists (DEC-075 §5). Only list 1 works on stored-plane
     // coordinates, so only list 1 is walked, and only when the cut can move
     // them.
@@ -814,6 +936,9 @@ fn plan<'a>(
         o(TAG_SOFTWARE, ascii(options.software)),
         o(TAG_DATE_TIME, ascii(options.date_time)),
         o(TAG_ARTIST, ascii(options.artist)),
+        options
+            .preview
+            .and_then(|_| e(TAG_SUB_IFDS, Value::PreviewIfdOffset)),
         o(TAG_XML_PACKET, options.xmp.map(Value::Bytes)),
         o(TAG_COPYRIGHT, ascii(options.copyright)),
         o(TAG_EXIF_IFD, exif_pointer),
@@ -862,29 +987,32 @@ fn plan<'a>(
             .and_then(|b| e(TAG_OPCODE_LIST_3, Value::Undefined(b))),
     ];
 
-    // The layout (DEC-075 §1, DEC-072): header, the EXIF block and its pad,
-    // IFD0, out-of-line values in tag order, then the strip, each value and
-    // the strip at an even offset.
-    let entry_count = entries.iter().flatten().count();
-    let ifd_len = u64::try_from(entry_count)
-        .ok()
-        .and_then(|n| n.checked_mul(12))
-        .and_then(|n| n.checked_add(6)) // 2-byte count + 4-byte next-IFD offset
-        .ok_or_else(too_large)?;
-    let mut pos = ifd0_offset.checked_add(ifd_len).ok_or_else(too_large)?;
-    let mut value_offsets = [0u32; SLOTS];
-    for (slot, offset) in entries.iter().zip(value_offsets.iter_mut()) {
-        let Some(entry) = slot else { continue };
-        // The count must fit TIFF's u32 too.
-        let count = entry.value.count().ok_or_else(too_large)?;
-        u32::try_from(count).map_err(|_| too_large())?;
-        let len = entry.value.byte_len().ok_or_else(too_large)?;
-        if len > 4 {
-            pos = align2(pos)?;
-            *offset = u32::try_from(pos).map_err(|_| too_large())?;
-            pos = pos.checked_add(len).ok_or_else(too_large)?;
+    // The layout (DEC-075 §1, DEC-072, DEC-082 §2): header, the EXIF block
+    // and its pad, IFD0, out-of-line values in tag order, the preview IFD and
+    // its values, the JPEG, then the strip, each IFD, value and the strip at
+    // an even offset.
+    let (entry_count, value_offsets, mut pos) = place_ifd(&entries, ifd0_offset)?;
+    let mut preview_ifd_offset = 0;
+    let mut jpeg_offset = 0;
+    let preview = match options.preview {
+        None => None,
+        Some(p) => {
+            let at = align2(pos)?;
+            preview_ifd_offset = u32::try_from(at).map_err(|_| too_large())?;
+            let entries = preview_entries(&p)?;
+            let (count, offsets, end) = place_ifd(&entries, at)?;
+            let at = align2(end)?;
+            jpeg_offset = u32::try_from(at).map_err(|_| too_large())?;
+            let jpeg_len = u64::try_from(p.jpeg.len()).map_err(|_| too_large())?;
+            pos = at.checked_add(jpeg_len).ok_or_else(too_large)?;
+            Some(PreviewPlan {
+                entries,
+                value_offsets: offsets,
+                entry_count: u16::try_from(count).map_err(|_| too_large())?,
+                jpeg: p.jpeg,
+            })
         }
-    }
+    };
     pos = align2(pos)?;
     let strip_offset = u32::try_from(pos).map_err(|_| too_large())?;
     pos = pos.checked_add(strip_bytes).ok_or_else(too_large)?;
@@ -899,7 +1027,12 @@ fn plan<'a>(
         entry_count: u16::try_from(entry_count).map_err(|_| too_large())?,
         ifd0_offset: u32::try_from(ifd0_offset).map_err(|_| too_large())?,
         exif_block,
-        strip_offset,
+        preview,
+        resolved: Resolved {
+            strip: strip_offset,
+            preview_ifd: preview_ifd_offset,
+            jpeg: jpeg_offset,
+        },
         cut,
         plane_width: width,
         total,
@@ -909,6 +1042,64 @@ fn plan<'a>(
 /// `UniqueCameraModel`'s bytes, already validated by [`plan`].
 fn model_bytes<'a>(options: &WriteOptions<'a>) -> &'a [u8] {
     options.unique_camera_model.unwrap_or("").as_bytes()
+}
+
+/// Lay out one IFD at `ifd_offset` (even): its entries, then its
+/// out-of-line values in slot order, each at an even offset. Returns the
+/// entry count, each slot's value offset (0 for an inline value) and the
+/// offset just past the last value.
+fn place_ifd<const N: usize>(
+    entries: &[Option<Entry<'_>>; N],
+    ifd_offset: u64,
+) -> Result<(usize, [u32; N], u64), Error> {
+    let entry_count = entries.iter().flatten().count();
+    let ifd_len = u64::try_from(entry_count)
+        .ok()
+        .and_then(|n| n.checked_mul(12))
+        .and_then(|n| n.checked_add(6)) // 2-byte count + 4-byte next-IFD offset
+        .ok_or_else(too_large)?;
+    let mut pos = ifd_offset.checked_add(ifd_len).ok_or_else(too_large)?;
+    let mut value_offsets = [0u32; N];
+    for (slot, offset) in entries.iter().zip(value_offsets.iter_mut()) {
+        let Some(entry) = slot else { continue };
+        // The count must fit TIFF's u32 too.
+        let count = entry.value.count().ok_or_else(too_large)?;
+        u32::try_from(count).map_err(|_| too_large())?;
+        let len = entry.value.byte_len().ok_or_else(too_large)?;
+        if len > 4 {
+            pos = align2(pos)?;
+            *offset = u32::try_from(pos).map_err(|_| too_large())?;
+            pos = pos.checked_add(len).ok_or_else(too_large)?;
+        }
+    }
+    Ok((entry_count, value_offsets, pos))
+}
+
+/// The preview IFD's entries, in ascending tag order (`DEC-082` §3). The
+/// dimensions were checked by [`plan`]; a JPEG longer than TIFF's 32 bits is
+/// [`WriteInputError::OutputTooLarge`].
+fn preview_entries<'a>(
+    preview: &JpegPreview<'a>,
+) -> Result<[Option<Entry<'a>>; PREVIEW_SLOTS], Error> {
+    let (bits, photometric, samples) = match preview.color {
+        JpegPreviewColor::YCbCr => (Value::Shorts3([8, 8, 8]), PHOTOMETRIC_YCBCR, 3),
+        JpegPreviewColor::Gray => (Value::Short(8), PHOTOMETRIC_BLACK_IS_ZERO, 1),
+    };
+    let byte_count = u32::try_from(preview.jpeg.len()).map_err(|_| too_large())?;
+    let e = |tag: u16, value: Value<'a>| Some(Entry { tag, value });
+    Ok([
+        e(TAG_NEW_SUBFILE_TYPE, Value::Long(1)),
+        e(TAG_IMAGE_WIDTH, Value::Long(preview.width)),
+        e(TAG_IMAGE_LENGTH, Value::Long(preview.height)),
+        e(TAG_BITS_PER_SAMPLE, bits),
+        e(TAG_COMPRESSION, Value::Short(COMPRESSION_JPEG)),
+        e(TAG_PHOTOMETRIC, Value::Short(photometric)),
+        e(TAG_STRIP_OFFSETS, Value::PreviewStripOffset),
+        e(TAG_SAMPLES_PER_PIXEL, Value::Short(samples)),
+        e(TAG_ROWS_PER_STRIP, Value::Long(preview.height)),
+        e(TAG_STRIP_BYTE_COUNTS, Value::Long(byte_count)),
+        e(TAG_PLANAR_CONFIGURATION, Value::Short(1)),
+    ])
 }
 
 /// Whether `bytes` has `DateTime`'s form (`DATE_TIME_FORM`): the form, not
@@ -998,7 +1189,7 @@ fn walk_list_1(list: &[u8]) -> Result<Option<u32>, Error> {
 /// Every byte is written: the header, IFD0 and values region is zeroed first
 /// (its pads stay 0), and the strip runs to the end.
 fn serialize(plan: &Plan<'_>, samples: &[u16], dst: &mut [u8]) -> Result<(), Error> {
-    let strip_at = usize::try_from(plan.strip_offset).map_err(|_| too_large())?;
+    let strip_at = usize::try_from(plan.resolved.strip).map_err(|_| too_large())?;
     let (head, strip) = dst.split_at_mut_checked(strip_at).ok_or_else(too_large)?;
     head.fill(0);
 
@@ -1009,9 +1200,45 @@ fn serialize(plan: &Plan<'_>, samples: &[u16], dst: &mut [u8]) -> Result<(), Err
     let base = usize::try_from(EXIF_BLOCK_BASE).map_err(|_| too_large())?;
     put(head, base, plan.exif_block)?;
 
-    let mut at = usize::try_from(plan.ifd0_offset).map_err(|_| too_large())?;
-    at = put(head, at, &plan.entry_count.to_le_bytes())?;
-    for (slot, &offset) in plan.entries.iter().zip(&plan.value_offsets) {
+    write_ifd(
+        head,
+        plan.ifd0_offset,
+        plan.entry_count,
+        &plan.entries,
+        &plan.value_offsets,
+        plan.resolved,
+    )?;
+    // The preview IFD and its JPEG (DEC-082 §2), both in the zeroed head, so
+    // a pad byte after an odd-length JPEG stays 0.
+    if let Some(preview) = &plan.preview {
+        write_ifd(
+            head,
+            plan.resolved.preview_ifd,
+            preview.entry_count,
+            &preview.entries,
+            &preview.value_offsets,
+            plan.resolved,
+        )?;
+        let at = usize::try_from(plan.resolved.jpeg).map_err(|_| too_large())?;
+        put(head, at, preview.jpeg)?;
+    }
+
+    write_strip(plan, samples, strip)
+}
+
+/// Write one IFD at `ifd_offset`, as [`place_ifd`] laid it out: the entry
+/// count, the entries, a 0 next-IFD offset, and each out-of-line value.
+fn write_ifd<const N: usize>(
+    head: &mut [u8],
+    ifd_offset: u32,
+    entry_count: u16,
+    entries: &[Option<Entry<'_>>; N],
+    value_offsets: &[u32; N],
+    resolved: Resolved,
+) -> Result<(), Error> {
+    let mut at = usize::try_from(ifd_offset).map_err(|_| too_large())?;
+    at = put(head, at, &entry_count.to_le_bytes())?;
+    for (slot, &offset) in entries.iter().zip(value_offsets) {
         let Some(entry) = slot else { continue };
         let value = entry.value;
         let count = value
@@ -1030,20 +1257,19 @@ fn serialize(plan: &Plan<'_>, samples: &[u16], dst: &mut [u8]) -> Result<(), Err
             let start = usize::try_from(offset).map_err(|_| too_large())?;
             let end = start.checked_add(len).ok_or_else(too_large)?;
             let out = head.get_mut(start..end).ok_or_else(too_large)?;
-            emit(value, out, plan.strip_offset);
+            emit(value, out, resolved);
         } else {
             // TIFF 6.0 §2: an inline value is left-justified in the 4-byte
             // field, whatever its type. In little-endian a lone SHORT thus
             // sits in the low half; the rest of the word stays 0.
             let mut word = [0u8; 4];
             let out = word.get_mut(..len).ok_or_else(too_large)?;
-            emit(value, out, plan.strip_offset);
+            emit(value, out, resolved);
             at = put(head, at, &word)?;
         }
     }
     put(head, at, &0u32.to_le_bytes())?; // no next IFD
-
-    write_strip(plan, samples, strip)
+    Ok(())
 }
 
 /// Copy `bytes` into `dst` at `at`; returns the offset after them.
@@ -1064,7 +1290,7 @@ fn copy(dst: &mut [u8], src: &[u8]) {
 
 /// Write `value`'s little-endian bytes into `out`, which is exactly its
 /// `byte_len`.
-fn emit(value: Value<'_>, out: &mut [u8], strip_offset: u32) {
+fn emit(value: Value<'_>, out: &mut [u8], resolved: Resolved) {
     match value {
         Value::Short(v) => copy(out, &v.to_le_bytes()),
         Value::Shorts2(v) => {
@@ -1072,8 +1298,15 @@ fn emit(value: Value<'_>, out: &mut [u8], strip_offset: u32) {
                 *o = x.to_le_bytes();
             }
         }
+        Value::Shorts3(v) => {
+            for (o, x) in out.as_chunks_mut::<2>().0.iter_mut().zip(v) {
+                *o = x.to_le_bytes();
+            }
+        }
         Value::Long(v) => copy(out, &v.to_le_bytes()),
-        Value::StripOffset => copy(out, &strip_offset.to_le_bytes()),
+        Value::StripOffset => copy(out, &resolved.strip.to_le_bytes()),
+        Value::PreviewIfdOffset => copy(out, &resolved.preview_ifd.to_le_bytes()),
+        Value::PreviewStripOffset => copy(out, &resolved.jpeg.to_le_bytes()),
         Value::Longs2(v) => longs(out, &v),
         Value::Longs4(v) => longs(out, &v),
         Value::Longs(v) => longs(out, v),

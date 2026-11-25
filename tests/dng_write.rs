@@ -39,10 +39,12 @@ use irradiance::develop::{
     develop_into, develop_with_into, output_dimensions_with, DevelopOptions,
 };
 use irradiance::dng::write::{
-    exif_block_base, write_into, write_to_vec, written_len, ExifBlock, Framing, WriteInputError,
-    WriteOptions, EXIF_BLOCK_BASE,
+    exif_block_base, write_into, write_to_vec, written_len, ExifBlock, Framing, JpegPreview,
+    JpegPreviewColor, WriteInputError, WriteOptions, EXIF_BLOCK_BASE,
 };
-use irradiance::ifd::{ActiveArea, Container, DefaultCropOrigin, DefaultCropSize, Rational};
+use irradiance::ifd::{
+    ActiveArea, Compression, Container, DefaultCropOrigin, DefaultCropSize, PreviewKind, Rational,
+};
 use irradiance::{Error, ErrorKind};
 use opcode::{
     opcode_list, raw_opcode, single_fix_bad_pixels_constant_list, single_warp_rectilinear_list,
@@ -931,6 +933,40 @@ fn every_refusal_is_typed() {
             meta(&|o| o.xmp = Some(&[])),
             reason(WriteInputError::EmptyXmp),
         ),
+        // SPEC-082 §4: the preview's two reasons.
+        (
+            "preview empty",
+            meta(&|o| o.preview = Some(preview(&[], JpegPreviewColor::YCbCr))),
+            reason(WriteInputError::PreviewNotJpeg),
+        ),
+        (
+            "preview starts FF D9",
+            meta(&|o| o.preview = Some(preview(&[0xFF, 0xD9, 0xFF, 0xD8], JpegPreviewColor::Gray))),
+            reason(WriteInputError::PreviewNotJpeg),
+        ),
+        (
+            "preview a single FF",
+            meta(&|o| o.preview = Some(preview(&[0xFF], JpegPreviewColor::YCbCr))),
+            reason(WriteInputError::PreviewNotJpeg),
+        ),
+        (
+            "preview width 0",
+            meta(&|o| {
+                let mut p = preview(JPEG_EVEN, JpegPreviewColor::YCbCr);
+                p.width = 0;
+                o.preview = Some(p);
+            }),
+            reason(WriteInputError::PreviewDimensionsInvalid),
+        ),
+        (
+            "preview height 65536",
+            meta(&|o| {
+                let mut p = preview(JPEG_EVEN, JpegPreviewColor::Gray);
+                p.height = 65536;
+                o.preview = Some(p);
+            }),
+            reason(WriteInputError::PreviewDimensionsInvalid),
+        ),
     ];
     for (name, o, want) in &new_cases {
         assert_refused(name, &samples, w, h, o, BUDGET, want);
@@ -965,7 +1001,7 @@ fn every_refusal_is_typed() {
     );
     assert_eq!(err.kind(), ErrorKind::CallerError);
     n += 1;
-    assert_eq!(n, 29 + 24 + 10);
+    assert_eq!(n, 29 + 24 + 10 + 5);
 }
 
 #[test]
@@ -1006,6 +1042,10 @@ fn checks_run_in_the_documented_order() {
     o.linear_response_limit = Some(Rational { num: -1, den: 1 });
     o.exif_block = Some(bad_block);
     o.xmp = Some(&[]);
+    // SPEC-082 §4: a preview that fails both of its checks, after EmptyXmp.
+    let mut bad_preview = preview(&[0xFF], JpegPreviewColor::YCbCr);
+    bad_preview.width = 0;
+    o.preview = Some(bad_preview);
     let mut odd_block = bad_block;
     odd_block.exif_ifd = Some(1);
     type Fix = Box<dyn Fn(&mut WriteOptions<'_>)>;
@@ -1045,7 +1085,23 @@ fn checks_run_in_the_documented_order() {
             "ExifIfdOffsetInvalid",
         ),
         (Box::new(|o| o.exif_block = None), "EmptyXmp"),
-        (Box::new(|o| o.xmp = None), "UnsupportedOpcodeForFraming"),
+        (Box::new(|o| o.xmp = None), "PreviewNotJpeg"),
+        (
+            Box::new(|o| {
+                if let Some(p) = &mut o.preview {
+                    p.jpeg = JPEG_EVEN;
+                }
+            }),
+            "PreviewDimensionsInvalid",
+        ),
+        (
+            Box::new(|o| {
+                if let Some(p) = &mut o.preview {
+                    p.width = 1;
+                }
+            }),
+            "UnsupportedOpcodeForFraming",
+        ),
     ];
     // The budget and the sample count come before all of them.
     let err = written_len(&samples, w, h, &o, 1).unwrap_err();
@@ -1431,6 +1487,8 @@ fn write_is_deterministic_whatever_the_buffer_held() {
         // SPEC-081 oracle 7: every metadata option, an odd-length block (its
         // pad byte) and an odd-length XMP packet.
         set_all_metadata(&mut o, &odd_block, XMP_ODD);
+        // SPEC-082 oracle 8: an odd-length preview (its pad byte).
+        o.preview = Some(preview(JPEG_ODD, JpegPreviewColor::YCbCr));
         let len = written_len(&samples, w, h, &o, BUDGET).unwrap();
         let mut zeros = vec![0x00u8; len];
         let mut ones = vec![0xFFu8; len];
@@ -1482,6 +1540,9 @@ fn fuzz_seeds_reach_their_named_outcome() {
                 "ExifIfdOffsetInvalid { ifd: \"GPS\", offset: 11 }",
             ),
             ("refuse-empty-xmp", "EmptyXmp"),
+            // SPEC-082's.
+            ("refuse-preview-not-jpeg", "PreviewNotJpeg"),
+            ("refuse-preview-dimensions", "PreviewDimensionsInvalid"),
         ];
         if let Some((_, want)) = reasons.iter().find(|(n, _)| *n == name) {
             let err = format!("{:?}", got.as_ref().unwrap_err());
@@ -1491,9 +1552,33 @@ fn fuzz_seeds_reach_their_named_outcome() {
             assert!(o.exif_block.is_some() && o.xmp.is_some() && o.make.is_some());
             assert!(o.baseline_exposure.is_some() && o.linear_response_limit.is_some());
         }
+        if name.starts_with("preview") {
+            let p = o.preview.expect("a preview seed carries a preview");
+            let gray = name == "preview-gray";
+            let color = if gray {
+                JpegPreviewColor::Gray
+            } else {
+                JpegPreviewColor::YCbCr
+            };
+            assert_eq!((p.width, p.height, p.color), (40, 30, color), "{name}");
+            let file = write_to_vec(
+                &case.samples,
+                case.width,
+                case.height,
+                &o,
+                usize::from(case.max_pixels),
+            )
+            .unwrap();
+            let container = Container::parse(&file).unwrap();
+            let got: Vec<_> = container.previews().collect();
+            assert!(
+                matches!(got.as_slice(), [Ok(q)] if q.bytes == p.jpeg),
+                "{name}"
+            );
+        }
         seen += 1;
     }
-    assert_eq!(seen, 28);
+    assert_eq!(seen, 32);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1958,4 +2043,378 @@ fn no_preview_output_is_byte_identical_to_spec_081() {
     for ((name, hex), want) in got.iter().zip(PINNED) {
         assert_eq!(hex, want, "{name}");
     }
+}
+
+/// Synthetic tier-A "JPEGs": `FF D8`, filler, `FF D9`. The writer never looks
+/// past the first two bytes, so these need not decode. One even and one odd
+/// length (the odd one makes the pad before the raw strip observable).
+const JPEG_EVEN: &[u8] = &[0xFF, 0xD8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0xFF, 0xD9];
+const JPEG_ODD: &[u8] = &[
+    0xFF, 0xD8, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0xFF, 0xD9,
+];
+/// Dimensions no real JPEG here has: they come from the caller, never the
+/// stream (DEC-082 §4).
+const PREVIEW_W: u32 = 37;
+const PREVIEW_H: u32 = 23;
+
+fn preview(jpeg: &[u8], color: JpegPreviewColor) -> JpegPreview<'_> {
+    let mut p = JpegPreview::default();
+    p.jpeg = jpeg;
+    p.width = PREVIEW_W;
+    p.height = PREVIEW_H;
+    p.color = color;
+    p
+}
+
+fn le16(file: &[u8], at: usize) -> u16 {
+    u16::from_le_bytes([file[at], file[at + 1]])
+}
+
+fn le32(file: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes(file[at..at + 4].try_into().unwrap())
+}
+
+/// One IFD read straight from the bytes, without the crate's reader:
+/// `(entries as (tag, type, count, value-or-offset word), next offset)`.
+fn raw_ifd(file: &[u8], at: u32) -> (Vec<(u16, u16, u32, u32)>, u32) {
+    let at = at as usize;
+    let n = usize::from(le16(file, at));
+    let entries = (0..n)
+        .map(|i| {
+            let e = at + 2 + 12 * i;
+            (
+                le16(file, e),
+                le16(file, e + 2),
+                le32(file, e + 4),
+                le32(file, e + 8),
+            )
+        })
+        .collect();
+    (entries, le32(file, at + 2 + 12 * n))
+}
+
+/// The preview IFD's offset, from IFD0's `SubIFDs` word, read raw.
+fn sub_ifd_offset(file: &[u8]) -> u32 {
+    let (ifd0, _) = raw_ifd(file, header_ifd0(file));
+    let subs: Vec<_> = ifd0.iter().filter(|e| e.0 == 330).collect();
+    assert_eq!(subs.len(), 1, "one SubIFDs entry");
+    assert_eq!((subs[0].1, subs[0].2), (4, 1), "SubIFDs is LONG, count 1");
+    subs[0].3
+}
+
+/// The preview IFD as SPEC-082 §2's table writes it, hand-computed:
+/// `(tag, type, count, inline value)`; `None` for the two offsets, which
+/// are checked separately.
+fn preview_table(color: JpegPreviewColor, jpeg_len: u32) -> Vec<(u16, u16, u32, Option<u32>)> {
+    let (bits_count, photometric, spp) = match color {
+        JpegPreviewColor::YCbCr => (3, 6, 3),
+        _ => (1, 1, 1),
+    };
+    vec![
+        (254, 4, 1, Some(1)),
+        (256, 4, 1, Some(PREVIEW_W)),
+        (257, 4, 1, Some(PREVIEW_H)),
+        // Gray's one SHORT sits inline in the low half; YCbCr's three are
+        // out of line.
+        (258, 3, bits_count, (bits_count == 1).then_some(8)),
+        (259, 3, 1, Some(7)),
+        (262, 3, 1, Some(photometric)),
+        (273, 4, 1, None),
+        (277, 3, 1, Some(spp)),
+        (278, 4, 1, Some(PREVIEW_H)),
+        (279, 4, 1, Some(jpeg_len)),
+        (284, 3, 1, Some(1)),
+    ]
+}
+
+/// Oracle 1 (AC2): IFD0's `SubIFDs` points at an IFD whose entries are
+/// exactly §2's table, the JPEG sits at its `StripOffsets`, both IFDs end
+/// the chain, and the crate's reader finds the same IFD as IFD0's child.
+#[test]
+fn preview_ifd_matches_the_spec_table() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    for color in [JpegPreviewColor::YCbCr, JpegPreviewColor::Gray] {
+        let mut o = base_options();
+        o.active_area = Some(margin_area());
+        o.preview = Some(preview(JPEG_EVEN, color));
+        let file = write(&samples, w, h, &o);
+
+        let (ifd0, ifd0_next) = raw_ifd(&file, header_ifd0(&file));
+        assert_eq!(ifd0_next, 0, "{color:?}: IFD0 has no next IFD");
+        // SubIFDs sits between Artist (315) and XMLPacket (700): the tags
+        // stay ascending.
+        assert!(ifd0.windows(2).all(|p| p[0].0 < p[1].0), "{color:?}");
+        let at = sub_ifd_offset(&file);
+        let (entries, next) = raw_ifd(&file, at);
+        assert_eq!(next, 0, "{color:?}: the preview IFD has no next IFD");
+        let table = preview_table(color, JPEG_EVEN.len() as u32);
+        assert_eq!(entries.len(), table.len(), "{color:?}");
+        for (got, want) in entries.iter().zip(&table) {
+            assert_eq!((got.0, got.1, got.2), (want.0, want.1, want.2), "{color:?}");
+            if let Some(v) = want.3 {
+                assert_eq!(got.3, v, "{color:?}: tag {}", got.0);
+            }
+        }
+        if color == JpegPreviewColor::YCbCr {
+            let bits_at = entries[3].3 as usize;
+            assert_eq!(&file[bits_at..bits_at + 6], &[8, 0, 8, 0, 8, 0]);
+        }
+        let jpeg_at = entries[6].3 as usize;
+        assert_eq!(&file[jpeg_at..jpeg_at + JPEG_EVEN.len()], JPEG_EVEN);
+
+        // The reader walks the same IFD as IFD0's SubIFD.
+        let container = Container::parse(&file).unwrap();
+        let ifds = container.ifds();
+        assert_eq!(ifds.len(), 2, "{color:?}");
+        assert_eq!(ifds[1].offset(), at);
+        assert_eq!(ifds[1].parent(), Some(0));
+        assert_eq!(ifds[1].depth(), 1);
+    }
+}
+
+/// Oracle 1, layout (AC2, DEC-082 §2): IFD0's values, then the preview IFD
+/// and its values, then the JPEG, then the raw strip last; every offset even
+/// and the pad after an odd-length JPEG 0. With and without an EXIF block.
+#[test]
+fn preview_sits_between_ifd0_values_and_the_raw_strip() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let block = exif_block::build_odd(EXIF_BLOCK_BASE, exif_block::Shape::Both);
+    let mut cases = 0;
+    for with_block in [false, true] {
+        for jpeg in [JPEG_EVEN, JPEG_ODD] {
+            for color in [JpegPreviewColor::YCbCr, JpegPreviewColor::Gray] {
+                let mut o = base_options();
+                o.active_area = Some(margin_area());
+                o.unique_camera_model = Some("odd"); // an odd value forces a pad
+                if with_block {
+                    set_all_metadata(&mut o, &block, XMP_ODD);
+                }
+                o.preview = Some(preview(jpeg, color));
+                let file = write(&samples, w, h, &o);
+                let name = format!("block {with_block}, jpeg {}, {color:?}", jpeg.len());
+
+                // IFD0's out-of-line values all end before the preview IFD.
+                let ifd0_at = header_ifd0(&file);
+                let (ifd0, _) = raw_ifd(&file, ifd0_at);
+                let unit = |t: u16| match t {
+                    3 => 2,
+                    4 => 4,
+                    5 | 10 => 8,
+                    _ => 1,
+                };
+                let ifd0_end = ifd0
+                    .iter()
+                    .filter(|e| unit(e.1) * e.2 > 4)
+                    .map(|e| e.3 + unit(e.1) * e.2)
+                    .max()
+                    .unwrap();
+                let at = sub_ifd_offset(&file);
+                assert_eq!(at % 2, 0, "{name}");
+                assert_eq!(
+                    at,
+                    ifd0_end + ifd0_end % 2,
+                    "{name}: right after IFD0's values"
+                );
+                assert!(at > ifd0_at, "{name}");
+
+                // The preview IFD, then its one out-of-line value (YCbCr's
+                // BitsPerSample), then the JPEG.
+                let (entries, _) = raw_ifd(&file, at);
+                let ifd_end = at + 2 + 12 * entries.len() as u32 + 4;
+                let values_end = if color == JpegPreviewColor::YCbCr {
+                    assert_eq!(entries[3].3, ifd_end, "{name}: BitsPerSample's value");
+                    ifd_end + 6
+                } else {
+                    ifd_end
+                };
+                let jpeg_at = entries[6].3;
+                assert_eq!(jpeg_at, values_end + values_end % 2, "{name}");
+                assert_eq!(jpeg_at % 2, 0, "{name}");
+
+                // The raw strip, last, at the next even offset; the pad is 0.
+                let raw_at = ifd0.iter().find(|e| e.0 == 273).unwrap().3;
+                let jpeg_end = jpeg_at + jpeg.len() as u32;
+                assert_eq!(raw_at, jpeg_end + jpeg_end % 2, "{name}");
+                if jpeg.len() % 2 == 1 {
+                    assert_eq!(file[jpeg_end as usize], 0, "{name}: the pad byte");
+                }
+                let raw_len = ifd0.iter().find(|e| e.0 == 279).unwrap().3;
+                assert_eq!(raw_at as usize + raw_len as usize, file.len(), "{name}");
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(cases, 8);
+}
+
+/// Oracle 3 (AC4): SPEC-061's round trip holds at every framing with a
+/// preview set, alone and beside every SPEC-081 option.
+#[test]
+fn round_trip_holds_with_a_preview() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let block = exif_block::build_odd(EXIF_BLOCK_BASE, exif_block::Shape::Both);
+    let masked = masked();
+    let mut cases = 0;
+    for framing in FRAMINGS {
+        for with_meta in [false, true] {
+            for color in [JpegPreviewColor::YCbCr, JpegPreviewColor::Gray] {
+                let mut o = base_options();
+                o.framing = framing;
+                o.active_area = Some(margin_area());
+                o.black_level = &[64];
+                o.white_level = 60000;
+                o.default_crop = Some((
+                    DefaultCropOrigin { x: 1, y: 2 },
+                    DefaultCropSize {
+                        width: 9,
+                        height: 5,
+                    },
+                ));
+                if framing == Framing::FullSensor {
+                    o.masked_areas = &masked;
+                }
+                if with_meta {
+                    set_all_metadata(&mut o, &block, XMP_ODD);
+                }
+                o.preview = Some(preview(JPEG_ODD, color));
+                let file = write(&samples, w, h, &o);
+                let want = expected(&samples, w, h, &o);
+                if let Err(bad) = check_round_trip(&file, &want) {
+                    panic!("{framing:?} meta {with_meta} {color:?}: {bad:#?}");
+                }
+                // The preview IFD is there under every framing (DEC-082 §6).
+                assert_eq!(Container::parse(&file).unwrap().previews().count(), 1);
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(cases, 12);
+}
+
+/// Oracle 4's comparison: `Ok` when the file's previews are exactly one
+/// `Ok` preview matching the caller's, otherwise what differs.
+fn check_preview(file: &[u8], jpeg: &[u8], color: JpegPreviewColor) -> Result<(), String> {
+    let container = Container::parse(file).map_err(|e| e.to_string())?;
+    let all: Vec<_> = container.previews().collect();
+    let [Ok(p)] = all.as_slice() else {
+        return Err(format!("want one Ok preview, got {all:?}"));
+    };
+    let (photometric, spp) = match color {
+        JpegPreviewColor::YCbCr => (6, 3),
+        _ => (1, 1),
+    };
+    let fields = (
+        p.kind,
+        p.ifd_index,
+        p.width,
+        p.height,
+        p.compression,
+        p.photometric,
+        p.samples_per_pixel,
+        p.bits_per_sample,
+    );
+    let want = (
+        PreviewKind::Primary,
+        1,
+        PREVIEW_W,
+        PREVIEW_H,
+        Compression::Jpeg,
+        Some(photometric),
+        spp,
+        Some(8),
+    );
+    if fields != want {
+        return Err(format!("fields {fields:?}, want {want:?}"));
+    }
+    if p.bytes != jpeg {
+        return Err(format!("bytes {:02X?}, want {jpeg:02X?}", p.bytes));
+    }
+    Ok(())
+}
+
+/// Oracle 4 (AC4, DEC-057): `Container::previews` returns the caller's JPEG
+/// byte for byte, at every framing.
+#[test]
+fn previews_returns_the_callers_jpeg() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let mut cases = 0;
+    for framing in FRAMINGS {
+        for jpeg in [JPEG_EVEN, JPEG_ODD] {
+            for color in [JpegPreviewColor::YCbCr, JpegPreviewColor::Gray] {
+                let mut o = base_options();
+                o.framing = framing;
+                o.active_area = Some(margin_area());
+                o.preview = Some(preview(jpeg, color));
+                let file = write(&samples, w, h, &o);
+                check_preview(&file, jpeg, color)
+                    .unwrap_or_else(|e| panic!("{framing:?} {color:?}: {e}"));
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(cases, 12);
+    // Without a preview, none.
+    let file = write(&samples, w, h, &base_options());
+    assert_eq!(Container::parse(&file).unwrap().previews().count(), 0);
+}
+
+/// Oracle 5 (AC6): oracle 4's comparison passes on a fresh output (the
+/// negative control), fails once the preview's `StripOffsets` moves by 2, and
+/// a preview IFD whose `NewSubFileType` is 0 is no preview at all.
+#[test]
+fn red_proof_a_moved_preview_offset_is_caught() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let mut o = base_options();
+    o.preview = Some(preview(JPEG_EVEN, JpegPreviewColor::YCbCr));
+    let file = write(&samples, w, h, &o);
+
+    // Negative control first.
+    check_preview(&file, JPEG_EVEN, JpegPreviewColor::YCbCr).expect("fresh output passes");
+
+    // Each entry's position, read raw: 2-byte count, then 12 bytes each.
+    let at = sub_ifd_offset(&file) as usize;
+    let (entries, _) = raw_ifd(&file, at as u32);
+    let slot = |tag: u16| at + 2 + 12 * entries.iter().position(|e| e.0 == tag).unwrap() + 8;
+
+    let mut moved = file.clone();
+    let offset_at = slot(273);
+    let shifted = le32(&moved, offset_at) + 2;
+    moved[offset_at..offset_at + 4].copy_from_slice(&shifted.to_le_bytes());
+    let err = check_preview(&moved, JPEG_EVEN, JpegPreviewColor::YCbCr)
+        .expect_err("a moved StripOffsets must be caught");
+    assert!(err.contains("bytes"), "{err}");
+
+    let mut not_preview = file.clone();
+    let nst_at = slot(254);
+    not_preview[nst_at..nst_at + 4].copy_from_slice(&0u32.to_le_bytes());
+    assert_eq!(
+        Container::parse(&not_preview).unwrap().previews().count(),
+        0,
+        "NewSubFileType 0 is not a preview"
+    );
+}
+
+/// AC5, the boundaries that pass: 65535 in both dimensions, a two-byte JPEG.
+#[test]
+fn preview_dimension_and_marker_boundaries_pass() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let mut o = base_options();
+    let mut p = preview(&[0xFF, 0xD8], JpegPreviewColor::Gray);
+    p.width = 65535;
+    p.height = 65535;
+    o.preview = Some(p);
+    let file = write(&samples, w, h, &o);
+    let at = sub_ifd_offset(&file);
+    let (entries, _) = raw_ifd(&file, at);
+    assert_eq!((entries[1].3, entries[2].3), (65535, 65535));
+    p.width = 1;
+    p.height = 1;
+    o.preview = Some(p);
+    assert!(written_len(&samples, w, h, &o, BUDGET).is_ok());
 }

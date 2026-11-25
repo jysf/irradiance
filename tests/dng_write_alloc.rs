@@ -1,4 +1,5 @@
-//! `SPEC-061` AC10, oracle 10 (and `SPEC-081` AC8, every metadata option set) — `written_len` and `write_into` perform no heap
+//! `SPEC-061` AC10, oracle 10 (and `SPEC-081` AC8, every metadata option set;
+//! `SPEC-082` AC9, a preview too) — `written_len` and `write_into` perform no heap
 //! allocation (`DEC-075` §9, the `DEC-016` promise applied to the writer).
 //!
 //! Its own test binary on purpose: the counting `#[global_allocator]` below
@@ -14,7 +15,9 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use irradiance::dng::write::{write_into, written_len, ExifBlock, Framing, WriteOptions};
+use irradiance::dng::write::{
+    write_into, written_len, ExifBlock, Framing, JpegPreview, JpegPreviewColor, WriteOptions,
+};
 use irradiance::ifd::{ActiveArea, DefaultCropOrigin, DefaultCropSize, Rational};
 use opcode::{opcode_list, raw_opcode, single_fix_bad_pixels_constant_list};
 
@@ -99,6 +102,8 @@ fn written_len_and_write_into_allocate_nothing() {
     // an XMP packet.
     let block = [0u8; 13];
     let xmp = b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>";
+    // SPEC-082: an odd-length synthetic JPEG (the writer reads two bytes).
+    let jpeg = [0xFF, 0xD8, 1, 2, 3, 0xFF, 0xD9];
 
     let mut total_calls = 0;
     for framing in [
@@ -147,6 +152,13 @@ fn written_len_and_write_into_allocate_nothing() {
         o.baseline_noise = Some(Rational { num: 1, den: 1 });
         o.baseline_sharpness = Some(Rational { num: 3, den: 2 });
         o.linear_response_limit = Some(Rational { num: 1, den: 1 });
+        // SPEC-082 AC9: a preview, YCbCr so its BitsPerSample is out of line.
+        let mut preview = JpegPreview::default();
+        preview.jpeg = &jpeg;
+        preview.width = 64;
+        preview.height = 48;
+        preview.color = JpegPreviewColor::YCbCr;
+        o.preview = Some(preview);
 
         // Sized outside the count, by a first uncounted query.
         let len = written_len(&samples, w, h, &o, 1 << 20).expect("valid input");

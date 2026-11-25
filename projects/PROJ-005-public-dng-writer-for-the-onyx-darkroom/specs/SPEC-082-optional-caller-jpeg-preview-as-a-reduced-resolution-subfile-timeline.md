@@ -9,7 +9,7 @@ Cycle prompts live in `prompts/SPEC-082-<cycle>.md`.
 
 - [x] **frame** — 2026-11-20 (PR 284)
 - [x] **design** — completed 2026-11-24 (DEC-082; preview-placement probe)
-- [ ] **build** — prompt: `prompts/SPEC-082-build.md` (HANDOFF-193)
+- [~] **build** — prompt: `prompts/SPEC-082-build.md` (HANDOFF-193)
 - [ ] **verify** — prompt: pending (waiting on build)
 - [ ] **ship** — prompt: pending (waiting on verify)
 

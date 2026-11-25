@@ -32,10 +32,12 @@
 //! | 1 + n | the XMP packet (if flagged): length, bytes |
 //! | 1 + n | each flagged descriptive string: length, bytes |
 //! | 2 | each flagged hint: numerator, denominator, as `i8` |
+//! | 1 | preview flags (`SPEC-082`): bit 0 a preview, 1 gray (else YCbCr), 2 add 65536 to its height |
+//! | 1 + n, 2, 2 | the preview (if flagged): JPEG length, bytes; width, height, `u16` LE |
 //! | rest | samples, `u16` LE, repeated to fill the plane |
 #![allow(dead_code)]
 
-use irradiance::dng::write::ExifBlock;
+use irradiance::dng::write::{ExifBlock, JpegPreview, JpegPreviewColor};
 use irradiance::dng::write::{Framing, WriteOptions};
 use irradiance::ifd::{ActiveArea, DefaultCropOrigin, DefaultCropSize, Rational};
 
@@ -68,6 +70,13 @@ pub struct Case {
     /// `BaselineExposure`, `BaselineNoise`, `BaselineSharpness`,
     /// `LinearResponseLimit`, each as numerator and denominator.
     pub hints: [Option<[i8; 2]>; 4],
+    /// The preview's JPEG bytes (`SPEC-082`); `None` writes no preview.
+    pub preview: Option<Vec<u8>>,
+    pub preview_width: u16,
+    pub preview_height: u16,
+    pub preview_gray: bool,
+    /// Adds 65536 to the height, so the upper bound is reachable.
+    pub preview_tall: bool,
 }
 
 /// What [`Case::options`] borrows from: the widened values.
@@ -166,6 +175,18 @@ impl Case {
         o.baseline_noise = hint(self.hints[1]);
         o.baseline_sharpness = hint(self.hints[2]);
         o.linear_response_limit = hint(self.hints[3]);
+        o.preview = self.preview.as_deref().map(|jpeg| {
+            let mut p = JpegPreview::default();
+            p.jpeg = jpeg;
+            p.width = u32::from(self.preview_width);
+            p.height = u32::from(self.preview_height) + if self.preview_tall { 65536 } else { 0 };
+            p.color = if self.preview_gray {
+                JpegPreviewColor::Gray
+            } else {
+                JpegPreviewColor::YCbCr
+            };
+            p
+        });
         o
     }
 }
@@ -229,6 +250,15 @@ pub fn decode(data: &[u8]) -> Case {
     let xmp = on(3).then(|| r.bytes());
     let strings = core::array::from_fn(|i| on(4 + i as u16).then(|| r.bytes()));
     let hints = core::array::from_fn(|i| on(12 + i as u16).then(|| [r.u8() as i8, r.u8() as i8]));
+    let preview_flags = r.u8();
+    let preview = (preview_flags & 1 != 0).then(|| r.bytes());
+    let (preview_width, preview_height) = if preview.is_some() {
+        (r.u16(), r.u16())
+    } else {
+        (0, 0)
+    };
+    let preview_gray = preview_flags & 2 != 0;
+    let preview_tall = preview_flags & 4 != 0;
 
     let pixels = (width * height) as usize;
     let raw: Vec<u16> = r
@@ -272,6 +302,11 @@ pub fn decode(data: &[u8]) -> Case {
         xmp,
         strings,
         hints,
+        preview,
+        preview_width,
+        preview_height,
+        preview_gray,
+        preview_tall,
     }
 }
 
@@ -362,6 +397,21 @@ pub fn encode(c: &Case) -> Vec<u8> {
         out.push(*n as u8);
         out.push(*d as u8);
     }
+    let mut preview_flags = 0u8;
+    for (n, on) in [c.preview.is_some(), c.preview_gray, c.preview_tall]
+        .into_iter()
+        .enumerate()
+    {
+        if on {
+            preview_flags |= 1 << n;
+        }
+    }
+    out.push(preview_flags);
+    if let Some(jpeg) = &c.preview {
+        push_bytes(&mut out, jpeg);
+        out.extend_from_slice(&c.preview_width.to_le_bytes());
+        out.extend_from_slice(&c.preview_height.to_le_bytes());
+    }
     for s in &c.samples {
         out.extend_from_slice(&s.to_le_bytes());
     }
@@ -399,6 +449,11 @@ pub fn baseline() -> Case {
         xmp: None,
         strings: Default::default(),
         hints: [None; 4],
+        preview: None,
+        preview_width: 0,
+        preview_height: 0,
+        preview_gray: false,
+        preview_tall: false,
     }
 }
 
@@ -422,5 +477,15 @@ pub fn with_all_metadata() -> Case {
         Some(b"0042".to_vec()),
     ];
     c.hints = [Some([-1, 2]), Some([3, 4]), Some([1, 1]), Some([9, 10])];
+    c
+}
+
+/// [`with_all_metadata`] with a valid YCbCr preview (`SPEC-082`): a short
+/// odd-length synthetic JPEG (`FF D8` … `FF D9`) declared 40×30.
+pub fn with_preview() -> Case {
+    let mut c = with_all_metadata();
+    c.preview = Some(vec![0xFF, 0xD8, 1, 2, 3, 0xFF, 0xD9]);
+    c.preview_width = 40;
+    c.preview_height = 30;
     c
 }
