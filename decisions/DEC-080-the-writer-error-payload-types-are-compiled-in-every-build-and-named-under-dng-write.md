@@ -22,7 +22,7 @@ created_at: 2026-11-24
 supersedes: null
 superseded_by: null
 
-status: proposed                     # emitted by the SPEC-061 build; the architect accepts or redirects at review
+status: accepted                     # jysf, 2026-11-24, at the SPEC-061 ship (verify HANDOFF-190 ruled it sound)
 
 deciders: [claude]
 

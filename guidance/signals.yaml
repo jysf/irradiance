@@ -1873,3 +1873,17 @@ signals:
     notes: |
       Low priority. Revisit when a tier-B test gains a tool gate: derive the lists from
       the tests (for example a grep check in validate) or update them in the same change.
+  - id: fuzz-red-proof-copies-files-a-target-includes
+    type: process-debt
+    summary: "scripts/lint-fuzz-red-proof.sh copies a hand-written list of paths into its temp dir, so a fuzz target that includes a file outside fuzz/ by path breaks the control build, and only CI's red-proof job notices."
+    evidence: "N=1, SPEC-061 (PR 329): fuzz_targets/dng_write.rs includes tests/support/dng_write_fuzz.rs; the red-proof did not copy it, and CI's fuzz lint red-proof job was the only red check. Found at verify (HANDOFF-190 punch list P1), fixed in 15ed4fc. Neither the build nor the verify handoff listed just lint-fuzz-red-proof among the gates."
+    bar: null
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-24
+    last_touched: 2026-11-24
+    raised_by: claude
+    notes: |
+      Two possible fixes if it recurs: copy every file the targets name by path (grep
+      the path attributes), or add a line to AGENTS.md's fuzz section and to the handoff
+      gate lists. Handoffs should also name every CI job, not only the just recipes.
