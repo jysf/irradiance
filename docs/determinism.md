@@ -52,13 +52,44 @@ local kernel mutants (each reverted) also went red: the `to_linear_f32_into` div
 | `demosaic::demosaic_into` (and `_threaded`, byte-identical per `DEC-044`) | integer only — signed `i32` saturating/checked ops, floor division, clamp | **measured** |
 | `tone::to_linear_f32_into` | **one IEEE `f32` division per sample**: `f32::from(sample) / 65535.0`. `65535.0` and every `u16` are exact in `f32`, and IEEE 754 requires division to be correctly rounded, so the result is the same on every conforming arch. No FMA (Rust never contracts `a / b` into anything else), no transcendental. | **measured** |
 | `tone::encode_srgb16_into` / `encode_srgb8_into` | integer lookup into the committed `tone_table` (the `powf` ran once, in the generator) | not hashed here; integer by construction |
-| `color.rs` — `to_srgb_linear_into`, `develop_color_into`, `develop_color_f32_into` (STAGE-008) | `f64`, committed-constant matrices, basic ops only (`+ − × ÷`, polynomials as `n·n·n`), no FMA, no transcendental — `DEC-033` | **unmeasured.** The same IEEE argument applies, but no hash covers it. Out of scope for `SPEC-041`. |
+| `color.rs` — the sensor-geometry plane `srgb_linear_plane_into` / `srgb_linear_plane_f32_into` (`SPEC-091`), whose `u16` pixels are `develop_color_into`'s pixels before the crop | `f64`, committed-constant matrices, basic ops only (`+ − × ÷`, polynomials as `n·n·n`), no FMA, no transcendental — `DEC-033`; the unclamped `f32` form adds one `f64 ÷ 65535` and one IEEE round-to-nearest-even cast to `f32` | **measured** (`SPEC-091`): the colour fixture below, dual-illuminant so the convergent interpolation (`DEC-076`) runs. |
+| `color.rs` — the crop/orient sink of `develop_color_into` / `develop_color_f32_into`, and `to_srgb_linear_into` | the same `f64` arithmetic; the crop is a rearrangement, `develop_color_f32_into` one more `f32 ÷` | **not hashed separately.** Same arithmetic as the measured plane (`develop_color_into`'s pixels are the plane's, cut to the crop: `tests/linear_plane.rs` AC1), but no fixture hashes these outputs themselves. |
 | `warp.rs` — `WarpRectilinear` bilinear resampling | `f64` coordinate map and bilinear weights | **unmeasured.** Named for completeness; not covered by any hash. |
 
 Rust does not fuse a multiply and an add into an FMA unless the source calls
 `mul_add`, and the library does not. That is why a basic-ops `f64` path is expected
-to agree across arches — but "expected" is an argument, not a measurement, and the
-two `f64` paths above stay named as unmeasured until a spec measures them.
+to agree across arches — but "expected" is an argument, not a measurement. The colour
+plane is now measured (below); `warp.rs` stays named as unmeasured until a spec
+measures it.
+
+## The colour fixture (`SPEC-091`)
+
+`colour_plane_hashes_match_committed` builds a separate 24 × 16 RGGB 16-bit fixture
+(so no byte an older fixture hashes changes) with `AsShotNeutral`,
+`ColorMatrix1/2`, `ForwardMatrix1/2` and `CalibrationIlluminant` A and D65, and
+hashes the `u16` and the unclamped `f32` sensor-geometry planes (`DEC-079`) against
+two committed constants. It also asserts the `f32` plane holds a negative and an
+above-1.0 value (so the hash covers values a clamp would change) and that removing
+the second illuminant changes the plane. `colour_fixture_interpolates_between_its_illuminants`
+(added at `SPEC-091`'s verify) shows the fixture's weight is strictly between the two
+calibrations: the plane differs from both controls whose two calibrations are the same
+matrices, so the interpolation itself, not a weight clamped to one end, is in the hash.
+`colour_determinism_red_proof` checks the control, then flips one interior sample's
+least-significant bit and requires both hashes to move. The constants were recorded
+on macOS arm64; the x86_64 leg passing is the cross-arch evidence that onyx's
+stored candidate mixes rely on.
+
+What the hash cannot see: an FMA. Fusing one of the sink's multiply-adds moves the
+`f64` sum by about one ulp, and the single cast to `f32` (or the `u16` quantise)
+absorbs that on all but about one value in 2^29, so a fused sum would leave these
+hashes unchanged (measured at `SPEC-091`'s build: the `mul_add` mutant passed every
+hash and the exact-bits AC5 test). The no-FMA rule is pinned instead by
+`color::tests::the_f32_sink_never_fuses_a_multiply_and_an_add`, an injected matrix
+whose sum is pure cancellation (`0.1·3 − 0.3`), so a fused and a separate sum differ
+by a factor of two. That test places the cancellation in channel 0's first term
+only; `color::tests::the_f32_sink_fuses_no_term_of_any_channel` (added at
+`SPEC-091`'s verify) places it at every term of every channel, so a `mul_add` on any
+of the nine products is caught.
 
 ## If a hash diverges
 

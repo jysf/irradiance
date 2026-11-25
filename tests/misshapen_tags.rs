@@ -24,7 +24,8 @@ mod tiff;
 
 use irradiance::color::{
     develop_color_f32_into, develop_color_f32_into_threaded, develop_color_into,
-    develop_color_into_threaded, to_srgb_linear_into,
+    develop_color_into_threaded, srgb_linear_plane_f32_into, srgb_linear_plane_into,
+    srgb_linear_plane_rows_f32_into, srgb_linear_plane_rows_into, to_srgb_linear_into,
 };
 use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
 use irradiance::develop::{
@@ -498,7 +499,7 @@ fn times_recorded(s: &Sensor, tag: u16) -> usize {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The ten develop entries.
+// The fourteen develop entries (SPEC-091 added four).
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -513,9 +514,13 @@ enum Entry {
     ToSrgbLinearInto,
     DemosaicInto,
     DemosaicIntoThreaded,
+    SrgbLinearPlaneInto,
+    SrgbLinearPlaneF32Into,
+    SrgbLinearPlaneRowsInto,
+    SrgbLinearPlaneRowsF32Into,
 }
 
-const ENTRIES: [Entry; 10] = [
+const ENTRIES: [Entry; 14] = [
     Entry::DevelopInto,
     Entry::DevelopWithInto,
     Entry::DevelopWithScratchInto,
@@ -526,15 +531,24 @@ const ENTRIES: [Entry; 10] = [
     Entry::ToSrgbLinearInto,
     Entry::DemosaicInto,
     Entry::DemosaicIntoThreaded,
+    Entry::SrgbLinearPlaneInto,
+    Entry::SrgbLinearPlaneF32Into,
+    Entry::SrgbLinearPlaneRowsInto,
+    Entry::SrgbLinearPlaneRowsF32Into,
 ];
 
-/// The four colour develop entries and the colour transform: AC3's set.
-const COLOUR_READERS: [Entry; 5] = [
+/// The four colour develop entries, the colour transform and SPEC-091's four
+/// sensor-geometry plane entries: AC3's set.
+const COLOUR_READERS: [Entry; 9] = [
     Entry::DevelopColorInto,
     Entry::DevelopColorF32Into,
     Entry::DevelopColorIntoThreaded,
     Entry::DevelopColorF32IntoThreaded,
     Entry::ToSrgbLinearInto,
+    Entry::SrgbLinearPlaneInto,
+    Entry::SrgbLinearPlaneF32Into,
+    Entry::SrgbLinearPlaneRowsInto,
+    Entry::SrgbLinearPlaneRowsF32Into,
 ];
 
 impl Entry {
@@ -550,7 +564,11 @@ impl Entry {
             Entry::DevelopColorInto
             | Entry::DevelopColorF32Into
             | Entry::DevelopColorIntoThreaded
-            | Entry::DevelopColorF32IntoThreaded => DevelopPath::Colour,
+            | Entry::DevelopColorF32IntoThreaded
+            | Entry::SrgbLinearPlaneInto
+            | Entry::SrgbLinearPlaneF32Into
+            | Entry::SrgbLinearPlaneRowsInto
+            | Entry::SrgbLinearPlaneRowsF32Into => DevelopPath::Colour,
             Entry::ToSrgbLinearInto => DevelopPath::ColourTransform,
             Entry::DemosaicInto | Entry::DemosaicIntoThreaded => DevelopPath::Demosaic,
         }
@@ -640,6 +658,27 @@ fn run_with(entry: Entry, fx: &Fixture, options: &DevelopOptions) -> (Result<(),
             let mut dst = u16s(raw3);
             let r = to_srgb_linear_into(sensor, &camera, &mut dst);
             (r, Written::U16(dst))
+        }
+        // SPEC-091: the sensor-geometry plane, whole and as the whole-plane band.
+        Entry::SrgbLinearPlaneInto => {
+            let mut dst = u16s(raw3);
+            let r = srgb_linear_plane_into(sensor, plane, &mut dst);
+            (r, Written::U16(dst))
+        }
+        Entry::SrgbLinearPlaneF32Into => {
+            let mut dst = f32s(raw3);
+            let r = srgb_linear_plane_f32_into(sensor, plane, &mut dst);
+            (r, bits(dst))
+        }
+        Entry::SrgbLinearPlaneRowsInto => {
+            let mut dst = u16s(raw3);
+            let r = srgb_linear_plane_rows_into(sensor, plane, 0..H, &mut dst);
+            (r, Written::U16(dst))
+        }
+        Entry::SrgbLinearPlaneRowsF32Into => {
+            let mut dst = f32s(raw3);
+            let r = srgb_linear_plane_rows_f32_into(sensor, plane, 0..H, &mut dst);
+            (r, bits(dst))
         }
         Entry::DemosaicInto => {
             let mut dst = u16s(raw3);

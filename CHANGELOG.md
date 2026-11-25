@@ -20,6 +20,24 @@ code changed, so every input reads and develops as in 0.2.6, `DEVELOP_VERSION` s
 
 ### Added
 
+- **The white-balanced linear-sRGB plane at sensor geometry** (SPEC-091,
+  STAGE-031, PROJ-006, DEC-079). Four new functions in `irradiance::color` run
+  `develop_color_into`'s pipeline (levels, `OpcodeList2` `GainMap`s,
+  Hamilton-Adams, the camera-to-linear-sRGB matrix) but write every pixel of the
+  `width × height` plane, masked border included, with no crop, orientation or
+  warp: `srgb_linear_plane_into` (`u16`, the existing colour pixel bit for bit,
+  clamped), `srgb_linear_plane_f32_into` (the same `f64` sum divided by 65535
+  and cast once, **unclamped**: negatives are out-of-gamut colours, values above
+  1.0 white-balance overs), and the row-range forms `srgb_linear_plane_rows_into`
+  / `srgb_linear_plane_rows_f32_into`, whose strips tile to the whole plane bit
+  for bit with scratch proportional to the band. Refusals are
+  `develop_color_into`'s, in its order. No existing output changes and
+  `DEVELOP_VERSION` stays `"8"`.
+- **`Error::InvalidRowRange { start, end, height }`** (`CallerError`, SPEC-091):
+  a band form's row range is empty, reversed or ends past the plane's height.
+- **The colour path's determinism is measured** (SPEC-091): `tests/determinism.rs`
+  gains a dual-illuminant colour fixture whose `u16` and unclamped `f32`
+  sensor-geometry planes have committed hashes on the x86_64 and arm64 CI legs.
 - **A public monochrome DNG writer behind the new `write` feature** (SPEC-061,
   STAGE-017, PROJ-005, DEC-071 to DEC-075, DEC-080). `irradiance::dng::write`
   writes one mono `u16` plane, unchanged, as an uncompressed little-endian DNG

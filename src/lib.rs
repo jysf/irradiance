@@ -1221,6 +1221,20 @@ pub enum Error {
         /// The framing that was asked for.
         framing: write_types::Framing,
     },
+
+    /// `SPEC-091`. A row range passed to a band form of the sensor-geometry
+    /// linear-sRGB plane ([`color::srgb_linear_plane_rows_into`],
+    /// [`color::srgb_linear_plane_rows_f32_into`]) is empty, reversed, or ends
+    /// past the plane's height. `start..end` is in whole-plane rows, masked rows
+    /// included, so a valid range lies within `0..height` and holds a row.
+    InvalidRowRange {
+        /// The range's first row.
+        start: u32,
+        /// The range's end (exclusive).
+        end: u32,
+        /// The plane's height, `ImageLength`.
+        height: u32,
+    },
 }
 
 /// Why a preview IFD's bytes are not returned as one slice (`SPEC-062`,
@@ -1809,6 +1823,12 @@ impl fmt::Display for Error {
                      {framing} cut would shift; write it at full-sensor framing"
                 )
             }
+            Error::InvalidRowRange { start, end, height } => {
+                write!(
+                    f,
+                    "row range {start}..{end} is not a non-empty range within the plane's {height} row(s)"
+                )
+            }
         }
     }
 }
@@ -1908,7 +1928,8 @@ impl Error {
             | Error::LjpegPlaneWrongLength { .. }
             | Error::InvalidWarpAlpha { .. }
             | Error::NonFiniteWarpCoefficients
-            | Error::InvalidWriteInput(_) => ErrorKind::CallerError,
+            | Error::InvalidWriteInput(_)
+            | Error::InvalidRowRange { .. } => ErrorKind::CallerError,
 
             // Well-formed input this library does not decode. A non-TIFF or a
             // TIFF with no RAW sensor IFD is "not a file I read", and a file

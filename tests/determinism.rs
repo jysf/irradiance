@@ -16,15 +16,22 @@
 //! Why the outputs should agree (`docs/determinism.md` names every path):
 //! `unpack_into` and `demosaic_into` are integer arithmetic only; the one float
 //! op, `to_linear_f32_into`, is a single correctly-rounded IEEE `f32` division.
-//! The `f64` colour path (`src/color.rs`) is named there as unmeasured.
+//! The `f64` colour path (`src/color.rs`) was named there as unmeasured until
+//! `SPEC-091` added the colour fixture below: the sensor-geometry linear-sRGB
+//! plane (`srgb_linear_plane_into` / `_f32_into`, `DEC-079`), whose `u16` pixels
+//! are `develop_color_into`'s, now has committed hashes on both arches.
 //!
 //! If a hash ever disagrees between arches, that is a finding for a NEW spec —
 //! do not edit a kernel (or a constant) to force agreement (`SPEC-041`
 //! Non-Goals).
 
+#[path = "support/dng_writer.rs"]
+mod dng_writer;
 #[path = "support/tiff.rs"]
 mod tiff;
 
+use dng_writer::{write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload, PlaneKind};
+use irradiance::color::{srgb_linear_plane_f32_into, srgb_linear_plane_into};
 use irradiance::demosaic::demosaic_into;
 use irradiance::ifd::Container;
 use irradiance::plane::unpack_into;
@@ -437,4 +444,208 @@ fn determinism_red_proof() {
             fixture.name
         );
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The colour fixture (`SPEC-091` AC12): the sensor-geometry linear-sRGB plane
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A separate fixture, so no byte any fixture above hashes changes. A 24 × 16
+/// RGGB plane at 16 bits carrying `AsShotNeutral`, `ColorMatrix1/2`,
+/// `ForwardMatrix1/2` and two `CalibrationIlluminant`s (A and D65), so the
+/// matrix build runs `DEC-076`'s convergent illuminant interpolation, the
+/// path with the most `f64` operations. A strong white balance and a
+/// near-full-scale band give the `f32` plane negative and above-1.0 values, so
+/// its hash covers the unclamped path, not only values a clamp would also give.
+fn colour_samples() -> Vec<u16> {
+    let mut state = 0x5091_0c01;
+    (0..WIDTH * HEIGHT)
+        .map(|i| {
+            let n = xorshift32(&mut state);
+            if i % WIDTH >= 18 {
+                (65535 - (n & 0x7ff)) as u16
+            } else {
+                (n & 0xffff) as u16
+            }
+        })
+        .collect()
+}
+
+/// `num / 10000` SRATIONALs, row-major.
+fn matrix(rows: [[i32; 3]; 3]) -> Vec<(i32, i32)> {
+    rows.iter()
+        .flat_map(|row| row.iter().map(|&num| (num, 10_000)))
+        .collect()
+}
+
+fn colour_description(samples: Vec<u16>) -> DngDescription {
+    DngDescription {
+        order: Order::Little,
+        layout: IfdLayout::SensorInIfd0,
+        width: WIDTH,
+        height: HEIGHT,
+        bits_per_sample: 16,
+        kind: PlaneKind::Cfa {
+            repeat_dim: [2, 2],
+            pattern: vec![0, 1, 1, 2],
+            plane_color: vec![0, 1, 2],
+        },
+        organisation: Organisation::Strips {
+            rows_per_strip: HEIGHT,
+        },
+        payload: Payload::Samples(samples),
+        meta: DngMeta {
+            color_matrix_1: Some(matrix([
+                [8000, -2000, -500],
+                [-4000, 12000, 2000],
+                [-1000, 2500, 7000],
+            ])),
+            color_matrix_2: Some(matrix([
+                [7000, -1500, -500],
+                [-4500, 12500, 2000],
+                [-800, 2000, 6000],
+            ])),
+            forward_matrix_1: Some(matrix([
+                [6000, 3000, 642],
+                [2000, 7000, 1000],
+                [1000, 1000, 6249],
+            ])),
+            forward_matrix_2: Some(matrix([
+                [6500, 2500, 642],
+                [2500, 6800, 700],
+                [500, 1200, 6549],
+            ])),
+            calibration_illuminant_1: Some(17),
+            calibration_illuminant_2: Some(21),
+            as_shot_neutral: Some(vec![(9, 20), (1, 1), (31, 50)]),
+            ..DngMeta::default()
+        },
+        opcode_lists: [None, None, None],
+        extra_tags: Vec::new(),
+        fault: None,
+    }
+}
+
+/// The two plane hashes of one colour description.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PlaneHashes {
+    u16_plane: u64,
+    f32_plane: u64,
+}
+
+/// The fixture's `u16` and `f32` planes.
+fn colour_planes(d: &DngDescription) -> (Vec<u16>, Vec<f32>) {
+    let file = write_dng(d).expect("the colour fixture writes");
+    let container = Container::parse(&file).expect("the colour fixture parses");
+    let sensor = container.sensor().expect("the colour fixture has a sensor");
+    let pixels = (WIDTH * HEIGHT) as usize;
+    let mut plane = vec![0u16; pixels];
+    unpack_into(&sensor, container.byte_order(), &file, &mut plane).expect("unpacks");
+    let mut u = vec![0u16; pixels * 3];
+    srgb_linear_plane_into(&sensor, &plane, &mut u).expect("the u16 plane develops");
+    let mut f = vec![0f32; pixels * 3];
+    srgb_linear_plane_f32_into(&sensor, &plane, &mut f).expect("the f32 plane develops");
+    (u, f)
+}
+
+fn colour_hashes(d: &DngDescription) -> PlaneHashes {
+    let (u, f) = colour_planes(d);
+    PlaneHashes {
+        u16_plane: hash_u16(&u),
+        f32_plane: hash_f32(&f),
+    }
+}
+
+/// Recorded on macOS arm64 at `SPEC-091`'s build; the CI matrix asserts them on
+/// ubuntu-latest x86_64 too. Never edit one to make a run pass.
+const COLOUR_COMMITTED: PlaneHashes = PlaneHashes {
+    u16_plane: 0x03c3_5911_9395_8585,
+    f32_plane: 0x419a_f4d1_3262_5320,
+};
+
+#[test]
+fn colour_plane_hashes_match_committed() {
+    let d = colour_description(colour_samples());
+    let (_, f) = colour_planes(&d);
+    let actual = colour_hashes(&d);
+    eprintln!(
+        "colour-rggb-16bit u16_plane {:#018x} f32_plane {:#018x}",
+        actual.u16_plane, actual.f32_plane
+    );
+    // The hash covers the unclamped path: the plane holds both a negative and
+    // an above-1.0 value.
+    assert!(f.iter().any(|&v| v < 0.0), "the f32 plane holds a negative");
+    assert!(
+        f.iter().any(|&v| v > 1.0),
+        "the f32 plane holds a value above 1.0"
+    );
+    // The second calibration takes part: without CalibrationIlluminant2 the
+    // single-illuminant path runs and the plane differs.
+    let mut single = d.clone();
+    single.meta.calibration_illuminant_2 = None;
+    assert_ne!(
+        colour_hashes(&single).f32_plane,
+        actual.f32_plane,
+        "the illuminant interpolation changes the plane"
+    );
+    assert_eq!(
+        actual.u16_plane, COLOUR_COMMITTED.u16_plane,
+        "srgb_linear_plane_into hash diverged from the committed constant"
+    );
+    assert_eq!(
+        actual.f32_plane, COLOUR_COMMITTED.f32_plane,
+        "srgb_linear_plane_f32_into hash diverged from the committed constant"
+    );
+}
+
+/// `determinism_red_proof` for the colour fixture: the control reproduces the
+/// committed hashes, then the LSB of one interior sample is flipped and both
+/// plane hashes must move.
+#[test]
+fn colour_determinism_red_proof() {
+    let samples = colour_samples();
+    let control = colour_hashes(&colour_description(samples.clone()));
+    assert_eq!(
+        control, COLOUR_COMMITTED,
+        "control run must reproduce the committed colour hashes before the red-proof means anything"
+    );
+    let target = (8 * WIDTH + 10) as usize;
+    let mut perturbed = samples;
+    perturbed[target] ^= 1;
+    let red = colour_hashes(&colour_description(perturbed));
+    assert_ne!(
+        red.u16_plane, COLOUR_COMMITTED.u16_plane,
+        "u16 plane hash blind to a one-bit change"
+    );
+    assert_ne!(
+        red.f32_plane, COLOUR_COMMITTED.f32_plane,
+        "f32 plane hash blind to a one-bit change"
+    );
+}
+
+/// `SPEC-091` AC12, verify: the fixture's illuminant weight lies strictly
+/// between its two calibrations, so the committed `f32` hash covers the
+/// interpolation itself and not a weight clamped to one end. With both
+/// calibrations set to the same matrices the weight cannot matter, so the
+/// fixture equals one of those two controls exactly when the weight is 0 or 1.
+#[test]
+fn colour_fixture_interpolates_between_its_illuminants() {
+    let d = colour_description(colour_samples());
+    let actual = colour_hashes(&d).f32_plane;
+    let mut all_first = d.clone();
+    all_first.meta.color_matrix_2 = d.meta.color_matrix_1.clone();
+    all_first.meta.forward_matrix_2 = d.meta.forward_matrix_1.clone();
+    let mut all_second = d.clone();
+    all_second.meta.color_matrix_1 = d.meta.color_matrix_2.clone();
+    all_second.meta.forward_matrix_1 = d.meta.forward_matrix_2.clone();
+    assert_ne!(
+        colour_hashes(&all_first).f32_plane,
+        actual,
+        "the weight is not pinned to CalibrationIlluminant1"
+    );
+    assert_ne!(
+        colour_hashes(&all_second).f32_plane,
+        actual,
+        "the weight is not pinned to CalibrationIlluminant2"
+    );
 }

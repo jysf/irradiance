@@ -28,7 +28,8 @@ mod tiff;
 
 use irradiance::color::{
     develop_color_f32_into, develop_color_f32_into_threaded, develop_color_into,
-    develop_color_into_threaded, to_srgb_linear_into,
+    develop_color_into_threaded, srgb_linear_plane_f32_into, srgb_linear_plane_into,
+    srgb_linear_plane_rows_f32_into, srgb_linear_plane_rows_into, to_srgb_linear_into,
 };
 use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
 use irradiance::develop::{develop_into, output_dimensions};
@@ -144,35 +145,40 @@ fn mono(lists: [Option<Vec<u8>>; 3]) -> Result<(), Error> {
     develop_into(&sensor, &plane, &mut dst)
 }
 
-/// The four public colour develop entries, each its own door (§12).
+/// The public colour develop entries, each its own door (§12): the four
+/// cropped develops and SPEC-091's four sensor-geometry plane entries (the
+/// band forms over `0..H`).
 #[derive(Debug, Clone, Copy)]
 enum ColourEntry {
     U16,
     F32,
     U16Threaded,
     F32Threaded,
+    Plane,
+    PlaneF32,
+    PlaneRows,
+    PlaneRowsF32,
 }
 
-const COLOUR_ENTRIES: [ColourEntry; 4] = [
+const COLOUR_ENTRIES: [ColourEntry; 8] = [
     ColourEntry::U16,
     ColourEntry::F32,
     ColourEntry::U16Threaded,
     ColourEntry::F32Threaded,
+    ColourEntry::Plane,
+    ColourEntry::PlaneF32,
+    ColourEntry::PlaneRows,
+    ColourEntry::PlaneRowsF32,
 ];
+
+/// The sensor-geometry plane's length (`width·height·3`), SPEC-091's `dst`.
+fn plane_len(sensor: &Sensor) -> usize {
+    sensor.width as usize * sensor.height as usize * 3
+}
 
 fn colour(entry: ColourEntry, lists: [Option<Vec<u8>>; 3]) -> Result<(), Error> {
     let (sensor, plane) = fixture(true, lists);
-    let n = out_len(&sensor, 3);
-    match entry {
-        ColourEntry::U16 => develop_color_into(&sensor, &plane, &mut vec![0u16; n]),
-        ColourEntry::F32 => develop_color_f32_into(&sensor, &plane, &mut vec![0f32; n]),
-        ColourEntry::U16Threaded => {
-            develop_color_into_threaded(&sensor, &plane, &mut vec![0u16; n], 4)
-        }
-        ColourEntry::F32Threaded => {
-            develop_color_f32_into_threaded(&sensor, &plane, &mut vec![0f32; n], 4)
-        }
-    }
+    colour_sensor(entry, &sensor, &plane)
 }
 
 // Shown red first (DEC-009): run against the pre-fix tree with plain
@@ -527,6 +533,25 @@ fn main() {
         "develop_color_f32_into_threaded" => irradiance::color::develop_color_f32_into_threaded(
             &sensor, &plane, &mut vec![0f32; px * 3], 4,
         ),
+        // SPEC-091: the sensor-geometry plane, on the raw plane's own size.
+        "srgb_linear_plane_into" => {
+            let n = sensor.width as usize * sensor.height as usize * 3;
+            irradiance::color::srgb_linear_plane_into(&sensor, &plane, &mut vec![0u16; n])
+        }
+        "srgb_linear_plane_f32_into" => {
+            let n = sensor.width as usize * sensor.height as usize * 3;
+            irradiance::color::srgb_linear_plane_f32_into(&sensor, &plane, &mut vec![0f32; n])
+        }
+        "srgb_linear_plane_rows_into" => {
+            let n = sensor.width as usize * sensor.height as usize * 3;
+            let rows = 0..sensor.height;
+            irradiance::color::srgb_linear_plane_rows_into(&sensor, &plane, rows, &mut vec![0u16; n])
+        }
+        "srgb_linear_plane_rows_f32_into" => {
+            let n = sensor.width as usize * sensor.height as usize * 3;
+            let rows = 0..sensor.height;
+            irradiance::color::srgb_linear_plane_rows_f32_into(&sensor, &plane, rows, &mut vec![0f32; n])
+        }
         // SPEC-056: the colour stage primitives, on the raw plane's own size.
         "demosaic_into" => {
             let n = sensor.width as usize * sensor.height as usize * 3;
@@ -680,11 +705,15 @@ fn required_processing_red_proof() {
         "to_srgb_linear_into",
     ];
 
-    const COLOUR: [&str; 4] = [
+    const COLOUR: [&str; 8] = [
         "develop_color_into",
         "develop_color_f32_into",
         "develop_color_into_threaded",
         "develop_color_f32_into_threaded",
+        "srgb_linear_plane_into",
+        "srgb_linear_plane_f32_into",
+        "srgb_linear_plane_rows_into",
+        "srgb_linear_plane_rows_f32_into",
     ];
     // (entry, fixture, honest answer)
     let mut cases: Vec<(&str, &Path, String)> = vec![
@@ -853,6 +882,7 @@ fn mono_sensor(sensor: &Sensor, plane: &[u16]) -> Result<(), Error> {
 
 fn colour_sensor(entry: ColourEntry, sensor: &Sensor, plane: &[u16]) -> Result<(), Error> {
     let n = out_len(sensor, 3);
+    let p = plane_len(sensor);
     match entry {
         ColourEntry::U16 => develop_color_into(sensor, plane, &mut vec![0u16; n]),
         ColourEntry::F32 => develop_color_f32_into(sensor, plane, &mut vec![0f32; n]),
@@ -861,6 +891,14 @@ fn colour_sensor(entry: ColourEntry, sensor: &Sensor, plane: &[u16]) -> Result<(
         }
         ColourEntry::F32Threaded => {
             develop_color_f32_into_threaded(sensor, plane, &mut vec![0f32; n], 4)
+        }
+        ColourEntry::Plane => srgb_linear_plane_into(sensor, plane, &mut vec![0u16; p]),
+        ColourEntry::PlaneF32 => srgb_linear_plane_f32_into(sensor, plane, &mut vec![0f32; p]),
+        ColourEntry::PlaneRows => {
+            srgb_linear_plane_rows_into(sensor, plane, 0..sensor.height, &mut vec![0u16; p])
+        }
+        ColourEntry::PlaneRowsF32 => {
+            srgb_linear_plane_rows_f32_into(sensor, plane, 0..sensor.height, &mut vec![0f32; p])
         }
     }
 }
@@ -1227,6 +1265,8 @@ fn every_entry_with_sentinel(l2: Vec<u8>) -> Vec<(String, Result<(), Error>, boo
     }
     let (sensor, plane) = fixture(true, [None, Some(l2), None]);
     let n = out_len(&sensor, 3);
+    let p = plane_len(&sensor);
+    let rows = 0..sensor.height;
     for entry in COLOUR_ENTRIES {
         let (r, untouched) = match entry {
             ColourEntry::U16 | ColourEntry::U16Threaded => {
@@ -1247,6 +1287,24 @@ fn every_entry_with_sentinel(l2: Vec<u8>) -> Vec<(String, Result<(), Error>, boo
                 };
                 (r, dst.iter().all(|&v| v == SF))
             }
+            ColourEntry::Plane | ColourEntry::PlaneRows => {
+                let mut dst = vec![S; p];
+                let r = if matches!(entry, ColourEntry::Plane) {
+                    srgb_linear_plane_into(&sensor, &plane, &mut dst)
+                } else {
+                    srgb_linear_plane_rows_into(&sensor, &plane, rows.clone(), &mut dst)
+                };
+                (r, dst.iter().all(|&v| v == S))
+            }
+            ColourEntry::PlaneF32 | ColourEntry::PlaneRowsF32 => {
+                let mut dst = vec![SF; p];
+                let r = if matches!(entry, ColourEntry::PlaneF32) {
+                    srgb_linear_plane_f32_into(&sensor, &plane, &mut dst)
+                } else {
+                    srgb_linear_plane_rows_f32_into(&sensor, &plane, rows.clone(), &mut dst)
+                };
+                (r, dst.iter().all(|&v| v == SF))
+            }
         };
         out.push((format!("{entry:?}"), r, untouched));
     }
@@ -1257,7 +1315,8 @@ fn every_entry_with_sentinel(l2: Vec<u8>) -> Vec<(String, Result<(), Error>, boo
 fn seventeen_gain_maps_are_refused_by_every_entry_with_dst_untouched() {
     let ops: Vec<Vec<u8>> = (0..17).map(|_| gain_map(MANDATORY)).collect();
     let results = every_entry_with_sentinel(opcode_list(&ops));
-    assert_eq!(results.len(), 9);
+    // Five mono entries and eight colour entries (SPEC-091 added four).
+    assert_eq!(results.len(), 13);
     for (label, r, untouched) in results {
         assert!(
             matches!(r, Err(Error::TooManyGainMaps { count: 17 })),
