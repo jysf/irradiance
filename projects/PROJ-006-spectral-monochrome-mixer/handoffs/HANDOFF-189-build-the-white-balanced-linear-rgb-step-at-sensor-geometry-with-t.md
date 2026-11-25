@@ -58,7 +58,7 @@ handback:
   pr: 343
   completed_at: 2026-11-25         # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit, from transcript 385139bc-54fe-4f0e-b33c-b6249fa3fde8.jsonl (140 unique message.ids, all claude-opus-5-5, no subagents): input 285 + cache-creation 324,748 (1-hour) + cache-read 39,152,603 + output 114,017, priced at 5 and 25 USD per million. Re-sum at ship. CI run 45666936351 green on both determinism legs."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-25
 ---
 
 # HANDOFF-189: The white-balanced linear RGB step at sensor geometry, with the working-space DEC and the arithmetic decision for the new path

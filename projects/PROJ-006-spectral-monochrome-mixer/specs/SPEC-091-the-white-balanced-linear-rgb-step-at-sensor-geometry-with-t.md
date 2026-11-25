@@ -6,19 +6,19 @@
 task:
   id: SPEC-091
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -77,10 +77,30 @@ cost:
       duration_minutes: 90
       recorded_at: 2026-11-24
       notes: "Main-loop design in the PROJ-006 orchestrator session (frame, onyx answers, STAGE-031 frame, the DEC-079 corpus probe, this design); not split per spec. Measured at the STAGE-031 close as orchestration cost."
+    - cycle: build
+      handoff: HANDOFF-189
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 39591653
+      estimated_usd: 25.68
+      duration_minutes: 25
+      recorded_at: 2026-11-25
+      notes: "FLOOR taken before the handback commit, from transcript 385139bc-54fe-4f0e-b33c-b6249fa3fde8.jsonl (140 unique message.ids, all claude-opus-5-5, no subagents): input 285 + cache-creation 324,748 (1-hour) + cache-read 39,152,603 + output 114,017, priced at 5 and 25 USD per million. Re-sum at ship. CI run 45666936351 green on both determinism legs."
+    - cycle: verify
+      handoff: HANDOFF-198
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 19052713
+      estimated_usd: 12.62
+      duration_minutes: 25
+      recorded_at: 2026-11-25
+      notes: "Floor, measured before the final commit. Approved at code ea65f2d; verify added three test guards, a fuzz buffer-length variation and two doc sentences, no src change outside the test module."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 58644366
+    estimated_usd: 38.30
+    session_count: 3
 ---
 
 # SPEC-091: The white-balanced linear RGB step at sensor geometry, with the working-space DEC and the arithmetic decision for the new path

@@ -58,7 +58,7 @@ handback:
   pr: https://github.com/jysf/irradiance/pull/343
   completed_at: 2026-11-25               # YYYY-MM-DD
   notes: "Floor, measured before the final commit. Approved at code ea65f2d; verify added three test guards, a fuzz buffer-length variation and two doc sentences, no src change outside the test module."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-25
 ---
 
 # HANDOFF-198: VERIFY: the white-balanced linear RGB step at sensor geometry (SPEC-091)
