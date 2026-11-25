@@ -31,7 +31,8 @@ mod tiff;
 
 use irradiance::color::{
     develop_color_f32_into, develop_color_f32_into_threaded, develop_color_into,
-    develop_color_into_threaded, to_srgb_linear_into,
+    develop_color_into_threaded, srgb_linear_plane_f32_into, srgb_linear_plane_into,
+    srgb_linear_plane_rows_f32_into, srgb_linear_plane_rows_into, to_srgb_linear_into,
 };
 use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
 use irradiance::develop::{
@@ -290,7 +291,7 @@ fn fixture_reads(entry: Entry, tag: u16) -> bool {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The ten develop entries, each its own door (§12).
+// The fourteen develop entries (SPEC-091 added four), each its own door (§12).
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -305,9 +306,13 @@ enum Entry {
     ToSrgbLinearInto,
     DemosaicInto,
     DemosaicIntoThreaded,
+    SrgbLinearPlaneInto,
+    SrgbLinearPlaneF32Into,
+    SrgbLinearPlaneRowsInto,
+    SrgbLinearPlaneRowsF32Into,
 }
 
-const ENTRIES: [Entry; 10] = [
+const ENTRIES: [Entry; 14] = [
     Entry::DevelopInto,
     Entry::DevelopWithInto,
     Entry::DevelopWithScratchInto,
@@ -318,6 +323,10 @@ const ENTRIES: [Entry; 10] = [
     Entry::ToSrgbLinearInto,
     Entry::DemosaicInto,
     Entry::DemosaicIntoThreaded,
+    Entry::SrgbLinearPlaneInto,
+    Entry::SrgbLinearPlaneF32Into,
+    Entry::SrgbLinearPlaneRowsInto,
+    Entry::SrgbLinearPlaneRowsF32Into,
 ];
 
 impl Entry {
@@ -334,7 +343,11 @@ impl Entry {
             Entry::DevelopColorInto
             | Entry::DevelopColorF32Into
             | Entry::DevelopColorIntoThreaded
-            | Entry::DevelopColorF32IntoThreaded => DevelopPath::Colour,
+            | Entry::DevelopColorF32IntoThreaded
+            | Entry::SrgbLinearPlaneInto
+            | Entry::SrgbLinearPlaneF32Into
+            | Entry::SrgbLinearPlaneRowsInto
+            | Entry::SrgbLinearPlaneRowsF32Into => DevelopPath::Colour,
             Entry::ToSrgbLinearInto => DevelopPath::ColourTransform,
             Entry::DemosaicInto | Entry::DemosaicIntoThreaded => DevelopPath::Demosaic,
         }
@@ -433,6 +446,27 @@ fn run_with(entry: Entry, fx: &Fixture, options: &DevelopOptions) -> (Result<(),
             let r = to_srgb_linear_into(sensor, &camera, &mut dst);
             (r, Written::U16(dst))
         }
+        // SPEC-091: the sensor-geometry plane, whole and as the whole-plane band.
+        Entry::SrgbLinearPlaneInto => {
+            let mut dst = u16s(raw3);
+            let r = srgb_linear_plane_into(sensor, plane, &mut dst);
+            (r, Written::U16(dst))
+        }
+        Entry::SrgbLinearPlaneF32Into => {
+            let mut dst = f32s(raw3);
+            let r = srgb_linear_plane_f32_into(sensor, plane, &mut dst);
+            (r, bits(dst))
+        }
+        Entry::SrgbLinearPlaneRowsInto => {
+            let mut dst = u16s(raw3);
+            let r = srgb_linear_plane_rows_into(sensor, plane, 0..H, &mut dst);
+            (r, Written::U16(dst))
+        }
+        Entry::SrgbLinearPlaneRowsF32Into => {
+            let mut dst = f32s(raw3);
+            let r = srgb_linear_plane_rows_f32_into(sensor, plane, 0..H, &mut dst);
+            (r, bits(dst))
+        }
         Entry::DemosaicInto => {
             let mut dst = u16s(raw3);
             let r = demosaic_into(sensor, plane, &mut dst);
@@ -513,9 +547,9 @@ fn ac1_each_path_refuses_its_own_malformed_set_on_every_entry() {
             refused += 1;
         }
     }
-    // 7 levels tags × 7 entries, 2 CFA × 6, 11 colour × 5: the cross product
-    // is not vacuous.
-    assert_eq!(refused, 7 * 7 + 2 * 6 + 11 * 5);
+    // 7 levels tags × 11 entries, 2 CFA × 10, 11 colour × 9 (SPEC-091 added
+    // four colour entries): the cross product is not vacuous.
+    assert_eq!(refused, 7 * 11 + 2 * 10 + 11 * 9);
 }
 
 #[test]

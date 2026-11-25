@@ -4,7 +4,9 @@
 //! phase-driven and panic-free; this target makes that a *fuzzed* guarantee
 //! rather than one the 1×1 / 2×2 / 3×5 unit tests assert on a handful of
 //! shapes. It chains the full pipeline — parse → locate the sensor → unpack
-//! the mosaic plane → demosaic it — so a byte string has to survive every
+//! the mosaic plane → demosaic it, then develop it to the sensor-geometry
+//! linear-sRGB plane, whole and as a fuzzer-chosen row band (`SPEC-091`) —
+//! so a byte string has to survive every
 //! earlier stage before it can reach the kernel at all; a byte string that is
 //! rejected anywhere along the way is a SUCCESS for this target, exactly as in
 //! `fuzz_targets/develop.rs`. The contract is the one every target states:
@@ -30,6 +32,10 @@
 
 use libfuzzer_sys::fuzz_target;
 
+use irradiance::color::{
+    srgb_linear_plane_f32_into, srgb_linear_plane_into, srgb_linear_plane_rows_f32_into,
+    srgb_linear_plane_rows_into,
+};
 use irradiance::demosaic::demosaic_into;
 use irradiance::ifd::Container;
 use irradiance::plane::unpack_into;
@@ -86,4 +92,38 @@ fuzz_target!(|data: &[u8]| {
 
     let mut rgb = vec![0u16; rgb_len];
     let _ = demosaic_into(&sensor, &plane, &mut rgb);
+
+    // SPEC-091: the sensor-geometry linear-sRGB plane, whole (into the same
+    // `width·height·3` buffers) and as a band over a fuzzer-chosen row range,
+    // valid or not. The range comes from the input's last two bytes, so an
+    // empty, reversed or over-long range (`InvalidRowRange`) is reachable as
+    // well as every valid one; `dst` is sized for the range as asked, saturating,
+    // so a reversed range still meets a buffer and the range check refuses it.
+    let _ = srgb_linear_plane_into(&sensor, &plane, &mut rgb);
+    let mut rgb_f32 = vec![0f32; rgb_len];
+    let _ = srgb_linear_plane_f32_into(&sensor, &plane, &mut rgb_f32);
+
+    let pick = |back: usize| {
+        data.len()
+            .checked_sub(back)
+            .and_then(|i| data.get(i))
+            .map_or(0, |&b| u32::from(b))
+    };
+    // Up to two rows past the height, so `end > height` is reachable.
+    let span = sensor.height.saturating_add(2);
+    let start = pick(2).checked_rem(span).unwrap_or(0);
+    let end = pick(1).checked_rem(span).unwrap_or(0);
+    let band_rows = u64::from(end.saturating_sub(start));
+    let Some(band_len) = band_rows
+        .checked_mul(u64::from(sensor.width))
+        .and_then(|v| v.checked_mul(3))
+        .filter(|&v| v <= MAX_PIXELS)
+        .and_then(|v| usize::try_from(v).ok())
+    else {
+        return;
+    };
+    let mut band = vec![0u16; band_len];
+    let _ = srgb_linear_plane_rows_into(&sensor, &plane, start..end, &mut band);
+    let mut band_f32 = vec![0f32; band_len];
+    let _ = srgb_linear_plane_rows_f32_into(&sensor, &plane, start..end, &mut band_f32);
 });

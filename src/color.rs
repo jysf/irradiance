@@ -123,6 +123,19 @@
 //! bit (quantise to `u16`, then `/65535.0`), so a float consumer never holds the
 //! `u16` result and its `f32` copy at once.
 //!
+//! # Sensor-geometry plane (`SPEC-091`, `DEC-079`)
+//!
+//! [`srgb_linear_plane_into`] and [`srgb_linear_plane_f32_into`] run the same
+//! fused pipeline but through an identity sink: every pixel of the
+//! `width·height` plane is written, masked border included, with no crop,
+//! orientation or warp. `DEC-079` defines the mixer's weights on this plane's
+//! space (linear sRGB). The `u16` form is the existing colour pixel (clamped);
+//! the `f32` form is the matrix's `f64` sum `/ 65535` cast once, **unclamped**,
+//! because the clamp corrupts a mix on up to 5% of pixels (`DEC-079` fact 2).
+//! The row-range forms [`srgb_linear_plane_rows_into`] and
+//! [`srgb_linear_plane_rows_f32_into`] develop a band with a halo
+//! (`develop_rows_banded`, `DEC-044`) and equal the whole plane bit for bit.
+//!
 //! # Panic policy (`no-panics-on-untrusted-input`)
 //!
 //! A zero-denominator required rational, an absent or ill-shaped
@@ -146,7 +159,8 @@
 //! See `docs/provenance-ledger.md`.
 
 use crate::demosaic::{
-    develop_color_fused, develop_rows_banded, is_supported_bayer, run_row_bands,
+    check_supported_bayer, develop_color_fused, develop_rows_banded, is_supported_bayer,
+    run_row_bands,
 };
 use crate::develop::{
     black_pattern_dims, normalize_range, oriented_dimensions, output_coords_from_crop,
@@ -399,42 +413,7 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
     with_normalizer!(sensor, src, levels, gains, |normalize| {
-        develop_color_u16_with(sensor, expected_src, output, &normalize, dst)
-    })
-}
-
-/// [`develop_color_into`]'s body for one resolved normalizer.
-fn develop_color_u16_with<N: Fn(u32, u32) -> u16>(
-    sensor: &Sensor,
-    expected_src: usize,
-    output: CropScatter,
-    normalize: &N,
-    dst: &mut [u16],
-) -> Result<(), Error> {
-    // The one remaining scratch buffer: the `width·height` green plane.
-    let mut green = vec![0u16; expected_src];
-    let (dst_triples, _remainder) = dst.as_chunks_mut::<3>();
-
-    develop_color_fused(sensor, &mut green, normalize, || {
-        let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] =
-            build_camera_to_srgb_linear(sensor)?;
-        let mut scatter = output;
-        Ok(move |pixel: usize, r: u16, g: u16, b: u16| {
-            // Crop + orient at the sink (`DEC-043`): a pixel outside the
-            // DefaultCrop rectangle (the masked border included) is dropped
-            // before the matrix is even applied.
-            let Some(slot) = scatter.slot_of(pixel) else {
-                return;
-            };
-            let rf = f64::from(r);
-            let gf = f64::from(g);
-            let bf = f64::from(b);
-            if let Some([out_r, out_g, out_b]) = dst_triples.get_mut(slot) {
-                *out_r = quantize(m00 * rf + m01 * gf + m02 * bf);
-                *out_g = quantize(m10 * rf + m11 * gf + m12 * bf);
-                *out_b = quantize(m20 * rf + m21 * gf + m22 * bf);
-            }
-        })
+        develop_color_with(sensor, expected_src, output, &normalize, dst, store_u16)
     })
 }
 
@@ -490,43 +469,354 @@ pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> 
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
     with_normalizer!(sensor, src, levels, gains, |normalize| {
-        develop_color_f32_with(sensor, expected_src, output, &normalize, dst)
+        develop_color_with(
+            sensor,
+            expected_src,
+            output,
+            &normalize,
+            dst,
+            store_f32_quantised,
+        )
     })
 }
 
-/// [`develop_color_f32_into`]'s body for one resolved normalizer.
-fn develop_color_f32_with<N: Fn(u32, u32) -> u16>(
+/// The colour develop's body for one resolved normalizer, shared by every
+/// single-thread colour entry (`SPEC-049`'s fuse, `DEC-042`): one `width·height`
+/// green plane, the one fused traversal, and a sink that maps each developed
+/// plane pixel to its `dst` triple (`slots`: the `SPEC-050` crop/orient scatter,
+/// or the `SPEC-091` identity) and writes it with `store` (each entry's own
+/// arithmetic on the camera triple). The matrix is built inside the traversal's
+/// `setup`, after its CFA check, so the error order is the fused path's.
+fn develop_color_with<T, P, S, N>(
     sensor: &Sensor,
     expected_src: usize,
-    output: CropScatter,
+    slots: P,
     normalize: &N,
-    dst: &mut [f32],
-) -> Result<(), Error> {
+    dst: &mut [T],
+    store: S,
+) -> Result<(), Error>
+where
+    P: PixelSlot,
+    S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]),
+    N: Fn(u32, u32) -> u16,
+{
+    // The one remaining scratch buffer: the `width·height` green plane.
     let mut green = vec![0u16; expected_src];
     let (dst_triples, _remainder) = dst.as_chunks_mut::<3>();
 
     develop_color_fused(sensor, &mut green, normalize, || {
-        let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] =
-            build_camera_to_srgb_linear(sensor)?;
-        let mut scatter = output;
+        let matrix = build_camera_to_srgb_linear(sensor)?;
+        let mut slots = slots;
         Ok(move |pixel: usize, r: u16, g: u16, b: u16| {
-            // The same crop + orient scatter as `develop_color_into` — a pure
-            // rearrangement, so it commutes with the quantise-then-divide below.
-            let Some(slot) = scatter.slot_of(pixel) else {
+            // Crop + orient at the sink (`DEC-043`): a pixel outside the
+            // DefaultCrop rectangle (the masked border included) is dropped
+            // before the matrix is even applied. The identity keeps every pixel.
+            let Some(slot) = slots.slot_of(pixel) else {
                 return;
             };
-            let rf = f64::from(r);
-            let gf = f64::from(g);
-            let bf = f64::from(b);
-            if let Some([out_r, out_g, out_b]) = dst_triples.get_mut(slot) {
-                // Quantise to the identical integer path, THEN divide by 65535.0
-                // — the bit-exact definition of `to_linear_f32_into(quantize(..))`.
-                *out_r = f32::from(quantize(m00 * rf + m01 * gf + m02 * bf)) / 65535.0;
-                *out_g = f32::from(quantize(m10 * rf + m11 * gf + m12 * bf)) / 65535.0;
-                *out_b = f32::from(quantize(m20 * rf + m21 * gf + m22 * bf)) / 65535.0;
+            if let Some(out) = dst_triples.get_mut(slot) {
+                store(out, &matrix, [r, g, b]);
             }
         })
     })
+}
+
+/// The `u16` colour pixel (`develop_color_into`, `DEC-018`): each channel is
+/// `Σ_j M[i][j]·cam_j` in `f64`, in this order, clamped and rounded half up by
+/// [`quantize`]. Every `u16` colour entry writes exactly this.
+fn store_u16(out: &mut [u16; 3], m: &[[f64; 3]; 3], rgb: [u16; 3]) {
+    let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] = *m;
+    let [r, g, b] = rgb;
+    let rf = f64::from(r);
+    let gf = f64::from(g);
+    let bf = f64::from(b);
+    *out = [
+        quantize(m00 * rf + m01 * gf + m02 * bf),
+        quantize(m10 * rf + m11 * gf + m12 * bf),
+        quantize(m20 * rf + m21 * gf + m22 * bf),
+    ];
+}
+
+/// The cropped `f32` colour pixel (`develop_color_f32_into`): the [`store_u16`]
+/// value, quantised first, then divided by `65535.0` — the bit-exact definition
+/// of `to_linear_f32_into(quantize(..))`.
+fn store_f32_quantised(out: &mut [f32; 3], m: &[[f64; 3]; 3], rgb: [u16; 3]) {
+    let mut quantised = [0u16; 3];
+    store_u16(&mut quantised, m, rgb);
+    *out = quantised.map(|v| f32::from(v) / 65535.0);
+}
+
+/// The sensor-geometry `f32` pixel (`SPEC-091`, `DEC-079`): the same `f64` sum
+/// as [`store_u16`], in the same order, divided by `65535.0` and cast to `f32`
+/// once, **unclamped and unquantised**. `1.0` is white; a negative channel is an
+/// out-of-gamut colour and one above `1.0` a white-balance over, both of which
+/// [`quantize`] would pin. Basic `f64` operations only (no `mul_add`), and the
+/// one cast is IEEE round-to-nearest-even, so the value is the same on every
+/// conforming platform (`DEC-033`; measured by `tests/determinism.rs`).
+fn store_f32_unclamped(out: &mut [f32; 3], m: &[[f64; 3]; 3], rgb: [u16; 3]) {
+    let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] = *m;
+    let [r, g, b] = rgb;
+    let rf = f64::from(r);
+    let gf = f64::from(g);
+    let bf = f64::from(b);
+    *out = [
+        ((m00 * rf + m01 * gf + m02 * bf) / 65535.0) as f32,
+        ((m10 * rf + m11 * gf + m12 * bf) / 65535.0) as f32,
+        ((m20 * rf + m21 * gf + m22 * bf) / 65535.0) as f32,
+    ];
+}
+
+/// Where the fused traversal's plane pixel `pixel = y·width + x` lands in a
+/// colour entry's `dst` (as an RGB-triple index), or `None` to drop it.
+trait PixelSlot {
+    fn slot_of(&mut self, pixel: usize) -> Option<usize>;
+}
+
+/// The sensor-geometry sink (`SPEC-091`): plane pixel `p` is triple `p`, so
+/// every pixel of the `width·height` plane is written, masked border included.
+struct WholePlane;
+
+impl PixelSlot for WholePlane {
+    fn slot_of(&mut self, pixel: usize) -> Option<usize> {
+        Some(pixel)
+    }
+}
+
+/// The white-balanced **linear-sRGB plane at sensor geometry** (`SPEC-091`,
+/// `DEC-079`), as `u16`: interleaved RGB at `width·height·3`, pixel `(x, y)` at
+/// index `3·(y·width + x)`, **every** pixel of the plane written, the masked
+/// border outside the `ActiveArea` included. No crop, no orientation, no warp.
+///
+/// The pipeline is [`develop_color_into`]'s, the same fused traversal: levels,
+/// `OpcodeList2` `GainMap`s (`DEC-069`), Hamilton-Adams demosaic and the
+/// camera-to-linear-sRGB matrix `M` (`DEC-033`). Only the sink differs: the
+/// identity instead of the crop. So each pixel is exactly the value
+/// [`develop_color_into`] writes for it when it lies in the crop rectangle, and
+/// the value the traversal computes (and drops) there when it does not. Like
+/// that pixel it is clamped to `[0, 65535]` and rounded half up (`DEC-018`): an
+/// out-of-gamut colour pins to `0` and a white-balance over to `65535`. For the
+/// unclamped values see [`srgb_linear_plane_f32_into`].
+///
+/// `src` is the unpacked raw mosaic (`width·height`); both buffers are
+/// caller-owned (`DEC-016`), and the one internal scratch is the `width·height`
+/// green plane. For a plane too large to hold at once, develop it in row strips
+/// with [`srgb_linear_plane_rows_into`].
+///
+/// # Errors
+///
+/// Exactly [`develop_color_into`]'s, in its order, except that `dst` is sized to
+/// the plane: required processing and malformed tags
+/// ([`crate::opcode::DevelopPath::Colour`]), [`Error::ColorSourceWrongLength`],
+/// the geometry ([`Error::InvalidActiveArea`] / [`Error::InvalidDefaultCrop`] /
+/// [`Error::UnsupportedOrientation`]: the plane exists exactly when the
+/// developed image does), [`Error::RgbBufferWrongLength`] if
+/// `dst.len() != width·height·3`, then the levels, the `GainMap`s, the CFA and
+/// the colour calibration. Nothing is written unless every check passes.
+///
+/// Never panics.
+pub fn srgb_linear_plane_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
+    srgb_linear_plane(sensor, src, dst, store_u16)
+}
+
+/// The white-balanced linear-sRGB plane at sensor geometry (`SPEC-091`,
+/// `DEC-079`) as **unclamped** `f32`: the layout, pipeline and refusals of
+/// [`srgb_linear_plane_into`], but each channel is the matrix's `f64` sum divided
+/// by `65535.0` and cast once, `((m_i0·r + m_i1·g + m_i2·b) / 65535.0) as f32`,
+/// with no clamp and no quantise. `1.0` is white; a negative value is an
+/// out-of-gamut colour and a value above `1.0` a white-balance over (`DEC-079`
+/// fact 2), so a mix computed from this plane is not corrupted by the `u16`
+/// plane's clamp.
+///
+/// This is **not** [`develop_color_f32_into`]'s rule, which quantises to `u16`
+/// first and so clamps. Where the `u16` plane does not clamp the two agree to
+/// within half a code. The arithmetic is `f64` basic operations with committed
+/// constants and one IEEE cast (`DEC-033`), and `tests/determinism.rs` pins the
+/// plane's bits on x86_64 and aarch64.
+///
+/// # Errors
+///
+/// Exactly [`srgb_linear_plane_into`]'s, in its order.
+///
+/// Never panics.
+pub fn srgb_linear_plane_f32_into(
+    sensor: &Sensor,
+    src: &[u16],
+    dst: &mut [f32],
+) -> Result<(), Error> {
+    srgb_linear_plane(sensor, src, dst, store_f32_unclamped)
+}
+
+/// [`srgb_linear_plane_into`] for rows `rows` of the plane only (`SPEC-091`): a
+/// band, so a caller can develop a plane too large to hold at once in strips.
+/// `rows` is in whole-plane rows (`0..height`, masked rows included); `dst` is
+/// `(rows.end − rows.start)·width·3`, plane row `y` at index
+/// `3·((y − rows.start)·width + x)`.
+///
+/// Every value equals the same pixel of [`srgb_linear_plane_into`] **bit for
+/// bit**, so strips of any heights that tile `0..height` give exactly the whole
+/// plane. The band develops its rows plus a three-row halo each side through
+/// the same fused traversal (`SPEC-051`'s `develop_rows_banded`, `DEC-044`), so
+/// its internal scratch is proportional to the band, not the plane; `src` is
+/// still the whole mosaic.
+///
+/// # Errors
+///
+/// [`srgb_linear_plane_into`]'s, in its order, with [`Error::InvalidRowRange`]
+/// (an empty or reversed range, or `rows.end > height`) after the geometry and
+/// before [`Error::RgbBufferWrongLength`], whose `expected` is the band's
+/// `(rows.end − rows.start)·width·3`. Nothing is written unless every check
+/// passes.
+///
+/// Never panics.
+pub fn srgb_linear_plane_rows_into(
+    sensor: &Sensor,
+    src: &[u16],
+    rows: core::ops::Range<u32>,
+    dst: &mut [u16],
+) -> Result<(), Error> {
+    srgb_linear_plane_rows(sensor, src, rows, dst, store_u16)
+}
+
+/// [`srgb_linear_plane_f32_into`] for rows `rows` of the plane only
+/// (`SPEC-091`): the band layout, halo and refusals of
+/// [`srgb_linear_plane_rows_into`], every value bit-identical to the same pixel
+/// of [`srgb_linear_plane_f32_into`] (unclamped).
+///
+/// # Errors
+///
+/// Exactly [`srgb_linear_plane_rows_into`]'s, in its order.
+///
+/// Never panics.
+pub fn srgb_linear_plane_rows_f32_into(
+    sensor: &Sensor,
+    src: &[u16],
+    rows: core::ops::Range<u32>,
+    dst: &mut [f32],
+) -> Result<(), Error> {
+    srgb_linear_plane_rows(sensor, src, rows, dst, store_f32_unclamped)
+}
+
+/// The whole-plane entries' body: [`develop_color_into`]'s checks in its order,
+/// then the one fused traversal through the identity sink.
+fn srgb_linear_plane<T, S>(
+    sensor: &Sensor,
+    src: &[u16],
+    dst: &mut [T],
+    store: S,
+) -> Result<(), Error>
+where
+    S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]),
+{
+    check_colour_required_processing(sensor)?;
+    let expected_src = check_plane_buffers(sensor, src.len(), None, dst.len())?;
+    let levels = resolve_colour_levels(sensor)?;
+    let gains = resolve_colour_gain_maps(sensor)?;
+    with_normalizer!(sensor, src, levels, gains, |normalize| {
+        develop_color_with(sensor, expected_src, WholePlane, &normalize, dst, store)
+    })
+}
+
+/// The band entries' body: the whole-plane checks with the row range, then the
+/// CFA and the matrix in the fused path's order (`develop_rows_banded` builds no
+/// matrix), all before any write, then the halo'd band develop.
+fn srgb_linear_plane_rows<T, S>(
+    sensor: &Sensor,
+    src: &[u16],
+    rows: core::ops::Range<u32>,
+    dst: &mut [T],
+    store: S,
+) -> Result<(), Error>
+where
+    S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]),
+{
+    check_colour_required_processing(sensor)?;
+    check_plane_buffers(sensor, src.len(), Some(&rows), dst.len())?;
+    let levels = resolve_colour_levels(sensor)?;
+    let gains = resolve_colour_gain_maps(sensor)?;
+    check_supported_bayer(sensor)?;
+    let matrix = build_camera_to_srgb_linear(sensor)?;
+    with_normalizer!(sensor, src, levels, gains, |normalize| {
+        srgb_linear_plane_rows_with(sensor, &rows, &normalize, &matrix, dst, &store)
+    })
+}
+
+/// [`srgb_linear_plane_rows`]' body for one resolved normalizer: develop the band
+/// (plus its halo) and write each of its pixels at its row offset from
+/// `rows.start`.
+fn srgb_linear_plane_rows_with<T, S, N>(
+    sensor: &Sensor,
+    rows: &core::ops::Range<u32>,
+    normalize: &N,
+    matrix: &[[f64; 3]; 3],
+    dst: &mut [T],
+    store: &S,
+) -> Result<(), Error>
+where
+    S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]),
+    N: Fn(u32, u32) -> u16,
+{
+    let to_usize = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
+    let (start, end) = (to_usize(rows.start), to_usize(rows.end));
+    // The band's first pixel, as a whole-plane index: `dst` starts there.
+    let first = start.saturating_mul(to_usize(sensor.width));
+    let (triples, _remainder) = dst.as_chunks_mut::<3>();
+    develop_rows_banded(sensor, (start, end), normalize, |pixel, r, g, b| {
+        if let Some(out) = pixel.checked_sub(first).and_then(|i| triples.get_mut(i)) {
+            store(out, matrix, [r, g, b]);
+        }
+    })
+}
+
+/// Validate a sensor-geometry plane's buffers (`SPEC-091`) in
+/// [`check_color_buffers`]' order: `src` is `width·height`
+/// ([`Error::ColorSourceWrongLength`]), then the geometry resolves (the same
+/// typed errors as the cropped develop), then, for a band, the row range
+/// ([`Error::InvalidRowRange`]), then `dst` is `rows·width·3`
+/// ([`Error::RgbBufferWrongLength`], `rows` the band's or the plane's height).
+/// Returns the plane pixel count (the green-plane size).
+fn check_plane_buffers(
+    sensor: &Sensor,
+    src_len: usize,
+    rows: Option<&core::ops::Range<u32>>,
+    dst_len: usize,
+) -> Result<usize, Error> {
+    let pixels = pixel_count(sensor)?;
+    let expected_src = usize::try_from(pixels).unwrap_or(usize::MAX);
+    if src_len != expected_src {
+        return Err(Error::ColorSourceWrongLength {
+            expected: pixels,
+            actual: src_len,
+        });
+    }
+    resolve_geometry(sensor)?;
+
+    let band_rows = match rows {
+        None => sensor.height,
+        Some(range) => {
+            if range.start >= range.end || range.end > sensor.height {
+                return Err(Error::InvalidRowRange {
+                    start: range.start,
+                    end: range.end,
+                    height: sensor.height,
+                });
+            }
+            range.end.saturating_sub(range.start)
+        }
+    };
+    let rgb_len = u64::from(sensor.width)
+        .checked_mul(u64::from(band_rows))
+        .and_then(|v| v.checked_mul(3))
+        .ok_or(Error::RgbBufferWrongLength {
+            expected: u64::MAX,
+            actual: dst_len,
+        })?;
+    if usize::try_from(rgb_len).ok() != Some(dst_len) {
+        return Err(Error::RgbBufferWrongLength {
+            expected: rgb_len,
+            actual: dst_len,
+        });
+    }
+    Ok(expected_src)
 }
 
 /// [`develop_color_into`] with opt-in **output-row-band** parallelism
@@ -581,19 +871,8 @@ pub fn develop_color_into_threaded(
     let Some(plan) = colour_band_plan(sensor, src.len(), dst.len(), threads) else {
         return develop_color_into(sensor, src, dst);
     };
-    develop_color_bands(sensor, src, dst, threads, &plan, |out, m, rgb| {
-        let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] = *m;
-        let [r, g, b] = rgb;
-        let rf = f64::from(r);
-        let gf = f64::from(g);
-        let bf = f64::from(b);
-        // The single-thread sink's expressions, verbatim (`develop_color_into`).
-        *out = [
-            quantize(m00 * rf + m01 * gf + m02 * bf),
-            quantize(m10 * rf + m11 * gf + m12 * bf),
-            quantize(m20 * rf + m21 * gf + m22 * bf),
-        ];
-    })
+    // The single-thread sink's arithmetic, the same function (`develop_color_into`).
+    develop_color_bands(sensor, src, dst, threads, &plan, store_u16)
 }
 
 /// [`develop_color_f32_into`] with opt-in output-row-band parallelism
@@ -627,20 +906,9 @@ pub fn develop_color_f32_into_threaded(
     let Some(plan) = colour_band_plan(sensor, src.len(), dst.len(), threads) else {
         return develop_color_f32_into(sensor, src, dst);
     };
-    develop_color_bands(sensor, src, dst, threads, &plan, |out, m, rgb| {
-        let [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] = *m;
-        let [r, g, b] = rgb;
-        let rf = f64::from(r);
-        let gf = f64::from(g);
-        let bf = f64::from(b);
-        // The single-thread sink's quantise-then-divide, verbatim
-        // (`develop_color_f32_into`).
-        *out = [
-            f32::from(quantize(m00 * rf + m01 * gf + m02 * bf)) / 65535.0,
-            f32::from(quantize(m10 * rf + m11 * gf + m12 * bf)) / 65535.0,
-            f32::from(quantize(m20 * rf + m21 * gf + m22 * bf)) / 65535.0,
-        ];
-    })
+    // The single-thread sink's quantise-then-divide, the same function
+    // (`develop_color_f32_into`).
+    develop_color_bands(sensor, src, dst, threads, &plan, store_f32_quantised)
 }
 
 /// The colour path's required-processing check (`SPEC-054`, `DEC-049`): it
@@ -901,6 +1169,20 @@ impl CropScatter {
         })
     }
 
+    /// Re-derive the cached row for `pixel`.
+    fn enter_row(&mut self, pixel: usize) {
+        let y = pixel.checked_div(self.plane_width).unwrap_or(0);
+        self.row_start = y.saturating_mul(self.plane_width);
+        self.row_end = self.row_start.saturating_add(self.plane_width);
+        self.row_base = y
+            .checked_sub(self.crop_top)
+            .filter(|crop_y| *crop_y < self.crop_height)
+            .and_then(|crop_y| i64::try_from(crop_y).ok())
+            .map(|crop_y| self.base.wrapping_add(crop_y.wrapping_mul(self.step_y)));
+    }
+}
+
+impl PixelSlot for CropScatter {
     /// The output pixel index (into `dst`'s RGB triples) for plane pixel
     /// `pixel = y·width + x`, or `None` if it lies outside the crop rectangle
     /// (the masked border and the non-crop active margin are developed — their
@@ -916,18 +1198,6 @@ impl CropScatter {
             .filter(|crop_x| *crop_x < self.crop_width)?;
         let offset = i64::try_from(crop_x).ok()?.wrapping_mul(self.step_x);
         usize::try_from(row_base.wrapping_add(offset)).ok()
-    }
-
-    /// Re-derive the cached row for `pixel`.
-    fn enter_row(&mut self, pixel: usize) {
-        let y = pixel.checked_div(self.plane_width).unwrap_or(0);
-        self.row_start = y.saturating_mul(self.plane_width);
-        self.row_end = self.row_start.saturating_add(self.plane_width);
-        self.row_base = y
-            .checked_sub(self.crop_top)
-            .filter(|crop_y| *crop_y < self.crop_height)
-            .and_then(|crop_y| i64::try_from(crop_y).ok())
-            .map(|crop_y| self.base.wrapping_add(crop_y.wrapping_mul(self.step_y)));
     }
 }
 
@@ -3047,5 +3317,97 @@ mod tests {
             [0, 0, 9500],
         ]));
         assert_eq!(build_camera_to_srgb_linear(&sensor).unwrap(), control);
+    }
+
+    /// `SPEC-091` AC5: each `f32` of the sensor-geometry plane is the matrix's
+    /// `f64` sum on the demosaiced camera triple, divided by `65535.0` and cast
+    /// once, unclamped — recomputed here from `build_camera_to_srgb_linear` and
+    /// `demosaic_into`, and compared by bits. The levels are the identity (16
+    /// bits, no black, no white), so `demosaic_into`'s camera values are the
+    /// fused traversal's. A strong white balance gives negative and over-1.0
+    /// values, so a clamp, a quantise or a `/ 65536` cannot pass.
+    #[test]
+    fn ac5_the_f32_plane_is_the_unquantised_sum() {
+        use crate::ifd::Cfa;
+        let mut sensor = color_sensor(ColorMeta {
+            forward_matrix_1: Some(matrix_rationals([
+                [6000, 3000, 642],
+                [2000, 7000, 1000],
+                [1000, 1000, 6252],
+            ])),
+            color_matrix_1: None,
+            as_shot_neutral: Some(vec![
+                Rational { num: 1, den: 3 },
+                Rational { num: 1, den: 1 },
+                Rational { num: 2, den: 5 },
+            ]),
+        });
+        let (w, h) = (6u32, 5u32);
+        sensor.width = w;
+        sensor.height = h;
+        sensor.color_filter = Some(Cfa {
+            repeat_dim: [2, 2],
+            pattern: vec![0, 1, 1, 2],
+            plane_color: vec![0, 1, 2],
+            layout: 1,
+        });
+        let n = (w * h) as usize;
+        let src: Vec<u16> = (0..n).map(|i| ((i * 7919 + 1234) % 65536) as u16).collect();
+
+        let mut camera = vec![0u16; n * 3];
+        crate::demosaic::demosaic_into(&sensor, &src, &mut camera).unwrap();
+        let m = build_camera_to_srgb_linear(&sensor).unwrap();
+        let expected: Vec<u32> = camera
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .flat_map(|&[r, g, b]| {
+                let (r, g, b) = (f64::from(r), f64::from(g), f64::from(b));
+                m.map(|row| (((row[0] * r + row[1] * g + row[2] * b) / 65535.0) as f32).to_bits())
+            })
+            .collect();
+
+        let mut plane = vec![0f32; n * 3];
+        srgb_linear_plane_f32_into(&sensor, &src, &mut plane).unwrap();
+        let got: Vec<u32> = plane.iter().map(|v| v.to_bits()).collect();
+        assert_eq!(got, expected);
+        assert!(
+            plane.iter().any(|&v| v < 0.0),
+            "a negative value is exercised"
+        );
+        assert!(
+            plane.iter().any(|&v| v > 1.0),
+            "an over-1.0 value is exercised"
+        );
+    }
+
+    /// `SPEC-091` mutant (k): the unclamped `f32` sink's sums are separate
+    /// multiplies and adds, never a fused `mul_add` (`DEC-033`: Rust never
+    /// contracts one, and the crate must not call it). On real camera data an
+    /// FMA moves the `f64` sum by about one ulp, which the single cast to `f32`
+    /// almost always absorbs, so neither AC5 nor the determinism hash can see
+    /// it. This injected matrix makes the sum pure rounding error: `0.1·3`
+    /// rounds up in `f64` and `−0.3` cancels it, leaving `2^-54` when the
+    /// product is rounded first and `2^-55` when it is fused, which the `f32`
+    /// keeps apart.
+    #[test]
+    fn the_f32_sink_never_fuses_a_multiply_and_an_add() {
+        let m = [[0.1, -0.3, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let (rf, gf, bf) = (3.0f64, 1.0f64, 0.0f64);
+        let separate = ((m[0][0] * rf + m[0][1] * gf + m[0][2] * bf) / 65535.0) as f32;
+        let fused = (m[0][0].mul_add(rf, m[0][1] * gf + m[0][2] * bf) / 65535.0) as f32;
+        assert_ne!(
+            separate.to_bits(),
+            fused.to_bits(),
+            "the fixture must tell a fused sum from a separate one"
+        );
+        let mut out = [0f32; 3];
+        store_f32_unclamped(&mut out, &m, [3, 1, 0]);
+        assert_eq!(
+            out[0].to_bits(),
+            separate.to_bits(),
+            "separate multiply and add"
+        );
+        assert!(out[0] > 0.0, "the cancellation leaves a positive residue");
     }
 }
