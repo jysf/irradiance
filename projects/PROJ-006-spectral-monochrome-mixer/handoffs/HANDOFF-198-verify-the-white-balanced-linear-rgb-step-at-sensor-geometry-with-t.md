@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: verifier             # implementer | verifier
   created_at: 2026-11-25
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-091
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                     # completed | blocked | rejected
+  agent: claude-opus-5-5                      # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
-  verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  verdict: approved                    # verify handoffs: approved | punch-list | rejected
+  basis: transcript                      # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 19052713               # REAL combined count — what cost-audit reads
+  estimated_usd: 12.62              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 25
+  branch: claude/spec-091-verify-base
+  pr: https://github.com/jysf/irradiance/pull/343
+  completed_at: 2026-11-25               # YYYY-MM-DD
+  notes: "Floor, measured before the final commit. Approved at code ea65f2d; verify added three test guards, a fuzz buffer-length variation and two doc sentences, no src change outside the test module."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -224,38 +224,147 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-091-verify-base`, fast-forwarded onto `feat/spec-091-srgb-linear-plane`, https://github.com/jysf/irradiance/pull/343
+- **Completed at:** 2026-11-25
+- **All acceptance criteria met?** Yes, AC1 to AC13, judged against the spec as designed at `3ecdad74`, with the four build deviations ruled acceptable (below). Verify found three oracle gaps, all in the tests and none in the code; each is closed by a test-only addition on this branch.
+- **For `verify`:** ✅ **APPROVED.** The code is commit `ea65f2d`, which is unchanged: no `src/` line outside `color.rs`'s test module moved. The verify tip is `8800550`, the last commit carrying code or tests; the commits after it touch the handoff, spec and timeline only.
+
+**Gates, re-run here (macOS arm64):**
+- `just test` with `IRRADIANCE_CORPUS_DIR` set, on the build's head: exit 0, 936 passed, 0 failed, 1 ignored. The corpus was present.
+- After the verify additions:
+  - lib tests: 216 passed.
+  - `cargo test --test determinism`, debug and release, no features (as CI runs it): 10 passed each.
+  - The focused mutant control (11 suites): 379 passed.
+- `lint-ci`, `lint-no-allow`, `fmt-check`, `doc-check`, `deny`, `lint-fuzz`, `msrv`, `validate`, `gate-audit` and `cost-audit` all pass.
+- `semver-check`: 202 checks pass, "no semver update required".
+- `decisions-audit --changed` is advisory and names DEC-011 for the fuzz edit. The edit is consistent with it: the fuzz crate stays separate.
+- The public diff is exactly five items: the four `pub fn`s and `Error::InvalidRowRange`. `check_supported_bayer` is `pub(crate)`.
+- `DEVELOP_VERSION` and every existing determinism constant are unchanged.
+
+**CI (`gh pr checks 343`; run 45666936351 on `ea65f2dc`).** All checks are green. I read both `determinism` job logs:
+- **arm64 leg:**
+  - The job's own guard printed `uname -m: arm64`, `host: aarch64-apple-darwin` and image `macos-26-arm64`.
+  - `cargo test --test determinism` and `--release` each ran `colour_plane_hashes_match_committed` and `colour_determinism_red_proof`, both ok, 9 passed.
+- **x86_64 leg:** `uname -m: x86_64`, `host: x86_64-unknown-linux-gnu`, image `ubuntu-26.04`. The same two tests passed in debug and release.
+
+So the arm64-recorded u16 and f32 hashes reproduce on x86_64.
+
+**Determinism fixture.**
+- The f32 plane holds a negative and an above-1.0 value; this is asserted in the test.
+- The red-proof is real: one LSB moves both hashes, and the control must first reproduce the committed constants.
+- The build's check that "removing the second illuminant moves the hash" does not prove that interpolation runs. A weight clamped to D65 would pass it too. I added `colour_fixture_interpolates_between_its_illuminants`. The plane differs from both controls whose two calibrations carry the same matrices, so the weight lies strictly inside (0, 1). It passes.
+
+**Item 2: the refactor of the shipped colour entries.** Ruling: **sound; no shipped output moved.**
+- I diffed the bodies by eye.
+  - `store_u16` is the old u16 expression verbatim, in the same order: `(m_i0·r + m_i1·g) + m_i2·b`, then `quantize`.
+  - `store_f32_quantised` is `f32::from(quantize(..)) / 65535.0`, as before. Only the `map` is new.
+  - Both threaded entries now pass those same functions to `develop_color_bands`.
+  - `develop_color_with` keeps the crop-before-matrix order and the in-`setup` matrix build, so the error order is unchanged.
+- Evidence:
+  - Every existing Tier-B pin and colour test passes.
+  - Serial equals threaded: the `threaded` suite passes.
+  - Every existing hash is unchanged.
+- One consequence the handoff did not anticipate: because the plane and `develop_color_into` now share `store_u16`, AC1 can no longer see a reordered u16 sum. Both sides move together.
+  - The extra mutant (x4) passed the whole 379-test focused set, the u16 hash and the AC13 digests. On real data `quantize` absorbs the one-ulp difference.
+  - I added `color::tests::the_u16_sink_keeps_todays_operation_order`. The row `[1.1, 0.3, -0.1]·[476, 15845, 26416]` sums to just under 2635.5 in today's order and just over it in every non-equivalent order (swapping the first two terms is exact). It catches both x4 and a partial reorder (x4b).
+
+**Item 3: the four build deviations.**
+- **(a) AC4's slack:** accepted.
+  - The argument is right. A u16 below 65535 means f < 1, and in [0.5, 1) half an f32 ulp is 2^-25, which is 65535/2^25 ≈ 0.00195 of a code. So the designed bound `0.5 + 1e-3` is below the cast's own rounding.
+  - The new bound `0.5 + 65535/2^25 + 1e-9` is still tight enough for mutant (c): dividing by 65536 shifts f·65535 by u/65536 codes, which exceeds the slack for every u above about 32,900. AC4 went red under (c) here.
+- **(b) AC2's check (iv):** accepted.
+  - `demosaic_into` (`src/demosaic.rs:279`) builds its own `BayerPhase` and does not call `develop_color_fused`.
+  - The fixture's levels are exactly the identity. At 16 bits with no BlackLevel and no WhiteLevel, `normalize_sample(v, 0, 65535)` is `(v·65535 + 32767) / 65535 = v`.
+  - `to_srgb_linear_into` applies the same matrix and `quantize`, so the comparison is exact.
+  - (f) fails (iv). It also fails six older colour-phase and threaded tests outside `linear_plane.rs` (for example `plane_relative_phase_tints_an_odd_origin_grey` and `threaded_demosaic_equals_single_threaded`), so (f) was only invisible to AC2's checks (i) to (iii), not to the suite.
+- **(c) Mutant (k):** the test exercises the real sink, but it was too narrow. I added a broader guard.
+  - `the_f32_sink_never_fuses_a_multiply_and_an_add` calls the real `store_f32_unclamped`, not a copy. Its cancellation sits only in channel 0's first term.
+  - A `mul_add` in channel 1 (k2), channel 2 (k3), channel 0's last term (k4) or channel 0's second term (k5) passed it, and every hash.
+  - I added `the_f32_sink_fuses_no_term_of_any_channel`. It places `0.1·3` at every term j of every channel i, with `-0.3` at each other term k: 18 cases. It catches k1 to k5 and the all-three mutant.
+- **(d) `docs/determinism.md`:** accepted. The "measured" row names the whole-plane forms only, which is what AC12 hashes. The second row says plainly that the crop sink and `to_srgb_linear_into` are not hashed separately. I added two sentences naming the verify-added guards.
+
+**Item 6: band memory.** Ruling: **no `width·height` buffer in the band path.** These are the allocations in one band call (`srgb_linear_plane_rows` into `develop_rows_banded` into `develop_color_fused`):
+
+1. `sensor.clone()` in `develop_rows_banded`. It copies the `Sensor`'s vectors: the strip and tile tables (one entry per strip or tile), the three opcode-list byte strings, the matrices and `black_levels`. None of these scales with `width·height`, but the clone is paid on every band call.
+2. `green`: `width × (band rows + halo)` u16. The halo is at most 4 rows above (3, rounded down to even) and 3 below, so at most `(rows + 7)·width·2` bytes.
+3. The ring `cache` in `develop_color_fused`: `8·width` u16.
+
+There is nothing else:
+- `GainMaps` is a fixed array of borrowed views, documented as allocating nothing.
+- `check_required_processing` allocates nothing.
+- The levels and the matrix live on the stack.
+
+The whole-plane forms keep their one `width·height` green plane, as Design §2 says.
+
+**Item 7: no panics.**
+- The range check `start >= end || end > height` runs before any arithmetic on the range. After it, `end − start` is saturating, `width·rows·3` is checked in u64, `u32 → usize` uses `try_from` with a saturating fallback, and `first` is a `saturating_mul`. A range near `u32::MAX` is refused as `InvalidRowRange` because `end > height`.
+- The fuzz target as built reached `InvalidRowRange` and `Ok` for the band forms, but never `RgbBufferWrongLength`: every `dst` it passed was exactly sized.
+- I changed it (`fuzz/fuzz_targets/demosaic.rs`) so a third input byte makes the band `dst` one short or one long on half the inputs. `lint-fuzz` passes.
+- `cargo +nightly fuzz run demosaic`, 60 s: 2,288,052 runs, no crash.
+
+**Item 8: docs and API.** The four doc comments state:
+- the geometry, including the masked border;
+- the unclamped f32 rule, and that it is not `develop_color_f32_into`'s;
+- the refusal order, with `InvalidRowRange` after the geometry and before `RgbBufferWrongLength`;
+- the bit-for-bit band equality.
+
+The CHANGELOG `[Unreleased]` entry and DEC-051's sentence (`CallerError` 19, enum 79) are correct. `check_plane_buffers` refuses in `check_color_buffers`' order, because `CropScatter::new` adds only `resolve_geometry`.
+
+**AC10: mutants, re-run here.**
+- Method: each mutant was applied by an exact-string patch, run with `cargo test --all-features --profile corpus --no-fail-fast` over 11 suites (`--lib`, `linear_plane`, `determinism`, `error_kind`, the four `Entry` tables, `threaded`, `color_oracle`, `colour_sdk`, `develop_oracle`) with the corpus set, then restored with `git checkout` and `touch`.
+- The control was green, 379 passed.
+- The table lists the failing tests by name. The named catcher is in bold.
+
+| Mutant | Applied as | Failed |
+|---|---|---|
+| (a) sink still crops | `CropScatter::new(sensor)?` for `WholePlane` in the whole-plane body | **`ac2_every_pixel_of_the_plane_is_written`**, `ac1_…`, `ac4_…`, both `ac11_…`, `ac13_…` |
+| (b) f32 quantises first | `store_f32_quantised` at both f32 entry points | **`ac3_the_f32_plane_keeps_negatives_and_overs`**, **`ac5_the_f32_plane_is_the_unquantised_sum`**, `colour_plane_hashes_match_committed`, `colour_determinism_red_proof`, `ac13_…` |
+| (c) divide by 65536 | three divisors in `store_f32_unclamped` | **`ac5_…`**, `ac4_…`, both colour determinism tests, `ac13_…`, both FMA guards |
+| (d) GainMaps skipped | `GainMaps::none` in both plane bodies | **`ac7_gain_maps_apply_to_the_plane`**, **`ac1_…`**, `ac13_…`, two gain-map refusal rows (`malformed_gain_map_…`, `seventeen_gain_maps_…`) |
+| (e) levels skipped | whole-plane body normalises with the raw mosaic | **`ac1_the_plane_cropped_equals_the_developed_image`**, `ac3_…`, `ac7_…`, `ac11_strips_tile_on_held_files`, `ac13_…` |
+| (f) CFA phase from plane origin | `(0, 0)` for `active_area_origin` in `develop_color_fused` | **`ac2_…`** (check iv), plus 6 existing colour-phase and threaded tests (e.g. `plane_relative_phase_tints_an_odd_origin_grey`, `grey_stays_grey_across_origin_parities_and_bayer_phases`) |
+| (g) dst written before a late check | band body develops with an identity fallback, then builds the matrix with `?` (correct output on success) | **`ac6_buffer_and_input_refusals_leave_dst_untouched`**, `ac6_the_k3iii_exception_and_the_already_refused_tags_hold` |
+| (h) band drops its halo | `BAND_HALO` 3 to 0 | **both `ac11_…`**, plus the threaded band tests |
+| (i) band top not even | `& !1` removed | **`ac11_strips_tile_to_the_whole_plane`**, plus the threaded band tests |
+| (j) dst indexed from row 0 | `first = 0` | **both `ac11_…`** |
+| (k) all three sums fused | `mul_add` on the first term of each channel | **`the_f32_sink_never_fuses_a_multiply_and_an_add`**, `the_f32_sink_fuses_no_term_of_any_channel` |
+| k2 / k3: FMA in channel 1 / channel 2 only | one channel's first term | **`the_f32_sink_fuses_no_term_of_any_channel`** only; the build's guard and all hashes passed |
+| k4 / k5: FMA on channel 0's last / second term | `m02.mul_add(bf, ..)` / `m01.mul_add(gf, m00·rf)` | **`the_f32_sink_fuses_no_term_of_any_channel`** only |
+| x1: band skips `end > height` | the check keeps only `start >= end` | **`ac6_…`** (no panic) |
+| x2: `InvalidRowRange` after `RgbBufferWrongLength` | range check moved after the dst check | **`ac6_…`** |
+| x3: f32 whole plane clamps negatives | `max(0.0)` after `store_f32_unclamped`, whole plane only | **`ac3_…`**, **`ac5_…`**, both `ac11_…` (band ≠ whole), both colour determinism tests, `ac13_…` |
+| x4: u16 order swapped (`m_i2·b` first) | all three channels of `store_u16` | **none** before verify (379 passed: AC1 is blind, since both sides share `store_u16`); after verify **`the_u16_sink_keeps_todays_operation_order`** |
+| x4b: u16 last two terms swapped | channel 1 only | **`the_u16_sink_keeps_todays_operation_order`** |
+| x5: `InvalidRowRange` classed `Corrupt` | moved to the `Corrupt` arm | **`every_variant_classified`** |
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 19,052,713 (floor, measured before the final commit)
+- **Estimated 12.62:** 12.62
+- **Duration (minutes):** about 25, by the transcript's timestamps (17:47 UTC on)
+- **Source of the number:** this session's transcript (`f4520a5d-7d1a-4e73-a98f-760835aa1a00.jsonl`). It is deduplicated by `message.id`, taking the largest `output_tokens` per message, per docs/cost-tracking.md. It is priced at Opus 5.5's $5 / $25 per million, with cache reads at 0.1x and 1-hour cache writes at 2x. No subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
+- **New decisions emitted:** none.
+- **Deviations from spec:** none by verify. The build's four deviations are ruled acceptable above. Verify's additions are test-only:
+  - `src/color.rs` test module: `the_f32_sink_fuses_no_term_of_any_channel` and `the_u16_sink_keeps_todays_operation_order`;
+  - `tests/determinism.rs`: `colour_fixture_interpolates_between_its_illuminants`;
+  - `fuzz/fuzz_targets/demosaic.rs`: band `dst` one short or one long;
+  - `docs/determinism.md`: two sentences.
+- **Punch list (`src/`):** none.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - The `demosaic` fuzz target has no CI smoke job and no `just` recipe; CI smokes `dng_write`, `ifd`, `ljpeg`, `opcode`, `plane` and `warp_opcode`. The four new entries are fuzzed only when someone runs it by hand. This is an [XS] chore: a `just fuzz-demosaic` recipe plus a CI smoke job.
+  - For SPEC-092, along with the build's note about re-resolving levels, GainMaps and the matrix per strip: each band call also clones the `Sensor`, opcode-list bytes included. A reusable plan would remove both costs.
+  - For SPEC-092's design: the fixed-point mixer row will have the same two blind spots verify hit here. A shared sink makes the "equals the old path" oracle move with the mutant, and a reordering or FMA is absorbed by the output's resolution. Pre-register an injected cancellation fixture per channel and per term.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — The handoff's x4 expected AC1 to catch a reordered u16 sum. After the shared-sink refactor (which the spec's own Notes asked for), AC1 compares two outputs of the same function, so it cannot catch it. Spotting that took reading the refactor first.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — DEC-011 (the separate fuzz crate), because the spec edits a fuzz target. It was advisory and easy.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Write each mutant as an exact-string patch with an asserted match count from the start; a regex over the whole file would also have mutated the test module's copies of the same expressions. And for every "no X" rule, enumerate where X could appear (every channel, every term) before trusting a single-site guard.
