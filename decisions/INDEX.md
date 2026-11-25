@@ -87,7 +87,7 @@ Regenerate after adding or superseding one; `just decisions-index --check` fails
 | [DEC-078](DEC-078-a-malformed-interpretation-tag-the-develop-path-consumes-refuses-the-develop.md) | a malformed interpretation tag the develop path consumes refuses the develop | 0.85 | accepted | PROJ-002 | — |
 | [DEC-079](DEC-079-mixer-weights-live-in-linear-srgb-and-apply-folded-into-camera-space.md) | mixer weights are defined in linear sRGB and applied folded into camera space | 0.8 | proposed | PROJ-006 | — |
 | [DEC-080](DEC-080-the-writer-error-payload-types-are-compiled-in-every-build-and-named-under-dng-write.md) | The writer's error payload types are compiled in every build and named under `dng::write` | 0.75 | accepted | PROJ-005 | — |
-| [DEC-081](DEC-081-the-writer-takes-metadata-as-typed-options-checked-in-plan-and-writes-empty-strings-as-empty-tags.md) | The writer takes metadata as typed options, checked in `plan`, and writes an empty string as an empty tag | 0.8 | proposed | PROJ-005 | — |
+| [DEC-081](DEC-081-the-writer-takes-metadata-as-typed-options-checked-in-plan-and-writes-empty-strings-as-empty-tags.md) | The writer takes metadata as typed options, checked in `plan`, and writes an empty string as an empty tag | 0.8 | accepted | PROJ-005 | — |
 
 ## Superseded
 

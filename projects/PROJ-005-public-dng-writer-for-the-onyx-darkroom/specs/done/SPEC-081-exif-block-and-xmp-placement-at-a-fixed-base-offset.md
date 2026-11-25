@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -102,6 +102,7 @@ cost:
     tokens_total: 17357403
     estimated_usd: 14.27
     session_count: 3
+shipped_at: 2026-11-24
 ---
 
 # SPEC-081: EXIF block, XMP and IFD0 descriptive tags (EXIF block at a fixed base offset)
@@ -372,25 +373,25 @@ The probe test was a throwaway (`tests/zz_probe_081.rs`), not committed.
 
 ## Acceptance Criteria
 
-- [ ] **AC1 Options and base.** The §1 API exists behind `write`; every new field defaults
+- [x] **AC1 Options and base.** The §1 API exists behind `write`; every new field defaults
       to `None`; `EXIF_BLOCK_BASE` is 8 and `exif_block_base` returns it (oracle 6).
-- [ ] **AC2 Tags and layout.** Oracle 1: every §2 row exact, the §3 layout, empty
+- [x] **AC2 Tags and layout.** Oracle 1: every §2 row exact, the §3 layout, empty
       strings as count 1, absent options write nothing, odd and even blocks, Exif-only,
       GPS-only and both.
-- [ ] **AC3 Round trip.** Oracle 2 at every framing with every new option set.
-- [ ] **AC4 Validation.** Every new reason through `written_len`, `write_into` and
+- [x] **AC3 Round trip.** Oracle 2 at every framing with every new option set.
+- [x] **AC4 Validation.** Every new reason through `written_len`, `write_into` and
       `write_to_vec`, with `kind()` `CallerError`, in the §4 order (oracle 8). No case
       panics.
-- [ ] **AC5 exiftool parity.** Oracle 3, tool-gated.
-- [ ] **AC6 Red-proofs.** Oracle 4 after its negative control; the hints half of oracle 5
+- [x] **AC5 exiftool parity.** Oracle 3, tool-gated.
+- [x] **AC6 Red-proofs.** Oracle 4 after its negative control; the hints half of oracle 5
       when `$IRRADIANCE_DNG_VALIDATE` is set.
-- [ ] **AC7 dng_validate.** Oracle 5: no warnings on K-3 III and Q2M with every new
+- [x] **AC7 dng_validate.** Oracle 5: no warnings on K-3 III and Q2M with every new
       field set, K-3 render equal to the source's. A SKIP line when the variable is
       unset; a failure when set but unusable.
-- [ ] **AC8 Determinism and allocation.** Oracle 7.
-- [ ] **AC9 Fuzz.** §6; `just fuzz-dng-write` 60 s with no crash; `just lint-fuzz`,
+- [x] **AC8 Determinism and allocation.** Oracle 7.
+- [x] **AC9 Fuzz.** §6; `just fuzz-dng-write` 60 s with no crash; `just lint-fuzz`,
       `just lint-fuzz-red-proof` and `just deny-fuzz` pass.
-- [ ] **AC10 Docs and gates.** Provenance row, CHANGELOG, AGENTS.md block, module docs
+- [x] **AC10 Docs and gates.** Provenance row, CHANGELOG, AGENTS.md block, module docs
       (the "What is written" and "Checks and their order" sections); `just test`,
       `just lint-ci`, `just lint-no-allow`, `just fmt-check`, `just doc-check`,
       `just deny`, `just msrv`, `just validate`, `just gate-audit`, `just cost-audit` and
@@ -474,31 +475,28 @@ The probe test was a throwaway (`tests/zz_probe_081.rs`), not committed.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Write the order of checks *within* a field, not only between fields. The design said
+   `DateTime`'s form is checked "also", and the build had to choose whether ASCII or form
+   comes first, and the verify had to rule on it. Also say at design that
+   `cargo semver-checks` cannot see a feature's surface until a release carries it.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — Done this ship: DEC-081 accepted, with two clarifications (§4: within a field the ASCII
+   check runs before `DateTime`'s form; §2: an empty `DateTime` is refused, the one
+   exception to "an empty string writes an empty tag"). The SPEC-061 lessons were applied
+   and held: the handoff listed `lint-fuzz-red-proof` and every CI job, and the verify ran
+   `handback-sync` with the advance to ship, so CI was green first time. No new signal.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — SPEC-082 (the caller JPEG preview) is the last STAGE-017 spec. DEC-081's follow-up (an
+   empty opcode list written as a count-0 tag, SPEC-061 behaviour) is an [XS] patch on the
+   backlog. Then the release spec that first publishes `write`.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — none
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Carry a source's EXIF, GPS, XMP, descriptive tags and rendering hints into a written
+   DNG. Before, a K-3 III export lost `BaselineExposure` and rendered 76,681,557 of
+   76,681,728 samples differently; now its render equals the source's, and `dng_validate`
+   gives no warnings on the K-3 III and Q2M.
