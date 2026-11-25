@@ -351,6 +351,19 @@ jobs:
       - run: mkdir -p fuzz/corpus/ljpeg
       - run: cargo +nightly fuzz run ljpeg fuzz/corpus/ljpeg fuzz/seeds/ljpeg -- -max_total_time=60
 
+  # SPEC-094 (SPEC-061 verify F3). The public DNG writer's `dng_write` target
+  # ran only locally (`just fuzz-dng-write`); it gets the same 60s smoke run
+  # as every other target. The fuzz crate turns the `write` feature on.
+  fuzz-dng-write:
+    name: rust / fuzz smoke — dng_write (60s)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: mkdir -p fuzz/corpus/dng_write
+      - run: cargo +nightly fuzz run dng_write fuzz/corpus/dng_write fuzz/seeds/dng_write -- -max_total_time=60
+
   # SPEC-056: rustdoc with warnings denied (both feature surfaces). 0.2.0
   # shipped 19 private intra-doc links because no job built the docs.
   docs:

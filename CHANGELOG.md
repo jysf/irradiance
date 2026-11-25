@@ -53,6 +53,12 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   preview the output is byte-identical to before. `Container::previews`,
   exiftool and Adobe `dng_validate` read the preview back unchanged, and
   macOS Quick Look shows it (design probe).
+- **The writer refuses an empty opcode list** (SPEC-094, DEC-081 follow-up). A
+  new `WriteInputError::EmptyOpcodeList { list }` reason, checked by
+  `written_len` too, under every framing: `Some(&[])` for any of the three
+  lists used to be written as a count-0 tag, which has no count header and
+  which irradiance's own reader treats as malformed. Leave the option `None` to
+  write no list. A 4-byte list declaring 0 opcodes is still written verbatim.
 
 ## [0.2.6] - 2026-11-23
 

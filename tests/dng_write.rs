@@ -784,6 +784,21 @@ fn every_refusal_is_typed() {
     );
     n += 2;
 
+    // SPEC-094: an empty opcode list, each of the three, refused before any
+    // walk.
+    for list in 1..=3u8 {
+        let mut o = good.clone();
+        match list {
+            1 => o.opcode_list_1 = Some(&[]),
+            2 => o.opcode_list_2 = Some(&[]),
+            _ => o.opcode_list_3 = Some(&[]),
+        }
+        let want = reason(WriteInputError::EmptyOpcodeList { list });
+        assert_refused("empty list", &samples, w, h, &o, BUDGET, &want);
+        assert_eq!(want.kind(), ErrorKind::CallerError);
+        n += 1;
+    }
+
     // OutputTooLarge: a 4 GiB OpcodeList2 over a tiny plane. `vec![0; n]`
     // asks the allocator for zeroed memory, which the OS maps lazily, and
     // planning never reads list 2's bytes, so this costs no real memory.
@@ -1001,7 +1016,7 @@ fn every_refusal_is_typed() {
     );
     assert_eq!(err.kind(), ErrorKind::CallerError);
     n += 1;
-    assert_eq!(n, 29 + 24 + 10 + 5);
+    assert_eq!(n, 29 + 24 + 10 + 5 + 3);
 }
 
 #[test]
@@ -1124,6 +1139,24 @@ fn checks_run_in_the_documented_order() {
     }
     o.opcode_list_1 = None;
     assert!(written_len(&samples, w, h, &o, BUDGET).is_ok());
+
+    // SPEC-094 AC2: an empty list is refused after the XMP check, before the
+    // OpcodeList1 walk, and lists are checked 1, 2, 3.
+    let mut o = base_options();
+    o.active_area = Some(margin_area());
+    o.opcode_list_1 = Some(&id5);
+    o.opcode_list_2 = Some(&[]);
+    let before_walk = reason(WriteInputError::EmptyOpcodeList { list: 2 });
+    assert_refused("before the walk", &samples, w, h, &o, BUDGET, &before_walk);
+    o.xmp = Some(&[]);
+    let xmp_first = reason(WriteInputError::EmptyXmp);
+    assert_refused("xmp first", &samples, w, h, &o, BUDGET, &xmp_first);
+    let mut o = base_options();
+    o.active_area = Some(margin_area());
+    o.opcode_list_1 = Some(&[]);
+    o.opcode_list_3 = Some(&[]);
+    let first_list = reason(WriteInputError::EmptyOpcodeList { list: 1 });
+    assert_refused("lists 1 and 3", &samples, w, h, &o, BUDGET, &first_list);
 }
 
 #[test]
@@ -1182,12 +1215,13 @@ fn opcode_list_1_allow_list_under_cutting_framings() {
             "{framing:?}"
         );
     }
-    // An empty list 1 has no count word: malformed under a cut.
+    // An empty list 1 has no count word. SPEC-094 refuses it as empty, at
+    // every framing, before the walk could call it malformed.
     let mut o = base_options();
     o.opcode_list_1 = Some(&[]);
     let err = written_len(&samples, w, h, &o, BUDGET).unwrap_err();
     assert!(
-        format!("{err:?}").contains("MalformedOpcodeList"),
+        format!("{err:?}").contains("EmptyOpcodeList { list: 1 }"),
         "{err:?}"
     );
     // A list of zero opcodes is well-formed.
@@ -1211,6 +1245,84 @@ fn opcode_list_1_allow_list_under_cutting_framings() {
             "{} trailing byte(s)",
             extra.len()
         );
+    }
+}
+
+/// SPEC-094 AC1: `Some(&[])` for each list, under each framing, is refused
+/// with the list's number, from every entry point.
+#[test]
+fn empty_opcode_list_is_refused_under_every_framing() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    for framing in FRAMINGS {
+        for list in 1..=3u8 {
+            let mut o = base_options();
+            o.framing = framing;
+            o.active_area = Some(margin_area());
+            match list {
+                1 => o.opcode_list_1 = Some(&[]),
+                2 => o.opcode_list_2 = Some(&[]),
+                _ => o.opcode_list_3 = Some(&[]),
+            }
+            let want = reason(WriteInputError::EmptyOpcodeList { list });
+            let name = format!("{framing:?} list {list}");
+            assert_refused(&name, &samples, w, h, &o, BUDGET, &want);
+            assert_eq!(want.kind(), ErrorKind::CallerError);
+            assert_eq!(
+                WriteInputError::EmptyOpcodeList { list }.to_string(),
+                format!("OpcodeList{list} is empty")
+            );
+        }
+    }
+}
+
+/// SPEC-094 AC3: a 4-byte list declaring 0 opcodes is not empty. It is still
+/// accepted, and each list's tag holds exactly those four bytes.
+#[test]
+fn count_zero_opcode_list_header_is_still_written_verbatim() {
+    let (w, h) = (20, 14);
+    let samples = plane(w, h);
+    let header: &[u8] = &[0, 0, 0, 0];
+    for framing in [Framing::FullSensor, Framing::StandardCrop] {
+        let mut o = base_options();
+        o.framing = framing;
+        o.active_area = Some(margin_area());
+        o.opcode_list_1 = Some(header);
+        o.opcode_list_2 = Some(header);
+        o.opcode_list_3 = Some(header);
+        let entries = ifd0_entries(&write(&samples, w, h, &o));
+        for tag in [51008u16, 51009, 51022] {
+            let entry = entries
+                .iter()
+                .find(|e| e.0 == tag)
+                .unwrap_or_else(|| panic!("{framing:?}: tag {tag} written"));
+            assert_eq!(
+                (entry.1, entry.2, entry.3.as_slice()),
+                (7, 4, header),
+                "{framing:?} tag {tag}"
+            );
+        }
+        // Verify-added (HANDOFF-196 mutant M6): only zero bytes is empty. A
+        // list shorter than the 4-byte count header is still copied verbatim
+        // where nothing walks it (lists 2 and 3, at every framing).
+        let short: &[u8] = &[0xAB];
+        let mut o = base_options();
+        o.framing = framing;
+        o.active_area = Some(margin_area());
+        o.opcode_list_2 = Some(short);
+        o.opcode_list_3 = Some(short);
+        let entries = ifd0_entries(&write(&samples, w, h, &o));
+        for tag in [51009u16, 51022] {
+            let entry = entries
+                .iter()
+                .find(|e| e.0 == tag)
+                .unwrap_or_else(|| panic!("{framing:?}: short tag {tag} written"));
+            assert_eq!(
+                (entry.1, entry.2, entry.3.as_slice()),
+                (7, 1, short),
+                "{framing:?} short tag {tag}"
+            );
+        }
     }
 }
 
@@ -1543,6 +1655,8 @@ fn fuzz_seeds_reach_their_named_outcome() {
             // SPEC-082's.
             ("refuse-preview-not-jpeg", "PreviewNotJpeg"),
             ("refuse-preview-dimensions", "PreviewDimensionsInvalid"),
+            // SPEC-094's.
+            ("refuse-empty-opcode-list", "EmptyOpcodeList { list: 2 }"),
         ];
         if let Some((_, want)) = reasons.iter().find(|(n, _)| *n == name) {
             let err = format!("{:?}", got.as_ref().unwrap_err());
@@ -1578,7 +1692,7 @@ fn fuzz_seeds_reach_their_named_outcome() {
         }
         seen += 1;
     }
-    assert_eq!(seen, 32);
+    assert_eq!(seen, 33);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -566,6 +566,7 @@ PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run ljpeg \
 #              optional JPEG preview, its bytes, size and colour); nothing
 #              panics, written_len and write_into agree, every Ok output reads
 #              back, its preview too. Same +toolchain trap and seed/corpus split as `fuzz` above.
+#              CI runs it too, as `rust / fuzz smoke — dng_write (60s)` (SPEC-094).
 mkdir -p fuzz/corpus/dng_write
 PATH="$HOME/.cargo/bin:$PATH" ~/.cargo/bin/cargo +nightly fuzz run dng_write \
     fuzz/corpus/dng_write fuzz/seeds/dng_write -- -max_total_time=60

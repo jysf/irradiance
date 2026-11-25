@@ -5,8 +5,8 @@
 //! (behind the `write` feature), because [`crate::Error`]'s shape must not
 //! depend on features: `Error::InvalidWriteInput` and
 //! `Error::UnsupportedOpcodeForFraming` exist in every build. With the `write`
-//! feature on they are named [`crate::dng::write::Framing`] and
-//! [`crate::dng::write::WriteInputError`] (re-exported there); without it no
+//! feature on they are named `dng::write::Framing` and
+//! `dng::write::WriteInputError` (re-exported there); without it no
 //! function can return those two variants, so the types are present but have
 //! no public path. `DEC-080` records the choice.
 
@@ -132,6 +132,13 @@ pub enum WriteInputError {
     /// The preview's width or height is 0 or above 65535, JPEG's own limit
     /// (`DEC-082` §5).
     PreviewDimensionsInvalid,
+    /// An opcode list was given with no bytes. A count-0 tag is malformed, and
+    /// there is no count header to walk (`DEC-081` follow-up). Leave the option
+    /// `None` to write no list.
+    EmptyOpcodeList {
+        /// 1, 2 or 3.
+        list: u8,
+    },
     /// An opcode list's headers cannot be walked: the declared count and the
     /// per-opcode parameter sizes do not add up to exactly the list's length.
     /// Only `OpcodeList1` is walked, and only under a framing that cuts.
@@ -207,6 +214,9 @@ impl fmt::Display for WriteInputError {
             }
             WriteInputError::PreviewDimensionsInvalid => {
                 f.write_str("the preview's width and height must each be 1 to 65535")
+            }
+            WriteInputError::EmptyOpcodeList { list } => {
+                write!(f, "OpcodeList{list} is empty")
             }
             WriteInputError::MalformedOpcodeList { list } => {
                 write!(

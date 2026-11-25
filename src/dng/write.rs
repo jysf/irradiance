@@ -97,7 +97,8 @@
 //! rendering hints in tag order, the EXIF block's IFD offsets (at least one,
 //! each even and leaving room for its entry count inside the block), the XMP
 //! packet (not empty), the preview (its bytes start `FF D8`, then each
-//! dimension is 1 to 65535), the opcode lists, the output size. Every
+//! dimension is 1 to 65535), the opcode lists (none empty, then
+//! `OpcodeList1`'s walk under a cut), the output size. Every
 //! refusal is [`Error::InvalidWriteInput`] with a [`WriteInputError`] reason
 //! (`ErrorKind::CallerError`), except an `OpcodeList1` opcode a cut would
 //! shift, which is [`Error::UnsupportedOpcodeForFraming`]
@@ -838,9 +839,21 @@ fn plan<'a>(
         }
     }
 
-    // 7. The opcode lists (DEC-075 §5). Only list 1 works on stored-plane
-    // coordinates, so only list 1 is walked, and only when the cut can move
-    // them.
+    // 7. The opcode lists (DEC-075 §5). None may be empty (SPEC-094, the
+    // DEC-081 follow-up): a count-0 tag is malformed and has no count header
+    // to walk. Checked under every framing, lists 1, 2, 3 in order, before
+    // the walk.
+    for (list, bytes) in [
+        (1, options.opcode_list_1),
+        (2, options.opcode_list_2),
+        (3, options.opcode_list_3),
+    ] {
+        if bytes.is_some_and(<[u8]>::is_empty) {
+            return Err(invalid(WriteInputError::EmptyOpcodeList { list }));
+        }
+    }
+    // Only list 1 works on stored-plane coordinates, so only list 1 is
+    // walked, and only when the cut can move them.
     if framing != Framing::FullSensor {
         if let Some(list) = options.opcode_list_1 {
             if let Some(opcode_id) = walk_list_1(list)? {
