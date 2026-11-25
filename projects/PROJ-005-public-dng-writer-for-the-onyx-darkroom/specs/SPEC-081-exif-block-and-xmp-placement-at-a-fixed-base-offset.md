@@ -6,19 +6,19 @@
 task:
   id: SPEC-081
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -78,10 +78,30 @@ cost:
       recorded_at: 2026-11-24
       notes: "main-loop, not separately metered (AGENTS.md section 4); includes the dng_validate metadata probe"
 
+    - cycle: build
+      handoff: HANDOFF-191
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 10624920
+      estimated_usd: 9.02
+      duration_minutes: 45
+      recorded_at: 2026-11-24
+      notes: "FLOOR taken before the handback commit, from transcript 7b805486-c477-491d-8d27-b4e83a3837a9.jsonl (52 unique message.ids, all claude-opus-5-5, no subagents): input 108 + cache-creation 225,560 (1-hour) + cache-read 10,335,279 + output 63,973, priced at 5 and 25 USD per million as HANDOFF-175 did. Re-sum at ship. exiftool parity 6 of 6 block shapes, base-10 red-proof caught; dng_validate no warnings on K-3 III and Q2M; K-3 III render equal to source, 76,681,557 samples differ without BaselineExposure."
+    - cycle: verify
+      handoff: HANDOFF-192
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 6732483
+      estimated_usd: 5.25
+      duration_minutes: 50
+      recorded_at: 2026-11-24
+      notes: "FLOOR taken before the handback commit, from transcript e1ed8aaa-0485-4bae-b1aa-4275adc0fa82.jsonl (41 unique message.ids, all claude-opus-5-5, no subagents): input 83 + cache-creation 150,236 (1-hour) + cache-read 6,563,461 + output 18,703, priced at 5 and 25 USD per million, 1-hour cache writes at 2x, as HANDOFF-191 did. Approved at 5d89f90 (the code under review; the verify commit adds only docs). 17 of 17 mutants killed."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 17357403
+    estimated_usd: 14.27
+    session_count: 3
 ---
 
 # SPEC-081: EXIF block, XMP and IFD0 descriptive tags (EXIF block at a fixed base offset)
