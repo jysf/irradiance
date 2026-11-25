@@ -144,7 +144,7 @@ pub mod dng;
 
 /// The two types the writer's [`Error`] variants carry, compiled in every
 /// build so `Error`'s shape does not depend on features (`DEC-080`). Named
-/// publicly at [`dng::write`](crate::dng) when the `write` feature is on.
+/// publicly at `dng::write` when the `write` feature is on.
 mod write_types;
 
 /// The SOF-3 lossless-JPEG decoder (DNG `Compression 7`, ITU-T T.81 Annex H).

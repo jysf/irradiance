@@ -5,8 +5,8 @@
 //! (behind the `write` feature), because [`crate::Error`]'s shape must not
 //! depend on features: `Error::InvalidWriteInput` and
 //! `Error::UnsupportedOpcodeForFraming` exist in every build. With the `write`
-//! feature on they are named [`crate::dng::write::Framing`] and
-//! [`crate::dng::write::WriteInputError`] (re-exported there); without it no
+//! feature on they are named `dng::write::Framing` and
+//! `dng::write::WriteInputError` (re-exported there); without it no
 //! function can return those two variants, so the types are present but have
 //! no public path. `DEC-080` records the choice.
 
