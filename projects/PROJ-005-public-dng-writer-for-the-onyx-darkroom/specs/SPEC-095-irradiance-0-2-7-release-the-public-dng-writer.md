@@ -210,25 +210,237 @@ in prep is reported in the handback, not fixed here.
 
 ## Release Notes
 
-*Outward-facing. Written by the build from the final CHANGELOG, SPEC ids dropped, and
-checked line by line against the reconciled changed-input list. The GitHub release text for
-`v0.2.7` is this section, down to the internal record.*
+*Outward-facing, written for whoever uses the crate. `just release-notes PROJ-005` was run
+at build: it lists 4 notes from 4 shipped specs (SPEC-061, SPEC-081, SPEC-082, SPEC-094),
+all STAGE-017's. As for 0.2.6, these notes are written from the final CHANGELOG instead,
+with SPEC ids dropped, and checked line by line against the reconciled changed-input list
+in the internal record. The GitHub release text for `v0.2.7` is this section, down to the
+internal record.*
 
-**Headline (design's draft; the build may sharpen it):** irradiance can now write DNG. The
-opt-in `write` feature turns a monochrome `u16` sensor plane, with its levels, opcode
-lists, EXIF block, XMP, descriptive tags and an optional JPEG preview, into an
-uncompressed DNG in a buffer you size first. Same input, same bytes; no allocation in
-`write_into`; no new dependency. Adobe `dng_validate` accepts the output with no warnings.
-Nothing changes for a reader-only caller.
+**Headline:** irradiance can now write DNG. The opt-in `write` feature turns a monochrome
+`u16` sensor plane, with its levels, opcode lists, EXIF block, XMP, descriptive tags and an
+optional JPEG preview, into an uncompressed DNG in a buffer you size first. Same input,
+same bytes; no allocation in `write_into`; no new dependency. Adobe `dng_validate` 1.7.1
+accepts the output with no warnings on the held monochrome files. Nothing changes for a
+reader-only caller: no reader, develop or colour code changed, and `DEVELOP_VERSION` stays
+`"8"`.
 
-**Breaking / action required:** none. *(The build confirms.)*
+A compatible 0.2.x release: run `cargo update -p irradiance`, then enable the writer with
+`irradiance = { version = "0.2.7", features = ["write"] }`.
+
+**Added** (all behind the `write` feature unless noted)
+- **`irradiance::dng::write`.** `written_len` (the size query, and a preflight that runs
+  every check), `write_into` (into your buffer, no allocation, every byte written,
+  deterministic) and `write_to_vec`. The output is one uncompressed little-endian strip in
+  IFD0, the plane's samples unchanged.
+- **`WriteOptions`:**
+  - the framing: `FullSensor` (the whole stored plane, margin included),
+    `FullActiveArea`, or `StandardCrop` (the default). Samples are cut only at the
+    `ActiveArea` edge; the default crop and the orientation are written as tags, so the
+    pixels are never rotated or cropped inside the active area;
+  - `ActiveArea`, the default crop, `Orientation`, the black levels and their repeat
+    pattern, `WhiteLevel`, `MaskedAreas` (full-sensor framing only), and
+    `OpcodeList1`/`2`/`3`, copied verbatim;
+  - `UniqueCameraModel`, required: printable ASCII, 1 to 1024 bytes;
+  - the source's metadata, all optional: an `ExifBlock` of bytes you built, placed verbatim
+    at file offset `EXIF_BLOCK_BASE` (8) with `ExifIFD` and `GPSInfo` pointing into it
+    (never parsed or rebased; `exif_block_base` names the base to build for); an XMP
+    packet; eight descriptive ASCII tags (`Make`, `Model`, `Software`, `DateTime`,
+    `Artist`, `Copyright`, `LocalizedCameraModel`, `CameraSerialNumber`); and four
+    rendering hints (`BaselineExposure`, `BaselineNoise`, `BaselineSharpness`,
+    `LinearResponseLimit`), written as given. Carrying `BaselineExposure` makes the
+    Pentax K-3 III Monochrome's export render like its source in Adobe's reader;
+  - `preview`: a `JpegPreview` of JPEG bytes you encoded, with their width, height and
+    colour (`YCbCr`, the default, or `Gray`). It is stored as a reduced-resolution SubIFD
+    of IFD0 and never decoded. Without a preview the output is byte-identical to a file
+    written without the field.
+- **Refusals,** each checked by `written_len` too, before anything is written:
+  - `Error::PlaneTooLarge` (an existing variant) when `width × height` exceeds your
+    `max_pixels`, checked first;
+  - `Error::InvalidWriteInput(WriteInputError)`, kind `CallerError`, with 22 reasons
+    naming the argument: an empty plane or a sample count that does not match, an invalid
+    `ActiveArea`, default crop or masked area, masked areas under a cutting framing, an
+    invalid orientation, a black-level count or repeat pattern that does not fit, a
+    missing, empty or all-space `UniqueCameraModel`, an ASCII field that is not
+    printable ASCII of at most 1024 bytes, a `DateTime` not in TIFF's
+    `YYYY:MM:DD HH:MM:SS` form, a rendering hint with a zero denominator (or, for the
+    three unsigned hints, a negative part), an EXIF block with neither an Exif nor a GPS
+    IFD offset, or an offset that is odd or leaves no room inside the block, an empty
+    XMP packet, a preview that does not start `FF D8` or whose dimensions are not 1 to
+    65535, an empty opcode list, an `OpcodeList1` whose headers do not add up under a
+    cutting framing, an offset or total length that would not fit TIFF's 32 bits, and
+    (for `write_into`) a buffer of the wrong length;
+  - `Error::UnsupportedOpcodeForFraming`, kind `Unsupported`, when a cutting framing
+    meets an `OpcodeList1` opcode other than `FixBadPixelsConstant`, whose stored-plane
+    positions the cut would shift. The file can still be written at `FullSensor`.
+- **In every build, writer or not:** the two `Error` variants above exist, so `Error`'s
+  shape does not depend on features. `Error` is `#[non_exhaustive]`, so no match on it
+  changes. Its size is unchanged at 40 bytes. Only the writer returns these variants.
+- **docs.rs** now builds the crate with the `write` feature, so it documents
+  `irradiance::dng::write`.
+
+**Behaviour changes:** none. No reader, develop, colour or `irr` code changed: every input
+reads, inspects and develops exactly as in 0.2.6, every existing refusal keeps its error,
+and `ErrorKind` gains no variant.
+
+**Breaking / action required:** none. `cargo semver-checks` against crates.io 0.2.6 reports
+no semver update required, with and without all features. The new public items are
+reachable only with `write` on; the default build gains only the two `Error` variants on a
+`#[non_exhaustive]` enum. There is no new dependency, and the MSRV stays 1.90.
+
+**Known limitations**
+- **The writer, v1:**
+  - monochrome `u16` planes only: no CFA (Bayer) plane, no float or other sample types;
+  - uncompressed, one strip, little-endian: no compression and no tiles;
+  - the preview is yours to encode: the writer checks only the JPEG start marker and the
+    dimensions;
+  - the EXIF block is placed, never parsed: offsets inside it must already be built for
+    `EXIF_BLOCK_BASE`;
+  - under a cutting framing, `OpcodeList1` may hold only `FixBadPixelsConstant`;
+  - opening a written file in Lightroom Classic or Capture One has not been checked; Adobe
+    `dng_validate`, `dnglab`, `exiftool` and irradiance's own reader and develop have.
+- **The reader** (0.2.6's, unchanged):
+  - no colour-accuracy claim yet: the SDK match is a transform check on probe values, not
+    a measured colour error, and the ColorChecker ΔE2000 measurement is blocked on
+    capturing the chart;
+  - tags that change what the samples mean (`LinearizationTable`, a non-zero
+    `BlackLevelDeltaH` or `BlackLevelDeltaV`, a `SampleFormat` other than 1, a
+    `SubTileBlockSize` other than `[1, 1]`, an interleave factor other than 1) are
+    refused, not applied;
+  - a staggered CFA (SuperCCD-style `CFALayout` 2 to 9) or a non-RGB `CFAPlaneColor` is
+    refused, not demosaiced;
+  - an unknown `CalibrationIlluminant` code sends a dual-illuminant file to
+    single-illuminant colour rather than refusing it;
+  - the Pixel 7 Pro differs from the SDK by up to 2 codes before the `GainMap`, because
+    irradiance rounds its fractional black to the nearest integer;
+  - the colour develop runs the `GainMap` but not the other `OpcodeList` stages that the
+    monochrome develop runs; a file that requires them is refused with a typed error, and
+    the develop options are mono-only;
+  - a `GainMap` in `OpcodeList1` or `OpcodeList3` is recognised but not applied; a
+    mandatory one is refused;
+  - a Compression 7 strip is one plane unit, so a single-scan lossless-JPEG file cannot be
+    split.
 
 ### Internal release record (not part of the GitHub release text)
 
-*Filled by the build: the candidate and where each piece of evidence ran, the semver
-summaries verbatim, the changed-input reconciliation, the two `size_of::<Error>()`
-figures, the packaged-crate writer check with its MD5s and `dng_validate` results, and
-the package list diff against 0.2.6.*
+- **The candidate.** Branch `release/0.2.7-prep`, cut from `origin/main` at `3f9df0b` (the
+  PR 344 design merge). Step 1's guard, `git diff --stat 153f517 origin/main -- src
+  Cargo.toml`, was empty, so PR 343 (SPEC-091) is not in this release. The build's commits
+  touch only `Cargo.toml` (the version line and the docs.rs table), `CHANGELOG.md`,
+  `README.md` (wording) and this project's records. `src/` is byte-identical to `153f517`
+  and to `3f9df0b`. Where the evidence ran:
+  - `just test` with the corpus and `dng_validate`: on `3f9df0b` (`src/`-identical), then
+    again on the PR head (handback);
+  - semver after the bump, the package checks, the packaged-crate writer check, the fuzz
+    run and the gates: on `252360b` (`252360bcea981dc8dfb46179a9a2be91ee0b6933`), the
+    version bump.
+- **Mechanical semver check:** `cargo-semver-checks 0.51.0`, crates.io 0.2.6 to the
+  candidate (DEC-067). Clean both ways: no failure, nothing to accept. Verbatim, after the
+  version bump (`252360b`), `just semver-check`:
+
+  ```
+  Checking irradiance v0.2.6 -> v0.2.7 (minor change)
+   Checked [   0.014s] 202 checks: 202 pass, 58 skip
+   Summary no semver update required
+  ```
+
+  and `cargo semver-checks --all-features`:
+
+  ```
+  Checking irradiance v0.2.6 -> v0.2.7 (minor change)
+   Checked [   0.010s] 202 checks: 202 pass, 58 skip
+   Summary no semver update required
+  ```
+
+  As for 0.2.4 to 0.2.6, the tool labels a 0.x patch bump a "minor change"; no update is
+  required. It cannot see the `write` surface as new API, since the baseline has none to
+  compare (SPEC-081's reflection); the two `Error` variants are additions to a
+  `#[non_exhaustive]` enum, which it passes.
+- **`size_of::<irradiance::Error>()`:** 40 bytes (align 8) at `v0.2.6` (`50d533d`), and
+  40 bytes (align 8) on the candidate both with and without `write`. Measured by one scratch
+  binary built against a detached `v0.2.6` worktree and against the candidate. `Error`
+  does not grow, so the release notes say so instead of carrying a size note.
+- **Changed-input reconciliation** (step 2). `git diff --stat v0.2.6 3f9df0b -- src/
+  Cargo.toml` is 5 files, +1688/−3: `src/dng/mod.rs`, `src/dng/write.rs` and
+  `src/write_types.rs` (all new), `src/lib.rs` (+47/−3) and `Cargo.toml`. Against the
+  design's list:
+  - **Confirmed as designed:**
+    - `src/lib.rs`'s changes are exactly the `#[cfg(feature = "write")] pub mod dng`, the
+      private always-compiled `mod write_types`, the two `Error` variants, their two
+      `Display` arms and their two `kind()` arms (`InvalidWriteInput` in `CallerError`,
+      `UnsupportedOpcodeForFraming` in `Unsupported`). The three removed lines are the
+      `kind()` arms' line endings, rewritten to add a variant. No reader, develop, colour,
+      `irr` or `ErrorKind` line changed, so no existing input changes its result and
+      `DEVELOP_VERSION` stays `"8"`;
+    - `WriteInputError` has exactly 22 reasons (counted from the enum, 22 variants), each
+      with a matching `Err(invalid(WriteInputError::…))` site in `src/dng/write.rs`, plus
+      the one `UnsupportedOpcodeForFraming` site. The CHANGELOG names every reason across
+      its four entries (fourteen in SPEC-061's, five in SPEC-081's, two in SPEC-082's,
+      one in SPEC-094's).
+  - **Corrected (the design's refusal list was short by one).** The writer's first check
+    returns the existing `Error::PlaneTooLarge { pixels, limit }` when `width × height`
+    exceeds `max_pixels` (`plan`, before any size arithmetic). The design listed only
+    `WriteInputError`'s reasons and `UnsupportedOpcodeForFraming`. The CHANGELOG's
+    SPEC-061 entry and the notes now name it. Not a defect: the module docs and
+    `written_len`'s `# Errors` already said so.
+  - **Corrected (stale count).** The CHANGELOG's "fourteen reasons, nineteen with
+    SPEC-081's" now says 22, with each spec's share.
+  - **A Cargo.toml line the design did not name.** `git diff v0.2.6 3f9df0b -- Cargo.toml`
+    is the `write = []` feature and its comment, as designed, plus `"write"` added to the
+    self dev-dependency's features (`irradiance = { path = ".", features = [...] }`), so
+    the tests compile the writer. `cargo package` strips that path-only dev-dependency:
+    the packaged `Cargo.toml`'s only dev-dependencies are `ssimulacra2` and `toml`. No
+    effect on the release.
+  - **No reader change, so the reader lanes stay off.** The SDK colour and stage-2 lanes,
+    the `irr ifd` diff and the timing examples were not run, as designed: they measure
+    code that is byte-identical to `v0.2.6`, whose figures SPEC-090 recorded.
+- **The packaged crate, as a consumer builds it** (step 9, new for this release). In the
+  build's scratchpad, from a clean detached worktree of `252360b`:
+  - `cargo package`: `Packaged 22 files, 1.9MiB (416.6KiB compressed)`, verified; the
+    `.crate` unpacked into a separate directory. Its `.cargo_vcs_info.json` carries
+    `git.sha1` `252360bcea981dc8dfb46179a9a2be91ee0b6933`; its manifest shows `version =
+    "0.2.7"`, `rust-version = "1.90"`, `write = []` and the
+    `[package.metadata.docs.rs] features = ["write"]` table.
+  - In the unpacked `irradiance-0.2.7`: `cargo build --features write` exit 0, `cargo
+    build --no-default-features` exit 0, and `RUSTDOCFLAGS='-D warnings' cargo doc
+    --no-deps --features write` exit 0 with no warning, generating
+    `irradiance/dng/write/` (`write_into`, `write_to_vec`, `written_len`,
+    `exif_block_base`, `EXIF_BLOCK_BASE`, `Framing`, `JpegPreviewColor`,
+    `WriteInputError` and the structs).
+  - A scratch consumer crate on `irradiance = { path = <unpacked>, features = ["write"] }`,
+    release build: parse the Leica Q2 Monochrom `LEICA-Q2-MONO/L1021223.DNG` (8424×5632,
+    14-bit, `ActiveArea` 0,0 to 5632,8392), unpack it, and `write_to_vec` it at each
+    framing with options built from its `Sensor` as the corpus tests build them
+    (`UniqueCameraModel` "irradiance 0.2.7 package check"). Each output was re-parsed and
+    unpacked, and its samples compared with the source over the written region: equal
+    every time.
+
+    | Framing | Bytes | Written plane | Samples equal | MD5 |
+    |---|---|---|---|---|
+    | `FullSensor` | 94,888,406 | 8424×5632 | 47,443,968 | `26a380eb4b8cfbedcab521ba152c2349` |
+    | `FullActiveArea` | 94,527,930 | 8392×5632 | 47,263,744 | `3e64fa3b185517c81e660e7d5ddd16c5` |
+    | `StandardCrop` | 94,527,930 | 8392×5632 | 47,263,744 | `fc60668e99ddee1440efe993071e641e` |
+
+    A second run of the same binary wrote the same three MD5s. Adobe `dng_validate` 1.7.1
+    (the local build at `~/PSeven/experiments/crustimg_redo_plus/tools/dng_sdk/build/`,
+    DEC-069 §6) on each output: exit 0, "Validation complete", no `Warning` or `Error`
+    line. The outputs stayed in the scratchpad.
+  - The same consumer with `features = ["write"]` removed fails to compile:
+    `error[E0433]: cannot find `dng` in `irradiance``. The feature gate holds in the
+    package.
+- **Package list.** `cargo package --list` on clean detached worktrees of `v0.2.6` and
+  `252360b`, diffed: 0.2.6's 19 paths plus exactly `src/dng/mod.rs`, `src/dng/write.rs`
+  and `src/write_types.rs`, 22 in all. There is no `scripts/`, `tests/`, SDK or corpus
+  file. The dry run prints 54 "ignoring example/test … not included" warnings where 0.2.6
+  had 51; diffed, the three extra are `tests/dng_write.rs`, `tests/dng_write_alloc.rs` and
+  `tests/dng_write_corpus.rs`.
+- **Fuzz.** `just fuzz-dng-write 60` on `252360b`: `Done 3597321 runs in 61 second(s)`, no
+  crash, cov 2150, corpus 549 entries; the working tree stayed clean.
+- **Release notes against the reconciled list.** Each class above has a line in the notes:
+  the writer's functions and options, every refusal (the 22 reasons, the framing
+  refusal and `PlaneTooLarge`), the two variants in every build with `Error`'s size
+  unchanged, docs.rs, no behaviour change for a reader-only caller, and the writer's v1
+  limits. The reader's known limitations are 0.2.6's, carried over unchanged.
 
 ## Release cut is two-phase
 
@@ -250,55 +462,117 @@ gated by a human/coordinator. Structure it so the reversible work lands first:
 
 ## Release Pre-Flight
 
-**A behavioral checklist — each item asks "does the released thing actually work
-on a real host," not "is the shape right."** The categories are generic and
-portable (DEC-006); **fill in the tool-specific command for each under your
-stack** (the template ships the slot, the instance fills the truth — same
-principle as the toolchain brief).
+**Delivery shape: library plus a crates.io package (source crate, no binary).** Filled
+2026-11-25 by the Phase-1 build (HANDOFF-197) on candidate `252360b`
+(`252360bcea981dc8dfb46179a9a2be91ee0b6933`, the version bump). The commits after it
+change only project records, and `src/` is byte-identical throughout. `just test` was
+repeated on the PR head; the handback has that result.
+- `[now]`: verified on the candidate in the build session.
+- `[cut]`: verified by the user at Phase 2.
+- `N/A`: does not apply.
 
-Mark each item's verification **timing**, because most can only be checked *after*
-the cut: **`[now]`** = verified this session, evidence attached; **`[cut]`** = can
-only be verified at Phase 2 (a clean-host install, a published-channel check,
-notarization propagation) → **deferred, verified by whoever runs the cut** — record
-it honestly as deferred, don't tick it as done in-session. Mark categories that
-don't apply to this release's delivery shape as `N/A` with one word why.
+- [ ] **1. Version / tag integrity & build provenance** — `[now]` done, the rest `[cut]`.
+  - `[now]` ✔:
+    - `Cargo.toml` says `version = "0.2.7"`. `cargo publish --dry-run` ran in a detached
+      scratch worktree of `252360b`, on a clean tree with no `--allow-dirty`. It reports
+      `Packaged 22 files, 1.9MiB (416.6KiB compressed)` and `Uploading irradiance
+      v0.2.7`, then "aborting upload due to dry run".
+    - `git tag -l 'v0.2.7'` is empty, locally and on origin.
+    - The packaged `.cargo_vcs_info.json` carries `git.sha1`
+      `252360bcea981dc8dfb46179a9a2be91ee0b6933`, the candidate.
+    - `git diff v0.2.6 252360b -- Cargo.toml` is the `write` feature (and `"write"` on the
+      self dev-dependency, stripped from the package), the version line and the docs.rs
+      table. So `license`, `description`, `keywords`, `categories`, `repository`,
+      `include` and `rust-version = "1.90"` are unchanged; the packaged manifest shows
+      `rust-version = "1.90"`.
+    - `v0.2.6` on origin is annotated (`git cat-file -t v0.2.6` prints `tag`).
+  - `[cut]`:
+    - `git tag -a v0.2.7 -m "irradiance 0.2.7"` on the merged prep commit, after
+      confirming its `Cargo.toml` shows 0.2.7 and that PR 343 has not merged.
+    - `git tag --points-at HEAD` prints exactly `v0.2.7`, and `git cat-file -t v0.2.7`
+      prints `tag`. After the push, `git ls-remote --tags origin 'v0.2.7*'` shows both
+      `refs/tags/v0.2.7` and `refs/tags/v0.2.7^{}`.
+    - The published `.crate`'s `.cargo_vcs_info.json` sha1 equals the tagged commit:
+      `curl -sL https://static.crates.io/crates/irradiance/irradiance-0.2.7.crate | tar -xzO irradiance-0.2.7/.cargo_vcs_info.json`
+      against `git rev-parse v0.2.7^{commit}`.
+- [x] **2. Artifact trust on a clean host** — `N/A`: a source crate, no signed binary.
+- [ ] **3. Distribution-channel trust** — `[now]` proxy done, the rest `[cut]`.
+  - `[now]` ✔:
+    - `cargo publish --dry-run` packaged and verified the crate in isolation (default
+      features). Its only warnings are the expected "ignoring example/test … not
+      included in the published package" lines (54: 0.2.6's 51 plus the three writer
+      test files).
+    - **The packaged crate with `write` on** (new for this release, because the dry run
+      builds default features only): in the unpacked package, `cargo build --features
+      write`, `cargo build --no-default-features` and `RUSTDOCFLAGS='-D warnings' cargo
+      doc --no-deps --features write` (what docs.rs runs, given the new metadata table)
+      all exit 0 (internal record).
+    - The packaged `Cargo.toml` has no self dev-dependency; its only dev-dependencies
+      are `ssimulacra2` and `toml`. `[dependencies]` is empty.
+    - `just package-targets-check` passed: no executable in the default build or in the
+      package (`irradiance-0.2.7`), `irr` builds under `--features irr`, and its red case
+      is caught. `just deny` and `just deny-fuzz` both report `licenses ok`.
+    - The package list is 0.2.6's 19 files plus exactly `src/dng/mod.rs`,
+      `src/dng/write.rs` and `src/write_types.rs`. No `scripts/`, `tests/`, SDK or corpus
+      bytes.
+  - `[cut]`: on a clean host, `cargo add irradiance@=0.2.7 --features write && cargo
+    build`. crates.io shows 0.2.7, and docs.rs is green and shows `irradiance::dng::write`.
+- [x] **4. Data isolation** — `N/A`: a library with no I/O and no data store.
+- [ ] **5. Runtime smoke on a clean host** — `[now]` done on the candidate, `[cut]` on the
+  published crate.
+  - `[now]` ✔:
+    - `just test` (on `3f9df0b`, `src/`-identical) ran with `IRRADIANCE_CORPUS_DIR` and
+      `IRRADIANCE_DNG_VALIDATE` set. It printed "corpus: 12/12 present", exiftool and
+      dnglab present, and "dng-validate: present … the DNG writer's dng_validate
+      acceptance will run". The 55 test results, doctests included, total 923 passed, 0
+      failed and 1 ignored, exit 0. The three writer `dng_validate` tests
+      (`dng_validate_accepts_and_renders_like_the_source`,
+      `dng_validate_accepts_metadata_and_the_k3_renders_like_its_source`,
+      `dng_validate_accepts_a_written_preview`) ran and passed. The SDK colour and
+      stage-2 lanes printed SKIP, by design (reader unchanged).
+    - `cargo test --doc --all-features`: 5 passed. `just doc-check`: 2 feature surfaces,
+      0 rustdoc warnings.
+    - The packaged-crate consumer wrote the Q2 Monochrom at all three framings from the
+      unpacked package, re-read each sample-for-sample against the source, and Adobe
+      `dng_validate` 1.7.1 accepted all three with no warning (internal record, with the
+      MD5s). Without `write` the same consumer does not compile.
+  - `[cut]`: in a clean-host probe crate on `irradiance = { version = "=0.2.7", features =
+    ["write"] }`:
+    - parse a held monochrome DNG, `write_to_vec` it at `StandardCrop`, and re-parse it:
+      the samples equal the source's active area, and the output's MD5 equals the same
+      program built against the unpacked package
+      (`fc60668e99ddee1440efe993071e641e` for the Q2 Monochrom `L1021223.DNG` with
+      `UniqueCameraModel` "irradiance 0.2.7 package check");
+    - `dng_validate` accepts the output with no warning;
+    - `develop_into` on the Pentax K-3 III Monochrome returns `Ok`, with an output hash
+      equal to the same program built against 0.2.6, and
+      `irradiance::DEVELOP_VERSION == "8"`.
+- [ ] **6. Rollback / uninstall** — `[cut]`.
+  - **Withdraw:** `cargo yank --version 0.2.7`, and dependents on `"0.2"` fall back to
+    0.2.6 (which has no `write` feature, so a dependent that enabled it stops resolving
+    until it pins 0.2.7 or drops the feature). `cargo yank --undo --version 0.2.7`
+    reverses it.
+  - **Git rollback:** revert the Phase-1 PR.
 
-- [ ] **1. Version / tag integrity & build provenance** — exactly one release tag points
-      at the release commit; the version baked into the artifact matches the tag;
-      no stale or duplicate tag on the same commit. **And the shipped artifact
-      reports its own build provenance** (version + commit SHA) that matches the
-      release commit — `just build-info` is the stamp; it must be injected into
-      the build (DEC-008, `docs/versioning.md`). A user should be able to trace
-      exactly what they're running back to source.
-      - Command / evidence: <REPLACE — e.g. `git tag --points-at HEAD` and
-        `<app> --version` reports the `just build-info` ref>
-- [ ] **2. Artifact trust on a clean host** — a freshly-downloaded artifact is
-      trusted by a machine that didn't build it (code-signing / notarization /
-      OS quarantine — Gatekeeper, SmartScreen). "Does a stranger's machine run
-      it without a scary prompt or a block?"
-      - Command / evidence: <REPLACE — download the release asset on a second
-        machine and run it>
-- [ ] **3. Distribution-channel trust** — a *new* user can install cleanly
-      through each published channel (package-manager tap/registry trust gates,
-      first-install auth). "Install it the way a stranger would, on a machine
-      that never saw the source."
-      - Command / evidence: <REPLACE — e.g. `brew install …` on a clean host>
-- [ ] **4. Data isolation** — a dev / test / CI build can never read or migrate
-      **production** data. Confirm the prod data path is unreachable from a
-      non-prod binary.
-      - Command / evidence: <REPLACE — run the built binary with the dev env and
-        assert it cannot resolve the prod DSN>
-- [ ] **5. Runtime smoke on a clean host** — the *shipped* artifact runs (not
-      just builds) on a fresh install: it starts, answers, and its headline
-      capability works end-to-end.
-      - Command / evidence: <REPLACE — the one command that proves it works>
-- [ ] **6. Rollback / uninstall** — there is a known, tested way to withdraw or
-      downgrade the release. Exercise it at least once.
-      - Command / evidence: <REPLACE — e.g. `brew uninstall …` / re-tag prior>
-
-If a real release surfaces a category this list doesn't cover, record it in
-`guidance/signals.yaml` (`type: process-debt`) so a close can grow the generic
-categories (DEC-006 keeps them category-level, not command-level).
+**Gates on the candidate, all green** (2026-11-25, `IRRADIANCE_CORPUS_DIR` and
+`IRRADIANCE_DNG_VALIDATE` set):
+- `just test` (above)
+- `lint-ci`
+- `lint-no-allow`
+- `lint-fuzz`
+- `lint-fuzz-red-proof`
+- `fmt-check`
+- `validate`
+- `doc-check`
+- `deny`, plus `deny-fuzz`
+- `msrv` (1.90.0)
+- `cost-audit`
+- `gate-audit`
+- `name-length-check`
+- `decisions-index --check`
+- `semver-check` (202 of 202)
+- `package-targets-check`
+- `cargo publish --dry-run`
 
 ## Notes for the Implementer
 
