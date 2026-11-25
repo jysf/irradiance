@@ -278,7 +278,8 @@ and `just lint-fuzz-red-proof` (its red-proof); `SPEC-023` added `just gate-audi
 (the gate OVER the gates — scans the verdict-bearing `scripts/*.sh` for the
 mute-death shape) and `just gate-audit-red-proof` (its red-proof).
 `SPEC-016` added `just validate-red-proof`; `SPEC-056` added `just doc-check`
-and `just doc-check-red-proof`; `SPEC-067` added `just orient-timing`,
+and `just doc-check-red-proof`; `SPEC-096` added `just wasm-check` and
+`just wasm-check-red-proof` (the browser-target build gate); `SPEC-067` added `just orient-timing`,
 `SPEC-069` `just unpack-timing` and `SPEC-070` `just ljpeg-timing` (release-build
 measurements, not gates); `SPEC-071` added `just fuzz-ljpeg` (the SOF-3
 decoder's fuzz target, `SPEC-038`, which until then had no recipe) and listed
@@ -367,6 +368,21 @@ cargo fmt --check
 #              is rejected with rustdoc's private_intra_doc_links error naming
 #              it. Temp copy; working tree untouched.
 ./scripts/doc-check-red-proof.sh
+
+# wasm-check — builds the LIBRARY for wasm32-unknown-unknown, default features
+#              and --features write (SPEC-096), so the browser target the demo
+#              (jysf/irradiance-demo) depends on cannot break silently. A BUILD
+#              gate: Instant::now/std::fs compile on wasm32 and fail only at run
+#              time, so it cannot see them. Locally ~/.cargo/bin goes first on
+#              PATH (Homebrew's rust has no wasm32 std; the gate names that cause).
+#              CI runs it as the `wasm32` job.
+PATH="$HOME/.cargo/bin:$PATH" ./scripts/wasm-check.sh
+
+# wasm-check-red-proof — proves `wasm-check` bites (SPEC-096): the UNMUTATED
+#              copy passes, then a unix-only std API (E0433) and a 64-bit usize
+#              constant behind `write` (E0080), each still building natively,
+#              fail the gate. Temp copy; working tree untouched.
+PATH="$HOME/.cargo/bin:$PATH" ./scripts/wasm-check-red-proof.sh
 
 # lint-red-proof — proves the panic-free lint policy actually rejects a
 #              violating function injected into a copy of src/lib.rs, with the

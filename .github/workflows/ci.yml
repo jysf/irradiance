@@ -385,6 +385,35 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: ./scripts/doc-check-red-proof.sh
 
+  # SPEC-096. The browser target: the "Anatomy of a RAW" demo
+  # (jysf/irradiance-demo) runs the published crate compiled to WebAssembly, and
+  # no other job compiles for wasm32. Builds the library for
+  # wasm32-unknown-unknown with default features and with `write`. A BUILD gate:
+  # std calls that compile on wasm32 and fail at run time are outside it.
+  wasm32:
+    name: rust / wasm32 build (browser target)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: ./scripts/wasm-check.sh
+
+  # The wasm32 gate's red-proof (oracle-must-be-shown-red covers gates; DEC-009):
+  # control green on an unmutated copy, then a unix-only std API and a 64-bit
+  # usize constant behind `write`, each native-green, must fail the gate by
+  # error code.
+  wasm32-red-proof:
+    name: rust / wasm32 red-proof — wasm-only faults (must fail red)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: ./scripts/wasm-check-red-proof.sh
+
   msrv:
     name: rust / MSRV (1.90.0)
     runs-on: ubuntu-latest
