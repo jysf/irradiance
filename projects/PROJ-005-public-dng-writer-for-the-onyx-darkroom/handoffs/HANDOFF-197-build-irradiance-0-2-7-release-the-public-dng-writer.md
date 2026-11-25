@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-25
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-095
@@ -46,18 +46,18 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 13604841             # REAL combined count — what cost-audit reads
+  estimated_usd: 9.52              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 95
+  branch: release/0.2.7-prep
+  pr: 345
+  completed_at: 2026-11-25         # YYYY-MM-DD
+  notes: "FLOOR taken before the handback commit, from transcript d03f493d-2edf-45a5-aaad-7ce96beb07f7.jsonl (the scratchpad UUID; 84 unique message.ids, all claude-opus-5-5, no subagents): input 170 + cache-creation 171,470 (1-hour) + cache-read 13,388,818 + output 44,383, deduplicated by message.id with each message's largest output_tokens, priced at 5 and 25 USD per million, cache read 0.1x, 1-hour cache writes 2x, as HANDOFF-191 did. Re-sum at ship. Semver clean both ways (202 pass, 58 skip); Error 40 bytes before and after; packaged-crate writer check green, dng_validate no warnings on all three Q2M framings."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -164,38 +164,80 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `release/0.2.7-prep`, https://github.com/jysf/irradiance/pull/345
+  (cut from `origin/main` at `3f9df0b`; candidate `252360b`, the version bump; head at
+  handback `f561181` plus this handback commit). Not merged, not tagged, not published.
+- **Completed at:** 2026-11-25
+- **All acceptance criteria met?** yes. Steps 1 to 11 of SPEC-095's build work are done:
+  - step 1: `git diff --stat 153f517 origin/main -- src Cargo.toml` is empty (PR 343 is not in);
+  - steps 2 and 3: the reconciliation, `size_of::<Error>()` (40 at `v0.2.6`, 40 on the
+    candidate with and without `write`) and both semver summaries ("v0.2.6 -> v0.2.7
+    (minor change)", 202 pass, 58 skip, no semver update required, by `just
+    semver-check` and by `cargo semver-checks --all-features`, tool 0.51.0) are in the
+    spec's internal record;
+  - steps 4 to 7: the version, the docs.rs table, the CHANGELOG promotion, the Release
+    Notes and the README wording; `cargo test --doc --all-features` 5 passed, `just
+    doc-check` 0 warnings;
+  - step 8: `just test` on `3f9df0b` and again on the head `f561181`, both 55 results,
+    923 passed, 0 failed, 1 ignored, exit 0, corpus 12/12 present. The three writer
+    `dng_validate` tests ran ("dng-validate: present … will run"; each `... ok`); the SDK
+    colour and stage-2 lanes printed SKIP, by design. `just fuzz-dng-write 60`: 3,597,321
+    runs in 61 s, no crash;
+  - step 9: the packaged crate builds with `write`, with no default features, and
+    documents with `-D warnings`; the consumer wrote the Q2 Monochrom `L1021223.DNG` at
+    `FullSensor` / `FullActiveArea` / `StandardCrop` with MD5s
+    `26a380eb4b8cfbedcab521ba152c2349` / `3e64fa3b185517c81e660e7d5ddd16c5` /
+    `fc60668e99ddee1440efe993071e641e` (same on a second run), each re-read
+    sample-for-sample against the source, and `dng_validate` 1.7.1 accepted all three
+    with no warning or error. Without `write` the consumer fails with `E0433: cannot find
+    `dng` in `irradiance``;
+  - step 10: package list = 0.2.6's 19 + the three writer files; `package-targets-check`,
+    `deny`, `deny-fuzz` and `cargo publish --dry-run` (22 files, 54 ignoring warnings)
+    green;
+  - step 11: the Pre-Flight is filled and every listed gate is green; CI on `f561181` is
+    23/23 green.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 13,604,841 (floor: measured before the handback commit)
+- **Estimated USD:** 9.52
+- **Duration (minutes):** about 95
+- **Source of the number:** the session transcript, `d03f493d-2edf-45a5-aaad-7ce96beb07f7.jsonl`,
+  deduplicated by `message.id` per docs/cost-tracking.md (basis: transcript). 84 unique
+  messages, all `claude-opus-5-5`, no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
-- **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+- **New decisions emitted:** none.
+- **Deviations from spec** (where the evidence contradicted the spec or handoff):
+  - **The writer's refusal list was short by one.** The writer's first check returns the
+    existing `Error::PlaneTooLarge` when `width × height` exceeds `max_pixels`. The
+    design listed only `WriteInputError`'s 22 reasons and `UnsupportedOpcodeForFraming`.
+    The CHANGELOG and notes now name it. Not a defect: the module docs already say so.
+  - **`git diff v0.2.6 -- Cargo.toml` before the bump was not only the `write` feature.**
+    It also adds `"write"` to the self dev-dependency's features. `cargo package` strips
+    that dev-dependency, so the release is unaffected.
+  - **The `dng_validate` path in the brief was wrong.** The binary is at
+    `~/PSeven/experiments/crustimg_redo_plus/tools/dng_sdk/build/dng_validate`, outside
+    the irradiance checkout, not under `irradiance/tools/dng_sdk`.
+  - **The 22-reason count, the stale CHANGELOG count and the reader's unchanged code**
+    were confirmed as designed; `Error` did not grow, so the notes carry no size note.
+- **Follow-up work identified:** none new. The Phase-2 runbook in SPEC-095 stands.
+  Housekeeping: the release notes' `[cut]` smoke proposes reusing the step-9 consumer's
+  `StandardCrop` MD5 as the published-crate check.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Only the `dng_validate` location: the brief named a path inside the irradiance
+   checkout that does not exist, and I found the binary from memory notes. Otherwise the
+   eleven steps were exact.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No. DEC-050 (the pixel budget) is behind the `PlaneTooLarge` refusal the design
+   missed, but it is the reader's long-standing rule, not a release decision.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Bump the version before starting `just test`, not during it: the bump landed while
+   the suite was in its debug alloc phase and forced a rebuild. And call the consumer
+   crate's imports from the crate's real module paths (`irradiance::ifd`) on the first try.
