@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -101,6 +101,7 @@ cost:
     tokens_total: 12866476
     estimated_usd: 9.55
     session_count: 3
+shipped_at: 2026-11-25
 ---
 
 # SPEC-094: STAGE-017 follow-ups, bundled: refuse an empty opcode list, a dng_write fuzz CI job, writer doc links
@@ -215,26 +216,26 @@ no `#[allow]`.
 
 ## Acceptance Criteria
 
-- [ ] **AC1 Refusal.** `Some(&[])` for each of `opcode_list_1`, `opcode_list_2` and
+- [x] **AC1 Refusal.** `Some(&[])` for each of `opcode_list_1`, `opcode_list_2` and
   `opcode_list_3` is `InvalidWriteInput(EmptyOpcodeList { list: n })`, with the right `n`,
   under each of the three framings, from both `written_len` and `write_into`.
-- [ ] **AC2 Order.** An empty list is refused before the `OpcodeList1` walk: with an empty
+- [x] **AC2 Order.** An empty list is refused before the `OpcodeList1` walk: with an empty
   `OpcodeList2` and a shifting `OpcodeList1` at StandardCrop the error is
   `EmptyOpcodeList { list: 2 }`. With an empty XMP as well, `EmptyXmp` comes first. With
   both an empty list 1 and an empty list 3, the error is `{ list: 1 }`.
-- [ ] **AC3 Nothing else moves.** Every existing writer test passes unchanged, including
+- [x] **AC3 Nothing else moves.** Every existing writer test passes unchanged, including
   SPEC-082's three pinned MD5s. A 4-byte count-0 list is still accepted and copied
   verbatim.
-- [ ] **AC4 Fuzz.** A `refuse-empty-opcode-list` seed reaches the new reason, and
+- [x] **AC4 Fuzz.** A `refuse-empty-opcode-list` seed reaches the new reason, and
   `fuzz_seeds_reach_their_named_outcome` passes. Every seed that previously reached `Ok`
   with an empty list is renamed or re-pointed, and the handback lists each one.
   `just fuzz-dng-write` runs 60 s with no crash.
-- [ ] **AC5 CI job.** `rust / fuzz smoke — dng_write (60s)` exists and passes on the PR, so
+- [x] **AC5 CI job.** `rust / fuzz smoke — dng_write (60s)` exists and passes on the PR, so
   23 of 23 checks pass.
-- [ ] **AC6 Doc links.** `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
+- [x] **AC6 Doc links.** `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
   --document-private-items` without features reports no unresolved `crate::dng` link. With
   `--all-features` it reports none of the three either. `just doc-check` passes.
-- [ ] **AC7 Gates.** `just test` (corpus and `dng_validate` set), `lint-ci`,
+- [x] **AC7 Gates.** `just test` (corpus and `dng_validate` set), `lint-ci`,
   `lint-no-allow`, `fmt-check`, `doc-check`, `deny`, `deny-fuzz`, `lint-fuzz`,
   `lint-fuzz-red-proof`, `msrv`, `validate`, `gate-audit`, `cost-audit` and
   `semver-check`.
@@ -302,31 +303,27 @@ no `#[allow]`.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Grep the whole test tree for every input a new refusal changes, before writing the ACs.
+   The design missed one existing test that passed an empty `OpcodeList1` and expected
+   `MalformedOpcodeList`; the build moved that assertion. Also, check each row of the
+   rule-clause map against the test that really catches its mutant: the `len < 4` row named
+   the count-0 test, which did not catch it, and the verify added an assertion.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No DEC: the refusal carries out DEC-081's own follow-up. The spec's Context was wrong in
+   one claim: not every other fuzz target has a CI smoke job (`develop` and `demosaic` have
+   none). That gap predates this spec and goes to the STAGE-017 close. No new signal.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — Weigh at the STAGE-017 close: CI smoke jobs for `develop` and `demosaic`, the README's
+   fuzz line, and the 13 private `ljpeg` doc links. Then the release spec that first
+   publishes `write`.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Nothing new to do; the writer is safer. Before, `Some(&[])` for an opcode list was
+   written as a count-0 tag that no reader can walk; now it is refused with
+   `EmptyOpcodeList`, under every framing. CI also fuzzes `dng_write` for 60 s on every PR,
+   and the no-feature private doc build no longer breaks on the writer's links.
