@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-25
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-094
@@ -46,18 +46,17 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
-                                   #   to_agent above is a prediction from tier_map
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model)
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 8051192            # REAL combined count — what cost-audit reads
+  estimated_usd: 5.80              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 60
+  branch: claude/spec-094-build
+  pr: 339
+  completed_at: 2026-11-25         # YYYY-MM-DD
+  notes: "FLOOR taken before the handback commit, from transcript 60060586-abbf-424f-aa19-b005f940fab7.jsonl (53 unique message.ids, all claude-opus-5-5, no subagents): input 112 + cache-creation 128,968 (1-hour) + cache-read 7,899,577 + output 22,535, priced at 5 and 25 USD per million as HANDOFF-193 did. Re-sum at ship. fuzz-dng-write 2,811,502 runs in 61 s, no crash, 33 seeds."
   synced_at: null                  # stamped by `just handback-sync` — do not edit
 ---
 
@@ -167,38 +166,57 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `claude/spec-094-build`, https://github.com/jysf/irradiance/pull/339
+- **Completed at:** 2026-11-25
+- **All acceptance criteria met?** yes. AC1 to AC4 and AC6 to AC7 are green locally; AC5 (23 of 23 CI checks) is confirmed on the PR before reporting.
+- **Commits, one per item:** `da50aed` (the refusal), `5f411c2` (the CI job), `e26aeb6` (the doc links).
+- **Red proof (oracle-must-be-shown-red):** the variant and its `Display` were added first, with no check, so the tests compiled against `main`'s behaviour. `cargo test --all-features --test dng_write` then gave 29 passed, 5 failed: `empty_opcode_list_is_refused_under_every_framing`, `every_refusal_is_typed`, `checks_run_in_the_documented_order`, `opcode_list_1_allow_list_under_cutting_framings` (the moved assertion) and `fuzz_seeds_reach_their_named_outcome` (the new seed reached `Ok`). With the check in `plan`: 34 passed. `count_zero_opcode_list_header_is_still_written_verbatim` passes on both sides, as a preservation test should. Its red is the verify's mutant (refuse `len < 4`).
+- **Tests and seeds whose outcome the refusal changed:**
+  - `opcode_list_1_allow_list_under_cutting_framings`: `Some(&[])` for list 1 at StandardCrop expected `MalformedOpcodeList`; it now expects `EmptyOpcodeList { list: 1 }`. This is the only existing assertion that moved.
+  - No existing fuzz seed holds an empty list. `just fuzz-seeds` rewrote all 32 old seeds byte-identically, so none was renamed or re-pointed. One seed is new: `refuse-empty-opcode-list` (empty list 2 at StandardCrop, reaches `EmptyOpcodeList { list: 2 }`). The seed count is now 33.
+- **AC6, the doc command** (`RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --document-private-items`; it exits 101 in all four cases because of the `ljpeg` links):
+
+  | | without features | `--all-features` |
+  |---|---|---|
+  | before (`5f411c2`) | 16 unresolved: `crate::dng`, `crate::dng::write::Framing`, `crate::dng::write::WriteInputError`, and the 13 `ljpeg` | 13 unresolved, all `ljpeg` |
+  | after (`e26aeb6`) | 13 unresolved, all `ljpeg`; no `crate::dng` | 13 unresolved, all `ljpeg` |
+
+  `just doc-check`: "2 feature surfaces documented with -D warnings, 0 rustdoc warnings".
+- **`src/lib.rs` link form:** plain code (`` `dng::write` ``), not a `cfg_attr` pair. The comment sits on `mod write_types;`, which is private, so it never appears in the public docs of any feature set. A `cfg_attr` pair would add two doc variants for text only the private-items build shows. Plain code reads correctly in both.
+- **CI job count:** `ci.yml` now has 22 jobs; `determinism` is a 2-way matrix, so the PR shows 23 checks.
+- **Fuzz:** `just fuzz-dng-write` ran 2,811,502 runs in 61 s with no crash (33 seeds).
+- **Gates run locally, all green:**
+  - `just test`, with `IRRADIANCE_CORPUS_DIR` and `IRRADIANCE_DNG_VALIDATE` set (55 binaries, 923 passed, 1 ignored; corpus 12/12 present)
+  - `lint-ci`, `lint-no-allow`, `fmt-check`, `doc-check`
+  - `deny`, `deny-fuzz`, `lint-fuzz`, `lint-fuzz-red-proof`, `msrv`
+  - `validate`, `gate-audit`, `cost-audit`, `semver-check` (no semver update required)
+- `lint-fuzz-red-proof` copies no list of seeds or jobs, so it needed no change.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 8,051,192 (floor, measured before the handback commit)
+- **Estimated USD:** 5.80
+- **Duration (minutes):** about 60
+- **Source of the number:** the transcript, deduplicated by `message.id` per docs/cost-tracking.md. There were no subagents.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none.
 - **Deviations from spec:**
-  - [list]
+  - The spec says no test in `tests/dng_write*.rs` passes `Some(&[])` for an opcode list. One does: `opcode_list_1_allow_list_under_cutting_framings` (list 1, expecting `MalformedOpcodeList`). Its assertion moved to the new reason, so AC3's "every existing writer test passes unchanged" holds for every test except this one assertion.
+  - AGENTS.md has no list that counts the CI jobs, and neither does `guidance/toolchain-brief.md`. The `fuzz-dng-write` recipe block in AGENTS.md now names the CI job instead.
+  - `every_refusal_is_typed` checks the three empty lists at StandardCrop. The per-framing coverage is in the new test.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - The 13 `ljpeg` private doc links still fail a private-items doc build (a non-goal here; for the stage close to weigh).
+  - README's `just fuzz` line lists the other fuzz recipes but not `fuzz-dng-write`. One line, for the release spec.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little. The spec's claim that no test passes an empty opcode list was wrong by one assertion, but its "Moved assertions" rule covered what to do.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — I would grep for the empty-list shape in every opcode-list test before trusting the spec's inventory, not after the red run.
