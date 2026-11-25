@@ -55,7 +55,7 @@ handback:
   estimated_usd: 9.02              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 45
   branch: claude/spec-081-build
-  pr: null
+  pr: 332
   completed_at: 2026-11-24         # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit, from transcript 7b805486-c477-491d-8d27-b4e83a3837a9.jsonl (52 unique message.ids, all claude-opus-5-5, no subagents): input 108 + cache-creation 225,560 (1-hour) + cache-read 10,335,279 + output 63,973, priced at 5 and 25 USD per million as HANDOFF-175 did. Re-sum at ship. exiftool parity 6 of 6 block shapes, base-10 red-proof caught; dng_validate no warnings on K-3 III and Q2M; K-3 III render equal to source, 76,681,557 samples differ without BaselineExposure."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: null                  # stamped by `just handback-sync` — do not edit
@@ -171,7 +171,7 @@ If you cannot complete the task:
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-081-build` (PR linked in the front matter once open)
+- **Branch / PR:** `claude/spec-081-build`, https://github.com/jysf/irradiance/pull/332
 - **Completed at:** 2026-11-24
 - **All acceptance criteria met?** yes. AC1 to AC10 each have their named test, and all pass
   locally with the corpus and `$IRRADIANCE_DNG_VALIDATE` set.
