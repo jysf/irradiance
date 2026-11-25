@@ -22,7 +22,7 @@ created_at: 2026-11-24
 supersedes: null
 superseded_by: null
 
-status: proposed                     # SPEC-081 design; jysf accepts at the design PR
+status: accepted                     # jysf, 2026-11-24, at the SPEC-081 ship (verify HANDOFF-192 ruled it sound)
 
 deciders: [claude]
 
@@ -54,6 +54,8 @@ choice open, the writer takes these:
    `mono-core` copies what the source holds. An empty XMP packet
    is refused (`EmptyXmp`): a count-0 tag is malformed to irradiance's own reader
    (SPEC-089), and no source carries one. `UniqueCameraModel` keeps DEC-071 §3a's rule.
+   `DateTime` is the other exception: an empty `DateTime` fails its form check (§6), so it is
+   refused (`DateTimeInvalid`); leave the field `None` instead.
 3. **Hint type.** The four hints are irradiance's `Rational { num: i32, den: i32 }`, what
    `mono-core` reads with `Container::rationals` (`monorail-000/DEC-078` item 1). A zero
    denominator is refused on all four (DEC-074). The three RATIONAL tags are unsigned on
@@ -64,7 +66,10 @@ choice open, the writer takes these:
    error as `write_into` (SPEC-061 §3, the parity onyx's export sheet relies on). They run
    after `UniqueCameraModel` and before the `OpcodeList1` walk, in this order: the
    descriptive strings in tag order (`DateTime`'s form with its own), the hints in tag
-   order, the EXIF block, the XMP packet. Sizes stay in SPEC-061's last step
+   order, the EXIF block, the XMP packet. Within one string field the printable-ASCII and
+   length check runs first and the `DateTime` form check second, so a `DateTime` with a
+   non-ASCII byte is `InvalidAscii { field: "DateTime" }`, not `DateTimeInvalid` (ruled at
+   SPEC-081 verify, HANDOFF-192). Sizes stay in SPEC-061's last step
    (`OutputTooLarge`).
 5. **"Inside the block"** (DEC-072) means the IFD's 2-byte entry count fits:
    `offset + 2 <= bytes.len()`, and the offset is even. The writer reads no byte of the
