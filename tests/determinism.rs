@@ -622,3 +622,30 @@ fn colour_determinism_red_proof() {
         "f32 plane hash blind to a one-bit change"
     );
 }
+
+/// `SPEC-091` AC12, verify: the fixture's illuminant weight lies strictly
+/// between its two calibrations, so the committed `f32` hash covers the
+/// interpolation itself and not a weight clamped to one end. With both
+/// calibrations set to the same matrices the weight cannot matter, so the
+/// fixture equals one of those two controls exactly when the weight is 0 or 1.
+#[test]
+fn colour_fixture_interpolates_between_its_illuminants() {
+    let d = colour_description(colour_samples());
+    let actual = colour_hashes(&d).f32_plane;
+    let mut all_first = d.clone();
+    all_first.meta.color_matrix_2 = d.meta.color_matrix_1.clone();
+    all_first.meta.forward_matrix_2 = d.meta.forward_matrix_1.clone();
+    let mut all_second = d.clone();
+    all_second.meta.color_matrix_1 = d.meta.color_matrix_2.clone();
+    all_second.meta.forward_matrix_1 = d.meta.forward_matrix_2.clone();
+    assert_ne!(
+        colour_hashes(&all_first).f32_plane,
+        actual,
+        "the weight is not pinned to CalibrationIlluminant1"
+    );
+    assert_ne!(
+        colour_hashes(&all_second).f32_plane,
+        actual,
+        "the weight is not pinned to CalibrationIlluminant2"
+    );
+}

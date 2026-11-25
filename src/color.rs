@@ -3410,4 +3410,40 @@ mod tests {
         );
         assert!(out[0] > 0.0, "the cancellation leaves a positive residue");
     }
+
+    /// `SPEC-091` verify, mutant (k) everywhere: the test above places the
+    /// cancellation in channel 0's first term only, so a `mul_add` in channel 1
+    /// or 2, or on another term, passes it. Here the inexact product `0.1·3`
+    /// sits at every term `j` of every channel `i`, with the cancelling `−0.3`
+    /// at each other term `k`, so whichever multiply is fused into an add that
+    /// already holds `−0.3`, one case sees `2^-55` instead of `2^-54`.
+    #[test]
+    fn the_f32_sink_fuses_no_term_of_any_channel() {
+        let separate = ((0.1f64 * 3.0 - 0.3) / 65535.0) as f32;
+        let fused = (0.1f64.mul_add(3.0, -0.3) / 65535.0) as f32;
+        assert_ne!(
+            separate.to_bits(),
+            fused.to_bits(),
+            "the fixture must tell a fused sum from a separate one"
+        );
+        for i in 0..3 {
+            for j in 0..3 {
+                for k in (0..3).filter(|&k| k != j) {
+                    let mut m = [[0.0f64; 3]; 3];
+                    m[i][j] = 0.1;
+                    m[i][k] = -0.3;
+                    let mut cam = [0u16; 3];
+                    cam[j] = 3;
+                    cam[k] = 1;
+                    let mut out = [f32::NAN; 3];
+                    store_f32_unclamped(&mut out, &m, cam);
+                    assert_eq!(
+                        out[i].to_bits(),
+                        separate.to_bits(),
+                        "channel {i}: 0.1 at term {j}, -0.3 at term {k}"
+                    );
+                }
+            }
+        }
+    }
 }
