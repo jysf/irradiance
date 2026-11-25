@@ -136,11 +136,12 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-061 (shipped on 2026-11-24, PR 329; 35.7M / $26.09, est. 35M) [M] Public `write` feature core: mono u16 uncompressed writer into a caller buffer, size query, options struct, framing and orientation as tags, levels/opcode pass-through, caller MaskedAreas, required `UniqueCameraModel` (`CallerError` if absent), `Error::kind()`, max_pixels, determinism, fuzz target, round-trip + dnglab/exiftool/dng_validate acceptance
 - [x] SPEC-081 (shipped on 2026-11-24, PR 332; 17.4M / $14.27, est. 25M) [M] EXIF block, XMP and IFD0 descriptive tags: opaque block at the fixed base offset with ExifIFD/GPSInfo pointers (DEC-072), XMLPacket, typed ASCII `Make`/`Model`/`LocalizedCameraModel`/`Artist`/`Copyright`/`DateTime`/`Software`/`CameraSerialNumber` (DEC-071 §3a), the rendering hints `BaselineExposure`/`BaselineNoise`/`BaselineSharpness`/`LinearResponseLimit` (DEC-074), exiftool parity on a hand-built block, red-proofs
 - [x] SPEC-082 (shipped on 2026-11-25, PR 336; 20.1M / $15.62, est. 15M) [S] Optional caller JPEG preview stored as a reduced-resolution subfile, read back by irradiance's preview accessors (DEC-057) and accepted by dng_validate
-- [ ] [XS] Refuse an empty opcode list (`Some(&[])` is written as a count-0 tag today, the shape DEC-081 §2 refuses for XMP); a patch, since it changes SPEC-061 behaviour
-- [ ] [XS] CI `fuzz smoke — dng_write (60s)` job, like every other fuzz target's (SPEC-061 verify F3)
-- [ ] [XS] The three intra-doc links to `crate::dng` from always-compiled private items break under `--document-private-items` without `write`; use plain text or `cfg_attr` (SPEC-061 verify F4)
+- [ ] SPEC-094 (design done, build HANDOFF-195) [S] STAGE-017 follow-ups, bundled: the three [XS] items below, one build and one verify (the SPEC-074 pattern)
+  - [XS] Refuse an empty opcode list (`Some(&[])` is written as a count-0 tag today, the shape DEC-081 §2 refuses for XMP); a patch, since it changes SPEC-061 behaviour
+  - [XS] CI `fuzz smoke — dng_write (60s)` job, like every other fuzz target's (SPEC-061 verify F3)
+  - [XS] The three intra-doc links to `crate::dng` from always-compiled private items break under `--document-private-items` without `write`; use plain text or `cfg_attr` (SPEC-061 verify F4)
 
-**Count:** 3 shipped / 0 active / 0 pending, plus 3 [XS]
+**Count:** 3 shipped / 1 active (SPEC-094, the three [XS] items bundled) / 0 pending
 
 ## Design Notes
 
@@ -165,6 +166,17 @@ SubIFD of the raw IFD0, so SPEC-061's and SPEC-081's IFD0 is unchanged and a fil
 preview stays byte-identical. The probe ruled out a next-IFD chain (`dng_validate` warns
 that DNG readers ignore it) and found the cameras' shape (preview IFD0, raw SubIFD) no
 better in any tool, including Quick Look.
+
+**2026-11-25, SPEC-094 designed.** STAGE-017's three [XS] items are bundled into one spec, as
+PROJ-004 did with SPEC-071 and SPEC-074. This gives one build and one independent verify
+instead of three patch cycles.
+- The empty-opcode-list refusal was marked "a patch" because it changes SPEC-061 behaviour.
+  `write` has not been published yet, though, so no user sees the change. A spec with a
+  verify is at least as strict as a patch.
+- The refusal is a new reason, `EmptyOpcodeList { list }`, checked at the start of the
+  opcode step under every framing. It adds no DEC: it applies DEC-081 §2's rule for XMP.
+- The private-items doc build also fails on 13 pre-existing `ljpeg` links. They are out of
+  scope; note them at the stage close.
 
 The requirement source is `monorail-000/DEC-075`. It is an external input: specs
 reference it in prose, never in `depends_on`.
