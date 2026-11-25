@@ -2198,6 +2198,14 @@ fn preview_sits_between_ifd0_values_and_the_raw_strip() {
                 // IFD0's out-of-line values all end before the preview IFD.
                 let ifd0_at = header_ifd0(&file);
                 let (ifd0, _) = raw_ifd(&file, ifd0_at);
+                // IFD0's tags ascend with SubIFDs (330) among the metadata
+                // tags, XMLPacket (700) above all, when the block case sets
+                // them (found by the SPEC-082 verify: the order check in
+                // preview_ifd_matches_the_spec_table runs without XMP).
+                assert!(
+                    ifd0.windows(2).all(|p| p[0].0 < p[1].0),
+                    "{name}: IFD0's tags ascend"
+                );
                 let unit = |t: u16| match t {
                     3 => 2,
                     4 => 4,

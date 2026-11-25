@@ -57,7 +57,7 @@ handback:
   pr: 336
   completed_at: 2026-11-25         # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit, from transcript 017f3954-2929-4417-8fd6-5d796f797cfa.jsonl (61 unique message.ids, all claude-opus-5-5, no subagents): input 124 + cache-creation 207,801 (1-hour) + cache-read 10,888,159 + output 54,201, priced at 5 and 25 USD per million as HANDOFF-191 did. Re-sum at ship. Oracle 2 MD5s pinned on 165a096 before any src edit (commit a1d00cb). exiftool byte-identical PreviewImage (gray fixture and synthetic YCbCr); dng_validate no warnings on K-3 III (own 6192x4128 preview, gray fixture) and Q2M (own 8368x5584 preview), renders equal the no-preview renders."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-25
 ---
 
 # HANDOFF-193: Build SPEC-082, the writer's optional caller JPEG preview
