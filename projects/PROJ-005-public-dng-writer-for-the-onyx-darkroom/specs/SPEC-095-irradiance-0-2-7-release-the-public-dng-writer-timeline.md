@@ -10,7 +10,7 @@ Cycle prompts live in `prompts/SPEC-095-<cycle>.md`.
 - [x] **frame** — 2026-11-25 (STAGE-032 framed after the STAGE-017 close, PR 342)
 - [x] **design** — completed 2026-11-25 (0.2.7 patch, semver clean on 153f517 with and without all features; docs.rs metadata; writer-only, PR 343 held)
 - [x] **build** — completed 2026-11-25, PR 345 (HANDOFF-197; 13.6M tokens floor, about 9.52 USD; semver clean both ways, Error 40 bytes before and after, packaged-crate writer check green with dng_validate on all three framings; prep-complete, not tagged or published)
-- [ ] **verify** — prompt: pending (cold verify, after the build)
+- [ ] **verify** — prompt: `prompts/SPEC-095-verify.md` (HANDOFF-199)
 - [ ] **ship** — prompt: pending (after the user's tag and publish)
 
 Markers: `[ ]` not started · `[~]` in progress · `[x]` complete
