@@ -121,6 +121,16 @@ these conditions, each of which becomes an AC:
 - **Memory.** Like SPEC-091's, the mixer needs a row-range form so a 60 MP colour file
   can be mixed in strips on iPad.
 
+From SPEC-091's ship (two follow-ups for this design to take up):
+
+- **`SPEC-091/FU-9`, a reusable band plan.** Each of SPEC-091's band calls clones the
+  `Sensor` (opcode-list bytes included) and re-resolves the levels, the GainMaps and
+  the matrix. A mixer tiled in many small strips pays that per strip.
+- **`SPEC-091/FU-10`, oracle blind spots.** A shared sink makes an "equals the old path"
+  oracle move with the mutant, and a reordered or fused (FMA) sum is absorbed by the
+  output's resolution. For every "no FMA" or "keep the order" rule in the mixer row,
+  pre-register an injected cancellation fixture per channel and per term.
+
 ## Goal
 
 Mix a colour Bayer DNG to a monochrome u16 plane at sensor geometry, whole or in row
