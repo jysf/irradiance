@@ -116,6 +116,24 @@ doc-check:
 doc-check-red-proof:
     ./scripts/doc-check-red-proof.sh
 
+# wasm-check — builds the LIBRARY for wasm32-unknown-unknown, default features
+# and `--features write` (SPEC-096). The "Anatomy of a RAW" demo
+# (jysf/irradiance-demo) runs the published crate compiled to WebAssembly, and
+# nothing else compiles for wasm32. A BUILD gate: std calls that compile on
+# wasm32 and fail at run time (Instant::now, std::fs) are outside it. ~/.cargo/bin
+# goes first on PATH because Homebrew's rust has no wasm32 std; the script names
+# that cause if it is hit. CI runs it as the `wasm32` job on @stable.
+# Browser-target gate — the library builds for wasm32-unknown-unknown, both surfaces.
+wasm-check:
+    PATH="$HOME/.cargo/bin:$PATH" ./scripts/wasm-check.sh
+
+# SPEC-096's red-proof for `just wasm-check` (oracle-must-be-shown-red covers
+# gates; DEC-009). Temp copy: the gate passes the UNMUTATED copy, then fails on a
+# unix-only std API (E0433) and on a 64-bit usize constant behind `write` (E0080),
+# each of which still builds natively. Working tree untouched.
+wasm-check-red-proof:
+    PATH="$HOME/.cargo/bin:$PATH" ./scripts/wasm-check-red-proof.sh
+
 # Type check — Rust has no separate typecheck; `check` is the fast path
 typecheck:
     cargo check --all-targets --all-features
