@@ -28,8 +28,8 @@ affected_scope:
   - src/color.rs
   - src/demosaic.rs
   - src/develop.rs
-  - projects/PROJ-006-spectral-monochrome-mixer/specs/SPEC-091-the-white-balanced-linear-rgb-step-at-sensor-geometry-with-t.md
-  - projects/PROJ-006-spectral-monochrome-mixer/specs/SPEC-092-the-mixer-at-sensor-geometry-weights-only-rational-api-raw-c.md
+  - projects/PROJ-006-spectral-monochrome-mixer/specs/done/SPEC-091-the-white-balanced-linear-rgb-step-at-sensor-geometry-with-t.md
+  - projects/PROJ-006-spectral-monochrome-mixer/specs/done/SPEC-092-the-mixer-at-sensor-geometry-weights-only-rational-api-raw-c.md
   - projects/PROJ-006-spectral-monochrome-mixer/specs/SPEC-093-the-developed-mix-a-mix-option-on-develop-with-into-output-d.md
 
 tags:

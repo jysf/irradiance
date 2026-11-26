@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: M             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -82,25 +82,26 @@ cost:
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 27463707
-      estimated_usd: 19.45
+      tokens_total: 30039095
+      estimated_usd: 20.93
       duration_minutes: 38
       recorded_at: 2026-11-26
-      notes: "FLOOR taken before the handback commit, from transcript 0a0649c3-731f-4348-ac40-9bf00f022115.jsonl (106 unique message.ids, all claude-opus-5-5, no subagents): input 214 + cache-creation 319,410 (1-hour) + cache-read 27,034,526 + output 109,557, priced at 5 and 25 USD per million. Re-sum at ship. CI run 45855649150 on b822fa2 green on both determinism legs."
+      notes: "Re-summed at ship (2026-11-26) over the whole transcript 0a0649c3-731f-4348-ac40-9bf00f022115.jsonl (113 unique message.ids, all claude-opus-5-5, no subagents): input 230 + cache-creation 326,333 (1-hour) + cache-read 29,597,769 + output 114,763, priced at 5 and 25 USD per million, cache reads 0.1x, 1-hour writes 2x. The handback's floor was 27,463,707 / 19.45 USD, taken before the handback commit. CI run 45855649150 on b822fa2 green on both determinism legs."
     - cycle: verify
       handoff: HANDOFF-203
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 12293376
-      estimated_usd: 8.75
+      tokens_total: 15115503
+      estimated_usd: 10.58
       duration_minutes: 80
       recorded_at: 2026-11-26
-      notes: "FLOOR taken before the handback commit, from transcript 29c227de-0fb7-46f6-8420-8dd83ce30639.jsonl (69 unique message.ids, all claude-opus-5-5, no subagents): input 145 + cache-creation 171,754 (1-hour) + cache-read 12,081,934 + output 39,543, priced at 5 and 25 USD per million."
+      notes: "Re-summed at ship (2026-11-26) over the whole transcript 29c227de-0fb7-46f6-8420-8dd83ce30639.jsonl (81 unique message.ids, all claude-opus-5-5, no subagents): input 173 + cache-creation 184,949 (1-hour) + cache-read 14,878,679 + output 51,702, priced as the build. The handback's floor was 12,293,376 / 8.75 USD, taken before the handback commit."
   totals:
-    tokens_total: 39757083
-    estimated_usd: 28.20
+    tokens_total: 45154598
+    estimated_usd: 31.51
     session_count: 3
+shipped_at: 2026-11-26
 ---
 
 # SPEC-092: The mixer at sensor geometry: weights-only rational API, the fixed-point row, the fade of negative weights near clip, the plane's black and white levels
@@ -369,7 +370,7 @@ white levels as committed constants.
 Pre-registered. Every check is exact except AC4's bound, derived from the final casts
 (the SPEC-091 lesson: a tolerance below the output's own cast error fails real pixels).
 
-- [ ] **AC1, the kernel matches an independent oracle (Tier A, unit and integration).**
+- [x] **AC1, the kernel matches an independent oracle (Tier A, unit and integration).**
   An `i128` oracle written in the test, using division and `div_euclid` rather than a
   shift (so it shares no code with the kernel), computes
   `clamp(floor((P·8192 + N·u + 2^36) / 2^37), 0, 65535)`. On the Tier-A fixture
@@ -377,13 +378,13 @@ Pre-registered. Every check is exact except AC4's bound, derived from the final 
   `mono_mix_plane_into` equals that oracle applied to `demosaic_into`'s triple and
   `mono_mix_row`'s row, at every pixel, for the luminance weights and for one weight
   set whose row has a negative entry.
-- [ ] **AC2, every pixel written; strips tile the plane (Tier A and Tier B).** On
+- [x] **AC2, every pixel written; strips tile the plane (Tier A and Tier B).** On
   SPEC-091's odd-ActiveArea fixture: a sentinel-filled `dst` has no sentinel left,
   masked border included; two calls agree; and every partition from SPEC-091 AC11's set
   (one strip, 1-row strips, 7-row strips, a split at an odd row inside the masked border)
   equals the whole plane exactly. On the Pixel 7 Pro and the Canon, 256-row strips with
   an odd remainder equal the whole plane.
-- [ ] **AC3, bit-identical to no fade when no weight is negative (Tier A).** (i) Unit:
+- [x] **AC3, bit-identical to no fade when no weight is negative (Tier A).** (i) Unit:
   for a row with no negative entry, the kernel equals the plain fold
   `clamp((P + 2^23) >> 24, 0, 65535)` on every `x` whose channels each take the values
   0, 1, 57342, 57343, 57344, 61439, 65534, 65535 and 64 xorshift values (so `m` lies
@@ -393,7 +394,7 @@ Pre-registered. Every check is exact except AC4's bound, derived from the final 
   pixel, and at least one pixel has `m ≥ 57344` (asserted from those triples). Tier B adds
   no separate check: the three Pixel files' luminance rows have no negative entry
   (AC5), and AC4 holds on every one of their pixels.
-- [ ] **AC4, the luminance identity (Tier B, all five files; `DEC-079` Validation).** With
+- [x] **AC4, the luminance identity (Tier B, all five files; `DEC-079` Validation).** With
   `w = [2126, 7152, 722]/10000`, `f_j` SPEC-091's unclamped `f32` plane and `F` the mono
   plane: `|F − clamp(65535·Σ_j w_j·f_j, 0, 65535)| ≤ 0.5 + 3·65535/2^25 +
   65535·max_j|f_j|·2^-24 + 1e-6` (the final rounding, the row's quantisation, and the
@@ -409,7 +410,7 @@ Pre-registered. Every check is exact except AC4's bound, derived from the final 
   And on the Canon and the Pixel 4a, the count of pixels where `F` differs by more than
   one code from `round(Σ_j w_j·u_j)` of SPEC-091's clamped `u16` plane is above zero (the
   `DEC-079` probe found 2.70% and 5.06%).
-- [ ] **AC5, golden rows (Tier B).** `mono_mix_row` returns exactly these rows
+- [x] **AC5, golden rows (Tier B).** `mono_mix_row` returns exactly these rows
   (probe-measured 2026-11-25; a mismatch is reported, not edited):
 
   | File | luminance `[2126,7152,722]/10000` | red `[4/5, 1/5, 0]` | ortho `[0, 1/2, 1/2]` |
@@ -422,7 +423,7 @@ Pre-registered. Every check is exact except AC4's bound, derived from the final 
 
   Plus an FNV-1a digest of each file's mono plane under each of the three weight sets
   (15 committed constants; local only, the corpus is not in CI).
-- [ ] **AC6, monotone through clipping (Tier A unit).** For each of the rows
+- [x] **AC6, monotone through clipping (Tier A unit).** For each of the rows
   `[6222052, 14856368, -4008594]` (Canon luminance), `[-3895542, 7681333, 24802109]`
   (Canon ortho), `[-8076979, 27606901, -12847745]` (Canon one-hot green),
   `[9666745, 12584293, -2609097]` (Nikon luminance) and `[-528141, 17561180, -943847]`
@@ -431,13 +432,13 @@ Pre-registered. Every check is exact except AC4's bound, derived from the final 
   channel is at 65535, the kernel never decreases from one `k` to the next. Control: the
   plain fold on the Canon luminance row decreases on at least one ray (the probe counted
   7,199 rays), so the grid can fail.
-- [ ] **AC7, monotone on a ramped fixture end to end (Tier A).** A synthetic Bayer DNG
+- [x] **AC7, monotone on a ramped fixture end to end (Tier A).** A synthetic Bayer DNG
   of flat colour patches (each at least 8×8 photosites, identity levels) whose exposure
   rises patch by patch past clipping, with calibration chosen so the luminance row has a
   negative entry (asserted): the mono value at each patch centre never decreases along
   the ramp, and at least one patch centre has a clipped channel and differs from the
   plain fold.
-- [ ] **AC8, the threshold and where the fade reads (Tier A unit).** With
+- [x] **AC8, the threshold and where the fade reads (Tier A unit).** With
   `q = [0, 2^30, −2^30]` (plain fold 0 whenever `x_G = x_B`): `x = [0, 57343, 57343]`
   gives 0 (`u = 8192`, no fade); `x = [0, 57344, 57344]` gives 448 (`u = 8191`, one step);
   `x = [0, 65535, 65535]` gives 65535 (`u = 0`, positive terms only, clamped). `m` is the
@@ -446,11 +447,11 @@ Pre-registered. Every check is exact except AC4's bound, derived from the final 
   and 500 (positive terms only), where the plain fold gives 16384, 16384 and 0. A green-only
   `m` gets the first and third wrong; a mean `m` (22512, below the threshold) gets all
   three wrong.
-- [ ] **AC9, fuzzed and panic-free.** `fuzz/fuzz_targets/demosaic.rs` calls the three new
+- [x] **AC9, fuzzed and panic-free.** `fuzz/fuzz_targets/demosaic.rs` calls the three new
   functions with fuzzer-chosen weights (valid and not), row range and a `dst` one short
   or one long on half the inputs; a short `cargo +nightly fuzz run demosaic` (the
   toolchain brief's smoke length) finds nothing; `just lint-ci` passes.
-- [ ] **AC10, refusals and order (Tier A).** `InvalidMixWeights { channel: Some(1) }` for
+- [x] **AC10, refusals and order (Tier A).** `InvalidMixWeights { channel: Some(1) }` for
   a zero denominator in the second weight, `Some(0)` for a negative numerator,
   `Some(2)` for a negative denominator; `{ channel: None }` for `[1/3, 1/3, 1/4]`; and
   `[2/10, 7/10, 1/10]` (exactly one, `0.9999999999999999` in `f64`) is accepted. An
@@ -463,25 +464,25 @@ Pre-registered. Every check is exact except AC4's bound, derived from the final 
   `AsShotNeutral` of `[1/100000, 1, 1]` is `MixRowOutOfRange { channel: 0 }` from all
   three functions. In every plane refusal `dst` is exactly its sentinel fill.
   The two plane entries join the four `Entry` tables and every row there passes.
-- [ ] **AC11, the row build's fixtures (`FU-10`, unit).** The 18 fixtures of Design §8
+- [x] **AC11, the row build's fixtures (`FU-10`, unit).** The 18 fixtures of Design §8
   pass, and each one's mutant value differs from its expected value.
-- [ ] **AC12, determinism measured on both architectures.** `tests/determinism.rs`
+- [x] **AC12, determinism measured on both architectures.** `tests/determinism.rs`
   asserts committed FNV-1a hashes of the two rows (12 little-endian bytes each) and of
   the two mono planes on the SPEC-091 colour fixture; asserts the fade changes at least
   one pixel there; the CI `determinism` job passes on both legs, debug and release; and
   the extended red-proof shows a one-bit sample change moves both plane hashes and a
   one-unit change of one `AsShotNeutral` numerator moves both row hashes.
-- [ ] **AC13, nothing else moves.** The full suite passes with `IRRADIANCE_CORPUS_DIR` set;
+- [x] **AC13, nothing else moves.** The full suite passes with `IRRADIANCE_CORPUS_DIR` set;
   `tests/error_kind.rs` gains exactly three rows; every existing determinism constant is
   unchanged; `DEVELOP_VERSION == "8"`; `MONO_MIX_VERSION == "1"`, asserted beside the
   golden rows (AC5) and the hashes (AC12); `just semver-check` reports only the additions.
-- [ ] **AC14, no overflow at the extremes (unit).** The kernel equals the `i128` oracle
+- [x] **AC14, no overflow at the extremes (unit).** The kernel equals the `i128` oracle
   for every `q` in `{[i32::MAX; 3], [i32::MIN; 3], [i32::MAX, i32::MIN, i32::MAX]}` and every
   `x` in `{[65535; 3], [65535, 0, 65535], [57344, 57344, 57344]}`. The private quantiser,
   given `t = v·2^24` directly, accepts `t = 2147483646.5` (giving `i32::MAX`) and
   `t = −2147483648.5` (giving `i32::MIN`), and refuses `t = 2147483647.5`,
   `t = −2147483649.0`, `NaN` and `±inf`.
-- [ ] **AC15, the oracle can go red.** Each pre-registered mutant below, applied by hand
+- [x] **AC15, the oracle can go red.** Each pre-registered mutant below, applied by hand
   in build, fails at least one named test; the handback lists which. Mutants marked
   equivalent are argued, not run.
 
@@ -594,16 +595,59 @@ right and wrong answers differ, and why the oracle is not computed by the mutate
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Mutate every public contract constant and the order of every refusal the design
+   ranks, at design, before naming the oracles. Those were the verify's three survivors
+   (V5/V5b, V6 to V8); the 34 kernel and row mutants the design pre-registered were all
+   caught. Also compute each pre-registered mutant's value at every point of the fixture
+   meant to catch it: that finds AC8's blind spot for (i) (`m = 57343` gives `u = 8192`
+   either way) and Design §8's order example, which separated only one of the two wrong
+   pairings, before the build.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer>
+   — No DEC: DEC-083 holds as accepted, and DEC-051's later-additions paragraph gained one
+   sentence for the three variants. No template change now. The gaps are evidence for
+   codified lessons, recorded in `guidance/signals.yaml`:
+   `every-rule-clause-maps-to-a-reachable-test` (three public constants and the "last"
+   refusal had no row in the rule-clause map) and
+   `a-designed-mutant-must-be-able-to-fail-on-its-fixture` (AC8 and the §8 order example,
+   its second recurrence since codification). The `demosaic` fuzz gap adds evidence to
+   `fuzz-targets-without-a-ci-smoke-job`. Whether the template wording tightens is the
+   STAGE-031 close's call.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. SPEC-093 (already framed) takes the two design lessons in its Context:
+   a test tying every public contract constant to its computation, and an order oracle
+   for every ranked refusal. The `demosaic` fuzz CI job is the hygiene patch PROJ-005's
+   close already scheduled.
 
 4. **Where was the worst defect caught?**
-   — <one word>
+   — verify
 
 5. **What can a user do now that they couldn't before?**
-   — <answer | none>
+   — Before, onyx had no way to turn a colour Bayer DNG into a monochrome plane for its
+   viewport except mixing SPEC-091's linear RGB plane itself, which clips highlights
+   non-monotonically wherever the folded row has a negative weight (7,199 of 90,000 rays
+   on the Canon luminance row). Now `mono_mix_plane_into` and `mono_mix_plane_rows_into`
+   give a mono u16 plane at sensor geometry, whole or in row strips, from rational
+   weights alone, monotone through clipping on every held row (0 decreasing rays), with
+   the fixed-point row exposed by `mono_mix_row`, 15 golden rows pinned and its hashes
+   measured equal on aarch64 and x86_64, versioned as `MONO_MIX_VERSION = "1"`.
+
+## Follow-ups
+
+Raised in HANDOFF-202 (build, `B`) and HANDOFF-203 (verify, `V`); neither handback
+numbered them, so they are numbered here. The two SPEC-091 follow-ups this design took
+up are closed here too.
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | B: AC8's triples could not see mutant (i) (`u` uncapped): its only below-threshold triple has `m = 57343`, where `65535 − m = 8192` | `fixed` — build, commit `b822fa2`: `ac8_…` also asserts `x = [0, 1000, 500]` gives 32000; (i) re-run red at verify |
+| `FU-2` | B: Design §8's order example `[1, 2^-52, 2^-53]` distinguishes only the `(t0 + t2) + t1` pairing | `fixed` — build, `ac11_the_row_keeps_its_summation_order` adds `[2^-53, 2^-53, 1]` with its own `assert_ne!`; (m) on channel 2 red at verify |
+| `FU-3` | B: tests written in the same session as the code, code first (departs from `test-before-implementation`) | `closed` — accepted at verify: the tests fail to compile against `origin/main`'s `src/` and every pre-registered mutant is red, so the red evidence is real; no code defect followed from it |
+| `FU-4` | B+V: `ac6_the_fade_is_monotone_on_the_saturating_ray_grid` takes about 135 s unoptimised, in CI's debug `rust / test` job | `closed` — the grid is the spec's oracle as designed, and `rust / test` passed in 7.7 min on run 45857000180; it runs in under 1 s in `just test`'s `corpus` profile, so local runs do not pay it. The faster form (start each ray at the last `k` below the threshold, where a separate test pins the plain fold) is recorded in HANDOFF-202 for whoever next works on CI time |
+| `FU-5` | V: `MONO_MIX_FADE_START`, `MONO_MIX_ROW_FRACTION_BITS` and `MONO_MIX_FADE_WIDTH_BITS` were documentation only; changing any of them passed every test (V6 to V8) | `fixed` — verify, commit `993cda4`: `color::tests::the_public_mixer_constants_are_the_kernels`. The design lesson goes to `spec: SPEC-093` (its Context) |
+| `FU-6` | V: Design §6's "`MixRowOutOfRange` last" had no oracle; building the row before the file checks passed, in the plane and the band form (V5, V5b) | `fixed` — verify, commit `993cda4`: `mono_mix::the_row_range_refusal_comes_after_every_file_check`. The design lesson goes to `spec: SPEC-093` (its Context) |
+| `FU-7` | V: a kernel rounding half down (V10) was caught only by AC5's local corpus digests, which CI never runs | `fixed` — verify, commit `993cda4`: `color::tests::the_kernel_rounds_an_exact_tie_up` |
+| `FU-8` | B+V: the `demosaic` fuzz target, which now also reaches the three mixer entries, has no CI smoke job and no `just` recipe | `signal: fuzz-targets-without-a-ci-smoke-job` — N=2 to N=3; already accepted and scheduled as one hygiene patch at the PROJ-005 close |
+| `SPEC-091/FU-9` | a reusable band plan (each band call clones the `Sensor`) | `closed` — measured at design, Design §7: not worth a plan for this spec; the build and verify found nothing new (one `Sensor` clone per band call, the mixer adds no allocation) |
+| `SPEC-091/FU-10` | per-channel, per-term cancellation fixtures for the "no FMA" and "keep the order" rules | `fixed` — AC11's 18 fixtures (`ac11_the_row_fuses_no_term_of_any_channel`, `ac11_the_row_keeps_its_summation_order`); (l) red on all nine sites and (m) on all six reorders |

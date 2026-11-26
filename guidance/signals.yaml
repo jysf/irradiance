@@ -1810,7 +1810,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-19
-    last_touched: 2026-11-19
+    last_touched: 2026-11-26
     raised_by: claude
     notes: |
       ══ STAGE-016 CLOSE, 2026-11-19: CODIFIED. ══ Bar reached at N=3 (SPEC-059's V24).
@@ -1821,6 +1821,16 @@ signals:
       Sibling discipline for builders and verifiers: read each mutant's panic message,
       because both STAGE-023 builds hit a mutant that went red for the wrong reason or
       never reached its path. Codify as a spec-template checklist line at N=3.
+      ══ SPEC-092 SHIP, 2026-11-26: recurred after codification, two new shapes. ══ The
+      design's rule-clause map had no row for three public contract constants
+      (MONO_MIX_FADE_START, MONO_MIX_ROW_FRACTION_BITS, MONO_MIX_FADE_WIDTH_BITS): the kernel
+      reads private copies, so changing a public one passed every test (verify V6 to V8).
+      And Design §6's "MixRowOutOfRange last" was mapped to no fixture that combined it with
+      an earlier fault, so moving the row build first passed (V5, V5b). Both closed by
+      test-only additions in 993cda4. Falsifier for the template: a constant named as part
+      of a contract, and an order word (first, last, before), each need their own row.
+      SPEC-093's Context carries both as design inputs. Tightening the template is the
+      STAGE-031 close's call.
   - id: a-changed-formula-lists-every-assertion-it-moves
     type: lesson
     summary: "When a spec changes or removes a behaviour, the design greps every test that encodes it (pins, refusal tests and hand-written oracles), and lists them all in the spec as pre-approved moves. A short list stops the build for approval mid-cycle."
@@ -1848,7 +1858,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-20
-    last_touched: 2026-11-25
+    last_touched: 2026-11-26
     raised_by: claude
     notes: |
       ══ STAGE-027 CLOSE, 2026-11-22: CODIFIED. ══ Bar reached (N=5). projects/_templates/spec.md's
@@ -1873,6 +1883,15 @@ signals:
       then put its cancellation at one site of nine, and the verify widened it to 18 cases.
       Falsifier at design: compare the mutant's effect with the output's quantum, and
       enumerate every site a "no X" rule covers.
+      ══ SPEC-092 SHIP, 2026-11-26: the second recurrence since codification. ══ Two
+      fixtures could not see their mutant: AC8's only below-threshold triple had m = 57343,
+      where an uncapped u equals the capped 8192, so mutant (i) passed AC8; and Design §8's
+      order example [1, 2^-52, 2^-53] separated only one of the two wrong pairings. The
+      build found both (HANDOFF-202) and added [0, 1000, 500] and [2^-53, 2^-53, 1]. The
+      Distinguishing fixture paragraph was applied per mutant but not per point: computing
+      each mutant's value at every point the fixture lists would have shown both. This is
+      the second recurrence the 2026-11-23 note asked to watch for; the wording question
+      goes to the STAGE-031 close.
   - id: validate-does-not-parse-feedback-or-docs
     type: process-debt
     summary: "`just validate` parses front matter only under projects/ and decisions/, so feedback/ and docs/ front matter is never checked, and an AC that says 'validate parses it' is unenforced."
@@ -1950,12 +1969,12 @@ signals:
   - id: fuzz-targets-without-a-ci-smoke-job
     type: process-debt
     summary: "Two of the eight fuzz targets, develop and demosaic, have no 60 s fuzz smoke job in CI, and demosaic has no just recipe either, so they run only when someone fuzzes them by hand."
-    evidence: "N=1, SPEC-094 (PR 339): its Context said every other fuzz target had a CI smoke job; the verify (HANDOFF-196) found develop and demosaic have none. Predates PROJ-005. N=2, SPEC-091 (HANDOFF-198): four new public entries joined the demosaic target, still with no CI job."
+    evidence: "N=1, SPEC-094 (PR 339): its Context said every other fuzz target had a CI smoke job; the verify (HANDOFF-196) found develop and demosaic have none. Predates PROJ-005. N=2, SPEC-091 (HANDOFF-198): four new public entries joined the demosaic target, still with no CI job. N=3, SPEC-092 (HANDOFF-202, HANDOFF-203): the three mixer entries joined it, still with no CI job."
     bar: null
     status: accepted
     disposition_at: project-close
     first_flagged: 2026-11-25
-    last_touched: 2026-11-25
+    last_touched: 2026-11-26
     raised_by: claude
     notes: |
       Recorded at the STAGE-017 close. Small: two CI jobs shaped like the dng_write one,
@@ -1964,6 +1983,9 @@ signals:
       ══ SPEC-091 SHIP, 2026-11-25: N=1 -> N=2. ══ SPEC-091 added four public entries to the
       demosaic target (HANDOFF-198 follow-up); they are fuzzed only by hand until the
       scheduled hygiene patch lands.
+      ══ SPEC-092 SHIP, 2026-11-26: N=2 -> N=3. ══ The three mixer entries joined the
+      demosaic target (the verify ran 5.4M inputs in 61 s by hand, no crash); they too are
+      fuzzed only by hand. Still scheduled as the hygiene patch.
   - id: ljpeg-private-doc-links-break-the-private-items-doc-build
     type: process-debt
     summary: "cargo doc --no-deps --document-private-items with warnings denied fails on 13 intra-doc links in the private ljpeg module, with or without features. just doc-check does not build private items, so nothing gates it."
