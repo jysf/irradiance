@@ -27,7 +27,7 @@ deciders: [claude, jysf]
 affected_scope:
   - src/color.rs
   - src/lib.rs
-  - projects/PROJ-006-spectral-monochrome-mixer/specs/SPEC-092-the-mixer-at-sensor-geometry-weights-only-rational-api-raw-c.md
+  - projects/PROJ-006-spectral-monochrome-mixer/specs/done/SPEC-092-the-mixer-at-sensor-geometry-weights-only-rational-api-raw-c.md
 
 tags:
   - mixer

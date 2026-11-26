@@ -131,10 +131,10 @@ it) and rewrites the line in place. An optional `[S]`/`[M]`/`[L]` tag on the
 line is carried onto the spec as `task.complexity`.
 
 - [x] SPEC-091 (shipped on 2026-11-25, PR 343; 58.6M / $38.30, est. 35M) [M] The white-balanced linear RGB step at sensor geometry, with the working-space DEC and the arithmetic decision for the new path
-- [ ] SPEC-092 (build) — [L] The mixer at sensor geometry: weights-only rational API, the fixed-point row, the fade of negative weights near clip (DEC-083), the plane's black and white levels
+- [x] SPEC-092 (shipped on 2026-11-26, PR 354; 45.2M / $31.51, est. 65M) [L] The mixer at sensor geometry: weights-only rational API, the fixed-point row, the fade of negative weights near clip (DEC-083), the plane's black and white levels
 - [ ] SPEC-093 (frame) — [M] The developed mix: a mix option on develop_with_into, output_dimensions_with and scratch_len, through the existing geometry and resampling
 
-**Count:** 1 shipped / 2 active / 0 pending
+**Count:** 2 shipped / 1 active / 0 pending
 
 ## Design Notes
 

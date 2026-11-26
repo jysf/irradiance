@@ -91,6 +91,23 @@ mono develop uses and onyx's GPU-to-develop warp parity check (its DEC-062)
 carries over unchanged. `DevelopOptions` is `#[non_exhaustive]`, so a new field is
 additive.
 
+From SPEC-092's ship (two oracle gaps its verify found, for this design to take up):
+
+- **`SPEC-092/FU-5`, a contract constant with no test is documentation only.**
+  `MONO_MIX_FADE_START`, `MONO_MIX_ROW_FRACTION_BITS` and `MONO_MIX_FADE_WIDTH_BITS`
+  described a kernel that reads private constants, and changing any of the public ones
+  passed every test until the verify added `the_public_mixer_constants_are_the_kernels`.
+  Pre-register one test that ties every public constant this spec adds or relies on
+  (for example a mix field's default, a version constant, a scratch size) to the
+  computation it describes, so changing either side alone goes red.
+- **`SPEC-092/FU-6`, a refusal the spec calls "last" needs its own order oracle.**
+  SPEC-092's Design §6 put `MixRowOutOfRange` last, but no AC fixture combined it with an
+  earlier fault, so building the row before the file checks passed (V5 and V5b). For
+  every refusal this design orders (first, last, or between two others), pre-register a
+  fixture that carries it together with each fault it must come after or before, on
+  every entry point (`develop_with_into`, `output_dimensions_with`, `scratch_len`), and
+  assert `dst` is untouched.
+
 ## Goal
 
 Add an opt-in mix option to `DevelopOptions` so `develop_with_into`,
