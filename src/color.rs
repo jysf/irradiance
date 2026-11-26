@@ -4043,6 +4043,14 @@ mod tests {
             0,
             "u = 8192, no fade"
         );
+        // Well below the threshold, u stays capped at 8192: the plain fold
+        // 2^30·(1000 − 500)/2^24 = 32000. An uncapped u (65535 − m) would
+        // weigh the negative term 7.9 times and clamp to 0.
+        assert_eq!(
+            mono_mix_pixel(&q, [0, 1000, 500]),
+            32000,
+            "m far below, u = 8192"
+        );
         assert_eq!(
             mono_mix_pixel(&q, [0, 57344, 57344]),
             448,
