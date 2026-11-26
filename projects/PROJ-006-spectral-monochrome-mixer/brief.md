@@ -130,6 +130,17 @@ existing output.
   SPEC-092 pins the plane with golden digests. The fixed-point row, `τ` and the weights
   rule are `DEC-083`.
 
+### Decided at SPEC-093 design (2026-11-26, `DEC-084` proposed)
+- **The developed mix** is `DevelopOptions::mono_mix: Option<[Rational; 3]>`: the mono
+  develop's warp, framing and orientation applied to SPEC-092's mixed plane, so onyx's
+  export equals its viewport by construction. Mixed in 512-row strips into caller
+  scratch; no version bump.
+- **Open, for onyx and jysf:** the held Q2 Monochrom's `FixBadPixelsConstant` and
+  `WarpRectilinear` are both mandatory. If colour Leica DNGs carry the same lists, every
+  colour entry refuses them today, the developed mix included (it cannot apply
+  `FixBadPixelsConstant` on a Bayer plane). To be measured on the first colour Leica
+  file; SPEC-093 lists it as Open question 1.
+
 ## Stage Plan
 
 Format: `- [status] STAGE-ID — one-line summary`
@@ -186,6 +197,17 @@ irradiance's mixer output, not its own f32 candidate mixes; if a candidate outsi
 mixer wins, onyx would ask for the pre-white-balance camera plane or a per-pixel fade
 factor then. Its clip overlay stays before `GainMap`s on purpose, and onyx documents the
 disagreement with the fade on files that carry a `GainMap`.
+
+## onyx's reply to SPEC-093 (2026-11-26)
+
+onyx accepted SPEC-093's design (mixing before geometry, strip scratch), and `DEC-084` is
+accepted. `black_levels` is ignored under the mix and documented, with no new error.
+Optional warps are applied, and `mono_mix` composes with `warp_alpha` and `Framing`. On the
+opcode blocker, onyx set two rules, now in STAGE-034's Design Notes: the sensor-geometry
+planes leave a mandatory `WarpRectilinear` to the viewport, and `FixBadPixelsConstant` runs
+before demosaic on every entry. Colour Q2, Q3, SL3, M10 and M11 DNGs are held as of
+2026-11-26. The Q3, M11 and SL3 come from Photography Blog's review galleries with no
+stated licence, so they stay in the local corpus only.
 
 ## Dependencies
 
