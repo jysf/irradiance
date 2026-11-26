@@ -603,32 +603,37 @@ allocation-only refactor (pinned by the existing hashes).
 - Changing `develop_into` or `develop_with_into` output without the option, including
   CFA-as-mono (SPEC-066, DEC-061).
 - A colour (RGB) developed output through `develop_with_into`.
-- A CFA-aware `FixBadPixelsConstant` (see Open questions).
+- A CFA-aware `FixBadPixelsConstant` (STAGE-034, under onyx's rules; see onyx's reply below).
 - Threaded variants, a public strip size, an `irr` hook, any new `Error` variant.
 - Any change to SPEC-092's sensor-geometry entries (their refusal of a mandatory warp
   included).
 
-## Open questions (for onyx and jysf; none blocks the build)
+## onyx's reply (2026-11-26) — the open questions, settled
 
-1. **Mandatory opcodes on colour Leica files.** The held Q2 Monochrom's
-   `FixBadPixelsConstant` (`OpcodeList1`) and `WarpRectilinear` (`OpcodeList3`) both
-   have flags 0 (mandatory), read 2026-11-26 with `exiftool -v3`. No colour Leica file
-   is held. If a Q3 or M11 colour DNG carries the same lists, every colour entry
-   refuses it: `develop_color_into`, `mono_mix_plane_into` (both lists) and this
-   developed mix (list 1). Applying `FixBadPixelsConstant` on a Bayer plane needs a
-   same-colour kernel, a new algorithm, and the sensor-geometry entries would need a
-   rule for a mandatory warp the caller applies (onyx's GPU). Proposed: measure on the
-   first colour Leica file onyx supplies, then a spec in the presets stage. onyx: does
-   your viewport plan assume the sensor-geometry plane accepts a Leica file with a
-   mandatory warp?
-2. **The recipe.** onyx's recipe records `DEVELOP_VERSION`, `MONO_MIX_VERSION` and the
-   resolved weights; the developed mix is also fixed by the export's options (framing,
-   `apply_orientation`, `warp_alpha`). Confirm onyx records them for a colour export as
-   it does for a mono one, and that `black_levels` being ignored under the mix suits it.
-3. **Optional `WarpRectilinear`.** The mix applies an optional warp (the mono rule) where
-   `develop_color_into` skips it. On the Pixel 3a and 7 Pro the colour and mono exports
-   of one file therefore differ geometrically. onyx's viewport warps the mono plane, so
-   this is the parity it asked for; confirm it does not also compare a colour export.
+onyx accepted the shape: mixing before geometry makes export equal the viewport by
+construction, and about 10 MB of strip scratch suits iPad.
+
+1. **Mandatory opcodes on colour Leica files: real, and moved to STAGE-034.** The same day,
+   colour Q2, Q3, SL3, M10 and M11 files were probed. The Q2, Q3 and SL3 carry mandatory
+   `FixBadPixelsConstant` (list 1) and `WarpRectilinear` (list 3) and are refused by every
+   colour entry. The M10 and M11 are refused earlier, at unpack (SPEC-097). onyx's rules for
+   the fix are recorded in STAGE-034's Design Notes. The sensor-geometry planes must not
+   refuse a mandatory warp, because the viewport applies it. `FixBadPixelsConstant` runs on
+   the CFA before demosaic, in the sensor-geometry planes and in this developed mix alike.
+   **This spec does not change:** it ships with list 1 refused as designed, and the
+   STAGE-034 spec later lifts that refusal on every entry together, so export stays equal
+   to the viewport.
+2. **The recipe and `black_levels`:** accepted. The colour path's levels suit onyx, and
+   `mono-core` never sets `black_levels` together with `mono_mix`. Document that it is
+   ignored (§1 and AC5 already do), and add no error variant. onyx's recipe records the
+   export options next to the resolved weights, `DEVELOP_VERSION` and `MONO_MIX_VERSION`.
+3. **Optional `WarpRectilinear`:** apply it. The mono and mixed exports must share
+   geometry. onyx asked for confirmation that `mono_mix` composes with the rest of
+   `DevelopOptions`, `warp_alpha` and `Framing` in particular. It does by design (§1:
+   "exactly as for the mono develop"). AC4's reference outcomes and the tier-A equality
+   cover `warp_alpha` 0, ½ and 1 and both framings, which matches onyx's export default
+   (alpha 1 in the Standard crop, its DEC-064) and its parity check at alpha 1, ½ and 0
+   (its DEC-073).
 
 ## Notes for the Implementer
 

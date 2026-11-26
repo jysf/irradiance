@@ -21,8 +21,8 @@ repo:
 created_at: 2026-11-26
 supersedes: null
 superseded_by: null
-status: proposed                   # accepted when onyx and jysf have read SPEC-093's design
-deciders: [claude]
+status: accepted                   # onyx's reply 2026-11-26, accepted by jysf
+deciders: [claude, jysf]
 
 affected_scope:
   - src/develop.rs
@@ -191,6 +191,15 @@ developed mix included, refuses it (item 3).
   does, that needs a CFA-aware applier before STAGE-032's presets can be judged on them.
 - **Neutral:** strips redo up to seven halo rows each, 1–6% of the mix time on the
   held files.
+
+## onyx's reply (2026-11-26)
+
+onyx accepted the decision: mixing before geometry makes export equal the viewport by
+construction, and the strip scratch suits iPad. `black_levels` is ignored under the mix,
+documented, with no new error variant. Optional warps are applied, so the mono and mixed
+exports share geometry, and `mono_mix` composes with `warp_alpha` and `Framing` as for the
+mono develop. The mandatory-opcode refusal on colour Leica files is real (Q2, Q3, SL3) and
+is lifted on every entry together in STAGE-034, not here.
 
 ## Validation
 

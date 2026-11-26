@@ -197,6 +197,17 @@ mixer wins, onyx would ask for the pre-white-balance camera plane or a per-pixel
 factor then. Its clip overlay stays before `GainMap`s on purpose, and onyx documents the
 disagreement with the fade on files that carry a `GainMap`.
 
+## onyx's reply to SPEC-093 (2026-11-26)
+
+onyx accepted SPEC-093's design (mixing before geometry, strip scratch), and `DEC-084` is
+accepted. `black_levels` is ignored under the mix and documented, with no new error.
+Optional warps are applied, and `mono_mix` composes with `warp_alpha` and `Framing`. On the
+opcode blocker, onyx set two rules, now in STAGE-034's Design Notes: the sensor-geometry
+planes leave a mandatory `WarpRectilinear` to the viewport, and `FixBadPixelsConstant` runs
+before demosaic on every entry. Colour Q2, Q3, SL3, M10 and M11 DNGs are held as of
+2026-11-26. The Q3, M11 and SL3 come from Photography Blog's review galleries with no
+stated licence, so they stay in the local corpus only.
+
 ## Dependencies
 
 ### Depends on
