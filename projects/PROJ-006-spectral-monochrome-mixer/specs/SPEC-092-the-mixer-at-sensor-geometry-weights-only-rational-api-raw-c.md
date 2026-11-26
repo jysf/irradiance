@@ -155,7 +155,7 @@ white levels as committed constants.
 ## Outputs
 
 - **Files modified:**
-  - `src/color.rs`: three public functions and five public constants (Design §1 to §6),
+  - `src/color.rs`: three public functions and six public constants (Design §1 to §6),
     the row build and the per-pixel kernel (private), a generalised identity sink so the
     mono plane reuses the one fused traversal, unit tests (Failing Tests); module doc
     gains a "Mono mix" section pointing at `DEC-079` and `DEC-083`.
@@ -179,7 +179,7 @@ white levels as committed constants.
 - **New public API:** `irradiance::color::mono_mix_row`, `mono_mix_plane_into`,
   `mono_mix_plane_rows_into`, the constants `MONO_MIX_ROW_FRACTION_BITS`,
   `MONO_MIX_FADE_START`, `MONO_MIX_FADE_WIDTH_BITS`, `MONO_MIX_BLACK`, `MONO_MIX_WHITE`,
-  and the three `Error` variants.
+  `MONO_MIX_VERSION`, and the three `Error` variants.
 - **New flags / options:** none. No fade parameter, no clip mask.
 
 ## Design
@@ -191,6 +191,7 @@ white levels as committed constants.
    pub const MONO_MIX_FADE_WIDTH_BITS: u32 = 13;    // the fade spans 8192 codes
    pub const MONO_MIX_BLACK: u16 = 0;
    pub const MONO_MIX_WHITE: u16 = 65535;
+   pub const MONO_MIX_VERSION: &str = "1";          // onyx's recipe records it (§12)
 
    pub fn mono_mix_row(sensor: &Sensor, weights: &[Rational; 3]) -> Result<[i32; 3], Error>;
    pub fn mono_mix_plane_into(sensor: &Sensor, src: &[u16], weights: &[Rational; 3],
@@ -209,7 +210,9 @@ white levels as committed constants.
 2. **The plane's levels.** The mixed plane is already level-normalised (`DEC-018` full
    scale): black is `MONO_MIX_BLACK = 0` and white `MONO_MIX_WHITE = 65535` for every
    file, so onyx's single normalise step is `v / 65535`. Constants, not a return value,
-   because they cannot vary; the doc comment says so.
+   because they cannot vary; the doc comment says so. They are part of the documented
+   contract (onyx, 2026-11-26): changing either is an API change, not a silent one, and
+   also bumps `MONO_MIX_VERSION` (§12).
 3. **The weights and the row (`DEC-083` §1 to §3).**
    - Weights: each `den > 0` and `num ≥ 0`, else `InvalidMixWeights { channel: Some(i) }`
      for the first offending index; then
@@ -324,6 +327,23 @@ white levels as committed constants.
     look at, and the golden digests here pin the plane. Serial only; a caller runs
     strips on its own threads.
 
+12. **The mixer version (onyx, 2026-11-26).** `MONO_MIX_VERSION: &str = "1"` sits next to
+    the row constants in `src/color.rs`, documented like `DEVELOP_VERSION`: a history list
+    whose first entry is `"1"`, SPEC-092 (`DEC-083`). onyx's `.irr` recipe records it so a
+    change to what the mixer computes shows up as a version change, not as silently
+    different prints.
+    - **Bump it** for any change to the mixer's own arithmetic that can change a row or a
+      mixed pixel for the same `Sensor`, `src` and weights: the weight rule, the fold or its
+      order, the scale or the rounding of the row, the fade threshold or width, the kernel's
+      rounding or clamp, or the levels of §2.
+    - **Not for** a change upstream of the mixer (levels, `GainMap`s, demosaic,
+      `build_camera_to_srgb_linear`). Those already bump `DEVELOP_VERSION`, so a mix is
+      fixed by the pair (`DEVELOP_VERSION`, `MONO_MIX_VERSION`), and the doc comment says
+      onyx records both.
+    - **Pinned:** AC5's golden-row test and AC12's hash test each assert
+      `MONO_MIX_VERSION == "1"` beside their committed values, with a comment that a new
+      golden value needs a version bump in the same change.
+
 ## Acceptance Criteria
 
 Pre-registered. Every check is exact except AC4's bound, derived from the final casts
@@ -433,7 +453,8 @@ Pre-registered. Every check is exact except AC4's bound, derived from the final 
   one-unit change of one `AsShotNeutral` numerator moves both row hashes.
 - [ ] **AC13, nothing else moves.** The full suite passes with `IRRADIANCE_CORPUS_DIR` set;
   `tests/error_kind.rs` gains exactly three rows; every existing determinism constant is
-  unchanged; `DEVELOP_VERSION == "8"`; `just semver-check` reports only the additions.
+  unchanged; `DEVELOP_VERSION == "8"`; `MONO_MIX_VERSION == "1"`, asserted beside the
+  golden rows (AC5) and the hashes (AC12); `just semver-check` reports only the additions.
 - [ ] **AC14, no overflow at the extremes (unit).** The kernel equals the `i128` oracle
   for every `q` in `{[i32::MAX; 3], [i32::MIN; 3], [i32::MAX, i32::MIN, i32::MAX]}` and every
   `x` in `{[65535; 3], [65535, 0, 65535], [57344, 57344, 57344]}`. The private quantiser,
@@ -473,6 +494,7 @@ Pre-registered. Every check is exact except AC4's bound, derived from the final 
 | §1 every pixel, sensor geometry | `ac2_…` | the identity sink, border pixels |
 | §1 band equals whole plane | `ac2_…` (both) | band edges, odd starts, the halo |
 | §2 levels are constants | doc test on the constants | n/a (constants) |
+| §12 mixer version | `ac5_…`, `mono_mix_hashes_match_committed` | the version beside each golden |
 | §3 weights rule | `ac10_…` | `InvalidMixWeights` fields; the `f64`-sum fixture |
 | §3 row fold and quantiser | `ac5_…`, `ac11_…`, AC12 | the row's `i32` values |
 | §4 kernel | `ac1_…`, `ac14_…` | every mono value vs the `i128` oracle |
@@ -523,7 +545,8 @@ right and wrong answers differ, and why the oracle is not computed by the mutate
 - Filter presets (the presets stage).
 - Spatial highlight reconstruction.
 - The developed (cropped, oriented, warped) output (SPEC-093).
-- A clip-mask output, a fade parameter, negative weights (`DEC-083`; additive later).
+- A clip-mask output, a fade parameter, negative weights (`DEC-083`; additive later; onyx
+  confirmed on 2026-11-26 that its v1 presets and sliders need none).
 - A reusable band plan (Design §7) and threaded variants.
 - An `irr` hook (Design §11).
 - Any change to the output bits of an existing function.

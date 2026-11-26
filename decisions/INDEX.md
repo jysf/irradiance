@@ -89,7 +89,7 @@ Regenerate after adding or superseding one; `just decisions-index --check` fails
 | [DEC-080](DEC-080-the-writer-error-payload-types-are-compiled-in-every-build-and-named-under-dng-write.md) | The writer's error payload types are compiled in every build and named under `dng::write` | 0.75 | accepted | PROJ-005 | — |
 | [DEC-081](DEC-081-the-writer-takes-metadata-as-typed-options-checked-in-plan-and-writes-empty-strings-as-empty-tags.md) | The writer takes metadata as typed options, checked in `plan`, and writes an empty string as an empty tag | 0.8 | accepted | PROJ-005 | — |
 | [DEC-082](DEC-082-the-writer-stores-a-caller-jpeg-preview-as-a-subifd-of-the-raw-ifd0.md) | The writer stores a caller JPEG preview as a SubIFD of the raw IFD0 | 0.8 | accepted | PROJ-005 | — |
-| [DEC-083](DEC-083-the-mono-mixer-row-is-i32-with-24-fraction-bits-and-its-fade-starts-at-57343.md) | the mono mixer's row is `i32` with 24 fraction bits, rounded half up, and its fade of negative weights starts at 57343 | 0.8 | proposed | PROJ-006 | — |
+| [DEC-083](DEC-083-the-mono-mixer-row-is-i32-with-24-fraction-bits-and-its-fade-starts-at-57343.md) | the mono mixer's row is `i32` with 24 fraction bits, rounded half up, and its fade of negative weights starts at 57343 | 0.85 | accepted | PROJ-006 | — |
 
 ## Superseded
 
