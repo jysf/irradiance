@@ -4,7 +4,7 @@
 insight:
   id: DEC-083
   type: decision
-  confidence: 0.8
+  confidence: 0.85
   audience:
     - developer
     - agent
@@ -21,8 +21,8 @@ repo:
 created_at: 2026-11-25
 supersedes: null
 superseded_by: null
-status: proposed
-deciders: [claude]
+status: accepted                   # onyx's reply 2026-11-26, accepted by jysf
+deciders: [claude, jysf]
 
 affected_scope:
   - src/color.rs
@@ -66,6 +66,10 @@ They are:
    all in `i64`. `u = (1 − s)·D` exactly, where
    `s = clamp((m/65535 − τ)/(1 − τ), 0, 1)` is `DEC-079`'s fade, so the fade needs no
    division and no rounding before the last step.
+6. **The mixer version.** `MONO_MIX_VERSION = "1"`, bumped by any change to items 1 to 5
+   or to the plane's constant levels (0 and 65535), which are part of the documented
+   contract. A mix is fixed by (`DEVELOP_VERSION`, `MONO_MIX_VERSION`); onyx's recipe
+   records both.
 
 ## Context
 
@@ -151,9 +155,30 @@ against an `i128` oracle; and the committed row and plane hashes on both CI
 determinism legs. Revisit `τ` if a colour Leica file (STAGE-032) shows a visible kink
 in the fade band.
 
+## onyx's reply (2026-11-26)
+
+onyx accepted the design as meeting its DEC-100:
+- `τ = 0.875` accepted. It asked for a mixer version constant beside the row, recorded in
+  its `.irr` recipe, so a later change to the threshold, rounding or fold is a version
+  change and not a silent change to existing prints (item 6). Its DEC-059 quality study
+  judges the highlight cost and would come back with numbers.
+- Negative channel weights: not needed now (v1 presets and sliders are non-negative);
+  keep refusing them. A slider might want them later for looks stronger than any real
+  filter, an additive change.
+- Constant levels are enough (its single normalise takes black and white as inputs);
+  keep them in the documented contract so a change counts as an API change.
+- The study judges the top ~6% of the range on irradiance's mixer output (or
+  `mono_mix_row` plus the documented fade), not on its f32 candidate mixes. If a candidate
+  outside irradiance's mixer wins, onyx would then ask for the pre-white-balance camera
+  plane or a per-pixel fade factor.
+- `GainMap`s: its clip overlay reads the raw CFA plane before `GainMap`s on purpose (what
+  the sensor recorded), so on files with a `GainMap` the overlay and the fade can
+  disagree. onyx documents that as a known difference.
+
 ## References
 
 - Related specs: SPEC-092 (this decision's spec), SPEC-091, SPEC-093
 - Related decisions: DEC-079 (the approach and the fade), DEC-018 (u16 full scale,
   round half up), DEC-033 (f64 basic operations), DEC-002 (determinism)
-- Discussions: onyx's design reply (2026-11-25, recorded in the PROJ-006 brief)
+- Discussions: onyx's design reply (2026-11-25) and its reply to SPEC-092 (2026-11-26),
+  both recorded in the PROJ-006 brief

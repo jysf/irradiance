@@ -174,6 +174,18 @@ aarch64 and x86_64 with a golden digest, and a row-range (band) form for iPad me
 mixer's are recorded in SPEC-092's outline. onyx will look for Q3 and M11 colour DNGs
 before STAGE-032. Who supplies them is still open.
 
+## onyx's reply to SPEC-092 (2026-11-26)
+
+onyx accepted SPEC-092's design (the API shape, `τ = 0.875`, the fixed-point row) as
+meeting its DEC-100, and `DEC-083` is accepted. One new ask, taken into SPEC-092 Design
+§12: a `MONO_MIX_VERSION` constant beside the row, recorded in onyx's `.irr` recipe.
+Negative weights stay refused (not needed for v1). Constant levels are enough and stay in
+the documented contract. Near clipping (top ~6%), onyx's quality study judges
+irradiance's mixer output, not its own f32 candidate mixes; if a candidate outside the
+mixer wins, onyx would ask for the pre-white-balance camera plane or a per-pixel fade
+factor then. Its clip overlay stays before `GainMap`s on purpose, and onyx documents the
+disagreement with the fade on files that carry a `GainMap`.
+
 ## Dependencies
 
 ### Depends on

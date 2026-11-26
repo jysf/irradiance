@@ -68,7 +68,7 @@ handback:
 `claude-opus-5` (acting as architect) hands `SPEC-092` to a cold `claude-opus-5` session
 (acting as implementer) for the **`build`** cycle: three public functions in
 `src/color.rs` that mix a colour Bayer DNG to a mono `u16` plane at sensor geometry (whole
-plane and row band) and expose the fixed-point row, five public constants, three `Error`
+plane and row band) and expose the fixed-point row, six public constants (one the mixer version), three `Error`
 variants, the fade of negative weights near clip in exact integer arithmetic, a
 cross-architecture determinism hash, and no change to any existing output.
 

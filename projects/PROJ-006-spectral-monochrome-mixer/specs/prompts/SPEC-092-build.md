@@ -16,7 +16,9 @@ Add to `src/color.rs`:
 `mono_mix_plane_into(sensor, src, weights, dst: &mut [u16])` and its row-range form
 `mono_mix_plane_rows_into(sensor, src, weights, rows: core::ops::Range<u32>, dst)`, plus
 the constants `MONO_MIX_ROW_FRACTION_BITS = 24`, `MONO_MIX_FADE_START = 57343`,
-`MONO_MIX_FADE_WIDTH_BITS = 13`, `MONO_MIX_BLACK = 0`, `MONO_MIX_WHITE = 65535`.
+`MONO_MIX_FADE_WIDTH_BITS = 13`, `MONO_MIX_BLACK = 0`, `MONO_MIX_WHITE = 65535`,
+`MONO_MIX_VERSION = "1"` (Design §12: documented like `DEVELOP_VERSION`, asserted beside
+the golden rows and the hashes).
 
 - Weights: non-negative rationals with positive denominators summing to exactly one
   (checked in `i128`), converted by one `f64` division each.
