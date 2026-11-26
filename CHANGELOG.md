@@ -10,6 +10,19 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **The developed mix** (SPEC-093, STAGE-031, PROJ-006, DEC-084, DEC-083). A
+  new `DevelopOptions::mono_mix: Option<[Rational; 3]>` field (default `None`,
+  today's develop exactly) makes `develop_with_into`, `develop_with_scratch_into`,
+  `output_dimensions_with` and `scratch_len` develop a colour Bayer DNG to a
+  monochrome image: the mono develop's warp, framing and orientation run over
+  `mono_mix_plane_into`'s mixed plane, bit for bit, so an app that warps, crops and
+  rotates the mixed plane on its GPU exports exactly what it shows. The mixer runs
+  in 512-row strips into caller scratch (about 10 MB without a warp, the mono
+  develop's own warp scratch with one), and `develop_with_scratch_into` still
+  allocates nothing. A new `opcode::DevelopPath::MonoMix` names its opcodes: every
+  `GainMap`, the first `WarpRectilinear` whatever its flags, nothing from
+  `OpcodeList1`. `black_levels` is not read under the mix. No existing output, and
+  neither `DEVELOP_VERSION` nor `MONO_MIX_VERSION`, changes.
 - **CI builds the library for the browser** (SPEC-096, STAGE-033). New gate
   `just wasm-check` (CI `wasm32`) builds `--lib` for `wasm32-unknown-unknown`
   with default features and with `write`; its red-proof `just

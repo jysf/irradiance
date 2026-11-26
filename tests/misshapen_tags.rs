@@ -161,7 +161,7 @@ const TAGS: [(u16, Set); 29] = [
 fn path_sets(path: DevelopPath) -> &'static [Set] {
     match path {
         DevelopPath::Mono => &[Set::Levels],
-        DevelopPath::Colour => &[Set::Levels, Set::Cfa, Set::Colour],
+        DevelopPath::Colour | DevelopPath::MonoMix => &[Set::Levels, Set::Cfa, Set::Colour],
         DevelopPath::Demosaic => &[Set::Cfa],
         DevelopPath::ColourTransform => &[Set::Colour],
         other => panic!("no DEC-078 row for {other:?}"),
@@ -537,9 +537,13 @@ enum Entry {
     SrgbLinearPlaneRowsF32Into,
     MonoMixPlaneInto,
     MonoMixPlaneRowsInto,
+    // SPEC-093: the developed mix, the two option-taking develop entries
+    // with `DevelopOptions::mono_mix` (`DevelopPath::MonoMix`).
+    DevelopWithIntoMix,
+    DevelopWithScratchIntoMix,
 }
 
-const ENTRIES: [Entry; 16] = [
+const ENTRIES: [Entry; 18] = [
     Entry::DevelopInto,
     Entry::DevelopWithInto,
     Entry::DevelopWithScratchInto,
@@ -556,6 +560,8 @@ const ENTRIES: [Entry; 16] = [
     Entry::SrgbLinearPlaneRowsF32Into,
     Entry::MonoMixPlaneInto,
     Entry::MonoMixPlaneRowsInto,
+    Entry::DevelopWithIntoMix,
+    Entry::DevelopWithScratchIntoMix,
 ];
 
 /// The four colour develop entries, the colour transform and SPEC-091's four
@@ -594,13 +600,20 @@ impl Entry {
             | Entry::SrgbLinearPlaneRowsF32Into
             | Entry::MonoMixPlaneInto
             | Entry::MonoMixPlaneRowsInto => DevelopPath::Colour,
+            Entry::DevelopWithIntoMix | Entry::DevelopWithScratchIntoMix => DevelopPath::MonoMix,
             Entry::ToSrgbLinearInto => DevelopPath::ColourTransform,
             Entry::DemosaicInto | Entry::DemosaicIntoThreaded => DevelopPath::Demosaic,
         }
     }
 
     fn takes_options(self) -> bool {
-        matches!(self, Entry::DevelopWithInto | Entry::DevelopWithScratchInto)
+        matches!(
+            self,
+            Entry::DevelopWithInto
+                | Entry::DevelopWithScratchInto
+                | Entry::DevelopWithIntoMix
+                | Entry::DevelopWithScratchIntoMix
+        )
     }
 }
 
@@ -714,6 +727,24 @@ fn run_with(entry: Entry, fx: &Fixture, options: &DevelopOptions) -> (Result<(),
         Entry::MonoMixPlaneRowsInto => {
             let mut dst = u16s(raw3 / 3);
             let r = mono_mix_plane_rows_into(sensor, plane, &MIX, 0..H, &mut dst);
+            (r, Written::U16(dst))
+        }
+        // SPEC-093: the developed mix, under the same options plus the mix.
+        Entry::DevelopWithIntoMix => {
+            let mut mixed = *options;
+            mixed.mono_mix = Some(MIX);
+            let mut dst = u16s(out_len());
+            let r = develop_with_into(sensor, plane, &mut dst, &mixed);
+            (r, Written::U16(dst))
+        }
+        Entry::DevelopWithScratchIntoMix => {
+            let mut mixed = *options;
+            mixed.mono_mix = Some(MIX);
+            let n = scratch_len(sensor, &mixed).unwrap_or(0);
+            let mut dst = u16s(out_len());
+            let mut scratch = u16s(n);
+            let r = develop_with_scratch_into(sensor, plane, &mut dst, &mut scratch, &mixed);
+            dst.extend_from_slice(&scratch);
             (r, Written::U16(dst))
         }
         Entry::DemosaicInto => {

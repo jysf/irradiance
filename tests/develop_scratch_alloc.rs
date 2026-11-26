@@ -11,8 +11,14 @@
 
 #[path = "support/corpus.rs"]
 mod corpus;
+#[path = "support/developed_mix.rs"]
+mod developed_mix;
+#[path = "support/dng_writer.rs"]
+mod dng_writer;
 #[path = "support/opcode.rs"]
 mod opcode_support;
+#[path = "support/tiff.rs"]
+mod tiff;
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -616,4 +622,101 @@ fn corpus_plane(path: &str) -> Option<(Sensor, Vec<u16>)> {
     unpack_into(&sensor, container.byte_order(), &bytes, &mut plane)
         .unwrap_or_else(|e| panic!("{path}: unpack: {e}"));
     Some((sensor, plane))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-093 AC10: the developed mix (`DEC-084` item 6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A developed-mix call prepared before counting: exact `dst` and `scratch`.
+fn prepare_mix(
+    label: String,
+    sensor: Sensor,
+    src: Vec<u16>,
+    options: DevelopOptions,
+) -> (String, Sensor, Vec<u16>, Vec<u16>, Vec<u16>, DevelopOptions) {
+    let dst = vec![0u16; dst_len(&sensor, &options)];
+    let scratch = vec![0xA5A5u16; scratch_len(&sensor, &options).expect("sizes")];
+    (label, sensor, src, dst, scratch, options)
+}
+
+#[test]
+fn ac10_the_developed_mix_allocates_nothing_with_scratch() {
+    let fixtures: [(&str, fn() -> (Sensor, Vec<u16>)); 3] = [
+        ("(i)", developed_mix::odd),
+        ("(ii)", developed_mix::odd_warped),
+        ("(iii)", developed_mix::tall),
+    ];
+    let mut calls = Vec::new();
+    for (name, fixture) in fixtures {
+        for framing in [Framing::StandardCrop, Framing::FullActiveArea] {
+            for orientation in [1, 6] {
+                let (mut sensor, src) = fixture();
+                sensor.orientation = Some(orientation);
+                let options =
+                    developed_mix::with_mix(&opts(framing, 1.0, true), developed_mix::LUMINANCE);
+                calls.push(prepare_mix(
+                    format!("{name} {framing:?} orientation {orientation}"),
+                    sensor,
+                    src,
+                    options,
+                ));
+            }
+        }
+    }
+    for (label, sensor, src, mut dst, mut scratch, options) in calls {
+        let (result, allocations, bytes) =
+            counted(|| develop_with_scratch_into(&sensor, &src, &mut dst, &mut scratch, &options));
+        assert!(result.is_ok(), "{label}: {result:?}");
+        assert_eq!((allocations, bytes), (0, 0), "{label}: allocated");
+    }
+
+    // One representative refusal of each rank, F0 to F13.
+    for f in 0..developed_mix::FAULTS {
+        let c = developed_mix::case(&[f]);
+        let (dst_len, scratch_len) = developed_mix::buffer_lengths(&c);
+        let mut dst = vec![0u16; dst_len];
+        let mut scratch = vec![0u16; scratch_len];
+        let (result, allocations, bytes) = counted(|| {
+            develop_with_scratch_into(&c.sensor, &c.src, &mut dst, &mut scratch, &c.options)
+        });
+        let err = result.expect_err("refused");
+        assert!(developed_mix::expected_error(f)(&err), "F{f}: {err:?}");
+        assert_eq!((allocations, bytes), (0, 0), "F{f} ({err:?}): allocated");
+    }
+
+    // Tier B: the Pixel 7 Pro, whose optional warp is applied.
+    let path = "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng";
+    if let Some((sensor, src)) = corpus_plane(path) {
+        let options = developed_mix::with_mix(&DevelopOptions::default(), developed_mix::LUMINANCE);
+        let (_, sensor, src, mut dst, mut scratch, options) =
+            prepare_mix(path.to_string(), sensor, src, options);
+        let (result, allocations, bytes) =
+            counted(|| develop_with_scratch_into(&sensor, &src, &mut dst, &mut scratch, &options));
+        assert!(result.is_ok(), "{path}: {result:?}");
+        assert_eq!((allocations, bytes), (0, 0), "{path}: allocated");
+    }
+}
+
+#[test]
+fn ac10_the_developed_mix_allocates_once_without() {
+    for (name, fixture) in [
+        ("(i)", developed_mix::odd as fn() -> (Sensor, Vec<u16>)),
+        ("(ii)", developed_mix::odd_warped),
+        ("(iii)", developed_mix::tall),
+    ] {
+        let (sensor, src) = fixture();
+        let options = developed_mix::with_mix(&DevelopOptions::default(), developed_mix::LUMINANCE);
+        let mut dst = vec![0u16; dst_len(&sensor, &options)];
+        let n = scratch_len(&sensor, &options).unwrap();
+        assert!(n > 0, "{name}: the mix always needs scratch");
+        let (result, allocations, bytes) =
+            counted(|| develop_with_into(&sensor, &src, &mut dst, &options));
+        assert!(result.is_ok(), "{name}: {result:?}");
+        assert_eq!(
+            (allocations, bytes),
+            (1, 2 * n),
+            "{name}: one allocation of scratch_len samples"
+        );
+    }
 }

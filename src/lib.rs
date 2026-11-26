@@ -193,6 +193,14 @@ use core::fmt;
 /// calibration-signature rule, `CameraCalibration1/2` on the colour develop,
 /// and runs the `NeutralToXY` illuminant weight to convergence. Colour output
 /// changes on every dual-illuminant file; mono output does not.
+///
+/// **The developed mix** (`SPEC-093`, `DEC-084` item 8,
+/// [`develop::DevelopOptions::mono_mix`]) is fixed by the pair
+/// (`DEVELOP_VERSION`, [`color::MONO_MIX_VERSION`]) and the options, weights
+/// included. A change to where the mix sits in the develop, to the strip
+/// routing's output or to the opcode set it applies bumps this; a change to
+/// the mixer's own arithmetic bumps `MONO_MIX_VERSION`. `SPEC-093` added the
+/// option without a bump: no existing output changed.
 pub const DEVELOP_VERSION: &str = "8";
 
 /// libFuzzer entry for the SOF-3 lossless-JPEG decoder (`ljpeg::decode_into`,

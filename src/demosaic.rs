@@ -585,6 +585,69 @@ pub(crate) fn develop_rows_banded<N, Sink>(
     sensor: &Sensor,
     rows: (usize, usize),
     normalize: &N,
+    emit: Sink,
+) -> Result<(), Error>
+where
+    N: Fn(u32, u32) -> u16,
+    Sink: FnMut(usize, u16, u16, u16),
+{
+    // The band's own working memory, allocated here: its green rows and the
+    // ring (`SPEC-093` moved the ring's allocation out of the traversal).
+    let w = usize::try_from(sensor.width).unwrap_or(0);
+    let h = usize::try_from(sensor.height).unwrap_or(0);
+    let mut work = vec![0u16; band_work_len(w, h, rows)];
+    develop_rows_banded_in(sensor, rows, normalize, &mut work, emit)
+}
+
+/// The samples [`develop_rows_banded_in`] reads from `work` for source rows
+/// `rows` of a `w × h` plane: the band's `w·local_rows` green rows (its rows
+/// plus the halo, the local top rounded down to even) and the `RING·w` ring.
+fn band_work_len(w: usize, h: usize, rows: (usize, usize)) -> usize {
+    let (lo, hi) = band_extent(h, rows);
+    hi.saturating_sub(lo).saturating_add(RING).saturating_mul(w)
+}
+
+/// The local plane a band develops: rows `lo..hi`, its rows `s0..s1` plus
+/// [`BAND_HALO`] each side clamped to the plane, `lo` rounded down to even.
+fn band_extent(h: usize, (s0, s1): (usize, usize)) -> (usize, usize) {
+    let lo = s0.saturating_sub(BAND_HALO) & !1;
+    let hi = core::cmp::min(h, s1.saturating_add(BAND_HALO));
+    (lo, hi)
+}
+
+/// The most rows one band of at most [`MIX_STRIP_ROWS`] rows develops: its
+/// rows, [`BAND_HALO`] each side, and one more for the even local top.
+pub(crate) const MIX_STRIP_LOCAL_ROWS: usize = MIX_STRIP_ROWS + 2 * BAND_HALO + 1;
+
+/// The developed mix's strip height (`SPEC-093`, `DEC-084` item 5): the mixer
+/// runs through [`develop_rows_banded_in`] in strips of this many rows.
+/// Private; strips are output-invariant, so only the scratch size reads it.
+pub(crate) const MIX_STRIP_ROWS: usize = 512;
+
+/// `T`, the developed mix's strip working memory for a `w × h` plane
+/// (`SPEC-093` Design §7): `w·(min(h, S + 7) + RING)` samples, enough for
+/// [`develop_rows_banded_in`] on any strip of at most [`MIX_STRIP_ROWS`] rows.
+/// `None` on overflow.
+pub(crate) fn mix_strip_work_len(w: u32, h: u32) -> Option<u64> {
+    let local = core::cmp::min(u64::from(h), MIX_STRIP_LOCAL_ROWS as u64);
+    local.checked_add(RING as u64)?.checked_mul(u64::from(w))
+}
+
+/// [`develop_rows_banded`] with its working memory from the caller
+/// (`SPEC-093`, `DEC-084` item 5): `work` holds the ring (its first `RING·w`
+/// samples) and the band's green rows (the next `w·local_rows`), so the band
+/// allocates nothing and clones nothing. The traversal reads the same values in
+/// the same order as [`develop_rows_banded`], which calls this, so the output
+/// is the same.
+///
+/// [`Error::DevelopScratchWrongLength`] if `work` is shorter than the band
+/// needs (unreachable from the developed mix, which sizes it by
+/// [`mix_strip_work_len`]); nothing is emitted then.
+pub(crate) fn develop_rows_banded_in<N, Sink>(
+    sensor: &Sensor,
+    rows: (usize, usize),
+    normalize: &N,
+    work: &mut [u16],
     mut emit: Sink,
 ) -> Result<(), Error>
 where
@@ -594,22 +657,31 @@ where
     let (s0, s1) = rows;
     let w = usize::try_from(sensor.width).unwrap_or(0);
     let h = usize::try_from(sensor.height).unwrap_or(0);
-    let lo = s0.saturating_sub(BAND_HALO) & !1;
-    let hi = core::cmp::min(h, s1.saturating_add(BAND_HALO));
+    let (lo, hi) = band_extent(h, rows);
     let local_rows = hi.saturating_sub(lo);
 
-    // A view of the plane that starts at row `lo` and is `local_rows` tall. Only
-    // the height differs; the CFA, width and ActiveArea origin are the plane's,
-    // and `lo` is even, so the phase of every local row is its absolute row's.
-    let mut local = sensor.clone();
-    local.height = u32::try_from(local_rows).unwrap_or(0);
-    let mut green = vec![0u16; w.saturating_mul(local_rows)];
+    // The ring first, then the band's green rows.
+    let needed = band_work_len(w, h, rows);
+    let actual = work.len();
+    let (cache, green) = work
+        .get_mut(..needed)
+        .and_then(|work| work.split_at_mut_checked(RING.saturating_mul(w)))
+        .ok_or(Error::DevelopScratchWrongLength {
+            expected: u64::try_from(needed).unwrap_or(u64::MAX),
+            actual,
+        })?;
+
+    // A view of the plane that starts at row `lo` and is `local_rows` tall: only
+    // the height differs (passed to the traversal, no `Sensor` clone); the CFA,
+    // width and ActiveArea origin are the plane's, and `lo` is even, so the
+    // phase of every local row is its absolute row's.
+    let local_height = u32::try_from(local_rows).unwrap_or(0);
     let lo_row = u32_from(lo);
     let local_normalize = |x: u32, y: u32| normalize(x, y.saturating_add(lo_row));
 
     let offset = lo.saturating_mul(w);
     let keep = s0.saturating_mul(w)..s1.saturating_mul(w);
-    develop_color_fused(&local, &mut green, &local_normalize, || {
+    develop_color_fused_in(sensor, local_height, green, cache, &local_normalize, || {
         Ok(move |pixel: usize, r: u16, g: u16, b: u16| {
             let whole = pixel.saturating_add(offset);
             if keep.contains(&whole) {
@@ -773,6 +845,41 @@ where
     Setup: FnOnce() -> Result<Sink, Error>,
     Sink: FnMut(usize, u16, u16, u16),
 {
+    // The rolling ring of normalised rows, allocated here for the whole-plane
+    // callers (`SPEC-093` moved it out of the traversal). `w` is a `u32`, so
+    // `RING·w` cannot overflow a 64-bit `usize`; an empty ring on the
+    // impossible overflow only sends every read down the reflecting path.
+    let w = usize::try_from(sensor.width).unwrap_or(0);
+    let mut cache = match RING.checked_mul(w) {
+        Some(n) => vec![0u16; n],
+        None => Vec::new(),
+    };
+    develop_color_fused_in(sensor, sensor.height, green, &mut cache, normalize, setup)
+}
+
+/// The rolling ring's height, in rows (`DEC-042`, revised): safely larger than
+/// the five-row span (y−1 … y+3) any single output row reads, so a row's
+/// residue slot never aliases a still-live row. The developed mix's strip
+/// scratch ([`mix_strip_work_len`]) is sized from it (`SPEC-093`).
+pub(crate) const RING: usize = 8;
+
+/// [`develop_color_fused`] over a plane of `height` rows (the sensor's, or a
+/// band's local height) with the ring `cache` (`RING·width` samples) from the
+/// caller (`SPEC-093`): the traversal itself, allocating nothing. Every read and
+/// write is the one [`develop_color_fused`] documents.
+pub(crate) fn develop_color_fused_in<N, Setup, Sink>(
+    sensor: &Sensor,
+    height: u32,
+    green: &mut [u16],
+    cache: &mut [u16],
+    normalize: &N,
+    setup: Setup,
+) -> Result<(), Error>
+where
+    N: Fn(u32, u32) -> u16,
+    Setup: FnOnce() -> Result<Sink, Error>,
+    Sink: FnMut(usize, u16, u16, u16),
+{
     let cfa = sensor
         .color_filter
         .as_ref()
@@ -785,7 +892,6 @@ where
     let mut emit = setup()?;
 
     let width = sensor.width;
-    let height = sensor.height;
     let w = usize::try_from(width).unwrap_or(0);
     let h = usize::try_from(height).unwrap_or(0);
 
@@ -799,17 +905,9 @@ where
         return Ok(());
     }
 
-    // The rolling ring of normalised rows. `RING` is safely larger than the
-    // five-row span (y−1 … y+3) any single output row reads, so a row's residue
-    // slot never aliases a still-live row. Each photosite is normalised once,
-    // when `fill_norm_row` first writes its row into the ring.
-    const RING: usize = 8;
-    let mut cache: Vec<u16> = match RING.checked_mul(w) {
-        Some(n) => vec![0u16; n],
-        // `w` is astronomically large; the caller's length checks precede this,
-        // so this is unreachable, but handled rather than risking an overflow.
-        None => return Ok(()),
-    };
+    // The rolling ring of normalised rows ([`RING`] rows, the caller's). Each
+    // photosite is normalised once, when `fill_norm_row` first writes its row
+    // into the ring.
     let mut norm_filled: usize = 0; // count of absolute rows normalised into the ring
     let mut green_done: usize = 0; // count of green rows finalised in the plane
 
@@ -823,7 +921,7 @@ where
         // the ring — enough for green row `y + 1`'s ±2 reads and this row's reads.
         let need_norm = core::cmp::min(y.saturating_add(4), h);
         while norm_filled < need_norm {
-            fill_norm_row(&mut cache, RING, w, normalize, norm_filled);
+            fill_norm_row(cache, RING, w, normalize, norm_filled);
             norm_filled = norm_filled.saturating_add(1);
         }
 
@@ -842,7 +940,7 @@ where
                     (xu.wrapping_sub(active_left) & 1) == 1,
                 );
                 let value = if g_interior && x >= 2 && x < col_interior_end {
-                    cache_green_interior(&phase, &cache, RING, w, x, g, parity).unwrap_or_else(
+                    cache_green_interior(&phase, cache, RING, w, x, g, parity).unwrap_or_else(
                         || {
                             fused_green_at_site(
                                 &phase,
@@ -885,7 +983,7 @@ where
                 (xu.wrapping_sub(active_left) & 1) == 1,
             );
             let (red, blue) = if y_interior && x >= 2 && x < col_interior_end {
-                cache_rgb_interior(&phase, &cache, RING, w, green, (x, y), parity).unwrap_or_else(
+                cache_rgb_interior(&phase, cache, RING, w, green, (x, y), parity).unwrap_or_else(
                     || {
                         fused_interpolate_red_blue(
                             &phase,

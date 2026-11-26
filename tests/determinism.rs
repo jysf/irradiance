@@ -36,6 +36,7 @@ use irradiance::color::{
     MONO_MIX_VERSION,
 };
 use irradiance::demosaic::demosaic_into;
+use irradiance::develop::{develop_with_into, output_dimensions_with, DevelopOptions};
 use irradiance::ifd::{Container, Rational, Sensor};
 use irradiance::plane::unpack_into;
 use irradiance::tone::to_linear_f32_into;
@@ -656,6 +657,8 @@ fn colour_determinism_red_proof() {
             "row hash {i} blind to a one-unit AsShotNeutral change"
         );
     }
+    // SPEC-093 AC11: the developed mix's four hashes.
+    developed_mix_red_proof();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -806,4 +809,175 @@ fn colour_fixture_interpolates_between_its_illuminants() {
         actual,
         "the weight is not pinned to CalibrationIlluminant2"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The developed mix on the colour fixture (`SPEC-093` AC11, `DEC-084`)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The in-memory warp of the warped pair: an optional (flags 1) non-identity
+/// radial `WarpRectilinear`, scale `1 − 0.08·r²`, centre (½, ½). Injected
+/// into the parsed sensor's `OpcodeList3`, so the fixture's bytes are
+/// unchanged (`SPEC-093` Notes for the Implementer).
+const DEVELOPED_WARP_KR: [f64; 4] = [1.0, -0.08, 0.0, 0.0];
+
+/// An `OpcodeList3` holding one optional `WarpRectilinear` with `kr`, built
+/// byte by byte (DNG 1.7.0.0 §6.4.1, big-endian).
+fn warp_list(kr: [f64; 4]) -> Vec<u8> {
+    let mut params = 1u32.to_be_bytes().to_vec();
+    for v in kr.into_iter().chain([0.0, 0.0, 0.5, 0.5]) {
+        params.extend_from_slice(&v.to_be_bytes());
+    }
+    let mut list = 1u32.to_be_bytes().to_vec();
+    for v in [1u32, 0x0104_0000, 1, params.len() as u32] {
+        list.extend_from_slice(&v.to_be_bytes());
+    }
+    list.extend_from_slice(&params);
+    list
+}
+
+/// The fixture's sensor for the warped pair: the warp with `kr` and
+/// Orientation 6, both in memory.
+fn warped(sensor: &Sensor, kr: [f64; 4]) -> Sensor {
+    let mut s = sensor.clone();
+    s.opcode_lists[2] = true;
+    s.opcode_list_3 = Some(warp_list(kr));
+    s.orientation = Some(6);
+    s
+}
+
+/// The developed mix of `sensor` under the default options.
+fn developed_mix(sensor: &Sensor, plane: &[u16], weights: [Rational; 3]) -> Vec<u16> {
+    let mut o = DevelopOptions::default();
+    o.mono_mix = Some(weights);
+    let (w, h) = output_dimensions_with(sensor, &o).expect("dims");
+    let mut dst = vec![0u16; (w * h) as usize];
+    develop_with_into(sensor, plane, &mut dst, &o).expect("the developed mix");
+    dst
+}
+
+/// The `SPEC-093` §2 oracle: the mixed plane developed as a mono sensor at
+/// levels 0 and 65535, without `OpcodeList1` or `OpcodeList2`.
+fn developed_oracle(sensor: &Sensor, plane: &[u16], weights: [Rational; 3]) -> Vec<u16> {
+    let mut mixed = vec![0u16; plane.len()];
+    mono_mix_plane_into(sensor, plane, &weights, &mut mixed).expect("mixed");
+    let mut mono = sensor.clone();
+    mono.black_level = Some(0);
+    mono.black_levels = vec![];
+    mono.black_level_repeat_dim = None;
+    mono.white_level = Some(65535);
+    mono.white_levels = vec![];
+    mono.opcode_lists[0] = false;
+    mono.opcode_lists[1] = false;
+    mono.opcode_list_1 = None;
+    mono.opcode_list_2 = None;
+    let o = DevelopOptions::default();
+    let (w, h) = output_dimensions_with(&mono, &o).expect("dims");
+    let mut dst = vec![0u16; (w * h) as usize];
+    develop_with_into(&mono, &mixed, &mut dst, &o).expect("the oracle");
+    dst
+}
+
+/// The four developed-mix hashes: `[unwarped luminance, unwarped negative
+/// one-hot, warped luminance, warped negative one-hot]`.
+fn developed_hashes(d: &DngDescription, kr: [f64; 4]) -> [u64; 4] {
+    let (sensor, plane) = colour_sensor(d);
+    let w = warped(&sensor, kr);
+    let sets = [LUMINANCE, ONE_HOT[NEGATIVE_ONE_HOT]];
+    [
+        hash_u16(&developed_mix(&sensor, &plane, sets[0])),
+        hash_u16(&developed_mix(&sensor, &plane, sets[1])),
+        hash_u16(&developed_mix(&w, &plane, sets[0])),
+        hash_u16(&developed_mix(&w, &plane, sets[1])),
+    ]
+}
+
+/// Recorded on macOS arm64 at `SPEC-093`'s build; the CI matrix asserts them
+/// on ubuntu-latest x86_64 too. Never edit one to make a run pass; a new value
+/// needs a `DEVELOP_VERSION` or `MONO_MIX_VERSION` bump in the same change.
+const DEVELOPED_COMMITTED: [u64; 4] = [
+    0x7b07_6b08_b1b5_1de1,
+    0x0f50_77a8_76c2_fbd3,
+    0x60c5_9f35_c60f_4cc4,
+    0xe764_1465_f8f2_cd58,
+];
+
+#[test]
+fn developed_mix_hashes_match_committed() {
+    // Recorded at these versions.
+    assert_eq!(MONO_MIX_VERSION, "1");
+    assert_eq!(irradiance::DEVELOP_VERSION, "8");
+    let d = colour_description(colour_samples());
+    let (sensor, plane) = colour_sensor(&d);
+    let w = warped(&sensor, DEVELOPED_WARP_KR);
+    // Each equals the §2 oracle.
+    for weights in [LUMINANCE, ONE_HOT[NEGATIVE_ONE_HOT]] {
+        assert_eq!(
+            developed_mix(&sensor, &plane, weights),
+            developed_oracle(&sensor, &plane, weights)
+        );
+        assert_eq!(
+            developed_mix(&w, &plane, weights),
+            developed_oracle(&w, &plane, weights)
+        );
+    }
+    let actual = developed_hashes(&d, DEVELOPED_WARP_KR);
+    eprintln!(
+        "colour-rggb-16bit developed mix {:#018x} {:#018x} warped {:#018x} {:#018x}",
+        actual[0], actual[1], actual[2], actual[3]
+    );
+    // The fixture has no ActiveArea, DefaultCrop or Orientation, so the
+    // unwarped developed mix is the mixed plane itself: its two hashes are
+    // SPEC-092's committed plane hashes, a cross-check between the entries.
+    assert_eq!(actual[..2], MONO_COMMITTED.planes);
+    // The warped pair differs from the unwarped pair.
+    assert_ne!(actual[0], actual[2], "the warp moves the luminance mix");
+    assert_ne!(actual[1], actual[3], "the warp moves the one-hot mix");
+    assert_eq!(
+        actual, DEVELOPED_COMMITTED,
+        "developed-mix hashes diverged from the committed constants"
+    );
+}
+
+/// `SPEC-093` AC11's red-proof: the control reproduces the committed hashes,
+/// a one-bit sample change moves all four, and a change of `2^-26` in a warp
+/// coefficient (the smallest power of two that moves them) moves the warped
+/// two and not the unwarped two. Run by `colour_determinism_red_proof`.
+fn developed_mix_red_proof() {
+    let samples = colour_samples();
+    let control = developed_hashes(&colour_description(samples.clone()), DEVELOPED_WARP_KR);
+    assert_eq!(
+        control, DEVELOPED_COMMITTED,
+        "control run must reproduce the committed developed-mix hashes before the red-proof means anything"
+    );
+    let target = (8 * WIDTH + 10) as usize;
+    let mut flipped = samples.clone();
+    flipped[target] ^= 1;
+    let red = developed_hashes(&colour_description(flipped), DEVELOPED_WARP_KR);
+    for i in 0..4 {
+        assert_ne!(
+            red[i], control[i],
+            "developed-mix hash {i} blind to a one-bit change"
+        );
+    }
+    // AC11 asks for a one-ulp change of a warp coefficient. Measured at
+    // SPEC-093's build, one ulp of any coefficient moves no output pixel: the
+    // warped samples are rounded to u16, and a shift of ~1e-16 px crosses no
+    // rounding boundary on 384 pixels. The smallest power-of-two step of kr0
+    // that moves both warped hashes is 2^26 ulps (kr0 = 1 + 2^-26), so that
+    // is the change here (a deviation recorded in HANDOFF-204).
+    let mut kr = DEVELOPED_WARP_KR;
+    kr[0] = 1.0 + f64::powi(2.0, -26);
+    let red = developed_hashes(&colour_description(samples), kr);
+    assert_eq!(
+        red[..2],
+        control[..2],
+        "the warp does not touch the unwarped pair"
+    );
+    for i in 2..4 {
+        assert_ne!(
+            red[i], control[i],
+            "warped hash {i} blind to a one-ulp coefficient change"
+        );
+    }
 }

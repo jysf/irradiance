@@ -149,7 +149,7 @@ const TAG_SETS: [(u16, Set); 20] = [
 fn path_sets(path: DevelopPath) -> &'static [Set] {
     match path {
         DevelopPath::Mono => &[Set::Levels],
-        DevelopPath::Colour => &[Set::Levels, Set::Cfa, Set::Colour],
+        DevelopPath::Colour | DevelopPath::MonoMix => &[Set::Levels, Set::Cfa, Set::Colour],
         DevelopPath::Demosaic => &[Set::Cfa],
         DevelopPath::ColourTransform => &[Set::Colour],
         other => panic!("no DEC-078 row for {other:?}"),
@@ -329,9 +329,13 @@ enum Entry {
     SrgbLinearPlaneRowsF32Into,
     MonoMixPlaneInto,
     MonoMixPlaneRowsInto,
+    // SPEC-093: the developed mix, the two option-taking develop entries
+    // with `DevelopOptions::mono_mix` (`DevelopPath::MonoMix`).
+    DevelopWithIntoMix,
+    DevelopWithScratchIntoMix,
 }
 
-const ENTRIES: [Entry; 16] = [
+const ENTRIES: [Entry; 18] = [
     Entry::DevelopInto,
     Entry::DevelopWithInto,
     Entry::DevelopWithScratchInto,
@@ -348,6 +352,8 @@ const ENTRIES: [Entry; 16] = [
     Entry::SrgbLinearPlaneRowsF32Into,
     Entry::MonoMixPlaneInto,
     Entry::MonoMixPlaneRowsInto,
+    Entry::DevelopWithIntoMix,
+    Entry::DevelopWithScratchIntoMix,
 ];
 
 impl Entry {
@@ -371,6 +377,7 @@ impl Entry {
             | Entry::SrgbLinearPlaneRowsF32Into
             | Entry::MonoMixPlaneInto
             | Entry::MonoMixPlaneRowsInto => DevelopPath::Colour,
+            Entry::DevelopWithIntoMix | Entry::DevelopWithScratchIntoMix => DevelopPath::MonoMix,
             Entry::ToSrgbLinearInto => DevelopPath::ColourTransform,
             Entry::DemosaicInto | Entry::DemosaicIntoThreaded => DevelopPath::Demosaic,
         }
@@ -379,7 +386,13 @@ impl Entry {
     /// Whether the entry reads `DevelopOptions` (so AC2 runs it under both
     /// `BlackLevels` options).
     fn takes_options(self) -> bool {
-        matches!(self, Entry::DevelopWithInto | Entry::DevelopWithScratchInto)
+        matches!(
+            self,
+            Entry::DevelopWithInto
+                | Entry::DevelopWithScratchInto
+                | Entry::DevelopWithIntoMix
+                | Entry::DevelopWithScratchIntoMix
+        )
     }
 }
 
@@ -501,6 +514,24 @@ fn run_with(entry: Entry, fx: &Fixture, options: &DevelopOptions) -> (Result<(),
             let r = mono_mix_plane_rows_into(sensor, plane, &MIX, 0..H, &mut dst);
             (r, Written::U16(dst))
         }
+        // SPEC-093: the developed mix, under the same options plus the mix.
+        Entry::DevelopWithIntoMix => {
+            let mut mixed = *options;
+            mixed.mono_mix = Some(MIX);
+            let mut dst = u16s(out_len());
+            let r = develop_with_into(sensor, plane, &mut dst, &mixed);
+            (r, Written::U16(dst))
+        }
+        Entry::DevelopWithScratchIntoMix => {
+            let mut mixed = *options;
+            mixed.mono_mix = Some(MIX);
+            let n = scratch_len(sensor, &mixed).unwrap_or(0);
+            let mut dst = u16s(out_len());
+            let mut scratch = u16s(n);
+            let r = develop_with_scratch_into(sensor, plane, &mut dst, &mut scratch, &mixed);
+            dst.extend_from_slice(&scratch);
+            (r, Written::U16(dst))
+        }
         Entry::DemosaicInto => {
             let mut dst = u16s(raw3);
             let r = demosaic_into(sensor, plane, &mut dst);
@@ -581,9 +612,10 @@ fn ac1_each_path_refuses_its_own_malformed_set_on_every_entry() {
             refused += 1;
         }
     }
-    // 7 levels tags × 13 entries, 2 CFA × 12, 11 colour × 11 (SPEC-091 added
-    // four colour entries, SPEC-092 two): the cross product is not vacuous.
-    assert_eq!(refused, 7 * 13 + 2 * 12 + 11 * 11);
+    // 7 levels tags × 15 entries, 2 CFA × 14, 11 colour × 13 (SPEC-091 added
+    // four colour entries, SPEC-092 two, SPEC-093 the two developed-mix
+    // entries, which refuse all three sets): the cross product is not vacuous.
+    assert_eq!(refused, 7 * 15 + 2 * 14 + 11 * 13);
 }
 
 #[test]
@@ -734,7 +766,7 @@ fn ac3_order_dec077_then_malformed_then_opcode_lists() {
         let (r, written) = run(entry, &fixture_for(entry, &interleaved));
         let context = format!("interleaved sets on {entry:?}");
         match entry.path() {
-            DevelopPath::Colour | DevelopPath::Demosaic => {
+            DevelopPath::Colour | DevelopPath::MonoMix | DevelopPath::Demosaic => {
                 assert_malformed(&r, CFA_LAYOUT, &context);
                 assert!(written.untouched(), "{context}");
             }

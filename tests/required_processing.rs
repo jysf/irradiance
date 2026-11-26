@@ -33,7 +33,10 @@ use irradiance::color::{
     srgb_linear_plane_rows_into, to_srgb_linear_into,
 };
 use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
-use irradiance::develop::{develop_into, output_dimensions};
+use irradiance::develop::{
+    develop_into, develop_with_into, develop_with_scratch_into, output_dimensions, scratch_len,
+    DevelopOptions,
+};
 use irradiance::ifd::{Container, Rational, Sensor};
 use irradiance::opcode::{check_required_processing, DevelopPath};
 use irradiance::plane::unpack_into;
@@ -161,6 +164,22 @@ enum ColourEntry {
     PlaneRowsF32,
     Mono,
     MonoRows,
+    // SPEC-093: the developed mix, `develop_with_into` and
+    // `develop_with_scratch_into` with `DevelopOptions::mono_mix`.
+    DevelopMix,
+    DevelopMixScratch,
+}
+
+impl ColourEntry {
+    /// The path the entry asks about: the developed mix applies the first
+    /// `WarpRectilinear` (`DevelopPath::MonoMix`), every other entry nothing
+    /// but the `GainMap`s (`DevelopPath::Colour`).
+    fn path(self) -> DevelopPath {
+        match self {
+            ColourEntry::DevelopMix | ColourEntry::DevelopMixScratch => DevelopPath::MonoMix,
+            _ => DevelopPath::Colour,
+        }
+    }
 }
 
 /// SPEC-092's mixer weights (Rec. 709 luminance) for the two mono-mix entries.
@@ -179,7 +198,7 @@ const MIX: [Rational; 3] = [
     },
 ];
 
-const COLOUR_ENTRIES: [ColourEntry; 10] = [
+const COLOUR_ENTRIES: [ColourEntry; 12] = [
     ColourEntry::U16,
     ColourEntry::F32,
     ColourEntry::U16Threaded,
@@ -190,6 +209,8 @@ const COLOUR_ENTRIES: [ColourEntry; 10] = [
     ColourEntry::PlaneRowsF32,
     ColourEntry::Mono,
     ColourEntry::MonoRows,
+    ColourEntry::DevelopMix,
+    ColourEntry::DevelopMixScratch,
 ];
 
 /// The sensor-geometry plane's length (`width·height·3`), SPEC-091's `dst`.
@@ -394,11 +415,20 @@ fn colour_mandatory_opcode_in_list_2_is_rejected_on_every_entry() {
 #[test]
 fn colour_mandatory_opcode_in_list_3_is_rejected_on_every_entry() {
     for entry in COLOUR_ENTRIES {
-        assert_required(
-            colour(entry, [None, None, list(&[warp(MANDATORY)])]),
-            3,
-            ID_WARP,
-        );
+        let r = colour(entry, [None, None, list(&[warp(MANDATORY)])]);
+        match entry.path() {
+            // SPEC-093 (`DEC-084` item 3): the developed mix applies the first
+            // WarpRectilinear whatever its flags, as the mono develop does.
+            DevelopPath::MonoMix => {
+                r.unwrap_or_else(|e| panic!("{entry:?}: a mandatory warp develops, got {e:?}"))
+            }
+            _ => assert_required(r, 3, ID_WARP),
+        }
+    }
+    // ...but not a second mandatory one, on any entry.
+    for entry in COLOUR_ENTRIES {
+        let two = [None, None, list(&[warp(MANDATORY), warp(MANDATORY)])];
+        assert_required(colour(entry, two), 3, ID_WARP);
     }
 }
 
@@ -941,6 +971,17 @@ fn colour_sensor(entry: ColourEntry, sensor: &Sensor, plane: &[u16]) -> Result<(
             0..sensor.height,
             &mut vec![0u16; p / 3],
         ),
+        ColourEntry::DevelopMix | ColourEntry::DevelopMixScratch => {
+            let mut options = DevelopOptions::default();
+            options.mono_mix = Some(MIX);
+            let mut dst = vec![0u16; out_len(sensor, 1)];
+            if matches!(entry, ColourEntry::DevelopMix) {
+                develop_with_into(sensor, plane, &mut dst, &options)
+            } else {
+                let mut scratch = vec![0u16; scratch_len(sensor, &options).unwrap_or(0)];
+                develop_with_scratch_into(sensor, plane, &mut dst, &mut scratch, &options)
+            }
+        }
     }
 }
 
@@ -1139,8 +1180,11 @@ fn public_check_agrees_with_every_develop_entry() {
                 check_required_processing(sensor, DevelopPath::Colour)
             );
             for entry in COLOUR_ENTRIES {
+                // Each entry against its own path (SPEC-093: the developed
+                // mix asks with `DevelopPath::MonoMix`).
+                let own = format!("{:?}", check_required_processing(sensor, entry.path()));
                 let dev = format!("{:?}", colour_sensor(entry, sensor, plane));
-                assert_eq!(check, dev, "{entry:?}");
+                assert_eq!(own, dev, "{entry:?}");
             }
             if check != "Ok(())" {
                 refused += 1;
@@ -1355,6 +1399,21 @@ fn every_entry_with_sentinel(l2: Vec<u8>) -> Vec<(String, Result<(), Error>, boo
                 };
                 (r, dst.iter().all(|&v| v == S))
             }
+            ColourEntry::DevelopMix | ColourEntry::DevelopMixScratch => {
+                let mut o = DevelopOptions::default();
+                o.mono_mix = Some(MIX);
+                let mut dst = vec![S; out_len(&sensor, 1)];
+                let mut scratch = vec![S; scratch_len(&sensor, &o).expect("scratch_len")];
+                let r = if matches!(entry, ColourEntry::DevelopMix) {
+                    develop_with_into(&sensor, &plane, &mut dst, &o)
+                } else {
+                    develop_with_scratch_into(&sensor, &plane, &mut dst, &mut scratch, &o)
+                };
+                (
+                    r,
+                    dst.iter().all(|&v| v == S) && scratch.iter().all(|&v| v == S),
+                )
+            }
         };
         out.push((format!("{entry:?}"), r, untouched));
     }
@@ -1365,9 +1424,9 @@ fn every_entry_with_sentinel(l2: Vec<u8>) -> Vec<(String, Result<(), Error>, boo
 fn seventeen_gain_maps_are_refused_by_every_entry_with_dst_untouched() {
     let ops: Vec<Vec<u8>> = (0..17).map(|_| gain_map(MANDATORY)).collect();
     let results = every_entry_with_sentinel(opcode_list(&ops));
-    // Five mono entries and ten colour entries (SPEC-091 added four,
-    // SPEC-092 two).
-    assert_eq!(results.len(), 15);
+    // Five mono entries and twelve colour entries (SPEC-091 added four,
+    // SPEC-092 two, SPEC-093 the two developed-mix entries).
+    assert_eq!(results.len(), 17);
     for (label, r, untouched) in results {
         assert!(
             matches!(r, Err(Error::TooManyGainMaps { count: 17 })),

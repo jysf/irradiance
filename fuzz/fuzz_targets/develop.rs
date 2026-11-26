@@ -37,7 +37,12 @@
 //! reached.
 //!
 //! **`black_levels` (`SPEC-066`, `DEC-061`).** Bit 5 selects
-//! `BlackLevels::PerPosition`. Bits 6-7 are unused.
+//! `BlackLevels::PerPosition`.
+//!
+//! **`mono_mix` (`SPEC-093`, `DEC-084`).** Bit 6 sets `mono_mix` to the
+//! luminance weights, so a mono sensor reaches the developed mix's refusals
+//! (`NotAColorFilterArray` among them) on every entry, and a CFA one its
+//! develop. Bit 7 is unused.
 //!
 //! ```text
 //! bit 0     FullActiveArea
@@ -45,6 +50,7 @@
 //! bits 2-3  warp_alpha: 00 = 1.0, 01 = 0.0, 10 = 0.5, 11 = NaN
 //! bit 4     warp_alpha = 1.5 (overrides bits 2-3)
 //! bit 5     black_levels = PerPosition
+//! bit 6     mono_mix = luminance [2126, 7152, 722] / 10000
 //! ```
 //!
 //! **Collapse differential (`SPEC-066`).** When bit 5 is set and the develop
@@ -70,7 +76,7 @@ use irradiance::develop::{
     develop_into, develop_with_into, develop_with_scratch_into, output_dimensions,
     output_dimensions_with, scratch_len, BlackLevels, DevelopOptions, Framing,
 };
-use irradiance::ifd::Container;
+use irradiance::ifd::{Container, Rational};
 use irradiance::plane::unpack_into;
 use irradiance::Error;
 
@@ -145,6 +151,13 @@ fuzz_target!(|data: &[u8]| {
     }
     if option_byte & 0b10_0000 != 0 {
         options.black_levels = BlackLevels::PerPosition;
+    }
+    if option_byte & 0b100_0000 != 0 {
+        options.mono_mix = Some([
+            Rational { num: 2126, den: 10000 },
+            Rational { num: 7152, den: 10000 },
+            Rational { num: 722, den: 10000 },
+        ]);
     }
     let Ok((opt_width, opt_height)) = output_dimensions_with(&sensor, &options) else {
         return;

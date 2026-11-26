@@ -5,7 +5,9 @@
 //! rather than one the 1×1 / 2×2 / 3×5 unit tests assert on a handful of
 //! shapes. It chains the full pipeline — parse → locate the sensor → unpack
 //! the mosaic plane → demosaic it, then develop it to the sensor-geometry
-//! linear-sRGB plane, whole and as a fuzzer-chosen row band (`SPEC-091`) —
+//! linear-sRGB plane, whole and as a fuzzer-chosen row band (`SPEC-091`), mix
+//! it to mono (`SPEC-092`) and develop the mix (`SPEC-093`'s
+//! `DevelopOptions::mono_mix` on all four develop entries) —
 //! so a byte string has to survive every
 //! earlier stage before it can reach the kernel at all; a byte string that is
 //! rejected anywhere along the way is a SUCCESS for this target, exactly as in
@@ -37,6 +39,10 @@ use irradiance::color::{
     srgb_linear_plane_into, srgb_linear_plane_rows_f32_into, srgb_linear_plane_rows_into,
 };
 use irradiance::demosaic::demosaic_into;
+use irradiance::develop::{
+    develop_with_into, develop_with_scratch_into, output_dimensions_with, scratch_len,
+    DevelopOptions, Framing,
+};
 use irradiance::ifd::{Container, Rational};
 use irradiance::plane::unpack_into;
 
@@ -171,4 +177,63 @@ fuzz_target!(|data: &[u8]| {
     };
     let mut mono_band = vec![0u16; resize(mono_band_len, pick(3))];
     let _ = mono_mix_plane_rows_into(&sensor, &plane, &weights, start..end, &mut mono_band);
+
+    // SPEC-093: the developed mix, on all four entries, with the same weights
+    // (valid or not) and fuzzer-chosen framing, orientation and warp_alpha
+    // from {1, 0, 1/2, NaN}; `dst` one short or one long, and the scratch one
+    // short, on half the inputs.
+    let option_byte = pick(12);
+    let mut options = DevelopOptions::default();
+    if option_byte & 1 != 0 {
+        options.framing = Framing::FullActiveArea;
+    }
+    if option_byte & 2 != 0 {
+        options.apply_orientation = false;
+    }
+    options.warp_alpha = match (option_byte >> 2) & 0b11 {
+        0 => 1.0,
+        1 => 0.0,
+        2 => 0.5,
+        _ => f64::NAN,
+    };
+    options.mono_mix = Some(weights);
+    // A refused size (bad weights, warp_alpha or geometry) still reaches the
+    // develop entries, on the plane's size, so their own refusals run too.
+    let Some(out_len) = output_dimensions_with(&sensor, &options)
+        .map_or(Some(pixel_count), |(w, h)| u64::from(w).checked_mul(u64::from(h)))
+        .filter(|&v| v <= MAX_PIXELS)
+        .and_then(|v| usize::try_from(v).ok())
+    else {
+        return;
+    };
+    let needed = scratch_len(&sensor, &options).unwrap_or(0);
+    if u64::try_from(needed).map_or(true, |n| n > MAX_PIXELS * 3) {
+        return;
+    }
+    let dst_len = resize(out_len, pick(13));
+    let mut developed = vec![0u16; dst_len];
+    let reference = develop_with_into(&sensor, &plane, &mut developed, &options);
+    let scratch_short = pick(14) % 2 == 1 && needed > 0;
+    let mut scratch = vec![0xA5A5u16; if scratch_short { needed - 1 } else { needed }];
+    let mut developed_scratch = vec![0u16; dst_len];
+    let result = develop_with_scratch_into(
+        &sensor,
+        &plane,
+        &mut developed_scratch,
+        &mut scratch,
+        &options,
+    );
+    // The two develop entries run one core: with the exact scratch they agree
+    // on the result and the pixels.
+    if !scratch_short {
+        assert_eq!(
+            format!("{result:?}"),
+            format!("{reference:?}"),
+            "develop_with_scratch_into's result differs from develop_with_into's"
+        );
+        assert!(
+            developed_scratch == developed,
+            "develop_with_scratch_into's output differs from develop_with_into's"
+        );
+    }
 });
