@@ -24,8 +24,9 @@ mod tiff;
 
 use irradiance::color::{
     develop_color_f32_into, develop_color_f32_into_threaded, develop_color_into,
-    develop_color_into_threaded, srgb_linear_plane_f32_into, srgb_linear_plane_into,
-    srgb_linear_plane_rows_f32_into, srgb_linear_plane_rows_into, to_srgb_linear_into,
+    develop_color_into_threaded, mono_mix_plane_into, mono_mix_plane_rows_into,
+    srgb_linear_plane_f32_into, srgb_linear_plane_into, srgb_linear_plane_rows_f32_into,
+    srgb_linear_plane_rows_into, to_srgb_linear_into,
 };
 use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
 use irradiance::develop::{
@@ -41,6 +42,22 @@ use dng_writer::{
     write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload, PlaneKind, RawTag, TagIfd,
 };
 use tiff::Order;
+
+/// SPEC-092's mixer weights (Rec. 709 luminance) for the two mono-mix entries.
+const MIX: [irradiance::ifd::Rational; 3] = [
+    irradiance::ifd::Rational {
+        num: 2126,
+        den: 10000,
+    },
+    irradiance::ifd::Rational {
+        num: 7152,
+        den: 10000,
+    },
+    irradiance::ifd::Rational {
+        num: 722,
+        den: 10000,
+    },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tag numbers (DNG 1.7.1.0; TIFF 6.0 for Orientation and SampleFormat).
@@ -499,7 +516,7 @@ fn times_recorded(s: &Sensor, tag: u16) -> usize {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The fourteen develop entries (SPEC-091 added four).
+// The sixteen develop entries (SPEC-091 added four, SPEC-092 two).
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -518,9 +535,11 @@ enum Entry {
     SrgbLinearPlaneF32Into,
     SrgbLinearPlaneRowsInto,
     SrgbLinearPlaneRowsF32Into,
+    MonoMixPlaneInto,
+    MonoMixPlaneRowsInto,
 }
 
-const ENTRIES: [Entry; 14] = [
+const ENTRIES: [Entry; 16] = [
     Entry::DevelopInto,
     Entry::DevelopWithInto,
     Entry::DevelopWithScratchInto,
@@ -535,11 +554,13 @@ const ENTRIES: [Entry; 14] = [
     Entry::SrgbLinearPlaneF32Into,
     Entry::SrgbLinearPlaneRowsInto,
     Entry::SrgbLinearPlaneRowsF32Into,
+    Entry::MonoMixPlaneInto,
+    Entry::MonoMixPlaneRowsInto,
 ];
 
 /// The four colour develop entries, the colour transform and SPEC-091's four
-/// sensor-geometry plane entries: AC3's set.
-const COLOUR_READERS: [Entry; 9] = [
+/// sensor-geometry plane entries, and SPEC-092's two mono-mix entries: AC3's set.
+const COLOUR_READERS: [Entry; 11] = [
     Entry::DevelopColorInto,
     Entry::DevelopColorF32Into,
     Entry::DevelopColorIntoThreaded,
@@ -549,6 +570,8 @@ const COLOUR_READERS: [Entry; 9] = [
     Entry::SrgbLinearPlaneF32Into,
     Entry::SrgbLinearPlaneRowsInto,
     Entry::SrgbLinearPlaneRowsF32Into,
+    Entry::MonoMixPlaneInto,
+    Entry::MonoMixPlaneRowsInto,
 ];
 
 impl Entry {
@@ -568,7 +591,9 @@ impl Entry {
             | Entry::SrgbLinearPlaneInto
             | Entry::SrgbLinearPlaneF32Into
             | Entry::SrgbLinearPlaneRowsInto
-            | Entry::SrgbLinearPlaneRowsF32Into => DevelopPath::Colour,
+            | Entry::SrgbLinearPlaneRowsF32Into
+            | Entry::MonoMixPlaneInto
+            | Entry::MonoMixPlaneRowsInto => DevelopPath::Colour,
             Entry::ToSrgbLinearInto => DevelopPath::ColourTransform,
             Entry::DemosaicInto | Entry::DemosaicIntoThreaded => DevelopPath::Demosaic,
         }
@@ -679,6 +704,17 @@ fn run_with(entry: Entry, fx: &Fixture, options: &DevelopOptions) -> (Result<(),
             let mut dst = f32s(raw3);
             let r = srgb_linear_plane_rows_f32_into(sensor, plane, 0..H, &mut dst);
             (r, bits(dst))
+        }
+        // SPEC-092: the mono mixer plane, whole and as the whole-plane band.
+        Entry::MonoMixPlaneInto => {
+            let mut dst = u16s(raw3 / 3);
+            let r = mono_mix_plane_into(sensor, plane, &MIX, &mut dst);
+            (r, Written::U16(dst))
+        }
+        Entry::MonoMixPlaneRowsInto => {
+            let mut dst = u16s(raw3 / 3);
+            let r = mono_mix_plane_rows_into(sensor, plane, &MIX, 0..H, &mut dst);
+            (r, Written::U16(dst))
         }
         Entry::DemosaicInto => {
             let mut dst = u16s(raw3);

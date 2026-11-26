@@ -31,9 +31,12 @@ mod dng_writer;
 mod tiff;
 
 use dng_writer::{write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload, PlaneKind};
-use irradiance::color::{srgb_linear_plane_f32_into, srgb_linear_plane_into};
+use irradiance::color::{
+    mono_mix_plane_into, mono_mix_row, srgb_linear_plane_f32_into, srgb_linear_plane_into,
+    MONO_MIX_VERSION,
+};
 use irradiance::demosaic::demosaic_into;
-use irradiance::ifd::Container;
+use irradiance::ifd::{Container, Rational, Sensor};
 use irradiance::plane::unpack_into;
 use irradiance::tone::to_linear_f32_into;
 use tiff::Order;
@@ -620,6 +623,161 @@ fn colour_determinism_red_proof() {
     assert_ne!(
         red.f32_plane, COLOUR_COMMITTED.f32_plane,
         "f32 plane hash blind to a one-bit change"
+    );
+
+    // SPEC-092 AC12: the mixer's hashes. The control reproduces them; the same
+    // one-bit sample change moves both mono plane hashes, and a one-unit change
+    // of one AsShotNeutral numerator moves both row hashes.
+    let d = colour_description(colour_samples());
+    let control = mono_hashes(&d);
+    assert_eq!(
+        control, MONO_COMMITTED,
+        "control run must reproduce the committed mixer hashes before the red-proof means anything"
+    );
+    let mut flipped = colour_samples();
+    flipped[target] ^= 1;
+    let red = mono_hashes(&colour_description(flipped));
+    for i in 0..2 {
+        assert_ne!(
+            red.planes[i], MONO_COMMITTED.planes[i],
+            "mono plane hash {i} blind to a one-bit change"
+        );
+        assert_eq!(
+            red.rows[i], MONO_COMMITTED.rows[i],
+            "a sample does not move a row"
+        );
+    }
+    let mut nudged = d.clone();
+    nudged.meta.as_shot_neutral = Some(vec![(10, 20), (1, 1), (31, 50)]);
+    let red = mono_hashes(&nudged);
+    for i in 0..2 {
+        assert_ne!(
+            red.rows[i], MONO_COMMITTED.rows[i],
+            "row hash {i} blind to a one-unit AsShotNeutral change"
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The mono mixer on the colour fixture (`SPEC-092` AC12, `DEC-083`)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const fn rational(num: i32, den: i32) -> Rational {
+    Rational { num, den }
+}
+
+/// Rec. 709 luminance on linear sRGB.
+const LUMINANCE: [Rational; 3] = [
+    rational(2126, 10000),
+    rational(7152, 10000),
+    rational(722, 10000),
+];
+
+/// The one-hot weight sets, in order; the fixture uses the first whose row
+/// has a negative entry (asserted below; it is the red set, index 0).
+const ONE_HOT: [[Rational; 3]; 3] = [
+    [rational(1, 1), rational(0, 1), rational(0, 1)],
+    [rational(0, 1), rational(1, 1), rational(0, 1)],
+    [rational(0, 1), rational(0, 1), rational(1, 1)],
+];
+
+/// The one-hot set the mixer hashes use (recorded at SPEC-092's build).
+const NEGATIVE_ONE_HOT: usize = 0;
+
+/// The mixer's hashes on one description: the two rows (12 little-endian
+/// bytes each) and the two mono planes, for `[LUMINANCE, ONE_HOT[NEGATIVE_ONE_HOT]]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MonoHashes {
+    rows: [u64; 2],
+    planes: [u64; 2],
+}
+
+fn colour_sensor(d: &DngDescription) -> (Sensor, Vec<u16>) {
+    let file = write_dng(d).expect("the colour fixture writes");
+    let container = Container::parse(&file).expect("the colour fixture parses");
+    let sensor = container.sensor().expect("the colour fixture has a sensor");
+    let mut plane = vec![0u16; (WIDTH * HEIGHT) as usize];
+    unpack_into(&sensor, container.byte_order(), &file, &mut plane).expect("unpacks");
+    (sensor, plane)
+}
+
+/// The rows and the mono planes for the two weight sets.
+fn mono_outputs(d: &DngDescription) -> ([[i32; 3]; 2], [Vec<u16>; 2]) {
+    let (sensor, plane) = colour_sensor(d);
+    let sets = [LUMINANCE, ONE_HOT[NEGATIVE_ONE_HOT]];
+    let rows = sets.map(|w| mono_mix_row(&sensor, &w).expect("the row builds"));
+    let planes = sets.map(|w| {
+        let mut out = vec![0u16; (WIDTH * HEIGHT) as usize];
+        mono_mix_plane_into(&sensor, &plane, &w, &mut out).expect("the mono plane mixes");
+        out
+    });
+    (rows, planes)
+}
+
+fn mono_hashes(d: &DngDescription) -> MonoHashes {
+    let (rows, planes) = mono_outputs(d);
+    MonoHashes {
+        rows: rows.map(|q| fnv1a(q.iter().flat_map(|v| v.to_le_bytes()))),
+        planes: [hash_u16(&planes[0]), hash_u16(&planes[1])],
+    }
+}
+
+/// Recorded on macOS arm64 at `SPEC-092`'s build; the CI matrix asserts them on
+/// ubuntu-latest x86_64 too. Never edit one to make a run pass; a new value
+/// needs a `MONO_MIX_VERSION` bump (or a `DEVELOP_VERSION` one, upstream) in
+/// the same change.
+const MONO_COMMITTED: MonoHashes = MonoHashes {
+    rows: [0xe837_0a06_b8c6_e1cb, 0x55b0_e759_ac2e_6883],
+    planes: [0x7b07_6b08_b1b5_1de1, 0x0f50_77a8_76c2_fbd3],
+};
+
+#[test]
+fn mono_mix_hashes_match_committed() {
+    // The committed hashes are mixer version 1's.
+    assert_eq!(MONO_MIX_VERSION, "1");
+    let d = colour_description(colour_samples());
+    let (sensor, plane) = colour_sensor(&d);
+    // The first one-hot set whose row has a negative entry is the one hashed.
+    let first_negative = ONE_HOT.iter().position(|w| {
+        mono_mix_row(&sensor, w)
+            .expect("row")
+            .iter()
+            .any(|&q| q < 0)
+    });
+    assert_eq!(first_negative, Some(NEGATIVE_ONE_HOT));
+
+    let (rows, planes) = mono_outputs(&d);
+    // The fade changes at least one pixel: the negative row's plane differs
+    // from the plain fold of demosaic_into's triples (the levels here are the
+    // identity), computed in i128 here.
+    let mut camera = vec![0u16; (WIDTH * HEIGHT * 3) as usize];
+    demosaic_into(&sensor, &plane, &mut camera).expect("demosaics");
+    let q = rows[1];
+    let faded = camera
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(&planes[1])
+        .filter(|(x, &mono)| {
+            let acc: i128 = (0..3).map(|i| i128::from(q[i]) * i128::from(x[i])).sum();
+            let plain = (acc + (1 << 23)).div_euclid(1 << 24).clamp(0, 65535);
+            plain != i128::from(mono)
+        })
+        .count();
+    assert!(faded > 0, "the fade changes no pixel of the fixture");
+
+    let actual = mono_hashes(&d);
+    eprintln!(
+        "colour-rggb-16bit mono rows {:?} hashes {:#018x} {:#018x}, planes {:#018x} {:#018x}; fade changes {faded} pixels",
+        rows, actual.rows[0], actual.rows[1], actual.planes[0], actual.planes[1]
+    );
+    assert_eq!(
+        actual.rows, MONO_COMMITTED.rows,
+        "mono_mix_row hashes diverged from the committed constants"
+    );
+    assert_eq!(
+        actual.planes, MONO_COMMITTED.planes,
+        "mono_mix_plane_into hashes diverged from the committed constants"
     );
 }
 

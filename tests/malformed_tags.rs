@@ -31,8 +31,9 @@ mod tiff;
 
 use irradiance::color::{
     develop_color_f32_into, develop_color_f32_into_threaded, develop_color_into,
-    develop_color_into_threaded, srgb_linear_plane_f32_into, srgb_linear_plane_into,
-    srgb_linear_plane_rows_f32_into, srgb_linear_plane_rows_into, to_srgb_linear_into,
+    develop_color_into_threaded, mono_mix_plane_into, mono_mix_plane_rows_into,
+    srgb_linear_plane_f32_into, srgb_linear_plane_into, srgb_linear_plane_rows_f32_into,
+    srgb_linear_plane_rows_into, to_srgb_linear_into,
 };
 use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
 use irradiance::develop::{
@@ -48,6 +49,22 @@ use dng_writer::{
     write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload, PlaneKind, RawTag, TagIfd,
 };
 use tiff::Order;
+
+/// SPEC-092's mixer weights (Rec. 709 luminance) for the two mono-mix entries.
+const MIX: [irradiance::ifd::Rational; 3] = [
+    irradiance::ifd::Rational {
+        num: 2126,
+        den: 10000,
+    },
+    irradiance::ifd::Rational {
+        num: 7152,
+        den: 10000,
+    },
+    irradiance::ifd::Rational {
+        num: 722,
+        den: 10000,
+    },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tag numbers (DNG 1.7.1.0; TIFF 6.0 for Orientation). Written out here rather
@@ -291,7 +308,7 @@ fn fixture_reads(entry: Entry, tag: u16) -> bool {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The fourteen develop entries (SPEC-091 added four), each its own door (§12).
+// The sixteen develop entries (SPEC-091 added four, SPEC-092 two), each its own door (§12).
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -310,9 +327,11 @@ enum Entry {
     SrgbLinearPlaneF32Into,
     SrgbLinearPlaneRowsInto,
     SrgbLinearPlaneRowsF32Into,
+    MonoMixPlaneInto,
+    MonoMixPlaneRowsInto,
 }
 
-const ENTRIES: [Entry; 14] = [
+const ENTRIES: [Entry; 16] = [
     Entry::DevelopInto,
     Entry::DevelopWithInto,
     Entry::DevelopWithScratchInto,
@@ -327,6 +346,8 @@ const ENTRIES: [Entry; 14] = [
     Entry::SrgbLinearPlaneF32Into,
     Entry::SrgbLinearPlaneRowsInto,
     Entry::SrgbLinearPlaneRowsF32Into,
+    Entry::MonoMixPlaneInto,
+    Entry::MonoMixPlaneRowsInto,
 ];
 
 impl Entry {
@@ -347,7 +368,9 @@ impl Entry {
             | Entry::SrgbLinearPlaneInto
             | Entry::SrgbLinearPlaneF32Into
             | Entry::SrgbLinearPlaneRowsInto
-            | Entry::SrgbLinearPlaneRowsF32Into => DevelopPath::Colour,
+            | Entry::SrgbLinearPlaneRowsF32Into
+            | Entry::MonoMixPlaneInto
+            | Entry::MonoMixPlaneRowsInto => DevelopPath::Colour,
             Entry::ToSrgbLinearInto => DevelopPath::ColourTransform,
             Entry::DemosaicInto | Entry::DemosaicIntoThreaded => DevelopPath::Demosaic,
         }
@@ -467,6 +490,17 @@ fn run_with(entry: Entry, fx: &Fixture, options: &DevelopOptions) -> (Result<(),
             let r = srgb_linear_plane_rows_f32_into(sensor, plane, 0..H, &mut dst);
             (r, bits(dst))
         }
+        // SPEC-092: the mono mixer plane, whole and as the whole-plane band.
+        Entry::MonoMixPlaneInto => {
+            let mut dst = u16s(raw3 / 3);
+            let r = mono_mix_plane_into(sensor, plane, &MIX, &mut dst);
+            (r, Written::U16(dst))
+        }
+        Entry::MonoMixPlaneRowsInto => {
+            let mut dst = u16s(raw3 / 3);
+            let r = mono_mix_plane_rows_into(sensor, plane, &MIX, 0..H, &mut dst);
+            (r, Written::U16(dst))
+        }
         Entry::DemosaicInto => {
             let mut dst = u16s(raw3);
             let r = demosaic_into(sensor, plane, &mut dst);
@@ -547,9 +581,9 @@ fn ac1_each_path_refuses_its_own_malformed_set_on_every_entry() {
             refused += 1;
         }
     }
-    // 7 levels tags × 11 entries, 2 CFA × 10, 11 colour × 9 (SPEC-091 added
-    // four colour entries): the cross product is not vacuous.
-    assert_eq!(refused, 7 * 11 + 2 * 10 + 11 * 9);
+    // 7 levels tags × 13 entries, 2 CFA × 12, 11 colour × 11 (SPEC-091 added
+    // four colour entries, SPEC-092 two): the cross product is not vacuous.
+    assert_eq!(refused, 7 * 13 + 2 * 12 + 11 * 11);
 }
 
 #[test]

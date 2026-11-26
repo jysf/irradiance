@@ -33,11 +33,11 @@
 use libfuzzer_sys::fuzz_target;
 
 use irradiance::color::{
-    srgb_linear_plane_f32_into, srgb_linear_plane_into, srgb_linear_plane_rows_f32_into,
-    srgb_linear_plane_rows_into,
+    mono_mix_plane_into, mono_mix_plane_rows_into, mono_mix_row, srgb_linear_plane_f32_into,
+    srgb_linear_plane_into, srgb_linear_plane_rows_f32_into, srgb_linear_plane_rows_into,
 };
 use irradiance::demosaic::demosaic_into;
-use irradiance::ifd::Container;
+use irradiance::ifd::{Container, Rational};
 use irradiance::plane::unpack_into;
 
 /// Same cap `fuzz_targets/plane.rs` and `develop.rs` use, for the same reason:
@@ -134,4 +134,41 @@ fuzz_target!(|data: &[u8]| {
     let _ = srgb_linear_plane_rows_into(&sensor, &plane, start..end, &mut band);
     let mut band_f32 = vec![0f32; band_len];
     let _ = srgb_linear_plane_rows_f32_into(&sensor, &plane, start..end, &mut band_f32);
+
+    // SPEC-092: the mono mixer. Half the inputs mix with valid luminance
+    // weights; the rest take three signed-byte rationals from the input, so
+    // a zero or negative denominator, a negative numerator, a sum other than
+    // one (`InvalidMixWeights`) and the odd valid set are all reachable.
+    let weights = if pick(4) % 2 == 0 {
+        [
+            Rational { num: 2126, den: 10000 },
+            Rational { num: 7152, den: 10000 },
+            Rational { num: 722, den: 10000 },
+        ]
+    } else {
+        let signed = |back: usize| i32::from(i8::from_le_bytes([pick(back) as u8]));
+        [
+            Rational { num: signed(5), den: signed(6) },
+            Rational { num: signed(7), den: signed(8) },
+            Rational { num: signed(9), den: signed(10) },
+        ]
+    };
+    let _ = mono_mix_row(&sensor, &weights);
+    // `dst` one short or one long on half the inputs (`MonoBufferWrongLength`).
+    let resize = |len: usize, byte: u32| match byte % 4 {
+        2 => len.saturating_sub(1),
+        3 => len.saturating_add(1),
+        _ => len,
+    };
+    let mono_len = resize(rgb_len / 3, pick(11));
+    let mut mono = vec![0u16; mono_len];
+    let _ = mono_mix_plane_into(&sensor, &plane, &weights, &mut mono);
+    let Some(mono_band_len) = band_rows
+        .checked_mul(u64::from(sensor.width))
+        .and_then(|v| usize::try_from(v).ok())
+    else {
+        return;
+    };
+    let mut mono_band = vec![0u16; resize(mono_band_len, pick(3))];
+    let _ = mono_mix_plane_rows_into(&sensor, &plane, &weights, start..end, &mut mono_band);
 });

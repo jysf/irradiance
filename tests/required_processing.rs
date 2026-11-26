@@ -28,8 +28,9 @@ mod tiff;
 
 use irradiance::color::{
     develop_color_f32_into, develop_color_f32_into_threaded, develop_color_into,
-    develop_color_into_threaded, srgb_linear_plane_f32_into, srgb_linear_plane_into,
-    srgb_linear_plane_rows_f32_into, srgb_linear_plane_rows_into, to_srgb_linear_into,
+    develop_color_into_threaded, mono_mix_plane_into, mono_mix_plane_rows_into,
+    srgb_linear_plane_f32_into, srgb_linear_plane_into, srgb_linear_plane_rows_f32_into,
+    srgb_linear_plane_rows_into, to_srgb_linear_into,
 };
 use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
 use irradiance::develop::{develop_into, output_dimensions};
@@ -158,9 +159,27 @@ enum ColourEntry {
     PlaneF32,
     PlaneRows,
     PlaneRowsF32,
+    Mono,
+    MonoRows,
 }
 
-const COLOUR_ENTRIES: [ColourEntry; 8] = [
+/// SPEC-092's mixer weights (Rec. 709 luminance) for the two mono-mix entries.
+const MIX: [Rational; 3] = [
+    Rational {
+        num: 2126,
+        den: 10000,
+    },
+    Rational {
+        num: 7152,
+        den: 10000,
+    },
+    Rational {
+        num: 722,
+        den: 10000,
+    },
+];
+
+const COLOUR_ENTRIES: [ColourEntry; 10] = [
     ColourEntry::U16,
     ColourEntry::F32,
     ColourEntry::U16Threaded,
@@ -169,6 +188,8 @@ const COLOUR_ENTRIES: [ColourEntry; 8] = [
     ColourEntry::PlaneF32,
     ColourEntry::PlaneRows,
     ColourEntry::PlaneRowsF32,
+    ColourEntry::Mono,
+    ColourEntry::MonoRows,
 ];
 
 /// The sensor-geometry plane's length (`width·height·3`), SPEC-091's `dst`.
@@ -552,6 +573,16 @@ fn main() {
             let rows = 0..sensor.height;
             irradiance::color::srgb_linear_plane_rows_f32_into(&sensor, &plane, rows, &mut vec![0f32; n])
         }
+        // SPEC-092: the mono mixer plane, one sample per pixel.
+        "mono_mix_plane_into" => {
+            let n = sensor.width as usize * sensor.height as usize;
+            irradiance::color::mono_mix_plane_into(&sensor, &plane, &[Rational { num: 2126, den: 10000 }, Rational { num: 7152, den: 10000 }, Rational { num: 722, den: 10000 }], &mut vec![0u16; n])
+        }
+        "mono_mix_plane_rows_into" => {
+            let n = sensor.width as usize * sensor.height as usize;
+            let rows = 0..sensor.height;
+            irradiance::color::mono_mix_plane_rows_into(&sensor, &plane, &[Rational { num: 2126, den: 10000 }, Rational { num: 7152, den: 10000 }, Rational { num: 722, den: 10000 }], rows, &mut vec![0u16; n])
+        }
         // SPEC-056: the colour stage primitives, on the raw plane's own size.
         "demosaic_into" => {
             let n = sensor.width as usize * sensor.height as usize * 3;
@@ -705,7 +736,7 @@ fn required_processing_red_proof() {
         "to_srgb_linear_into",
     ];
 
-    const COLOUR: [&str; 8] = [
+    const COLOUR: [&str; 10] = [
         "develop_color_into",
         "develop_color_f32_into",
         "develop_color_into_threaded",
@@ -714,6 +745,8 @@ fn required_processing_red_proof() {
         "srgb_linear_plane_f32_into",
         "srgb_linear_plane_rows_into",
         "srgb_linear_plane_rows_f32_into",
+        "mono_mix_plane_into",
+        "mono_mix_plane_rows_into",
     ];
     // (entry, fixture, honest answer)
     let mut cases: Vec<(&str, &Path, String)> = vec![
@@ -900,6 +933,14 @@ fn colour_sensor(entry: ColourEntry, sensor: &Sensor, plane: &[u16]) -> Result<(
         ColourEntry::PlaneRowsF32 => {
             srgb_linear_plane_rows_f32_into(sensor, plane, 0..sensor.height, &mut vec![0f32; p])
         }
+        ColourEntry::Mono => mono_mix_plane_into(sensor, plane, &MIX, &mut vec![0u16; p / 3]),
+        ColourEntry::MonoRows => mono_mix_plane_rows_into(
+            sensor,
+            plane,
+            &MIX,
+            0..sensor.height,
+            &mut vec![0u16; p / 3],
+        ),
     }
 }
 
@@ -1305,6 +1346,15 @@ fn every_entry_with_sentinel(l2: Vec<u8>) -> Vec<(String, Result<(), Error>, boo
                 };
                 (r, dst.iter().all(|&v| v == SF))
             }
+            ColourEntry::Mono | ColourEntry::MonoRows => {
+                let mut dst = vec![S; p / 3];
+                let r = if matches!(entry, ColourEntry::Mono) {
+                    mono_mix_plane_into(&sensor, &plane, &MIX, &mut dst)
+                } else {
+                    mono_mix_plane_rows_into(&sensor, &plane, &MIX, rows.clone(), &mut dst)
+                };
+                (r, dst.iter().all(|&v| v == S))
+            }
         };
         out.push((format!("{entry:?}"), r, untouched));
     }
@@ -1315,8 +1365,9 @@ fn every_entry_with_sentinel(l2: Vec<u8>) -> Vec<(String, Result<(), Error>, boo
 fn seventeen_gain_maps_are_refused_by_every_entry_with_dst_untouched() {
     let ops: Vec<Vec<u8>> = (0..17).map(|_| gain_map(MANDATORY)).collect();
     let results = every_entry_with_sentinel(opcode_list(&ops));
-    // Five mono entries and eight colour entries (SPEC-091 added four).
-    assert_eq!(results.len(), 13);
+    // Five mono entries and ten colour entries (SPEC-091 added four,
+    // SPEC-092 two).
+    assert_eq!(results.len(), 15);
     for (label, r, untouched) in results {
         assert!(
             matches!(r, Err(Error::TooManyGainMaps { count: 17 })),

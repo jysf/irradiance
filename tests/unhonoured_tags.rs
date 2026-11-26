@@ -15,7 +15,7 @@
 //! the IFD0 tags (the two versions) and the sensor tags sit where a camera
 //! writes them.
 //!
-//! §12 behavioural verification: each of the thirteen public develop entries is
+//! §12 behavioural verification: each of the fifteen public develop entries is
 //! exercised on its own, not one representative (mono entries on a mono
 //! fixture, the rest on an RGGB fixture).
 //!
@@ -28,8 +28,9 @@ mod tiff;
 
 use irradiance::color::{
     develop_color_f32_into, develop_color_f32_into_threaded, develop_color_into,
-    develop_color_into_threaded, srgb_linear_plane_f32_into, srgb_linear_plane_into,
-    srgb_linear_plane_rows_f32_into, srgb_linear_plane_rows_into, to_srgb_linear_into,
+    develop_color_into_threaded, mono_mix_plane_into, mono_mix_plane_rows_into,
+    srgb_linear_plane_f32_into, srgb_linear_plane_into, srgb_linear_plane_rows_f32_into,
+    srgb_linear_plane_rows_into, to_srgb_linear_into,
 };
 use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
 use irradiance::develop::{
@@ -43,6 +44,22 @@ use dng_writer::{
     write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload, PlaneKind, RawTag, TagIfd,
 };
 use tiff::Order;
+
+/// SPEC-092's mixer weights (Rec. 709 luminance) for the two mono-mix entries.
+const MIX: [irradiance::ifd::Rational; 3] = [
+    irradiance::ifd::Rational {
+        num: 2126,
+        den: 10000,
+    },
+    irradiance::ifd::Rational {
+        num: 7152,
+        den: 10000,
+    },
+    irradiance::ifd::Rational {
+        num: 722,
+        den: 10000,
+    },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tag numbers (DNG 1.7.1.0; TIFF 6.0 §19 for SampleFormat). Written out here
@@ -199,7 +216,7 @@ fn zeros(n: usize) -> Vec<(i32, i32)> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The thirteen public develop entries (SPEC-091 added four), each its own door (§12).
+// The fifteen public develop entries (SPEC-091 added four, SPEC-092 two), each its own door (§12).
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,9 +234,11 @@ enum Entry {
     SrgbLinearPlaneF32Into,
     SrgbLinearPlaneRowsInto,
     SrgbLinearPlaneRowsF32Into,
+    MonoMixPlaneInto,
+    MonoMixPlaneRowsInto,
 }
 
-const ENTRIES: [Entry; 13] = [
+const ENTRIES: [Entry; 15] = [
     Entry::DevelopInto,
     Entry::DevelopWithScratchInto,
     Entry::DevelopColorInto,
@@ -233,6 +252,8 @@ const ENTRIES: [Entry; 13] = [
     Entry::SrgbLinearPlaneF32Into,
     Entry::SrgbLinearPlaneRowsInto,
     Entry::SrgbLinearPlaneRowsF32Into,
+    Entry::MonoMixPlaneInto,
+    Entry::MonoMixPlaneRowsInto,
 ];
 
 impl Entry {
@@ -336,6 +357,17 @@ fn run(entry: Entry, fx: &Fixture) -> (Result<(), Error>, Written) {
             let mut dst = f32s(raw3);
             let r = srgb_linear_plane_rows_f32_into(sensor, plane, 0..H, &mut dst);
             (r, bits(dst))
+        }
+        // SPEC-092: the mono mixer plane, whole and as the whole-plane band.
+        Entry::MonoMixPlaneInto => {
+            let mut dst = u16s(raw3 / 3);
+            let r = mono_mix_plane_into(sensor, plane, &MIX, &mut dst);
+            (r, Written::U16(dst))
+        }
+        Entry::MonoMixPlaneRowsInto => {
+            let mut dst = u16s(raw3 / 3);
+            let r = mono_mix_plane_rows_into(sensor, plane, &MIX, 0..H, &mut dst);
+            (r, Written::U16(dst))
         }
         Entry::DemosaicInto => {
             let mut dst = u16s(raw3);

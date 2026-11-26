@@ -38,7 +38,9 @@ use irradiance::{Error, ErrorKind};
 /// `UnsupportedTag` (Unsupported) and `LjpegPrecisionMismatch` (Corrupt);
 /// SPEC-087/DEC-078 added `MalformedTag` (Corrupt); SPEC-061/DEC-075 added
 /// `InvalidWriteInput` (CallerError) and `UnsupportedOpcodeForFraming`
-/// (Unsupported); SPEC-091/DEC-079 added `InvalidRowRange` (CallerError)).
+/// (Unsupported); SPEC-091/DEC-079 added `InvalidRowRange` (CallerError);
+/// SPEC-092/DEC-083 added `InvalidMixWeights` and `MonoBufferWrongLength`
+/// (CallerError) and `MixRowOutOfRange` (Unsupported)).
 fn dec_051_table() -> Vec<(Error, ErrorKind)> {
     use ErrorKind::{CallerError, Corrupt, Unsupported};
     vec![
@@ -455,6 +457,18 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             },
             CallerError,
         ),
+        // SPEC-092, DEC-083: the mixer's weights are ill-formed or do not sum
+        // to one; its dst is not one sample per pixel; its fixed-point row
+        // does not fit i32.
+        (Error::InvalidMixWeights { channel: Some(1) }, CallerError),
+        (
+            Error::MonoBufferWrongLength {
+                expected: 340,
+                actual: 339,
+            },
+            CallerError,
+        ),
+        (Error::MixRowOutOfRange { channel: 0 }, Unsupported),
     ]
 }
 
@@ -520,8 +534,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        79,
-        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069, the 2026-11 review fixes, DEC-077, DEC-078, DEC-075 and DEC-079) classified 79",
+        82,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069, the 2026-11 review fixes, DEC-077, DEC-078, DEC-075, DEC-079 and DEC-083) classified 82",
         declared.len()
     );
 
@@ -548,8 +562,8 @@ fn every_variant_classified() {
     // Corrupt; DEC-075 one CallerError and one Unsupported; DEC-079 one
     // CallerError).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
-    assert_eq!(count(ErrorKind::CallerError), 19);
-    assert_eq!(count(ErrorKind::Unsupported), 27);
+    assert_eq!(count(ErrorKind::CallerError), 21);
+    assert_eq!(count(ErrorKind::Unsupported), 28);
     assert_eq!(count(ErrorKind::Corrupt), 33);
 }
 
