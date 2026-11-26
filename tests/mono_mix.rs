@@ -626,6 +626,63 @@ fn ac10_refusals_in_order_leave_dst_untouched() {
     assert!(untouched);
 }
 
+/// Verify (`SPEC-092`, HANDOFF-203): `MixRowOutOfRange` is the **last**
+/// refusal (Design §6). AC10 shows it only on an otherwise valid file, where a
+/// row check moved ahead of the file checks also passes. Here the tiny-neutral
+/// file carries a second fault, and the earlier refusal must win, `dst` intact.
+#[test]
+fn the_row_range_refusal_comes_after_every_file_check() {
+    let (sensor, src) = fixture();
+    let n = pixels(&sensor);
+    let whole = 0..H;
+    let mut tiny = sensor.clone();
+    tiny.as_shot_neutral = Some(vec![r(1, 100_000), r(1, 1), r(1, 1)]);
+    let mut tiny_opcode = tiny.clone();
+    tiny_opcode.opcode_list_1 = Some(opcode_list(&[raw_opcode(4, 0x0103_0000, 0, &[0u8; 8])]));
+    tiny_opcode.opcode_lists[0] = true;
+    let mut tiny_no_cfa = tiny.clone();
+    tiny_no_cfa.color_filter = None;
+    for entry in [Entry::Plane, Entry::Rows] {
+        let (res, untouched) = refuse(entry, &tiny, &src, &LUMINANCE, whole.clone(), n - 1);
+        assert!(
+            matches!(res, Err(Error::MonoBufferWrongLength { .. })),
+            "{entry:?} tiny neutral, short dst: {res:?}"
+        );
+        assert!(untouched);
+        let (res, untouched) = refuse(entry, &tiny, &src[1..], &LUMINANCE, whole.clone(), n);
+        assert!(
+            matches!(res, Err(Error::ColorSourceWrongLength { .. })),
+            "{entry:?} tiny neutral, short src: {res:?}"
+        );
+        assert!(untouched);
+        let (res, untouched) = refuse(entry, &tiny_opcode, &src, &LUMINANCE, whole.clone(), n);
+        assert!(
+            matches!(res, Err(Error::UnsupportedRequiredOpcode { .. })),
+            "{entry:?} tiny neutral, opcode file: {res:?}"
+        );
+        assert!(untouched);
+        let (res, untouched) = refuse(entry, &tiny_no_cfa, &src, &LUMINANCE, whole.clone(), n);
+        assert!(
+            matches!(res, Err(Error::NotAColorFilterArray)),
+            "{entry:?} tiny neutral, no CFA: {res:?}"
+        );
+        assert!(untouched);
+    }
+    let (res, untouched) = refuse(
+        Entry::Rows,
+        &tiny,
+        &src,
+        &LUMINANCE,
+        Range { start: 6, end: 5 },
+        n,
+    );
+    assert!(
+        matches!(res, Err(Error::InvalidRowRange { .. })),
+        "tiny neutral, reversed band: {res:?}"
+    );
+    assert!(untouched);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tier B: the five held colour files.
 // ─────────────────────────────────────────────────────────────────────────────

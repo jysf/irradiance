@@ -4220,4 +4220,64 @@ mod tests {
             );
         }
     }
+
+    /// Verify (`SPEC-092`, HANDOFF-203): the public constants describe the
+    /// kernel, but the kernel reads private ones, so a change to one side alone
+    /// moved no test. Pin each public constant to its designed value and to
+    /// the private constant the kernel uses, and check the boundary it names.
+    #[test]
+    fn the_public_mixer_constants_are_the_kernels() {
+        assert_eq!(MONO_MIX_ROW_FRACTION_BITS, 24);
+        assert_eq!(MONO_MIX_FADE_WIDTH_BITS, 13);
+        assert_eq!(MONO_MIX_FADE_START, 57343);
+        assert_eq!((MONO_MIX_BLACK, MONO_MIX_WHITE), (0, 65535));
+        assert_eq!(MIX_ROW_SCALE, f64::from(1u32 << MONO_MIX_ROW_FRACTION_BITS));
+        assert_eq!(MIX_FADE_WIDTH, 1i64 << MONO_MIX_FADE_WIDTH_BITS);
+        assert_eq!(
+            MIX_SHIFT,
+            MONO_MIX_ROW_FRACTION_BITS + MONO_MIX_FADE_WIDTH_BITS
+        );
+        assert_eq!(MIX_HALF, 1i64 << (MIX_SHIFT - 1));
+        assert_eq!(
+            i64::from(MONO_MIX_FADE_START),
+            i64::from(MONO_MIX_WHITE) - MIX_FADE_WIDTH
+        );
+        // The last level with no fade is MONO_MIX_FADE_START, the next fades.
+        let q = [0, 1 << 30, -(1 << 30)];
+        let t = MONO_MIX_FADE_START;
+        assert_eq!(mono_mix_pixel(&q, [0, t, t]), 0);
+        assert_ne!(mono_mix_pixel(&q, [0, t + 1, t + 1]), 0);
+        // A unit weight on an identity entry is 2^MONO_MIX_ROW_FRACTION_BITS.
+        assert_eq!(
+            mix_row_of([1.0, 0.0, 0.0], &IDENTITY).unwrap(),
+            [1 << MONO_MIX_ROW_FRACTION_BITS, 0, 0]
+        );
+    }
+
+    /// Verify (`SPEC-092`, HANDOFF-203): the kernel rounds an exact tie up.
+    /// Only the local corpus digests saw a round-half-down kernel; these ties
+    /// put it in the CI suite. `q = 2^23` on `x = 1` is exactly half a code.
+    #[test]
+    fn the_kernel_rounds_an_exact_tie_up() {
+        assert_eq!(mono_mix_pixel(&[1 << 23, 0, 0], [1, 0, 0]), 1);
+        assert_eq!(mono_mix_pixel(&[1 << 23, 0, 0], [3, 0, 0]), 2);
+        // With the fade engaged: m = 61439, so u = 4096 and the negative term
+        // is weighed by one half. q = [0, 2^24, -2^24] on x = [0, 61439, 61438]
+        // is 61439 - 61438/2 = 30720 exactly; x_B = 61437 gives the tie
+        // 30720.5, which rounds up to 30721.
+        assert_eq!(
+            mono_mix_pixel(&[0, 1 << 24, -(1 << 24)], [0, 61439, 61438]),
+            30720
+        );
+        assert_eq!(
+            mono_mix_pixel(&[0, 1 << 24, -(1 << 24)], [0, 61439, 61437]),
+            30721
+        );
+        for x in [[1u16, 0, 0], [3, 0, 0]] {
+            assert_eq!(
+                mono_mix_pixel(&[1 << 23, 0, 0], x),
+                mix_oracle(&[1 << 23, 0, 0], x)
+            );
+        }
+    }
 }
