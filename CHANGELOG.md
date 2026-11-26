@@ -18,6 +18,25 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   gate only: std calls that compile on wasm32 and fail at run time are outside
   it. The README links the live "Anatomy of a RAW" demo, which runs the
   published crate compiled to WebAssembly. No library change.
+- **The mono mixer at sensor geometry** (SPEC-092, STAGE-031, PROJ-006,
+  DEC-079, DEC-083). Three new functions in `irradiance::color` mix a colour
+  Bayer DNG to a monochrome `u16` plane with caller-supplied linear-sRGB weights
+  (three non-negative `Rational`s summing to exactly one):
+  `mono_mix_plane_into` writes every pixel of the `width × height` plane,
+  `mono_mix_plane_rows_into` a row band bit-identical to it, and `mono_mix_row`
+  returns the fixed-point row the planes apply (`i32`, 24 fraction bits). Each
+  pixel is exact integer arithmetic on the demosaiced camera triple; negative
+  row terms fade out between camera level 57343 and white, so highlights stay
+  monotone through clipping, and a row with no negative entry is the plain fold
+  bit for bit. Six constants: `MONO_MIX_ROW_FRACTION_BITS`,
+  `MONO_MIX_FADE_START`, `MONO_MIX_FADE_WIDTH_BITS`, the plane's levels
+  `MONO_MIX_BLACK` (0) and `MONO_MIX_WHITE` (65535), and the mixer epoch
+  `MONO_MIX_VERSION = "1"`. The rows and planes have committed hashes on both
+  CI determinism legs. No existing output changes and `DEVELOP_VERSION` stays
+  `"8"`.
+- **`Error::InvalidMixWeights { channel }`**, **`Error::MonoBufferWrongLength
+  { expected, actual }`** (`CallerError`) and **`Error::MixRowOutOfRange
+  { channel }`** (`Unsupported`), SPEC-092.
 - **The white-balanced linear-sRGB plane at sensor geometry** (SPEC-091,
   STAGE-031, PROJ-006, DEC-079). Four new functions in `irradiance::color` run
   `develop_color_into`'s pipeline (levels, `OpcodeList2` `GainMap`s,

@@ -136,6 +136,21 @@
 //! [`srgb_linear_plane_rows_f32_into`] develop a band with a halo
 //! (`develop_rows_banded`, `DEC-044`) and equal the whole plane bit for bit.
 //!
+//! # Mono mix (`SPEC-092`, `DEC-079`, `DEC-083`)
+//!
+//! [`mono_mix_plane_into`] and its row-range form [`mono_mix_plane_rows_into`]
+//! mix a colour Bayer mosaic to a monochrome `u16` plane at the same sensor
+//! geometry, through the same fused traversal and identity sink (one sample
+//! per pixel instead of three). The caller's weights are linear-sRGB
+//! (`DEC-079`) and fold into the camera matrix as `v = wᵀ·M`, quantised once to
+//! the fixed-point row [`mono_mix_row`] returns (`i32`, 24 fraction bits). Each
+//! pixel is exact `i64` arithmetic on its camera triple: the plain folded mix,
+//! except that above [`MONO_MIX_FADE_START`] the negative-weight terms fade out
+//! as the brightest camera channel approaches white, so a highlight never
+//! darkens as it brightens through clipping. The plane's levels are the
+//! constants [`MONO_MIX_BLACK`] and [`MONO_MIX_WHITE`], and [`MONO_MIX_VERSION`]
+//! names the mixer's arithmetic.
+//!
 //! # Panic policy (`no-panics-on-untrusted-input`)
 //!
 //! A zero-denominator required rational, an absent or ill-shaped
@@ -144,7 +159,9 @@
 //! calibration or a non-positive reference neutral (`DEC-076` §3), and
 //! an off-gamut or saturated mix are typed errors ([`Error::MissingColorCalibration`])
 //! or clamped values — never a panic and never a NaN written to `dst`. Wrong
-//! buffer lengths are [`Error::ColorSourceWrongLength`] / [`Error::RgbBufferWrongLength`].
+//! buffer lengths are [`Error::ColorSourceWrongLength`] / [`Error::RgbBufferWrongLength`]
+//! / [`Error::MonoBufferWrongLength`]; the mixer's weights and row are
+//! [`Error::InvalidMixWeights`] / [`Error::MixRowOutOfRange`].
 //!
 //! # Provenance
 //!
@@ -413,7 +430,15 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
     with_normalizer!(sensor, src, levels, gains, |normalize| {
-        develop_color_with(sensor, expected_src, output, &normalize, dst, store_u16)
+        develop_color_with(
+            sensor,
+            expected_src,
+            output,
+            &normalize,
+            dst,
+            || build_camera_to_srgb_linear(sensor),
+            store_u16,
+        )
     })
 }
 
@@ -475,6 +500,7 @@ pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> 
             output,
             &normalize,
             dst,
+            || build_camera_to_srgb_linear(sensor),
             store_f32_quantised,
         )
     })
@@ -483,29 +509,34 @@ pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> 
 /// The colour develop's body for one resolved normalizer, shared by every
 /// single-thread colour entry (`SPEC-049`'s fuse, `DEC-042`): one `width·height`
 /// green plane, the one fused traversal, and a sink that maps each developed
-/// plane pixel to its `dst` triple (`slots`: the `SPEC-050` crop/orient scatter,
-/// or the `SPEC-091` identity) and writes it with `store` (each entry's own
-/// arithmetic on the camera triple). The matrix is built inside the traversal's
-/// `setup`, after its CFA check, so the error order is the fused path's.
-fn develop_color_with<T, P, S, N>(
+/// plane pixel to its `dst` sample group of `C` samples (`slots`: the `SPEC-050`
+/// crop/orient scatter, or the `SPEC-091` identity) and writes it with `store`
+/// (each entry's own arithmetic on the camera triple; `C` is 3 for an RGB
+/// entry and 1 for the `SPEC-092` mono mix). `build` makes what `store` reads
+/// (the colour matrix, or the mixer's fixed-point row) inside the traversal's
+/// `setup`, after its CFA check, so the error order is the fused path's and
+/// nothing is written unless it succeeds.
+fn develop_color_with<T, P, K, B, S, N, const C: usize>(
     sensor: &Sensor,
     expected_src: usize,
     slots: P,
     normalize: &N,
     dst: &mut [T],
+    build: B,
     store: S,
 ) -> Result<(), Error>
 where
     P: PixelSlot,
-    S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]),
+    B: FnOnce() -> Result<K, Error>,
+    S: Fn(&mut [T; C], &K, [u16; 3]),
     N: Fn(u32, u32) -> u16,
 {
     // The one remaining scratch buffer: the `width·height` green plane.
     let mut green = vec![0u16; expected_src];
-    let (dst_triples, _remainder) = dst.as_chunks_mut::<3>();
+    let (dst_groups, _remainder) = dst.as_chunks_mut::<C>();
 
     develop_color_fused(sensor, &mut green, normalize, || {
-        let matrix = build_camera_to_srgb_linear(sensor)?;
+        let coefficients = build()?;
         let mut slots = slots;
         Ok(move |pixel: usize, r: u16, g: u16, b: u16| {
             // Crop + orient at the sink (`DEC-043`): a pixel outside the
@@ -514,8 +545,8 @@ where
             let Some(slot) = slots.slot_of(pixel) else {
                 return;
             };
-            if let Some(out) = dst_triples.get_mut(slot) {
-                store(out, &matrix, [r, g, b]);
+            if let Some(out) = dst_groups.get_mut(slot) {
+                store(out, &coefficients, [r, g, b]);
             }
         })
     })
@@ -567,13 +598,15 @@ fn store_f32_unclamped(out: &mut [f32; 3], m: &[[f64; 3]; 3], rgb: [u16; 3]) {
 }
 
 /// Where the fused traversal's plane pixel `pixel = y·width + x` lands in a
-/// colour entry's `dst` (as an RGB-triple index), or `None` to drop it.
+/// colour entry's `dst` (as a sample-group index: an RGB triple, or one mono
+/// sample), or `None` to drop it.
 trait PixelSlot {
     fn slot_of(&mut self, pixel: usize) -> Option<usize>;
 }
 
-/// The sensor-geometry sink (`SPEC-091`): plane pixel `p` is triple `p`, so
-/// every pixel of the `width·height` plane is written, masked border included.
+/// The sensor-geometry sink (`SPEC-091`): plane pixel `p` is sample group `p`
+/// (an RGB triple, or a `SPEC-092` mono sample), so every pixel of the
+/// `width·height` plane is written, masked border included.
 struct WholePlane;
 
 impl PixelSlot for WholePlane {
@@ -615,7 +648,14 @@ impl PixelSlot for WholePlane {
 ///
 /// Never panics.
 pub fn srgb_linear_plane_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
-    srgb_linear_plane(sensor, src, dst, store_u16)
+    srgb_linear_plane(
+        sensor,
+        src,
+        dst,
+        PlaneSamples::Rgb,
+        matrix_of(sensor),
+        store_u16,
+    )
 }
 
 /// The white-balanced linear-sRGB plane at sensor geometry (`SPEC-091`,
@@ -643,7 +683,14 @@ pub fn srgb_linear_plane_f32_into(
     src: &[u16],
     dst: &mut [f32],
 ) -> Result<(), Error> {
-    srgb_linear_plane(sensor, src, dst, store_f32_unclamped)
+    srgb_linear_plane(
+        sensor,
+        src,
+        dst,
+        PlaneSamples::Rgb,
+        matrix_of(sensor),
+        store_f32_unclamped,
+    )
 }
 
 /// [`srgb_linear_plane_into`] for rows `rows` of the plane only (`SPEC-091`): a
@@ -674,7 +721,15 @@ pub fn srgb_linear_plane_rows_into(
     rows: core::ops::Range<u32>,
     dst: &mut [u16],
 ) -> Result<(), Error> {
-    srgb_linear_plane_rows(sensor, src, rows, dst, store_u16)
+    srgb_linear_plane_rows(
+        sensor,
+        src,
+        rows,
+        dst,
+        PlaneSamples::Rgb,
+        matrix_of(sensor),
+        store_u16,
+    )
 }
 
 /// [`srgb_linear_plane_f32_into`] for rows `rows` of the plane only
@@ -693,76 +748,466 @@ pub fn srgb_linear_plane_rows_f32_into(
     rows: core::ops::Range<u32>,
     dst: &mut [f32],
 ) -> Result<(), Error> {
-    srgb_linear_plane_rows(sensor, src, rows, dst, store_f32_unclamped)
+    srgb_linear_plane_rows(
+        sensor,
+        src,
+        rows,
+        dst,
+        PlaneSamples::Rgb,
+        matrix_of(sensor),
+        store_f32_unclamped,
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The mono mixer (`SPEC-092`, `DEC-079`, `DEC-083`)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The mono mixer's fixed-point row has 24 fraction bits (`DEC-083` §3): each
+/// entry is `q_i = ⌊v_i·2^24 + 0.5⌋` as `i32`, `v = wᵀ·M` the folded row
+/// (`DEC-079`). [`mono_mix_row`] returns it; changing this changes every row,
+/// and so bumps [`MONO_MIX_VERSION`].
+pub const MONO_MIX_ROW_FRACTION_BITS: u32 = 24;
+
+/// The last camera level at which the mono mixer's fade of negative weights
+/// does nothing (`DEC-083` §4, `DEC-079`): `T = 57343 = 65535 − 2^13`, so
+/// `τ = T/65535 ≈ 0.875`.
+///
+/// - **The compared value** is, at each pixel, `m`, the largest of its three
+///   camera channels as the demosaic emits them: after the black level is
+///   subtracted and the sample scaled by `WhiteLevel − BlackLevel` to
+///   `[0, 65535]` (`DEC-070`), after `OpcodeList2` `GainMap`s (`DEC-069`), and
+///   before white balance and the matrix. All three channels count,
+///   interpolated ones included.
+/// - **Against what:** the fade starts above `MONO_MIX_FADE_START = 57343` and
+///   is complete at `65535`, white after levels; in between, the
+///   negative-weight terms are scaled by `(65535 − m)/8192`
+///   ([`MONO_MIX_FADE_WIDTH_BITS`]). At `m ≤ 57343` the pixel is the plain
+///   fold; at `m = 65535` only the positive-weight terms remain.
+/// - **How it relates to the raw photosite:** a pixel's own CFA channel is its
+///   photosite's normalised value exactly (Hamilton-Adams keeps the native
+///   sample); the other two are interpolated from its neighbours and clamped
+///   to `[0, 65535]`. So wherever the photosite is at or above `WhiteLevel`,
+///   its own channel is `65535` and the fade is complete there, unless an
+///   `OpcodeList2` `GainMap` gain below 1 at that photosite pulls it back under
+///   white. The fade can also be complete where the raw photosite is not
+///   clipped: where a neighbour-interpolated channel reaches `65535`, or a gain
+///   above 1 lifts a photosite to white. A clip overlay read from the raw CFA
+///   plane is therefore a subset of the pixels where the fade is complete, and
+///   equals it on files without `GainMap`s apart from interpolated neighbours.
+///
+/// A fixed part of the mixer, not a parameter; changing it bumps
+/// [`MONO_MIX_VERSION`].
+pub const MONO_MIX_FADE_START: u16 = 57343;
+
+/// The fade of negative weights spans `2^13 = 8192` camera codes, from above
+/// [`MONO_MIX_FADE_START`] to white (`DEC-083` §4). A power of two, so the
+/// per-pixel step needs no division: the scale of the negative terms is
+/// `u/8192` with `u = min(65535 − m, 8192)`.
+pub const MONO_MIX_FADE_WIDTH_BITS: u32 = 13;
+
+/// The mixed mono plane's black level: `0`, for every file. The plane is
+/// already level-normalised (`DEC-018` full scale), so a consumer's single
+/// normalise step is `v / 65535`. A constant rather than a return value
+/// because it cannot vary; it is part of the documented contract, so changing
+/// it is an API change and also bumps [`MONO_MIX_VERSION`].
+///
+/// ```
+/// use irradiance::color::{MONO_MIX_BLACK, MONO_MIX_WHITE};
+/// assert_eq!((MONO_MIX_BLACK, MONO_MIX_WHITE), (0, 65535));
+/// ```
+pub const MONO_MIX_BLACK: u16 = 0;
+
+/// The mixed mono plane's white level: `65535`, for every file (`DEC-018`
+/// full scale). See [`MONO_MIX_BLACK`]: a constant, part of the documented
+/// contract; changing it is an API change and bumps [`MONO_MIX_VERSION`].
+pub const MONO_MIX_WHITE: u16 = 65535;
+
+/// The mono **mixer epoch** (`SPEC-092` Design §12, `DEC-083` §6): bumped by
+/// any change to the mixer's own arithmetic that can change a row or a mixed
+/// pixel for the same `Sensor`, `src` and weights — the weight rule, the fold
+/// or its order, the scale or rounding of the row, the fade threshold or
+/// width, the kernel's rounding or clamp, or the plane's levels
+/// ([`MONO_MIX_BLACK`], [`MONO_MIX_WHITE`]). Like [`crate::DEVELOP_VERSION`] it
+/// tracks output identity, independently of the crate's semver.
+///
+/// It is **not** bumped for a change upstream of the mixer (levels,
+/// `GainMap`s, demosaic, the camera matrix): those bump
+/// [`crate::DEVELOP_VERSION`]. A mix is fixed by the pair
+/// (`DEVELOP_VERSION`, `MONO_MIX_VERSION`), and a caller that stores mixed
+/// output or a [`mono_mix_row`] (onyx's recipe) records both.
+///
+/// `"1"`: SPEC-092 (`DEC-083`), the first mixer.
+pub const MONO_MIX_VERSION: &str = "1";
+
+/// `2^24`, the row's scale ([`MONO_MIX_ROW_FRACTION_BITS`]), as `f64`.
+const MIX_ROW_SCALE: f64 = 16_777_216.0;
+
+/// The fade width `2^13` ([`MONO_MIX_FADE_WIDTH_BITS`]), as `i64`.
+const MIX_FADE_WIDTH: i64 = 8192;
+
+/// The kernel's final shift: the row's 24 fraction bits plus the fade's 13.
+const MIX_SHIFT: u32 = 37;
+
+/// Half of `2^37`, the kernel's round-half-up bias.
+const MIX_HALF: i64 = 1 << 36;
+
+/// The **fixed-point mixer row** for `weights` (`SPEC-092`, `DEC-083`): the
+/// three `i32`s, 24 fraction bits ([`MONO_MIX_ROW_FRACTION_BITS`]), that
+/// [`mono_mix_plane_into`] and [`mono_mix_plane_rows_into`] apply to each
+/// pixel's camera triple. Entry `i` weighs camera channel `i` (R, G, B).
+///
+/// `weights` are linear-sRGB `[R, G, B]` (`DEC-079`): each a non-negative
+/// [`Rational`] with a positive denominator, the three summing to exactly one
+/// (checked exactly). Each is converted to `f64` by one division, folded into
+/// the camera → linear-sRGB matrix `M` (the colour develop's own) as
+/// `v_i = (w_R·M[0][i] + w_G·M[1][i]) + w_B·M[2][i]` with basic `f64`
+/// operations in that order (`DEC-033`), and quantised as
+/// `q_i = ⌊v_i·2^24 + 0.5⌋`. So the row is the same on every conforming
+/// platform; a caller can store and compare it (with [`MONO_MIX_VERSION`] and
+/// [`crate::DEVELOP_VERSION`]).
+///
+/// No buffer, geometry, opcode or CFA check runs: the row exists whenever the
+/// colour calibration does.
+///
+/// # Errors
+///
+/// - [`Error::InvalidMixWeights`] for an ill-formed weight or a sum other than
+///   one.
+/// - [`Error::MissingColorCalibration`] if the colour matrix cannot be built.
+/// - [`Error::MixRowOutOfRange`] if an entry does not fit the `i32` row.
+///
+/// Never panics.
+pub fn mono_mix_row(sensor: &Sensor, weights: &[Rational; 3]) -> Result<[i32; 3], Error> {
+    let w = mix_weights(weights)?;
+    let matrix = build_camera_to_srgb_linear(sensor)?;
+    mix_row_of(w, &matrix)
+}
+
+/// Mix a colour Bayer mosaic to a **monochrome `u16` plane at sensor
+/// geometry** (`SPEC-092`, `DEC-079`, `DEC-083`): `dst` is `width·height`
+/// samples, pixel `(x, y)` at `y·width + x`, **every** pixel written, the masked
+/// border included. No crop, orientation or warp. The plane's black is
+/// [`MONO_MIX_BLACK`] (`0`) and its white [`MONO_MIX_WHITE`] (`65535`) for
+/// every file.
+///
+/// The pipeline is [`srgb_linear_plane_into`]'s fused traversal (levels,
+/// `OpcodeList2` `GainMap`s, Hamilton-Adams demosaic); at each pixel, its
+/// camera triple `x` is mixed with the row `q` of [`mono_mix_row`] in exact
+/// `i64` arithmetic: `P = Σ_{q_i ≥ 0} q_i·x_i`, `N = Σ_{q_i < 0} q_i·x_i`,
+/// `u = min(65535 − max(x), 8192)` and
+/// `F = clamp(⌊(P·8192 + N·u + 2^36) / 2^37⌋, 0, 65535)`. Below
+/// [`MONO_MIX_FADE_START`] that is the plain folded mix rounded half up; above
+/// it the negative-weight terms fade out, so highlights stay monotone through
+/// clipping (the fade of negative weights). A row with no negative entry is
+/// the plain fold at every pixel, bit for bit.
+///
+/// `src` is the unpacked raw mosaic (`width·height`); both buffers are
+/// caller-owned (`DEC-016`), and the one internal scratch is the `width·height`
+/// green plane. For row strips use [`mono_mix_plane_rows_into`].
+///
+/// # Errors
+///
+/// [`Error::InvalidMixWeights`] first (the argument alone decides it); then
+/// [`srgb_linear_plane_into`]'s, in its order, with
+/// [`Error::MonoBufferWrongLength`] (`dst.len() != width·height`) in place of
+/// [`Error::RgbBufferWrongLength`]; then [`Error::MixRowOutOfRange`] last.
+/// Nothing is written unless every check passes.
+///
+/// Never panics.
+pub fn mono_mix_plane_into(
+    sensor: &Sensor,
+    src: &[u16],
+    weights: &[Rational; 3],
+    dst: &mut [u16],
+) -> Result<(), Error> {
+    let w = mix_weights(weights)?;
+    srgb_linear_plane(
+        sensor,
+        src,
+        dst,
+        PlaneSamples::Mono,
+        mix_row_build(sensor, w),
+        store_mono,
+    )
+}
+
+/// [`mono_mix_plane_into`] for rows `rows` of the plane only (`SPEC-092`): a
+/// band, for a plane too large to hold at once. `rows` is in whole-plane rows
+/// (`0..height`, masked rows included); `dst` is `(rows.end − rows.start)·width`,
+/// plane row `y` at index `(y − rows.start)·width + x`.
+///
+/// Every value equals the same pixel of [`mono_mix_plane_into`] **bit for
+/// bit**: the band develops its rows plus a three-row halo through the same
+/// fused traversal (`develop_rows_banded`, `DEC-044`) and mixes each pixel with
+/// the same kernel and row.
+///
+/// # Errors
+///
+/// [`mono_mix_plane_into`]'s, in its order, with [`Error::InvalidRowRange`]
+/// (an empty or reversed range, or `rows.end > height`) after the geometry and
+/// before [`Error::MonoBufferWrongLength`], whose `expected` is the band's
+/// `(rows.end − rows.start)·width`. Nothing is written unless every check
+/// passes.
+///
+/// Never panics.
+pub fn mono_mix_plane_rows_into(
+    sensor: &Sensor,
+    src: &[u16],
+    weights: &[Rational; 3],
+    rows: core::ops::Range<u32>,
+    dst: &mut [u16],
+) -> Result<(), Error> {
+    let w = mix_weights(weights)?;
+    srgb_linear_plane_rows(
+        sensor,
+        src,
+        rows,
+        dst,
+        PlaneSamples::Mono,
+        mix_row_build(sensor, w),
+        store_mono,
+    )
+}
+
+/// The mixer's `build` step: the colour matrix, then the row folded from it
+/// (so `MixRowOutOfRange` follows `MissingColorCalibration`).
+fn mix_row_build(sensor: &Sensor, w: [f64; 3]) -> impl FnOnce() -> Result<[i32; 3], Error> + '_ {
+    move || {
+        let matrix = build_camera_to_srgb_linear(sensor)?;
+        mix_row_of(w, &matrix)
+    }
+}
+
+/// The mono sink: one sample, the [`mono_mix_pixel`] of the camera triple.
+fn store_mono(out: &mut [u16; 1], row: &[i32; 3], rgb: [u16; 3]) {
+    *out = [mono_mix_pixel(row, rgb)];
+}
+
+/// Check the weights (`DEC-083` §1) and convert each by one `f64` division:
+/// every denominator positive and every numerator non-negative, in channel
+/// order, then `n0·d1·d2 + n1·d0·d2 + n2·d0·d1 == d0·d1·d2` exactly in `i128`.
+fn mix_weights(weights: &[Rational; 3]) -> Result<[f64; 3], Error> {
+    for (channel, w) in (0u8..).zip(weights) {
+        if w.den <= 0 || w.num < 0 {
+            return Err(Error::InvalidMixWeights {
+                channel: Some(channel),
+            });
+        }
+    }
+    let [w0, w1, w2] = weights;
+    let (n0, n1, n2) = (i128::from(w0.num), i128::from(w1.num), i128::from(w2.num));
+    let (d0, d1, d2) = (i128::from(w0.den), i128::from(w1.den), i128::from(w2.den));
+    // Each product of three `i32`s is below 2^93 and the sum below 2^95, so no
+    // step overflows `i128`; the checked forms only satisfy the crate's lints.
+    let product = |a: i128, b: i128, c: i128| a.checked_mul(b).and_then(|ab| ab.checked_mul(c));
+    let sum = product(n0, d1, d2)
+        .zip(product(n1, d0, d2))
+        .and_then(|(a, b)| a.checked_add(b))
+        .zip(product(n2, d0, d1))
+        .and_then(|(ab, c)| ab.checked_add(c));
+    if sum.is_none() || sum != product(d0, d1, d2) {
+        return Err(Error::InvalidMixWeights { channel: None });
+    }
+    Ok([weight_to_f64(w0), weight_to_f64(w1), weight_to_f64(w2)])
+}
+
+/// One weight as `f64`: `num / den`, one correctly-rounded division
+/// (`DEC-083` §1), so `3/10` is the `f64` nearest 0.3.
+fn weight_to_f64(w: &Rational) -> f64 {
+    f64::from(w.num) / f64::from(w.den)
+}
+
+/// The folded row `v = wᵀ·M` (`DEC-079`, `DEC-083` §2): for each camera channel
+/// `i`, `(w_0·M[0][i] + w_1·M[1][i]) + w_2·M[2][i]`, basic `f64` operations in
+/// that order, no `mul_add` (`DEC-033`). `M`'s rows are linear-sRGB channels
+/// and its columns camera channels.
+fn fold_mix_row(w: [f64; 3], m: &[[f64; 3]; 3]) -> [f64; 3] {
+    let [w0, w1, w2] = w;
+    let [m0, m1, m2] = m;
+    let [[a0, a1, a2], [b0, b1, b2], [c0, c1, c2]] = [*m0, *m1, *m2];
+    [
+        (w0 * a0 + w1 * b0) + w2 * c0,
+        (w0 * a1 + w1 * b1) + w2 * c1,
+        (w0 * a2 + w1 * b2) + w2 * c2,
+    ]
+}
+
+/// The fixed-point row of `w` on `m`: [`fold_mix_row`], each entry scaled by
+/// `2^24` (exact) and quantised by [`quantize_row_entry`].
+fn mix_row_of(w: [f64; 3], m: &[[f64; 3]; 3]) -> Result<[i32; 3], Error> {
+    let [v0, v1, v2] = fold_mix_row(w, m);
+    let q = |channel: u8, v: f64| {
+        quantize_row_entry(v * MIX_ROW_SCALE).ok_or(Error::MixRowOutOfRange { channel })
+    };
+    Ok([q(0, v0)?, q(1, v1)?, q(2, v2)?])
+}
+
+/// `⌊t + 0.5⌋` as `i32` (round half up, `DEC-018`), or `None` when `t` is not
+/// finite or `t + 0.5` lies outside `[−2^31, 2^31)` (`DEC-083` §3).
+fn quantize_row_entry(t: f64) -> Option<i32> {
+    if !t.is_finite() {
+        return None;
+    }
+    let shifted = t + 0.5;
+    if !(-2_147_483_648.0..2_147_483_648.0).contains(&shifted) {
+        return None;
+    }
+    // In range and floored, so the cast is exact.
+    Some(shifted.floor() as i32)
+}
+
+/// The mixer's per-pixel step (`DEC-083` §5), exact `i64` on the camera triple
+/// `x`: `P = Σ_{q_i ≥ 0} q_i·x_i`, `N = Σ_{q_i < 0} q_i·x_i`, `m = max(x)`,
+/// `u = min(65535 − m, 8192)`, `F = clamp((P·8192 + N·u + 2^36) >> 37, 0, 65535)`
+/// (an arithmetic shift floors, so this rounds half up). The one kernel every
+/// mono entry uses, whole plane and band alike.
+///
+/// No intermediate can overflow (`DEC-083` "Overflow": `|P|, |N| < 3·2^47`, so
+/// every term is below `2^62`); the saturating forms satisfy the crate's lints
+/// and never engage.
+fn mono_mix_pixel(q: &[i32; 3], x: [u16; 3]) -> u16 {
+    let mut positive: i64 = 0;
+    let mut negative: i64 = 0;
+    for (&qi, &xi) in q.iter().zip(&x) {
+        let term = i64::from(qi).saturating_mul(i64::from(xi));
+        if qi >= 0 {
+            positive = positive.saturating_add(term);
+        } else {
+            negative = negative.saturating_add(term);
+        }
+    }
+    let m = x.into_iter().max().unwrap_or(0);
+    let u = i64::from(MONO_MIX_WHITE)
+        .saturating_sub(i64::from(m))
+        .min(MIX_FADE_WIDTH);
+    let sum = positive
+        .saturating_mul(MIX_FADE_WIDTH)
+        .saturating_add(negative.saturating_mul(u))
+        .saturating_add(MIX_HALF);
+    // Clamped to `[0, 65535]` first, so the cast is exact; without the clamp
+    // it would wrap (AC14 pins the extreme).
+    (sum >> MIX_SHIFT).clamp(0, i64::from(MONO_MIX_WHITE)) as u16
+}
+
+/// The camera → linear-sRGB matrix build, as the `build` step of an RGB plane
+/// entry: run inside the traversal's `setup` (whole plane) or after the CFA
+/// check (band), so `MissingColorCalibration` keeps the fused path's place.
+fn matrix_of(sensor: &Sensor) -> impl FnOnce() -> Result<[[f64; 3]; 3], Error> + '_ {
+    move || build_camera_to_srgb_linear(sensor)
+}
+
+/// What one pixel of a sensor-geometry plane holds: an interleaved RGB triple
+/// (`SPEC-091`) or one mono sample (`SPEC-092`). It sizes `dst` and names the
+/// refusal for a `dst` of the wrong length.
+#[derive(Clone, Copy)]
+enum PlaneSamples {
+    Rgb,
+    Mono,
+}
+
+impl PlaneSamples {
+    /// Samples per pixel.
+    fn per_pixel(self) -> u64 {
+        match self {
+            PlaneSamples::Rgb => 3,
+            PlaneSamples::Mono => 1,
+        }
+    }
+
+    /// The typed refusal for a `dst` of `actual` samples where `expected`
+    /// were required.
+    fn wrong_length(self, expected: u64, actual: usize) -> Error {
+        match self {
+            PlaneSamples::Rgb => Error::RgbBufferWrongLength { expected, actual },
+            PlaneSamples::Mono => Error::MonoBufferWrongLength { expected, actual },
+        }
+    }
 }
 
 /// The whole-plane entries' body: [`develop_color_into`]'s checks in its order,
-/// then the one fused traversal through the identity sink.
-fn srgb_linear_plane<T, S>(
+/// then the one fused traversal through the identity sink. `build` runs inside
+/// the traversal's `setup` (after the CFA check), and makes what `store` reads.
+fn srgb_linear_plane<T, K, B, S, const C: usize>(
     sensor: &Sensor,
     src: &[u16],
     dst: &mut [T],
+    samples: PlaneSamples,
+    build: B,
     store: S,
 ) -> Result<(), Error>
 where
-    S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]),
+    B: FnOnce() -> Result<K, Error>,
+    S: Fn(&mut [T; C], &K, [u16; 3]),
 {
     check_colour_required_processing(sensor)?;
-    let expected_src = check_plane_buffers(sensor, src.len(), None, dst.len())?;
+    let expected_src = check_plane_buffers(sensor, src.len(), None, dst.len(), samples)?;
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
     with_normalizer!(sensor, src, levels, gains, |normalize| {
-        develop_color_with(sensor, expected_src, WholePlane, &normalize, dst, store)
+        develop_color_with(
+            sensor,
+            expected_src,
+            WholePlane,
+            &normalize,
+            dst,
+            build,
+            store,
+        )
     })
 }
 
 /// The band entries' body: the whole-plane checks with the row range, then the
-/// CFA and the matrix in the fused path's order (`develop_rows_banded` builds no
-/// matrix), all before any write, then the halo'd band develop.
-fn srgb_linear_plane_rows<T, S>(
+/// CFA and `build` (the matrix, or the mixer's row) in the fused path's order
+/// (`develop_rows_banded` builds nothing), all before any write, then the
+/// halo'd band develop.
+fn srgb_linear_plane_rows<T, K, B, S, const C: usize>(
     sensor: &Sensor,
     src: &[u16],
     rows: core::ops::Range<u32>,
     dst: &mut [T],
+    samples: PlaneSamples,
+    build: B,
     store: S,
 ) -> Result<(), Error>
 where
-    S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]),
+    B: FnOnce() -> Result<K, Error>,
+    S: Fn(&mut [T; C], &K, [u16; 3]),
 {
     check_colour_required_processing(sensor)?;
-    check_plane_buffers(sensor, src.len(), Some(&rows), dst.len())?;
+    check_plane_buffers(sensor, src.len(), Some(&rows), dst.len(), samples)?;
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
     check_supported_bayer(sensor)?;
-    let matrix = build_camera_to_srgb_linear(sensor)?;
+    let coefficients = build()?;
     with_normalizer!(sensor, src, levels, gains, |normalize| {
-        srgb_linear_plane_rows_with(sensor, &rows, &normalize, &matrix, dst, &store)
+        srgb_linear_plane_rows_with(sensor, &rows, &normalize, &coefficients, dst, &store)
     })
 }
 
 /// [`srgb_linear_plane_rows`]' body for one resolved normalizer: develop the band
 /// (plus its halo) and write each of its pixels at its row offset from
 /// `rows.start`.
-fn srgb_linear_plane_rows_with<T, S, N>(
+fn srgb_linear_plane_rows_with<T, K, S, N, const C: usize>(
     sensor: &Sensor,
     rows: &core::ops::Range<u32>,
     normalize: &N,
-    matrix: &[[f64; 3]; 3],
+    coefficients: &K,
     dst: &mut [T],
     store: &S,
 ) -> Result<(), Error>
 where
-    S: Fn(&mut [T; 3], &[[f64; 3]; 3], [u16; 3]),
+    S: Fn(&mut [T; C], &K, [u16; 3]),
     N: Fn(u32, u32) -> u16,
 {
     let to_usize = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
     let (start, end) = (to_usize(rows.start), to_usize(rows.end));
     // The band's first pixel, as a whole-plane index: `dst` starts there.
     let first = start.saturating_mul(to_usize(sensor.width));
-    let (triples, _remainder) = dst.as_chunks_mut::<3>();
+    let (groups, _remainder) = dst.as_chunks_mut::<C>();
     develop_rows_banded(sensor, (start, end), normalize, |pixel, r, g, b| {
-        if let Some(out) = pixel.checked_sub(first).and_then(|i| triples.get_mut(i)) {
-            store(out, matrix, [r, g, b]);
+        if let Some(out) = pixel.checked_sub(first).and_then(|i| groups.get_mut(i)) {
+            store(out, coefficients, [r, g, b]);
         }
     })
 }
@@ -771,14 +1216,17 @@ where
 /// [`check_color_buffers`]' order: `src` is `width·height`
 /// ([`Error::ColorSourceWrongLength`]), then the geometry resolves (the same
 /// typed errors as the cropped develop), then, for a band, the row range
-/// ([`Error::InvalidRowRange`]), then `dst` is `rows·width·3`
-/// ([`Error::RgbBufferWrongLength`], `rows` the band's or the plane's height).
-/// Returns the plane pixel count (the green-plane size).
+/// ([`Error::InvalidRowRange`]), then `dst` is `rows·width` times the samples
+/// per pixel ([`Error::RgbBufferWrongLength`] for an RGB plane,
+/// [`Error::MonoBufferWrongLength`] for the `SPEC-092` mono mix; `rows` the
+/// band's or the plane's height). Returns the plane pixel count (the
+/// green-plane size).
 fn check_plane_buffers(
     sensor: &Sensor,
     src_len: usize,
     rows: Option<&core::ops::Range<u32>>,
     dst_len: usize,
+    samples: PlaneSamples,
 ) -> Result<usize, Error> {
     let pixels = pixel_count(sensor)?;
     let expected_src = usize::try_from(pixels).unwrap_or(usize::MAX);
@@ -803,18 +1251,12 @@ fn check_plane_buffers(
             range.end.saturating_sub(range.start)
         }
     };
-    let rgb_len = u64::from(sensor.width)
+    let dst_expected = u64::from(sensor.width)
         .checked_mul(u64::from(band_rows))
-        .and_then(|v| v.checked_mul(3))
-        .ok_or(Error::RgbBufferWrongLength {
-            expected: u64::MAX,
-            actual: dst_len,
-        })?;
-    if usize::try_from(rgb_len).ok() != Some(dst_len) {
-        return Err(Error::RgbBufferWrongLength {
-            expected: rgb_len,
-            actual: dst_len,
-        });
+        .and_then(|v| v.checked_mul(samples.per_pixel()))
+        .ok_or(samples.wrong_length(u64::MAX, dst_len))?;
+    if usize::try_from(dst_expected).ok() != Some(dst_len) {
+        return Err(samples.wrong_length(dst_expected, dst_len));
     }
     Ok(expected_src)
 }
@@ -3473,6 +3915,369 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SPEC-092: the mono mixer's row build and kernel.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// The kernel's independent oracle (AC1, AC14): `i128`, a division by
+    /// `2^37` with `div_euclid` (floor) instead of a shift, so it shares no
+    /// code with `mono_mix_pixel`.
+    fn mix_oracle(q: &[i32; 3], x: [u16; 3]) -> u16 {
+        let (mut p, mut n) = (0i128, 0i128);
+        for (&qi, &xi) in q.iter().zip(&x) {
+            let t = i128::from(qi) * i128::from(xi);
+            if qi >= 0 {
+                p += t;
+            } else {
+                n += t;
+            }
+        }
+        let m = i128::from(*x.iter().max().unwrap());
+        let u = (65535 - m).min(8192);
+        let num = p * 8192 + n * u + (1i128 << 36);
+        num.div_euclid(1i128 << 37).clamp(0, 65535) as u16
+    }
+
+    /// The plain fold rounded half up, `clamp(⌊(Σ q_i·x_i + 2^23) / 2^24⌋)`,
+    /// in `i128` (AC3, AC6's control).
+    fn plain_fold(q: &[i32; 3], x: [u16; 3]) -> u16 {
+        let acc: i128 = q
+            .iter()
+            .zip(&x)
+            .map(|(&qi, &xi)| i128::from(qi) * i128::from(xi))
+            .sum();
+        (acc + (1i128 << 23))
+            .div_euclid(1i128 << 24)
+            .clamp(0, 65535) as u16
+    }
+
+    fn xorshift(state: &mut u32) -> u32 {
+        let mut x = *state;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        *state = x;
+        x
+    }
+
+    #[test]
+    fn ac3_no_negative_row_is_the_plain_fold() {
+        let mut values: Vec<u16> = vec![0, 1, 57342, 57343, 57344, 61439, 65534, 65535];
+        let mut state = 0x5092_0003;
+        values.extend((0..64).map(|_| (xorshift(&mut state) & 0xffff) as u16));
+        let rows: [[i32; 3]; 4] = [
+            [9_238_644, 11_642_451, 1_534_676], // Pixel 3a luminance (AC5)
+            [6_580_281, 12_748_060, 1_667_508], // Pixel 4a luminance (AC5)
+            [21_010, 8_388_347, 14_980_760],    // Pixel 7 Pro ortho (AC5)
+            [16_777_216, 0, 33_554_432],        // a zero entry and a weight above one
+        ];
+        let mut above = 0usize;
+        for q in &rows {
+            assert!(q.iter().all(|&v| v >= 0), "{q:?} has no negative entry");
+            for &r in &values {
+                for &g in &values {
+                    for &b in &values {
+                        let x = [r, g, b];
+                        above += usize::from(r.max(g).max(b) >= 57344);
+                        assert_eq!(mono_mix_pixel(q, x), plain_fold(q, x), "row {q:?}, x {x:?}");
+                    }
+                }
+            }
+        }
+        assert!(above > 0, "some x lie above the threshold");
+    }
+
+    /// Whether the kernel ever decreases along a saturating ray
+    /// `x_i(k) = min(k·c_i, 65535)`, `k` from 0 until every non-zero channel
+    /// is white; returns the number of rays that decrease.
+    fn decreasing_rays(q: &[i32; 3], mix: impl Fn(&[i32; 3], [u16; 3]) -> u16) -> usize {
+        let mut bad = 0;
+        for a in (0..=598u32).step_by(2) {
+            for b in (0..=598u32).step_by(2) {
+                let c = [a, 299, b];
+                let cmin = c.iter().copied().filter(|&v| v > 0).min().unwrap();
+                let kmax = 65535 / cmin + 1;
+                let mut prev = 0u16;
+                for k in 0..=kmax {
+                    let x = c.map(|ci| (ci * k).min(65535) as u16);
+                    let f = mix(q, x);
+                    if f < prev {
+                        bad += 1;
+                        break;
+                    }
+                    prev = f;
+                }
+            }
+        }
+        bad
+    }
+
+    #[test]
+    fn ac6_the_fade_is_monotone_on_the_saturating_ray_grid() {
+        let rows: [(&str, [i32; 3]); 5] = [
+            ("Canon luminance", [6_222_052, 14_856_368, -4_008_594]),
+            ("Canon ortho", [-3_895_542, 7_681_333, 24_802_109]),
+            ("Canon one-hot green", [-8_076_979, 27_606_901, -12_847_745]),
+            ("Nikon luminance", [9_666_745, 12_584_293, -2_609_097]),
+            ("Pixel 4a one-hot green", [-528_141, 17_561_180, -943_847]),
+        ];
+        for (name, q) in &rows {
+            let bad = decreasing_rays(q, mono_mix_pixel);
+            assert_eq!(bad, 0, "{name}: {bad} rays decrease under the fade");
+        }
+        // The control: the plain fold on the Canon luminance row is not
+        // monotone, so the grid can fail.
+        let control = decreasing_rays(&rows[0].1, plain_fold);
+        eprintln!("AC6 control: the plain fold decreases on {control} of 90000 rays");
+        assert!(control > 0, "the grid must catch a non-monotone mix");
+    }
+
+    #[test]
+    fn ac8_the_fade_starts_after_57343_and_reads_the_largest_channel() {
+        let q = [0, 1 << 30, -(1 << 30)];
+        assert_eq!(
+            mono_mix_pixel(&q, [0, 57343, 57343]),
+            0,
+            "u = 8192, no fade"
+        );
+        // Well below the threshold, u stays capped at 8192: the plain fold
+        // 2^30·(1000 − 500)/2^24 = 32000. An uncapped u (65535 − m) would
+        // weigh the negative term 7.9 times and clamp to 0.
+        assert_eq!(
+            mono_mix_pixel(&q, [0, 1000, 500]),
+            32000,
+            "m far below, u = 8192"
+        );
+        assert_eq!(
+            mono_mix_pixel(&q, [0, 57344, 57344]),
+            448,
+            "u = 8191, one step"
+        );
+        assert_eq!(
+            mono_mix_pixel(&q, [0, 65535, 65535]),
+            65535,
+            "u = 0, positive terms only, clamped"
+        );
+        let q = [1 << 22, 1 << 22, -(1 << 22)];
+        for (x, want, plain) in [
+            ([65535, 1000, 1000], 16634, 16384),
+            ([1000, 65535, 1000], 16634, 16384),
+            ([1000, 1000, 65535], 500, 0),
+        ] {
+            assert_eq!(mono_mix_pixel(&q, x), want, "x {x:?}");
+            assert_eq!(plain_fold(&q, x), plain, "x {x:?}: the plain fold");
+        }
+    }
+
+    /// The unfused value of the cancellation `0.1·3 − 0.3`.
+    const CANCEL_UNFUSED: f64 = 5.551_115_123_125_783e-17;
+    /// The same with the multiply and the add fused.
+    const CANCEL_FUSED: f64 = 2.775_557_561_562_891_4e-17;
+
+    #[test]
+    fn ac11_the_row_fuses_no_term_of_any_channel() {
+        assert_eq!(0.1f64 * 3.0 - 0.3, CANCEL_UNFUSED);
+        assert_eq!(0.1f64.mul_add(3.0, -0.3), CANCEL_FUSED);
+        for i in 0..3 {
+            for j in 0..3 {
+                // The cancellation sits on site `j` of column `i`; the
+                // partner term carries the −0.3.
+                let mut w = [0.0f64; 3];
+                let mut m = [[0.0f64; 3]; 3];
+                let partner = if j == 0 { 1 } else { 0 };
+                w[j] = 0.1;
+                w[partner] = 1.0;
+                m[j][i] = 3.0;
+                m[partner][i] = -0.3;
+                let row = fold_mix_row(w, &m);
+                // The mutant fusing site `j`, computed here.
+                let t = |k: usize| w[k] * m[k][i];
+                let mutant = match j {
+                    0 => w[0].mul_add(m[0][i], t(1)) + t(2),
+                    1 => w[1].mul_add(m[1][i], t(0)) + t(2),
+                    _ => w[2].mul_add(m[2][i], t(0) + t(1)),
+                };
+                assert_eq!(
+                    row[i].to_bits(),
+                    CANCEL_UNFUSED.to_bits(),
+                    "channel {i}, site {j}"
+                );
+                assert_ne!(
+                    mutant.to_bits(),
+                    row[i].to_bits(),
+                    "channel {i}, site {j}: the fixture must tell a fused site"
+                );
+                for other in (0..3).filter(|&o| o != i) {
+                    assert_eq!(row[other], 0.0, "channel {i}, site {j}: column {other}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ac11_the_row_keeps_its_summation_order() {
+        let e52 = f64::EPSILON; // 2^-52
+        let e53 = e52 / 2.0; // 2^-53
+                             // (terms, the wrong pairing it catches)
+        let cases: [([f64; 3], &str); 2] = [
+            ([1.0, e52, e53], "(t0 + t2) + t1"),
+            ([e53, e53, 1.0], "(t1 + t2) + t0"),
+        ];
+        for i in 0..3 {
+            for (t, pairing) in cases {
+                let mut m = [[0.0f64; 3]; 3];
+                for j in 0..3 {
+                    m[j][i] = t[j];
+                }
+                let row = fold_mix_row([1.0; 3], &m);
+                let right = (t[0] + t[1]) + t[2];
+                let wrong = if pairing.starts_with("(t0") {
+                    (t[0] + t[2]) + t[1]
+                } else {
+                    (t[1] + t[2]) + t[0]
+                };
+                assert_eq!(row[i].to_bits(), right.to_bits(), "channel {i}, {pairing}");
+                assert_ne!(
+                    right.to_bits(),
+                    wrong.to_bits(),
+                    "channel {i}: {pairing} must differ"
+                );
+            }
+        }
+        // The hand-derived values.
+        assert_eq!((1.0 + e52) + e53, 1.0 + 2.0 * e52);
+        assert_eq!((1.0 + e53) + e52, 1.0 + e52);
+        assert_eq!((e53 + e53) + 1.0, 1.0 + e52);
+        assert_eq!((e53 + 1.0) + e53, 1.0);
+    }
+
+    #[test]
+    fn ac11_a_weight_converts_by_one_division() {
+        let w = weight_to_f64(&Rational { num: 3, den: 10 });
+        assert_eq!(w.to_bits(), 0.3f64.to_bits());
+        let reciprocal = 3.0 * (1.0f64 / 10.0);
+        assert_eq!(reciprocal, 0.300_000_000_000_000_04);
+        assert_ne!(
+            reciprocal.to_bits(),
+            w.to_bits(),
+            "the fixture tells the mutant"
+        );
+    }
+
+    #[test]
+    fn ac11_the_row_rounds_half_up() {
+        let mut m = IDENTITY;
+        m[0][0] = 2.5 / 16_777_216.0;
+        assert_eq!(mix_row_of([1.0, 0.0, 0.0], &m).unwrap(), [3, 0, 0]);
+        assert_ne!(2.5f64.round_ties_even(), 3.0, "half to even gives 2");
+        m[0][0] = -2.5 / 16_777_216.0;
+        assert_eq!(mix_row_of([1.0, 0.0, 0.0], &m).unwrap(), [-2, 0, 0]);
+        assert_ne!((-2.5f64).round(), -2.0, "half away from zero gives -3");
+    }
+
+    #[test]
+    fn ac14_no_overflow_at_the_extremes() {
+        let rows = [[i32::MAX; 3], [i32::MIN; 3], [i32::MAX, i32::MIN, i32::MAX]];
+        let xs = [[65535u16; 3], [65535, 0, 65535], [57344, 57344, 57344]];
+        for q in &rows {
+            for &x in &xs {
+                assert_eq!(mono_mix_pixel(q, x), mix_oracle(q, x), "row {q:?}, x {x:?}");
+            }
+        }
+        assert_eq!(quantize_row_entry(2_147_483_646.5), Some(i32::MAX));
+        assert_eq!(quantize_row_entry(-2_147_483_648.5), Some(i32::MIN));
+        for t in [
+            2_147_483_647.5,
+            -2_147_483_649.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ] {
+            assert_eq!(quantize_row_entry(t), None, "t = {t}");
+        }
+    }
+
+    #[test]
+    fn mono_mix_kernel_matches_the_oracle_on_random_rows() {
+        let mut state = 0x5092_0001;
+        for _ in 0..20_000 {
+            let q = [0; 3].map(|_| (xorshift(&mut state) as i32) >> (xorshift(&mut state) % 8));
+            let x = [0; 3].map(|_| {
+                let v = xorshift(&mut state);
+                if v & 3 == 0 {
+                    65535 - (v >> 20) as u16 % 9000
+                } else {
+                    (v >> 8) as u16
+                }
+            });
+            assert_eq!(
+                mono_mix_pixel(&q, x),
+                mix_oracle(&q, x),
+                "row {q:?}, x {x:?}"
+            );
+        }
+    }
+
+    /// Verify (`SPEC-092`, HANDOFF-203): the public constants describe the
+    /// kernel, but the kernel reads private ones, so a change to one side alone
+    /// moved no test. Pin each public constant to its designed value and to
+    /// the private constant the kernel uses, and check the boundary it names.
+    #[test]
+    fn the_public_mixer_constants_are_the_kernels() {
+        assert_eq!(MONO_MIX_ROW_FRACTION_BITS, 24);
+        assert_eq!(MONO_MIX_FADE_WIDTH_BITS, 13);
+        assert_eq!(MONO_MIX_FADE_START, 57343);
+        assert_eq!((MONO_MIX_BLACK, MONO_MIX_WHITE), (0, 65535));
+        assert_eq!(MIX_ROW_SCALE, f64::from(1u32 << MONO_MIX_ROW_FRACTION_BITS));
+        assert_eq!(MIX_FADE_WIDTH, 1i64 << MONO_MIX_FADE_WIDTH_BITS);
+        assert_eq!(
+            MIX_SHIFT,
+            MONO_MIX_ROW_FRACTION_BITS + MONO_MIX_FADE_WIDTH_BITS
+        );
+        assert_eq!(MIX_HALF, 1i64 << (MIX_SHIFT - 1));
+        assert_eq!(
+            i64::from(MONO_MIX_FADE_START),
+            i64::from(MONO_MIX_WHITE) - MIX_FADE_WIDTH
+        );
+        // The last level with no fade is MONO_MIX_FADE_START, the next fades.
+        let q = [0, 1 << 30, -(1 << 30)];
+        let t = MONO_MIX_FADE_START;
+        assert_eq!(mono_mix_pixel(&q, [0, t, t]), 0);
+        assert_ne!(mono_mix_pixel(&q, [0, t + 1, t + 1]), 0);
+        // A unit weight on an identity entry is 2^MONO_MIX_ROW_FRACTION_BITS.
+        assert_eq!(
+            mix_row_of([1.0, 0.0, 0.0], &IDENTITY).unwrap(),
+            [1 << MONO_MIX_ROW_FRACTION_BITS, 0, 0]
+        );
+    }
+
+    /// Verify (`SPEC-092`, HANDOFF-203): the kernel rounds an exact tie up.
+    /// Only the local corpus digests saw a round-half-down kernel; these ties
+    /// put it in the CI suite. `q = 2^23` on `x = 1` is exactly half a code.
+    #[test]
+    fn the_kernel_rounds_an_exact_tie_up() {
+        assert_eq!(mono_mix_pixel(&[1 << 23, 0, 0], [1, 0, 0]), 1);
+        assert_eq!(mono_mix_pixel(&[1 << 23, 0, 0], [3, 0, 0]), 2);
+        // With the fade engaged: m = 61439, so u = 4096 and the negative term
+        // is weighed by one half. q = [0, 2^24, -2^24] on x = [0, 61439, 61438]
+        // is 61439 - 61438/2 = 30720 exactly; x_B = 61437 gives the tie
+        // 30720.5, which rounds up to 30721.
+        assert_eq!(
+            mono_mix_pixel(&[0, 1 << 24, -(1 << 24)], [0, 61439, 61438]),
+            30720
+        );
+        assert_eq!(
+            mono_mix_pixel(&[0, 1 << 24, -(1 << 24)], [0, 61439, 61437]),
+            30721
+        );
+        for x in [[1u16, 0, 0], [3, 0, 0]] {
+            assert_eq!(
+                mono_mix_pixel(&[1 << 23, 0, 0], x),
+                mix_oracle(&[1 << 23, 0, 0], x)
+            );
         }
     }
 }

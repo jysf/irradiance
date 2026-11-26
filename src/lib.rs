@@ -1235,6 +1235,41 @@ pub enum Error {
         /// The plane's height, `ImageLength`.
         height: u32,
     },
+
+    /// `SPEC-092`. The mono mixer's weights ([`color::mono_mix_row`],
+    /// [`color::mono_mix_plane_into`], [`color::mono_mix_plane_rows_into`]) are
+    /// not three non-negative rationals with positive denominators summing to
+    /// exactly one (`DEC-083` §1). `channel` is the first weight (0 = R, 1 = G,
+    /// 2 = B) with a denominator at or below zero or a negative numerator, or
+    /// `None` when every weight is well-formed but their exact sum is not one.
+    /// Checked first, before the file: the argument alone decides it.
+    InvalidMixWeights {
+        /// The first ill-formed weight's index, or `None` for a sum other than
+        /// one.
+        channel: Option<u8>,
+    },
+
+    /// `SPEC-092`. A mono mixer plane's destination
+    /// ([`color::mono_mix_plane_into`], [`color::mono_mix_plane_rows_into`])
+    /// does not hold one sample per pixel: `width * height` for the whole
+    /// plane, `(rows.end - rows.start) * width` for a band. The buffer is
+    /// caller-owned (`DEC-016`) and nothing is written into a wrong-sized one.
+    MonoBufferWrongLength {
+        /// The required length.
+        expected: u64,
+        /// `dst.len()` as given.
+        actual: usize,
+    },
+
+    /// `SPEC-092`. The mono mixer's folded row `v = wᵀ·M` (`DEC-079`) has an
+    /// entry that does not fit the fixed-point row (`DEC-083` §3): it is not
+    /// finite, or `v·2^24 + 0.5` lies outside `[−2^31, 2^31)` (about
+    /// `|v| ≥ 128`). This file's colour calibration is too extreme for the
+    /// `i32` row; no held file is within a factor of 34 of it.
+    MixRowOutOfRange {
+        /// The camera channel (0, 1 or 2) whose row entry is out of range.
+        channel: u8,
+    },
 }
 
 /// Why a preview IFD's bytes are not returned as one slice (`SPEC-062`,
@@ -1829,6 +1864,27 @@ impl fmt::Display for Error {
                     "row range {start}..{end} is not a non-empty range within the plane's {height} row(s)"
                 )
             }
+            Error::InvalidMixWeights { channel: Some(channel) } => {
+                write!(
+                    f,
+                    "mix weight {channel} is not a non-negative rational with a positive denominator"
+                )
+            }
+            Error::InvalidMixWeights { channel: None } => {
+                f.write_str("mix weights do not sum to exactly one")
+            }
+            Error::MonoBufferWrongLength { expected, actual } => {
+                write!(
+                    f,
+                    "mono buffer holds {actual} sample(s), expected {expected} (width x rows)"
+                )
+            }
+            Error::MixRowOutOfRange { channel } => {
+                write!(
+                    f,
+                    "the mixer's fixed-point row entry for camera channel {channel} is out of range"
+                )
+            }
         }
     }
 }
@@ -1929,7 +1985,9 @@ impl Error {
             | Error::InvalidWarpAlpha { .. }
             | Error::NonFiniteWarpCoefficients
             | Error::InvalidWriteInput(_)
-            | Error::InvalidRowRange { .. } => ErrorKind::CallerError,
+            | Error::InvalidRowRange { .. }
+            | Error::InvalidMixWeights { .. }
+            | Error::MonoBufferWrongLength { .. } => ErrorKind::CallerError,
 
             // Well-formed input this library does not decode. A non-TIFF or a
             // TIFF with no RAW sensor IFD is "not a file I read", and a file
@@ -1955,6 +2013,7 @@ impl Error {
             | Error::UnsupportedDngVersion { .. }
             | Error::UnsupportedTag { .. }
             | Error::MissingColorCalibration
+            | Error::MixRowOutOfRange { .. }
             | Error::LjpegUnsupportedProcess { .. }
             | Error::LjpegUnsupportedComponentCount { .. }
             | Error::LjpegUnsupportedPrecision { .. }

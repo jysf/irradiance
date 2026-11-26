@@ -54,6 +54,7 @@ local kernel mutants (each reverted) also went red: the `to_linear_f32_into` div
 | `tone::encode_srgb16_into` / `encode_srgb8_into` | integer lookup into the committed `tone_table` (the `powf` ran once, in the generator) | not hashed here; integer by construction |
 | `color.rs` — the sensor-geometry plane `srgb_linear_plane_into` / `srgb_linear_plane_f32_into` (`SPEC-091`), whose `u16` pixels are `develop_color_into`'s pixels before the crop | `f64`, committed-constant matrices, basic ops only (`+ − × ÷`, polynomials as `n·n·n`), no FMA, no transcendental — `DEC-033`; the unclamped `f32` form adds one `f64 ÷ 65535` and one IEEE round-to-nearest-even cast to `f32` | **measured** (`SPEC-091`): the colour fixture below, dual-illuminant so the convergent interpolation (`DEC-076`) runs. |
 | `color.rs` — the crop/orient sink of `develop_color_into` / `develop_color_f32_into`, and `to_srgb_linear_into` | the same `f64` arithmetic; the crop is a rearrangement, `develop_color_f32_into` one more `f32 ÷` | **not hashed separately.** Same arithmetic as the measured plane (`develop_color_into`'s pixels are the plane's, cut to the crop: `tests/linear_plane.rs` AC1), but no fixture hashes these outputs themselves. |
+| `color.rs` — the mono mixer `mono_mix_row` / `mono_mix_plane_into` / `mono_mix_plane_rows_into` (`SPEC-092`, `DEC-083`) | the row: the same `f64` matrix, then `v = (w_0·M[0][i] + w_1·M[1][i]) + w_2·M[2][i]` with basic ops (no FMA) and one exact quantiser `⌊v·2^24 + 0.5⌋`; the plane: exact `i64` integer arithmetic on the traversal's integer camera triples | **measured** (`SPEC-092`): the two rows and the two mono planes of the colour fixture below. |
 | `warp.rs` — `WarpRectilinear` bilinear resampling | `f64` coordinate map and bilinear weights | **unmeasured.** Named for completeness; not covered by any hash. |
 
 Rust does not fuse a multiply and an add into an FMA unless the source calls
@@ -90,6 +91,29 @@ by a factor of two. That test places the cancellation in channel 0's first term
 only; `color::tests::the_f32_sink_fuses_no_term_of_any_channel` (added at
 `SPEC-091`'s verify) places it at every term of every channel, so a `mul_add` on any
 of the nine products is caught.
+
+## The mono mixer on the colour fixture (`SPEC-092`)
+
+`mono_mix_hashes_match_committed` mixes the same colour fixture (its bytes unchanged)
+with two weight sets, luminance `[2126, 7152, 722]/10000` and the first one-hot set
+whose row has a negative entry (the red set `[1, 0, 0]`, asserted), and hashes each
+fixed-point row (12 little-endian bytes) and each mono plane against four committed
+constants. It also asserts the fade of negative weights changes at least one pixel
+(8 of the 384): the negative row's plane differs there from the plain fold of
+`demosaic_into`'s triples, computed in the test in `i128`. The test and
+`tests/mono_mix.rs`'s golden rows assert `MONO_MIX_VERSION == "1"` beside the
+constants: a new value needs a version bump in the same change. The extended
+`colour_determinism_red_proof` shows the one-bit sample flip moves both plane hashes
+(and leaves the rows alone), and a one-unit change of one `AsShotNeutral` numerator
+moves both row hashes.
+
+The row's own blind spot is the one above: a fused or reordered `f64` sum moves `v`
+by an ulp, far below the row's `2^-24` resolution. The rules are pinned by injected
+fixtures instead (`SPEC-091/FU-10`): `color::tests::ac11_the_row_fuses_no_term_of_any_channel`
+(the cancellation `0.1·3 − 0.3` at each of the nine fold sites) and
+`ac11_the_row_keeps_its_summation_order` (the two wrong pairings of each channel's
+three terms), each asserting the exact `f64` bits and that the mutant's value
+differs. The plane's step is integer, where order cannot matter.
 
 ## If a hash diverges
 
