@@ -130,6 +130,17 @@ existing output.
   SPEC-092 pins the plane with golden digests. The fixed-point row, `τ` and the weights
   rule are `DEC-083`.
 
+### Decided at SPEC-093 design (2026-11-26, `DEC-084` proposed)
+- **The developed mix** is `DevelopOptions::mono_mix: Option<[Rational; 3]>`: the mono
+  develop's warp, framing and orientation applied to SPEC-092's mixed plane, so onyx's
+  export equals its viewport by construction. Mixed in 512-row strips into caller
+  scratch; no version bump.
+- **Open, for onyx and jysf:** the held Q2 Monochrom's `FixBadPixelsConstant` and
+  `WarpRectilinear` are both mandatory. If colour Leica DNGs carry the same lists, every
+  colour entry refuses them today, the developed mix included (it cannot apply
+  `FixBadPixelsConstant` on a Bayer plane). To be measured on the first colour Leica
+  file; SPEC-093 lists it as Open question 1.
+
 ## Stage Plan
 
 Format: `- [status] STAGE-ID — one-line summary`
