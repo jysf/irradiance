@@ -58,7 +58,7 @@ handback:
   pr: 354
   completed_at: 2026-11-26         # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit, from transcript 0a0649c3-731f-4348-ac40-9bf00f022115.jsonl (106 unique message.ids, all claude-opus-5-5, no subagents): input 214 + cache-creation 319,410 (1-hour) + cache-read 27,034,526 + output 109,557, priced at 5 and 25 USD per million. Re-sum at ship. CI run 45855649150 on b822fa2 green on both determinism legs."
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-26
 ---
 
 # HANDOFF-202: The mixer at sensor geometry: weights-only rational API, the fixed-point row, the fade of negative weights near clip, the plane's black and white levels

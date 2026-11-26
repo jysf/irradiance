@@ -6,19 +6,19 @@
 task:
   id: SPEC-092
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -77,10 +77,30 @@ cost:
       duration_minutes: 75
       recorded_at: 2026-11-25
       notes: "Design in a side session started by the PROJ-006 orchestrator (reading, the corpus probe for the row and the fade threshold, DEC-083, this design, HANDOFF-202). Un-metered main-loop cycle; measured at the STAGE-031 close as orchestration cost."
+    - cycle: build
+      handoff: HANDOFF-202
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 27463707
+      estimated_usd: 19.45
+      duration_minutes: 38
+      recorded_at: 2026-11-26
+      notes: "FLOOR taken before the handback commit, from transcript 0a0649c3-731f-4348-ac40-9bf00f022115.jsonl (106 unique message.ids, all claude-opus-5-5, no subagents): input 214 + cache-creation 319,410 (1-hour) + cache-read 27,034,526 + output 109,557, priced at 5 and 25 USD per million. Re-sum at ship. CI run 45855649150 on b822fa2 green on both determinism legs."
+    - cycle: verify
+      handoff: HANDOFF-203
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 12293376
+      estimated_usd: 8.75
+      duration_minutes: 80
+      recorded_at: 2026-11-26
+      notes: "FLOOR taken before the handback commit, from transcript 29c227de-0fb7-46f6-8420-8dd83ce30639.jsonl (69 unique message.ids, all claude-opus-5-5, no subagents): input 145 + cache-creation 171,754 (1-hour) + cache-read 12,081,934 + output 39,543, priced at 5 and 25 USD per million."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 39757083
+    estimated_usd: 28.20
+    session_count: 3
 ---
 
 # SPEC-092: The mixer at sensor geometry: weights-only rational API, the fixed-point row, the fade of negative weights near clip, the plane's black and white levels
