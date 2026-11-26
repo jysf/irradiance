@@ -9,5 +9,5 @@ Cycle prompts live in `prompts/SPEC-092-<cycle>.md`.
 
 - [x] **design** — completed 2026-11-25 (DEC-083 proposed; design PR)
 - [x] **build** — prompt: `prompts/SPEC-092-build.md` (HANDOFF-202), PR #354, 27,463,707 tokens (floor), about 19.45 USD, 2026-11-26
-- [ ] **verify** — prompt: pending (waiting on build)
+- [~] **verify** — prompt: `prompts/SPEC-092-verify.md` (HANDOFF-203), in progress 2026-11-26
 - [ ] **ship** — prompt: pending (waiting on verify)
