@@ -2759,12 +2759,14 @@ mod tests {
         assert_eq!(crate::demosaic::RING, 8);
 
         let rational = |num, den| Rational { num, den };
-        let mut options = DevelopOptions::default();
-        options.mono_mix = Some([
-            rational(2126, 10000),
-            rational(7152, 10000),
-            rational(722, 10000),
-        ]);
+        let mut options = DevelopOptions {
+            mono_mix: Some([
+                rational(2126, 10000),
+                rational(7152, 10000),
+                rational(722, 10000),
+            ]),
+            ..DevelopOptions::default()
+        };
 
         // Fixture (iii): 20 x 1100, ActiveArea 18 x 1096, no warp:
         // 20·(519 + 8) = 10,540.

@@ -1151,6 +1151,9 @@ pub(crate) enum MixTarget {
 /// caller's `work` (`T` samples, [`crate::demosaic::mix_strip_work_len`]).
 /// Strips are output-invariant (the band's halo), so each value is the whole
 /// plane's [`mono_mix_plane_into`] value at that pixel.
+// Eight arguments: the develop's resolved pieces, each borrowed separately so
+// `develop_core` keeps owning its plan; bundling them would only rename them.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn developed_mix_strips(
     sensor: &Sensor,
     src: &[u16],

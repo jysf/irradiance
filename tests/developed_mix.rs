@@ -89,7 +89,7 @@ fn assert_rule(name: &str, sensor: &Sensor, src: &[u16]) -> usize {
 
 #[test]
 fn ac1_the_developed_mix_is_the_mono_develop_of_the_mixed_plane() {
-    let fixtures: [(&str, fn() -> (Sensor, Vec<u16>)); 5] = [
+    let fixtures: [(&str, FixtureFn); 5] = [
         ("(i) odd", odd),
         ("(ii) odd, warped", odd_warped),
         ("(iii) tall", tall),
@@ -136,10 +136,7 @@ fn ac1_hand_derived_pixels_under_orientation_6() {
 #[test]
 fn ac2_the_option_absent_is_develop_into() {
     assert_eq!(DevelopOptions::default().mono_mix, None);
-    for (name, fixture) in [
-        ("(i)", odd as fn() -> (Sensor, Vec<u16>)),
-        ("(ii)", odd_warped),
-    ] {
+    for (name, fixture) in [("(i)", odd as FixtureFn), ("(ii)", odd_warped)] {
         let (sensor, src) = fixture();
         let o = DevelopOptions::default();
         let (w, h) = output_dimensions_with(&sensor, &o).unwrap();

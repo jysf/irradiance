@@ -642,7 +642,7 @@ fn prepare_mix(
 
 #[test]
 fn ac10_the_developed_mix_allocates_nothing_with_scratch() {
-    let fixtures: [(&str, fn() -> (Sensor, Vec<u16>)); 3] = [
+    let fixtures: [(&str, developed_mix::FixtureFn); 3] = [
         ("(i)", developed_mix::odd),
         ("(ii)", developed_mix::odd_warped),
         ("(iii)", developed_mix::tall),
@@ -701,7 +701,7 @@ fn ac10_the_developed_mix_allocates_nothing_with_scratch() {
 #[test]
 fn ac10_the_developed_mix_allocates_once_without() {
     for (name, fixture) in [
-        ("(i)", developed_mix::odd as fn() -> (Sensor, Vec<u16>)),
+        ("(i)", developed_mix::odd as developed_mix::FixtureFn),
         ("(ii)", developed_mix::odd_warped),
         ("(iii)", developed_mix::tall),
     ] {

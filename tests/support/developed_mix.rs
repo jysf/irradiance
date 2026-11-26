@@ -179,6 +179,9 @@ pub fn colour_description(
     }
 }
 
+/// A fixture constructor: the parsed sensor and its unpacked plane.
+pub type FixtureFn = fn() -> (Sensor, Vec<u16>);
+
 /// Parse and unpack a description.
 pub fn read(d: &DngDescription) -> (Sensor, Vec<u16>) {
     let file = write_dng(d).expect("the fixture writes");
