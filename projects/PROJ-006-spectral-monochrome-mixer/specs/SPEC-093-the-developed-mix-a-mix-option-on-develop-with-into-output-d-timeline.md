@@ -8,6 +8,6 @@ Cycle prompts live in `prompts/SPEC-093-<cycle>.md`.
 ## Instructions
 
 - [x] **design** — completed 2026-11-26 (DEC-084 proposed; design PR)
-- [ ] **build** — prompt: `prompts/SPEC-093-build.md` (HANDOFF-204)
+- [x] **build** — prompt: `prompts/SPEC-093-build.md` (HANDOFF-204), PR #358, 50,795,351 tokens (floor), about 32.95 USD, 2026-11-26
 - [ ] **verify**
 - [ ] **ship**
