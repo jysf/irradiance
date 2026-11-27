@@ -146,7 +146,7 @@ existing output.
 Format: `- [status] STAGE-ID — one-line summary`
 
 - [x] STAGE-031 (shipped on 2026-11-27) — Colour to mono: SPEC-091 the white-balanced linear RGB step + working-space DEC (DEC-079), SPEC-092 the mixer at sensor geometry + the fade near clip (DEC-083), SPEC-093 the developed mix on `develop_with_into` (DEC-084)
-- [ ] STAGE-034 (active; framed in PR 357, SPEC-097 designed 2026-11-27 with DEC-085) — Leica colour bodies reach the colour path: SPEC-097 the M10 and M11 lossless-JPEG precision below `BitsPerSample`, then mandatory `FixBadPixelsConstant`/`WarpRectilinear` on the colour entries (the Q2, Q3 and SL3 files). Every onyx target body is refused until both ship
+- [ ] STAGE-034 (active; framed in PR 357; SPEC-097 shipped 2026-11-27 with DEC-085, the opcode spec next and not yet written) — Leica colour bodies reach the colour path: SPEC-097 the M10 and M11 lossless-JPEG precision below `BitsPerSample`, then mandatory `FixBadPixelsConstant`/`WarpRectilinear` on the colour entries (the Q2, Q3 and SL3 files). Every onyx target body is refused until both ship
 - [ ] (not yet framed) — Filter presets: five named weight sets ledgered as approximations, Q3 and M11 colour fixtures, judged on a colour Leica file
 - [ ] (not yet framed) — The release: publish the mixer to crates.io, additions only, semver clean
 
@@ -208,6 +208,15 @@ planes leave a mandatory `WarpRectilinear` to the viewport, and `FixBadPixelsCon
 before demosaic on every entry. Colour Q2, Q3, SL3, M10 and M11 DNGs are held as of
 2026-11-26. The Q3, M11 and SL3 come from Photography Blog's review galleries with no
 stated licence, so they stay in the local corpus only.
+
+## Open question for onyx, from SPEC-097 (2026-11-27)
+
+Since SPEC-097 the M10 and M11 unpack and reach every colour and mixer entry. An M10 frame
+has samples above its `WhiteLevel`: 5.2% of the held frame's samples, up to 16383 against
+15000, about 0.13 EV of raw headroom. They clip at white, as the DNG specification, the
+SDK and LibRaw do, so that range is discarded in every irradiance output. **Does onyx want
+highlight recovery from above `WhiteLevel`?** If it does, it is a later spec, by demand; no
+spec is written until onyx asks (SPEC-097/FU-6).
 
 ## Dependencies
 

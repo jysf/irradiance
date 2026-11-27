@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: S             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -71,36 +71,47 @@ cost:
   sessions:
     - cycle: design
       agent: claude-opus-5-5
-      interface: claude-code
-      tokens_total: null
-      estimated_usd: null
-      duration_minutes: 120
+      interface: other
+      basis: transcript
+      tokens_total: 20697301
+      estimated_usd: 14.75
+      duration_minutes: 22
       recorded_at: 2026-11-27
-      notes: "Design in a side session started by the PROJ-006 orchestrator: reading, the relaxed-check prototype on the M10 and M11, dng_validate stage 1 and 2, dnglab and LibRaw runs, the absent-WhiteLevel copy, synthetic precision fixtures, the SDK source read, DEC-085, this design, HANDOFF-206. Un-metered main-loop cycle; measured at the STAGE-034 close as orchestration cost."
+      notes: "Design in a side session started by the PROJ-006 orchestrator: reading, the relaxed-check prototype on the M10 and M11, dng_validate stage 1 and 2, dnglab and LibRaw runs, the absent-WhiteLevel copy, synthetic precision fixtures, the SDK source read, DEC-085, this design, HANDOFF-206. Measured at ship (2026-11-27) over the whole transcript 871eb085-066b-4e58-acd5-56286c5b3df8.jsonl (101 unique message.ids, all claude-opus-5-5, no subagents): input 207 + cache-creation 247,064 (1-hour) + cache-read 20,366,223 + output 83,807, priced at 5 and 25 USD per million, cache reads 0.1x, 1-hour writes 2x. Duration is the transcript's first-to-last timestamp. Counted here, so the STAGE-034 orchestration cost must not count this transcript again."
     - cycle: build
       handoff: HANDOFF-206
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 17442907
-      estimated_usd: 11.98
-      duration_minutes: 24
+      tokens_total: 19799984
+      estimated_usd: 13.43
+      duration_minutes: 31
       recorded_at: 2026-11-27
-      notes: "Measured live from this session transcript, deduplicated by message.id: a floor."
+      notes: "Re-summed at ship (2026-11-27) over the whole transcript d1d145e9-e536-4427-a4d1-f25cfc3dff8e.jsonl (99 unique message.ids, all claude-opus-5-5, no subagents): input 201 + cache-creation 222,226 (1-hour) + cache-read 19,519,664 + output 57,893, priced as the design. The handback's floor was 17,442,907 / 11.98 USD, taken before the handback commit. CI run 46021168302 on 4a02aa0 green, 25 checks."
     - cycle: verify
       handoff: HANDOFF-207
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 15174129
-      estimated_usd: 10.18
-      duration_minutes: 50
+      tokens_total: 18466889
+      estimated_usd: 12.24
+      duration_minutes: 27
       recorded_at: 2026-11-27
-      notes: "Floor, measured live from transcript f32aa39b-afea-4a0a-a3c6-79ec81471dc7.jsonl, deduplicated by message.id; re-sum at ship. USD at Opus 5.5 rates (5/25 per M, cache reads 0.5, 1-hour cache writes 2x)."
+      notes: "Re-summed at ship (2026-11-27) over the whole transcript f32aa39b-afea-4a0a-a3c6-79ec81471dc7.jsonl (99 unique message.ids, all claude-opus-5-5, no subagents): input 209 + cache-creation 180,178 (1-hour) + cache-read 18,233,622 + output 52,880, priced as the design. The handback's floor was 15,174,129 / 10.18 USD, measured live. CI run 46022034252 green."
+    - cycle: ship
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 6020531
+      estimated_usd: 4.81
+      duration_minutes: 30
+      recorded_at: 2026-11-27
+      notes: "Ship in a side session started by the PROJ-006 orchestrator: re-summing the three earlier transcripts, archive, follow-ups, signals, stage and brief, DEC-085 promotion, brag. A floor, measured from transcript 857a1846-47bb-4e29-b381-dfb88195578f.jsonl (43 unique message.ids, all claude-opus-5-5, no subagents) before the commit, the PR and the CI watch: input 88 + cache-creation 135,984 (1-hour) + cache-read 5,863,555 + output 20,904, priced as the design."
   totals:
-    tokens_total: 32617036
-    estimated_usd: 22.16
-    session_count: 3
+    tokens_total: 64984705
+    estimated_usd: 45.23
+    session_count: 4
+shipped_at: 2026-11-27
 ---
 
 # SPEC-097: Accept a lossless-JPEG precision below BitsPerSample, the Leica M10 file
@@ -489,31 +500,52 @@ None blocks the build.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Match the Tier-A fixtures to the real files' frame layout before the handoff. The
+   Leica frames are two-component (Nf = 2), and AC1's grid was all Nf = 1, so a decode
+   fault on that layout was caught only by the Tier-B pins, which never run in CI (the
+   verify's mutant). And grep for every literal count a corpus change moves, not only the
+   named constants: two more sites hard-coded the manifest's counts.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — DEC-085 is promoted to accepted at this ship (the verify ruled it sound); it amends
+   DEC-077 §3, which already carries the dated note. No template change now. Three
+   signals take evidence: `named-tests-can-pass-vacuously` (the Leica test skips an absent
+   file), `fuzz-targets-without-a-ci-smoke-job` (its hygiene patch also makes the hand-run
+   fuzz path create its corpus directory), and `a-changed-formula-lists-every-assertion-it-moves`
+   (a recurrence after codification: the count list missed two sites and the handback's
+   deviations missed one).
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec from this one. STAGE-034's second spec, mandatory `FixBadPixelsConstant`
+   and `WarpRectilinear` on the colour entries for the Q2, Q3 and SL3, is already in the
+   stage backlog and is next. Highlight recovery above `WhiteLevel` is a question for onyx
+   in the PROJ-006 brief, a spec only if onyx asks.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, every Leica M10 and M11 colour DNG failed at unpack with
+   `LjpegPrecisionMismatch { precision: 14, bits_per_sample: 16 }`, so no colour, mixer or
+   developed-mix entry could run on onyx's first-priority M bodies. Now both unpack
+   bit-identical to `dng_validate`'s stage 1 and dnglab's checksum (`a1c6050a…` and
+   `9ae8c096…`), reach every colour and mixer entry with `Ok`, and match every
+   registered digest (8 FNV-1a) and both developed sizes, with no output changed for any file that
+   developed before.
+
+## Follow-ups
+
+Raised in HANDOFF-206 (build) and HANDOFF-207 (verify). The verify numbered FU-1 to FU-4;
+FU-5 and FU-6 are numbered here from the build's and design's notes. The verify's tests are
+in PR 363, merged into PR 362 and squashed into `027af45`. The M11's licence class, the
+design's other open item, was settled by the maintainer at the build
+(`personal-evaluation-only`, 2026-11-27).
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | V: AC1 had no Nf = 2 cell, so a decode fault on the Leica layout at P below `BitsPerSample` reached CI unseen (caught only by Tier-B pins) | `fixed` — verify, `tests/ljpeg_precision_binding.rs:252` `ac1_two_component_precision_below_bits_per_sample_decodes_unchanged` |
+| `FU-2` | V: AC4 reached only the mono path at `BitsPerSample` 16, where "white from `BitsPerSample`" and "always 65535" agree | `fixed` — verify, `tests/ljpeg_precision_binding.rs:378` `ac4_white_default_is_bits_per_sample_on_mono_and_colour` |
+| `FU-3` | V [XS]: `tests/leica_colour.rs` continues past an absent Leica file and reports only a count, so a partial corpus passes it vacuously | `signal: named-tests-can-pass-vacuously` — evidence added (same shape as SPEC-093/FU-7); the set-means-must-run check at its project close closes it |
+| `FU-4` | B, V [XS]: `fuzz/corpus/plane` must be made by hand in a fresh worktree before the plane target runs; CI already runs `mkdir -p` | `signal: fuzz-targets-without-a-ci-smoke-job` — scope added to its scheduled hygiene patch: the hand-run fuzz path creates each target's corpus directory |
+| `FU-5` | B, V: the design's count list missed `manifest_preview_pins_parse` and the `CFA_CHECKED_ELSEWHERE` partition, and the build's handback left the second out of its deviation list | `signal: a-changed-formula-lists-every-assertion-it-moves` — recurrence after codification recorded; tightening candidate is a deviation list read off the diff |
+| `FU-6` | Design open question: the M10's raw headroom above `WhiteLevel` (about 0.13 EV, 5.2% of samples) clips, as the SDK and LibRaw do | `closed` — recorded as a question for onyx in the PROJ-006 brief (Open questions); a spec only if onyx asks for highlight recovery |

@@ -107,10 +107,10 @@ This stage has to ship before the mixer's crates.io release.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-097 (design) — [S] accept a lossless-JPEG precision below `BitsPerSample` (the M10 and M11 files) (DEC-085 proposed; HANDOFF-206)
-- [ ] (not yet written) — mandatory `FixBadPixelsConstant` and `WarpRectilinear` on the colour entries, under onyx's two rules in Design Notes (the Q2, Q3 and SL3 files)
+- [x] SPEC-097 (shipped on 2026-11-27) — [S] accept a lossless-JPEG precision below `BitsPerSample` (the M10 and M11 files) (DEC-085 accepted; design PR 361, build PR 362, verify PR 363)
+- [ ] (not yet written; next) — mandatory `FixBadPixelsConstant` and `WarpRectilinear` on the colour entries, under onyx's two rules in Design Notes (the Q2, Q3 and SL3 files)
 
-**Count:** 0 shipped / 1 active / 1 pending
+**Count:** 1 shipped / 0 active / 1 pending
 
 ## Design Notes
 
@@ -135,6 +135,15 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   refusals left on held files are the Q2, Q3 and SL3 mandatory opcodes.
 - Files that develop today must not change, so `DEVELOP_VERSION` is unchanged unless a
   spec says why.
+- **SPEC-097 shipped (2026-11-27).** The M10 and M11 unpack bit-identical to
+  `dng_validate`'s stage 1 and dnglab, and reach every colour and mixer entry with `Ok`.
+  The only refusals left on held files are the Q2, Q3 and SL3 mandatory opcodes, which the
+  next spec takes. onyx is asked in the PROJ-006 brief whether it wants highlight recovery
+  above the M10's `WhiteLevel`; that is not a spec here.
+- **Orchestration cost at this stage's close:** SPEC-097's design transcript
+  (`871eb085`) is counted in SPEC-097's own cost, so it must not be counted again here.
+  The orchestrator's entry starts after 2026-11-27T06:00Z (STAGE-031 counted up to then),
+  and the `leica-dng-search` transcript (`30266aa6`) belongs to this stage.
 
 ## Dependencies
 

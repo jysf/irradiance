@@ -426,6 +426,11 @@ signals:
       just test's corpus-status lines show the gap before the suite runs, but nothing fails.
       The check this signal accepted (set means must run, as tests/colour_sdk.rs and
       tests/dng_write_corpus.rs do) would close it; owned by this signal's project-close.
+      ══ SPEC-097 SHIP, 2026-11-27: new evidence (HANDOFF-207, SPEC-097/FU-3). ══
+      tests/leica_colour.rs continues past a Leica file absent from the corpus and reports
+      only a count, the same shape as SPEC-093's AC4. With the M11 held locally only, a
+      runner holding just the CC0 M10 passes the M11 half vacuously. Same fix, same owner:
+      the set-means-must-run check at this signal's project close.
 
   # --- golden-path: capture freely, promote almost never ----------------------
   - id: findings-carry-ids-across-boundaries
@@ -1883,9 +1888,21 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-20
-    last_touched: 2026-11-23
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
+      ══ SPEC-097 SHIP, 2026-11-27: recurrence after codification (SPEC-097/FU-5). ══
+      SPEC-097's design listed the corpus counts to bump (the manifest entries and
+      PINNED_PREVIEWS) but missed two more sites that hard-code the same facts:
+      tests/corpus_manifest.rs's manifest_preview_pins_parse (21 to 28) and
+      tests/ifd_reader.rs's CFA_CHECKED_ELSEWHERE partition (both Leica files). The build
+      found both by a test run, so no defect; but its handback listed only the first as a
+      deviation, and the verify (HANDOFF-207) found the second only through the build's
+      findings note. Two gaps in one: the Moved assertions grep missed literal counts, and
+      a handback's deviation list is written from memory, not from the diff. The build's
+      own fix: grep every literal count of manifest entries and previews before the first
+      run. Candidate tightening if it recurs: the handback's deviations are read off
+      git diff --stat against the spec's Outputs list, file by file.
       ══ STAGE-029 CLOSE, 2026-11-23: CODIFIED. ══ Bar reached (N=3).
       projects/_templates/spec.md's Failing Tests section now carries a "Moved
       assertions" paragraph: grep the tests for every behaviour the spec changes or
@@ -2056,6 +2073,13 @@ signals:
       demosaic and develop targets (option bit 6); the build and the verify each ran 61 s by
       hand, no crash. Still scheduled as the hygiene patch; it now has four specs' entries
       behind it, so it should land before the PROJ-006 release.
+      ══ SPEC-097 SHIP, 2026-11-27: scope added (SPEC-097/FU-4, HANDOFF-206 and HANDOFF-207). ══
+      Not a new instance of the missing jobs: the plane target has its CI job, and the job
+      runs mkdir -p fuzz/corpus/plane first. But AGENTS.md's hand-run fuzz commands do not,
+      and corpus/ is gitignored, so in a fresh worktree the plane run fails until the
+      directory is made by hand (the build hit it). The same hygiene patch should make the
+      hand-run path create its corpus directory, for every target (a just recipe per target
+      that runs mkdir -p, or the mkdir in AGENTS.md's commands).
   - id: ljpeg-private-doc-links-break-the-private-items-doc-build
     type: process-debt
     summary: "cargo doc --no-deps --document-private-items with warnings denied fails on 13 intra-doc links in the private ljpeg module, with or without features. just doc-check does not build private items, so nothing gates it."
