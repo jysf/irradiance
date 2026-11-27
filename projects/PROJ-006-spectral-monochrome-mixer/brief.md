@@ -146,7 +146,7 @@ existing output.
 Format: `- [status] STAGE-ID — one-line summary`
 
 - [x] STAGE-031 (shipped on 2026-11-27) — Colour to mono: SPEC-091 the white-balanced linear RGB step + working-space DEC (DEC-079), SPEC-092 the mixer at sensor geometry + the fade near clip (DEC-083), SPEC-093 the developed mix on `develop_with_into` (DEC-084)
-- [ ] STAGE-034 (active; framed in PR 357; SPEC-097 shipped 2026-11-27 with DEC-085, the opcode spec next and not yet written) — Leica colour bodies reach the colour path: SPEC-097 the M10 and M11 lossless-JPEG precision below `BitsPerSample`, then mandatory `FixBadPixelsConstant`/`WarpRectilinear` on the colour entries (the Q2, Q3 and SL3 files). Every onyx target body is refused until both ship
+- [ ] STAGE-034 (active; framed in PR 357; SPEC-097 shipped 2026-11-27 with DEC-085; SPEC-098 designed 2026-11-27 with DEC-086 and split, the developed warp now SPEC-099) — Leica colour bodies reach the colour path: SPEC-097 the M10 and M11 lossless-JPEG precision below `BitsPerSample`, then mandatory `FixBadPixelsConstant`/`WarpRectilinear` on the colour entries (the Q2, Q3 and SL3 files). Every onyx target body is refused until both ship
 - [ ] (not yet framed) — Filter presets: five named weight sets ledgered as approximations, Q3 and M11 colour fixtures, judged on a colour Leica file
 - [ ] (not yet framed) — The release: publish the mixer to crates.io, additions only, semver clean
 
@@ -217,6 +217,17 @@ has samples above its `WhiteLevel`: 5.2% of the held frame's samples, up to 1638
 SDK and LibRaw do, so that range is discarded in every irradiance output. **Does onyx want
 highlight recovery from above `WhiteLevel`?** If it does, it is a later spec, by demand; no
 spec is written until onyx asks (SPEC-097/FU-6).
+
+## Open questions for onyx, from SPEC-098's design (2026-11-27)
+
+The Q2, Q3 and SL3 carry a mandatory `WarpRectilinear` with `N = 3`: one coefficient set
+per colour plane, up to 1.3 px apart at the image corner (lateral chromatic aberration).
+After SPEC-098 their linear and mixed planes reach the viewport unwarped, as onyx asked.
+1. **Which set does the viewport apply?** Each plane with its own set before mixing, or
+   one set over the mixed plane, and if so which? DEC-084 makes the developed mix equal the
+   viewport, so this answer decides SPEC-099's developed mix.
+2. **Does the viewport read the three sets from `OpcodeList3`'s bytes itself,** or does it
+   need irradiance to expose them (today `parse_warp_rectilinear` returns the first set)?
 
 ## Dependencies
 

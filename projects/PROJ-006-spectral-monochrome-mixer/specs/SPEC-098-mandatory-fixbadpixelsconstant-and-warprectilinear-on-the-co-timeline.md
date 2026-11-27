@@ -7,4 +7,7 @@ Cycle prompts live in `prompts/SPEC-098-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] design — 2026-11-27, side session of the PROJ-006 orchestrator; split (warp → SPEC-099), DEC-086 proposed, HANDOFF-208
+- [ ] build — `prompts/SPEC-098-build.md` (HANDOFF-208)
+- [ ] verify
+- [ ] ship
