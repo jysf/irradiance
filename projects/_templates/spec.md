@@ -136,7 +136,11 @@ of it (each malformed class, each entry point, each numeric path) to a named
 test above, and say which code path that test must reach. Name the path where the
 clause changes the output, not just one that runs it: a clause tested only where it
 is unobservable leaves a mutant the build's suite cannot see (signal
-`every-rule-clause-maps-to-a-reachable-test`).
+`every-rule-clause-maps-to-a-reachable-test`). Three clauses need a row of their own:
+a public constant named as part of the contract (a test ties it to the computation
+that uses it), an order word (first, last, before: a fixture that combines it with
+the fault it must follow), and a pair of faults the design calls impossible (state
+the counter-example search that shows it, or test the pair).
 
 **Distinguishing fixture.** For each pre-registered mutant, and for each quantifier
 (every / any), count (exactly one / many), ordering (lowest / first walked) or
@@ -144,6 +148,10 @@ alternative formula in the rule, name the fixture on which the right and the wro
 answer differ. A fixture where they agree (one value, a symmetric white balance, sets
 that do not interleave, a loop that always hits its cap) reaches the clause and still
 cannot fail (signal `a-designed-mutant-must-be-able-to-fail-on-its-fixture`).
+Check it per point, not per fixture: compute the mutant's value at every point the
+fixture lists. And compare the mutant's effect, or a red-proof's perturbation, with
+the output's quantum: an `f64` change smaller than one `u16` code (one ulp of a
+coefficient, an FMA) moves no output, so size the perturbation from a probe.
 
 **Moved assertions.** When this spec changes, removes or reverses a behaviour
 (including a clause of an earlier `DEC-*`), grep the tests for every assertion that
@@ -151,6 +159,12 @@ encodes the old behaviour (pins, refusal tests, hand-written oracles, fixtures b
 on the old shape) and list each one here as a pre-approved move, with what it becomes.
 A short list sends the build round the gate once per missed test (signal
 `a-changed-formula-lists-every-assertion-it-moves`).
+
+**Claims about existing code.** Every fact this design states about code it does not
+change (a free option bit, which tags a fixture removes, where a constant lives, which
+module a type compiles in) cites the `file:line` it was read from. A fact written from
+memory sends the build into a probe loop when the code says otherwise (signal
+`read-the-kernel-before-deciding-the-approach`).
 
 ## Non-Goals
 

@@ -410,7 +410,7 @@ signals:
     status: accepted
     disposition_at: project-close
     first_flagged: 2026-08-21
-    last_touched: 2026-08-21
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       ACCEPTED AS A CHECK, not a signal -- the reviewer's argument is that a signal
@@ -420,6 +420,12 @@ signals:
       target and saw "0 passed" for four of five; the reviewer's tail -40 cut the
       lib target off the top -- the same error in opposite directions on one day),
       and it must run WITH the corpus.
+      ══ SPEC-093 SHIP, 2026-11-27: new evidence (HANDOFF-205 V-3). ══
+      tests/developed_mix.rs's ac4_held_files_match_the_oracle_and_the_digests continues
+      past any held file missing from the corpus, so a partial corpus passes it vacuously.
+      just test's corpus-status lines show the gap before the suite runs, but nothing fails.
+      The check this signal accepted (set means must run, as tests/colour_sdk.rs and
+      tests/dng_write_corpus.rs do) would close it; owned by this signal's project-close.
 
   # --- golden-path: capture freely, promote almost never ----------------------
   - id: findings-carry-ids-across-boundaries
@@ -874,7 +880,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-09-06
-    last_touched: 2026-11-25
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: no instance (colour-develop/threading stage), still N=2, trigger unchanged. ══
@@ -927,6 +933,7 @@ signals:
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
       ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
       ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-031 CLOSE, 2026-11-27: walked, stays watch, no new instance. ══
 
   - id: handback-sync-treats-hash-as-comment-in-unquoted-notes
     type: process-debt
@@ -1170,7 +1177,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-10-30
-    last_touched: 2026-11-25
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       ══ STAGE-014 CLOSE, 2026-11-21: walked, stays watch, APPLIED not violated. Re-measuring four inherited outlines on main before framing found one obsolete (DEC-029 removed its error) and one half overtaken; framing from the old text would have specced dead work. ══
@@ -1211,6 +1218,11 @@ signals:
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
       ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
       ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, APPLIED not violated. SPEC-096's design probe built the requested red-proof faults (Instant::now, std::fs) for wasm32 before writing any script and found both compile, so the red-proof uses faults that really break the build. ══
+      ══ STAGE-031 CLOSE, 2026-11-27: walked, stays watch, not counted. ══ The stage's hard
+      assumption (the mix is monotone through clipping) was probed on the held corpus at
+      DEC-079's design. That every onyx target Leica body is refused on the colour path
+      surfaced only at SPEC-093, when the first colour Leica files arrived; none was held at
+      frame, so no probe was possible. It became STAGE-034 rather than a split here.
 
   # --- lesson: a named algorithm/dependency can be patent-encumbered ----------
   - id: patent-check-named-algorithms-at-frame
@@ -1221,7 +1233,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-01
-    last_touched: 2026-11-25
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: no instance, still N=1. ══ No named/patented
@@ -1255,6 +1267,7 @@ signals:
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
       ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
       ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-031 CLOSE, 2026-11-27: walked, stays watch, no new instance. ══
 
   # --- golden-path: a reusable bit-exact oracle harness --------------------------
   - id: reusable-bit-exact-oracle-harness
@@ -1324,7 +1337,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-02
-    last_touched: 2026-11-25
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       ══ STAGE-012 CLOSE, 2026-11-09: no instance, still N=1. ══ The threading specs
@@ -1358,6 +1371,8 @@ signals:
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
       ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
       ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-031 CLOSE, 2026-11-27: walked, stays watch, no new instance. SPEC-092's
+      quantiser refuses out-of-range t explicitly and AC14 tests the refusal, not only the output. ══
 
   # --- lesson: a round-trip oracle is blind to a helper both halves share ------
   - id: shared-path-oracle-tautology
@@ -1529,12 +1544,12 @@ signals:
   - id: read-the-kernel-before-deciding-the-approach
     type: lesson
     summary: "Read the exact code path a change hooks into (the real traversal/kernel, not your memory of it) BEFORE writing the decision's approach — the first design draft can commit to a mechanism the actual code makes wrong or needless."
-    evidence: "N=2, STAGE-012 2026-11-09. SPEC-050's first DEC-043 draft framed the colour crop as 'develop the active-area window and reflect at its edge', which would have changed near-edge pixel values and broken the 'colours unchanged from SPEC-047' criterion. Reading `develop_color_fused` (it walks the WHOLE plane and emits `pixel = y*w + x`, with the SPEC-047 origin offset inside) redirected the decision to a sink-side scatter that keeps the kernel byte-for-byte — same result, no near-edge change. Caught at design before the handoff, but a kernel read up front would have skipped the wrong draft. STAGE-017 2026-11-24: SPEC-061's design claimed InvalidWriteInput and UnsupportedOpcodeForFraming exist in every build while placing their payload types in the feature-gated src/dng/write.rs; the build found the contradiction in the module layout, and DEC-080 moved the types to the always-compiled src/write_types.rs."
+    evidence: "N=3, bar reached 2026-11-27 (SPEC-093's design: a used fuzz bit and a fixture's calibration, HANDOFF-204). N=2, STAGE-012 2026-11-09. SPEC-050's first DEC-043 draft framed the colour crop as 'develop the active-area window and reflect at its edge', which would have changed near-edge pixel values and broken the 'colours unchanged from SPEC-047' criterion. Reading `develop_color_fused` (it walks the WHOLE plane and emits `pixel = y*w + x`, with the SPEC-047 origin offset inside) redirected the decision to a sink-side scatter that keeps the kernel byte-for-byte — same result, no near-edge change. Caught at design before the handoff, but a kernel read up front would have skipped the wrong draft. STAGE-017 2026-11-24: SPEC-061's design claimed InvalidWriteInput and UnsupportedOpcodeForFraming exist in every build while placing their payload types in the feature-gated src/dng/write.rs; the build found the contradiction in the module layout, and DEC-080 moved the types to the always-compiled src/write_types.rs."
     bar: "N=3 same-outcome"
-    status: watch
+    status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-09
-    last_touched: 2026-11-25
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       Capture, do NOT promote — N=1. Distinct from
@@ -1548,6 +1563,13 @@ signals:
       ══ STAGE-017 CLOSE, 2026-11-25: N=1 -> N=2, stays watch. SPEC-061's design put the Error payload types in the feature-gated write module while claiming the variants exist in every build; the build found the contradiction in the code and DEC-080 moved them to src/write_types.rs. Related, not counted: SPEC-094's Context said every other fuzz target had a CI job, and develop and demosaic do not. ══
       ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
       ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-031 CLOSE, 2026-11-27: N=2 -> N=3, CODIFIED. ══ SPEC-093's design stated
+      two facts about existing code that the code contradicts: the develop fuzz target's
+      'spare bit 5' (it has been black_levels since SPEC-066) and 'F10 removes ColorMatrix1'
+      (with ForwardMatrix1 present, removing CM1 alone still calibrates). The build
+      (HANDOFF-204) found each by a probe loop. projects/_templates/spec.md's Failing Tests
+      section now carries a 'Claims about existing code' paragraph: every fact the design
+      states about code it does not change cites the file:line it was read from.
 
   # --- process-debt: confirm a PR head advanced before treating a push as merged
   - id: confirm-pr-head-advanced-before-treating-pushed-commit-as-merged
@@ -1609,7 +1631,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-12
-    last_touched: 2026-11-25
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Same family as [[tolerant-oracle-cannot-pin-structure]]
@@ -1625,6 +1647,9 @@ signals:
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch at N=2. SPEC-082's M6 (a tag-order check only on a fixture without XMP) falls under the codified a-designed-mutant-must-be-able-to-fail-on-its-fixture rule, not this one. ══
       ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
       ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-031 CLOSE, 2026-11-27: walked, stays watch at N=2. SPEC-093's wrongly skipped
+      (F8, F13) pair is an impossible-pair claim, not a shadowed guard; it went to the
+      tightened rule-clause map (every-rule-clause-maps-to-a-reachable-test). ══
   - id: closed-form-numeric-needs-extreme-magnitude-fixtures
     type: lesson
     summary: "A closed-form numeric check specified as 'exact, no tolerance' was tested for NaN and degenerate shapes but not for finite extremes; huge finite inputs overflowed an intermediate and flipped a refusal into an admission. Give every numeric guard a fixture at the extremes of the finite range."
@@ -1633,7 +1658,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-12
-    last_touched: 2026-11-25
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Falsifier, cheap at design: for each numeric guard,
@@ -1647,6 +1672,9 @@ signals:
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
       ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
       ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-031 CLOSE, 2026-11-27: walked, stays watch, APPLIED not violated. SPEC-092's
+      AC14 pinned the kernel at i32::MAX and i32::MIN rows and the quantiser at its finite
+      edges before the build. ══
 
   - id: analytic-oracle-premise-must-survive-rounding
     type: lesson
@@ -1656,7 +1684,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-13
-    last_touched: 2026-11-25
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Falsifier, cheap at design: compute the oracle's
@@ -1675,6 +1703,10 @@ signals:
       was stated without the f64 to f32 cast, whose half-ulp at [0.5, 1) is 65535/2^25 ≈
       0.00195 codes; a Canon pixel sat 0.5029 codes away. The build widened the slack by
       exactly that half-ulp; the verify confirmed mutant (c) still fails.
+      ══ STAGE-031 CLOSE, 2026-11-27: walked, stays watch at N=2. SPEC-093's one-ulp
+      red-proof (one ulp of a warp coefficient moves no u16 pixel) is the same shape as
+      SPEC-091's mutant (k), an effect below the output's quantum, and is counted under
+      a-designed-mutant-must-be-able-to-fail-on-its-fixture with it. ══
 
   # --- process-debt: whole-corpus tier-B tests are slow in the debug profile -----
   - id: slow-tier-b-tests-in-debug
@@ -1702,7 +1734,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-14
-    last_touched: 2026-11-25
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Falsifier, cheap at review: for any test using a
@@ -1713,6 +1745,8 @@ signals:
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
       ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
       ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-031 CLOSE, 2026-11-27: walked, stays watch, no new instance. SPEC-093's AC10
+      counts on the per-thread tally. ══
 
   - id: spec-must-carry-what-the-probe-number-depended-on
     type: lesson
@@ -1722,7 +1756,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-14
-    last_touched: 2026-11-25
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Falsifier at design: diff the probe's final code
@@ -1732,6 +1766,7 @@ signals:
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
       ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
       ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-031 CLOSE, 2026-11-27: walked, stays watch, no new instance. ══
 
   - id: a-faster-test-lane-can-blind-tests-that-measure-the-compiler
     type: lesson
@@ -1741,7 +1776,7 @@ signals:
     status: watch
     disposition_at: stage-close
     first_flagged: 2026-11-18
-    last_touched: 2026-11-25
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       Capture, do NOT promote: N=1. Falsifier at design: grep the tests for global
@@ -1750,6 +1785,8 @@ signals:
       ══ STAGE-017 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
       ══ STAGE-032 CLOSE, 2026-11-25: walked, no new instance (release-only stage). ══
       ══ STAGE-033 CLOSE, 2026-11-25: walked, stays watch, no new instance. ══
+      ══ STAGE-031 CLOSE, 2026-11-27: walked, stays watch, no new instance. SPEC-093's
+      allocation tests run in the debug re-run inside just test. ══
 
   - id: generated-artifact-filenames-near-the-path-limit
     type: process-debt
@@ -1810,7 +1847,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-19
-    last_touched: 2026-11-26
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       ══ STAGE-016 CLOSE, 2026-11-19: CODIFIED. ══ Bar reached at N=3 (SPEC-059's V24).
@@ -1831,6 +1868,13 @@ signals:
       of a contract, and an order word (first, last, before), each need their own row.
       SPEC-093's Context carries both as design inputs. Tightening the template is the
       STAGE-031 close's call.
+      ══ STAGE-031 CLOSE, 2026-11-27: template tightened, stays codified. ══ SPEC-093
+      applied SPEC-092's two shapes (AC8 an order oracle per ranked pair, AC9 a test per
+      contract constant) and its verify found each red under mutation. It added a third
+      shape: the design called (F8, F13) impossible, and one WarpRectilinear block that is
+      both malformed and tangential carries both (HANDOFF-205 V-1, closed by a test). The
+      Rule-clause map paragraph now names three clauses that need their own row: a public
+      contract constant, an order word, and a fault pair called impossible.
   - id: a-changed-formula-lists-every-assertion-it-moves
     type: lesson
     summary: "When a spec changes or removes a behaviour, the design greps every test that encodes it (pins, refusal tests and hand-written oracles), and lists them all in the spec as pre-approved moves. A short list stops the build for approval mid-cycle."
@@ -1858,7 +1902,7 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-20
-    last_touched: 2026-11-26
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       ══ STAGE-027 CLOSE, 2026-11-22: CODIFIED. ══ Bar reached (N=5). projects/_templates/spec.md's
@@ -1892,6 +1936,28 @@ signals:
       each mutant's value at every point the fixture lists would have shown both. This is
       the second recurrence the 2026-11-23 note asked to watch for; the wording question
       goes to the STAGE-031 close.
+      ══ STAGE-031 CLOSE, 2026-11-27: template tightened, stays codified. ══ SPEC-093's
+      AC11 red-proof asked for one ulp of a warp coefficient; one ulp moves no u16 pixel
+      on the colour fixture, and the build measured 2^-26 as the smallest power-of-two step
+      that moves both warped hashes (HANDOFF-204 deviation 2, confirmed by HANDOFF-205). With
+      SPEC-091's (k) and SPEC-092's two per-point misses, that is three recurrences since
+      codification, so the Distinguishing fixture paragraph now says: check per point, and
+      compare a mutant's effect or a red-proof's perturbation with the output's quantum.
+  - id: red-first-covers-only-the-integration-suite
+    type: lesson
+    summary: "A build applies test-before-implementation to the spec's integration suite (stubbed public surface, every test failing at run time) and writes the unit, allocation and determinism tests after the code, so their red rests on mutants alone."
+    evidence: "N=2. SPEC-092 (HANDOFF-202, FU-3): the tests were written in the same session as the code, code first; accepted because every pre-registered mutant was red. SPEC-093 (HANDOFF-204 deviation 6, HANDOFF-205 ruling 6): only tests/developed_mix.rs was seen failing against the stub; the develop.rs and opcode.rs unit tests, the allocation tests, the determinism hashes and the Entry rows came after, each later shown red by a mutant. No defect followed from either."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-27
+    last_touched: 2026-11-27
+    raised_by: claude
+    notes: |
+      Capture, do NOT promote: N=2. The build's own fix (HANDOFF-204 reflection 3): write
+      the unit and allocation tests against the stub too. Falsifier for a third instance: a
+      test written after the code that no mutant turns red. Related to the
+      test-before-implementation constraint, which this does not yet change.
   - id: validate-does-not-parse-feedback-or-docs
     type: process-debt
     summary: "`just validate` parses front matter only under projects/ and decisions/, so feedback/ and docs/ front matter is never checked, and an AC that says 'validate parses it' is unenforced."
@@ -1969,12 +2035,12 @@ signals:
   - id: fuzz-targets-without-a-ci-smoke-job
     type: process-debt
     summary: "Two of the eight fuzz targets, develop and demosaic, have no 60 s fuzz smoke job in CI, and demosaic has no just recipe either, so they run only when someone fuzzes them by hand."
-    evidence: "N=1, SPEC-094 (PR 339): its Context said every other fuzz target had a CI smoke job; the verify (HANDOFF-196) found develop and demosaic have none. Predates PROJ-005. N=2, SPEC-091 (HANDOFF-198): four new public entries joined the demosaic target, still with no CI job. N=3, SPEC-092 (HANDOFF-202, HANDOFF-203): the three mixer entries joined it, still with no CI job."
+    evidence: "N=1, SPEC-094 (PR 339): its Context said every other fuzz target had a CI smoke job; the verify (HANDOFF-196) found develop and demosaic have none. Predates PROJ-005. N=2, SPEC-091 (HANDOFF-198): four new public entries joined the demosaic target, still with no CI job. N=3, SPEC-092 (HANDOFF-202, HANDOFF-203): the three mixer entries joined it, still with no CI job. N=4, SPEC-093 (HANDOFF-204, HANDOFF-205): the developed mix joined demosaic and develop, still with no CI job."
     bar: null
     status: accepted
     disposition_at: project-close
     first_flagged: 2026-11-25
-    last_touched: 2026-11-26
+    last_touched: 2026-11-27
     raised_by: claude
     notes: |
       Recorded at the STAGE-017 close. Small: two CI jobs shaped like the dng_write one,
@@ -1986,6 +2052,10 @@ signals:
       ══ SPEC-092 SHIP, 2026-11-26: N=2 -> N=3. ══ The three mixer entries joined the
       demosaic target (the verify ran 5.4M inputs in 61 s by hand, no crash); they too are
       fuzzed only by hand. Still scheduled as the hygiene patch.
+      ══ SPEC-093 SHIP, 2026-11-27: N=3 -> N=4. ══ The developed mix joined both the
+      demosaic and develop targets (option bit 6); the build and the verify each ran 61 s by
+      hand, no crash. Still scheduled as the hygiene patch; it now has four specs' entries
+      behind it, so it should land before the PROJ-006 release.
   - id: ljpeg-private-doc-links-break-the-private-items-doc-build
     type: process-debt
     summary: "cargo doc --no-deps --document-private-items with warnings denied fails on 13 intra-doc links in the private ljpeg module, with or without features. just doc-check does not build private items, so nothing gates it."
