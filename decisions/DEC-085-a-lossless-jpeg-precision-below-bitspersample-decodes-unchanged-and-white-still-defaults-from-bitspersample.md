@@ -21,7 +21,7 @@ repo:
 created_at: 2026-11-27
 supersedes: null                   # amends DEC-077 §3; DEC-077 stays active
 superseded_by: null
-status: proposed
+status: accepted                     # at the SPEC-097 ship, 2026-11-27 (verify HANDOFF-207 ruled it sound); jysf accepts by merging the ship PR
 deciders: [claude, jysf]
 
 affected_scope:
@@ -29,7 +29,7 @@ affected_scope:
   - src/lib.rs
   - tests/ljpeg_precision_binding.rs
   - decisions/DEC-077-the-develop-refuses-tags-that-change-sample-meaning-and-a-newer-dng-backward-version.md
-  - projects/PROJ-006-spectral-monochrome-mixer/specs/SPEC-097-accept-a-lossless-jpeg-precision-below-bitspersample-the-lei.md
+  - projects/PROJ-006-spectral-monochrome-mixer/specs/done/SPEC-097-accept-a-lossless-jpeg-precision-below-bitspersample-the-lei.md
 
 tags:
   - lossless-jpeg
