@@ -33,6 +33,7 @@ use irradiance::develop::{
 use irradiance::ifd::{Container, Sensor};
 use irradiance::plane::unpack_into;
 use irradiance::{Error, DEVELOP_VERSION};
+use opcode_support::single_warp_rectilinear_list;
 
 /// Every options set of AC1: Orientation 1 to 8 (set in the sensor) × both
 /// framings × `apply_orientation`, at `warp_alpha` 1; then `warp_alpha` 0 and
@@ -346,6 +347,111 @@ fn ac6_the_mix_refuses_a_malformed_fix_bad_pixels_and_scratch_len_ignores_it() {
     assert!(dst.iter().all(|&v| v == SENTINEL));
     // ...and its scratch length does not read it.
     assert_same!(scratch_len(&sensor, &mix), scratch_len(&odd().0, &mix));
+}
+
+/// `SPEC-098` verify: the developed mix's strips (`MIX_STRIP_ROWS`, 512 rows)
+/// see the bad-pixel fix across a strip edge. Fixture (iii) is 1100 rows tall,
+/// so its strips end near rows 512 and 1024 (framed rows from row 8, active
+/// rows from row 3). A column of bad photosites crosses each edge, so every
+/// candidate there reads neighbours one and two rows into the next strip. The
+/// whole-plane `mono_mix_plane_into` inside the oracle has no strips; AC5's
+/// 20-row scene fits in one strip and could not show this.
+#[test]
+fn ac5_the_mix_strips_see_the_fix_across_a_strip_edge() {
+    for fixture in [tall as FixtureFn, tall_warped] {
+        let (plain, mut src) = fixture();
+        assert!(!src.contains(&0), "no photosite equals the Constant yet");
+        let width = plain.width as usize;
+        for y in (505..=530).chain(1015..=1040) {
+            src[y * width + 6] = 0;
+        }
+        let mut sensor = plain.clone();
+        set_list(&mut sensor, 1, Some(mandatory_fix_bad_pixels()));
+        for framing in [Framing::StandardCrop, Framing::FullActiveArea] {
+            let o = options(framing, true, 1.0);
+            let fixed = developed(&sensor, &src, LUMINANCE, &o);
+            assert_same!(fixed, oracle(&sensor, &src, &LUMINANCE, &o));
+            assert_ne!(
+                fixed.unwrap(),
+                developed(&plain, &src, LUMINANCE, &o).unwrap(),
+                "{framing:?}: the fix changed nothing"
+            );
+        }
+    }
+}
+
+/// `SPEC-098` verify, the build's `scratch_len` deviation: under the mix an
+/// optional first warp whose `N` is not 1 is skipped (`DEC-086` item 6), and
+/// `scratch_len` sizes it as skipped, so the scratch form takes exactly that
+/// length and equals the allocating form and the no-warp mix. With `N = 1`
+/// the same coefficients are applied and sized as a warp. Without the mix
+/// (the mono develop) an `N = 3` warp is neither skipped nor resized. A
+/// mandatory `N = 3` warp is refused on both mix entries.
+#[test]
+fn ac6_the_mix_sizes_an_optional_multi_plane_warp_as_it_develops() {
+    let (plain, src) = odd();
+    let warped = |n: u32, flags: u32| {
+        let mut s = plain.clone();
+        let list = single_warp_rectilinear_list(RADIAL, [0.0, 0.0], 0.5, 0.5, n, flags);
+        set_list(&mut s, 3, Some(list));
+        s
+    };
+    for framing in [Framing::StandardCrop, Framing::FullActiveArea] {
+        let mono = options(framing, true, 1.0);
+        let mix = with_mix(&mono, LUMINANCE);
+
+        // The mix: an optional N = 3 warp is skipped, and sized as skipped.
+        let n3 = warped(3, 1);
+        assert_same!(scratch_len(&n3, &mix), scratch_len(&plain, &mix));
+        assert_same!(
+            developed(&n3, &src, LUMINANCE, &mono),
+            developed(&plain, &src, LUMINANCE, &mono)
+        );
+        // The same coefficients with N = 1 are applied, and need more scratch.
+        let n1 = warped(1, 1);
+        assert!(scratch_len(&n1, &mix).unwrap() > scratch_len(&plain, &mix).unwrap());
+        assert_ne!(
+            developed(&n1, &src, LUMINANCE, &mono).unwrap(),
+            developed(&plain, &src, LUMINANCE, &mono).unwrap(),
+            "{framing:?}: the N = 1 warp is applied by the mix"
+        );
+
+        // The mono develop: N = 3 sized as N = 1, applied, scratch form equal.
+        assert_same!(scratch_len(&n3, &mono), scratch_len(&n1, &mono));
+        let (w, h) = output_dimensions_with(&n3, &mono).unwrap();
+        let mut allocating = vec![SENTINEL; (w * h) as usize];
+        develop_with_into(&n3, &src, &mut allocating, &mono).expect("mono develops");
+        let mut scratch = vec![0u16; scratch_len(&n3, &mono).unwrap()];
+        let mut with_scratch = vec![SENTINEL; allocating.len()];
+        develop_with_scratch_into(&n3, &src, &mut with_scratch, &mut scratch, &mono)
+            .expect("mono scratch develops");
+        assert_eq!(with_scratch, allocating, "{framing:?}: mono scratch form");
+        let mut unwarped = vec![SENTINEL; allocating.len()];
+        develop_with_into(&plain, &src, &mut unwarped, &mono).expect("mono develops");
+        assert_ne!(
+            allocating, unwarped,
+            "{framing:?}: the mono develop warps N = 3"
+        );
+
+        // A mandatory N = 3 warp: refused on both mix entries, before any write.
+        let mandatory = warped(3, 0);
+        let mut dst = vec![SENTINEL; output_len(&mandatory, &mix)];
+        assert_same!(
+            develop_with_into(&mandatory, &src, &mut dst, &mix),
+            Err::<(), Error>(Error::UnsupportedRequiredOpcode { list: 3, id: 1 })
+        );
+        let mut scratch = vec![0u16; scratch_len(&mandatory, &mix).unwrap()];
+        assert_same!(
+            develop_with_scratch_into(&mandatory, &src, &mut dst, &mut scratch, &mix),
+            Err::<(), Error>(Error::UnsupportedRequiredOpcode { list: 3, id: 1 })
+        );
+        assert!(dst.iter().all(|&v| v == SENTINEL));
+    }
+}
+
+fn output_len(sensor: &Sensor, options: &DevelopOptions) -> usize {
+    let (w, h) = output_dimensions_with(sensor, options).unwrap();
+    (w * h) as usize
 }
 
 #[test]
