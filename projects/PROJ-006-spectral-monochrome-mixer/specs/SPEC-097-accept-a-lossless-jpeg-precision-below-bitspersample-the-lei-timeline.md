@@ -8,6 +8,6 @@ Cycle prompts live in `prompts/SPEC-097-<cycle>.md`.
 ## Instructions
 
 - [x] **design** — completed 2026-11-27 (DEC-085 proposed; design PR)
-- [ ] **build** — prompt: `prompts/SPEC-097-build.md` (HANDOFF-206)
+- [x] **build** — completed 2026-11-27 (HANDOFF-206; prompt `prompts/SPEC-097-build.md`)
 - [ ] **verify**
 - [ ] **ship**
