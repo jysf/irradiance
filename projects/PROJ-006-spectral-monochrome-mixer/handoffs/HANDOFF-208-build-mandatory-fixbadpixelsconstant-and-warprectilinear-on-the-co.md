@@ -58,7 +58,7 @@ handback:
   pr: null
   completed_at: 2026-11-27         # YYYY-MM-DD
   notes: "Floor, measured live from this session's transcript (db3b4676), 119 deduplicated messages: input 249, cache creation 354,425, cache read 34,360,863, output 118,638; no subagents. USD at 5/25 per M with 1-hour cache writes."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-27
 ---
 
 # HANDOFF-208: Mandatory FixBadPixelsConstant on the colour entries and WarpRectilinear passed through at sensor geometry, the Q2, Q3 and SL3 files

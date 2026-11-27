@@ -100,6 +100,64 @@ const FIXED_AT_LEFT_1: [(u32, u32, u16); 21] = [
     (23, 19, 2768),
 ];
 
+/// The origin scene with the `ActiveArea` at (top 1, left 0, bottom 20,
+/// right 24): row 0 is masked (its three bad photosites stay 0), and every
+/// row's colour parity flips. **Not SDK values**: worked by the SPEC-098
+/// verifier's own model of `DEC-086` item 3 (a script outside the crate), and
+/// cross-checked where the SDK has an equivalent site: 14 of the 17 candidates
+/// equal `FIXED_AT_LEFT_1` (one row of shift flips the parity as one column
+/// does). A row parity from the plane origin changes 15 of the 17.
+const FIXED_AT_TOP_1: [(u32, u32, u16); 20] = [
+    (0, 0, 0),
+    (1, 0, 0),
+    (23, 0, 0),
+    (3, 1, 1164),
+    (1, 3, 1196),
+    (6, 6, 21510),
+    (7, 6, 10577),
+    (6, 7, 10593),
+    (7, 7, 1660),
+    (18, 8, 22090),
+    (12, 10, 21974),
+    (13, 10, 11011),
+    (16, 10, 22122),
+    (18, 10, 22196),
+    (20, 10, 22270),
+    (18, 12, 22302),
+    (12, 14, 22186),
+    (14, 14, 22260),
+    (0, 19, 10991),
+    (23, 19, 2768),
+];
+
+/// The origin scene with the `ActiveArea` at (top 0, left 0, bottom 19,
+/// right 23): column 23 and row 19 are masked, so (23, 0), (0, 19) and
+/// (23, 19) are not candidates and stay 0. Every other site is
+/// `FIXED_AT_ORIGIN`'s SDK value: the masked sites are `Constant` either way,
+/// so no candidate counts them (SPEC-098 verify).
+const FIXED_INSIDE_BOTTOM_RIGHT: [(u32, u32, u16); 20] = [
+    (0, 0, 1090),
+    (1, 0, 10090),
+    (23, 0, 0),
+    (3, 1, 21199),
+    (1, 3, 21221),
+    (6, 6, 1540),
+    (7, 6, 10572),
+    (6, 7, 10598),
+    (7, 7, 21630),
+    (18, 8, 2055),
+    (12, 10, 1974),
+    (13, 10, 11011),
+    (16, 10, 2097),
+    (18, 10, 0),
+    (20, 10, 2295),
+    (18, 12, 2337),
+    (12, 14, 2161),
+    (14, 14, 2285),
+    (0, 19, 0),
+    (23, 19, 0),
+];
+
 /// Which `ActiveArea` the scene is developed with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scene {
@@ -107,6 +165,10 @@ enum Scene {
     Origin,
     /// `ActiveArea` (0, 1, 20, 24), set on the parsed `Sensor`.
     Left1,
+    /// `ActiveArea` (1, 0, 20, 24), set on the parsed `Sensor` (verify).
+    Top1,
+    /// `ActiveArea` (0, 0, 19, 23), set on the parsed `Sensor` (verify).
+    InsideBottomRight,
     /// As `Origin`, with a 4×4 `BlackLevelRepeatDim` of zero blacks: the same
     /// levels, read through the colour path's per-photosite black pattern
     /// (`DEC-068` §2) rather than its four 2×2 slots.
@@ -118,6 +180,8 @@ impl Scene {
         match self {
             Scene::Origin | Scene::Pattern => &FIXED_AT_ORIGIN,
             Scene::Left1 => &FIXED_AT_LEFT_1,
+            Scene::Top1 => &FIXED_AT_TOP_1,
+            Scene::InsideBottomRight => &FIXED_INSIDE_BOTTOM_RIGHT,
         }
     }
 }
@@ -182,6 +246,22 @@ fn sensor_for(scene: Scene, mosaic: &[u16], list1: Option<&[u8]>) -> (Sensor, Ve
     if scene == Scene::Pattern {
         sensor.black_level_repeat_dim = Some([4, 4]);
         sensor.black_levels = vec![0; 16];
+    }
+    if scene == Scene::InsideBottomRight {
+        sensor.active_area = Some(ActiveArea {
+            top: 0,
+            left: 0,
+            bottom: H - 1,
+            right: W - 1,
+        });
+    }
+    if scene == Scene::Top1 {
+        sensor.active_area = Some(ActiveArea {
+            top: 1,
+            left: 0,
+            bottom: H,
+            right: W,
+        });
     }
     if scene == Scene::Left1 {
         sensor.active_area = Some(ActiveArea {
@@ -328,6 +408,22 @@ fn ac1_the_kernel_fills_from_the_four_nearest_same_colour_photosites() {
 #[test]
 fn ac1_colour_is_indexed_from_the_active_area_origin() {
     assert_fixed_like_the_sdk(Scene::Left1, 0, &fbpc_list(0, 0, MANDATORY));
+}
+
+/// `SPEC-098` verify: the row parity is taken from the `ActiveArea` top too.
+/// The SDK-derived scenes have top 0, so a row parity from the plane origin
+/// passed them.
+#[test]
+fn ac1_colour_rows_are_indexed_from_the_active_area_top() {
+    assert_fixed_like_the_sdk(Scene::Top1, 0, &fbpc_list(0, 0, MANDATORY));
+}
+
+/// `SPEC-098` verify: the `ActiveArea`'s bottom and right are exclusive. No
+/// SDK-derived scene ends inside the plane, so a candidate test reaching one
+/// past them passed.
+#[test]
+fn ac1_the_active_area_bottom_and_right_are_exclusive() {
+    assert_fixed_like_the_sdk(Scene::InsideBottomRight, 0, &fbpc_list(0, 0, MANDATORY));
 }
 
 /// AC1 under a black pattern larger than 2×2: the fix sits at that
@@ -480,6 +576,37 @@ fn ac4_the_fix_reads_raw_samples() {
     }
 }
 
+/// `SPEC-098` verify: AC4 under a black pattern larger than 2×2 (the other
+/// normaliser), with every black 512. The pattern scene's blacks are 0, where
+/// normalising is the identity, so a fix moved after that normaliser's levels
+/// passed it.
+#[test]
+fn ac4_the_fix_reads_raw_samples_under_a_black_pattern() {
+    let below_black = [(10, 2), (11, 3), (4, 17)];
+    let with_black = |mosaic: &[u16], list1: Option<&[u8]>| {
+        let mut m = mosaic.to_vec();
+        for (x, y) in below_black {
+            m[index(x, y)] = 100;
+        }
+        let (mut sensor, src) = sensor_for(Scene::Pattern, &m, list1);
+        sensor.black_level = Some(512);
+        sensor.black_levels = vec![512; 16];
+        (sensor, src)
+    };
+    let (with_list, bad_src) = with_black(
+        &bad_mosaic(Scene::Pattern, 0),
+        Some(&fbpc_list(0, 0, MANDATORY)),
+    );
+    let (reference, fixed_src) = with_black(&fixed_mosaic(Scene::Pattern, 0), None);
+    for entry in ENTRIES {
+        assert_eq!(
+            ok(entry, &with_list, &bad_src),
+            ok(entry, &reference, &fixed_src),
+            "{entry:?}: the fix did not run on raw values"
+        );
+    }
+}
+
 /// AC5: the fix sits at the one raw read, so every traversal sees the same
 /// fixed value: bands tiling the plane equal the whole plane, the threaded
 /// develops equal the single-thread one, and the developed mix's scratch form
@@ -556,4 +683,39 @@ fn ac5_bands_threads_and_strips_equal_the_whole() {
     let mut plain = vec![0u16; allocating.len()];
     develop_with_into(&unfixed, &src, &mut plain, &options).expect("unfixed mix");
     assert_ne!(plain, allocating, "the mix's fix changed nothing");
+}
+
+/// `SPEC-098` verify: the mean rounds a tie up (`DEC-086` item 3,
+/// `⌊(t + ⌊n/2⌋) / n⌋`). The AC1 scene is a linear ramp, so none of its sites
+/// is a tie and a round-half-down kernel passes it. Two ties are made here by
+/// nudging one neighbour each, with the expected values worked by hand:
+/// - red (10, 4): neighbours (10, 2) 1476, (8, 4) 1508, (12, 4) 1656 + 2 =
+///   1658, (10, 6) 1688; sum 6330, n = 4, mean 1582.5, so **1583**;
+/// - green (5, 0) on the top edge: diagonals (4, 1) 10201 and (6, 1) 10275 + 1
+///   = 10276; sum 20477, n = 2, mean 10238.5, so **10239**.
+///
+/// No other bad photosite reads either nudged sample.
+#[test]
+fn ac1_a_tie_rounds_half_up() {
+    let nudge = |m: &mut Vec<u16>| {
+        m[index(12, 4)] += 2;
+        m[index(6, 1)] += 1;
+    };
+    let mut bad = bad_mosaic(Scene::Origin, 0);
+    nudge(&mut bad);
+    bad[index(10, 4)] = 0;
+    bad[index(5, 0)] = 0;
+    let mut fixed = fixed_mosaic(Scene::Origin, 0);
+    nudge(&mut fixed);
+    fixed[index(10, 4)] = 1583;
+    fixed[index(5, 0)] = 10239;
+    let (with_list, bad_src) = sensor_for(Scene::Origin, &bad, Some(&fbpc_list(0, 0, MANDATORY)));
+    let (reference, fixed_src) = sensor_for(Scene::Origin, &fixed, None);
+    for entry in ENTRIES {
+        assert_eq!(
+            ok(entry, &with_list, &bad_src),
+            ok(entry, &reference, &fixed_src),
+            "{entry:?}: a tie did not round half up"
+        );
+    }
 }

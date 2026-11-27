@@ -6,19 +6,19 @@
 task:
   id: SPEC-098
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -77,10 +77,30 @@ cost:
       duration_minutes: 180
       recorded_at: 2026-11-27
       notes: "Design in a side session started by the PROJ-006 orchestrator: reading, dng_validate stage 1/2/3 on the three files, the SDK bad-pixel source read, synthetic CFA DNGs through dng_validate, an uncommitted prototype driven on every colour and mixer entry and through the whole corpus suite, the manifest count audit, the split into SPEC-099, DEC-086, this design, HANDOFF-208. Un-metered main-loop cycle; measured at the STAGE-034 close as orchestration cost."
+    - cycle: build
+      handoff: HANDOFF-208
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 34834175
+      estimated_usd: 23.69
+      duration_minutes: 95
+      recorded_at: 2026-11-27
+      notes: "Floor, measured live from this session's transcript (db3b4676), 119 deduplicated messages: input 249, cache creation 354,425, cache read 34,360,863, output 118,638; no subagents. USD at 5/25 per M with 1-hour cache writes."
+    - cycle: verify
+      handoff: HANDOFF-209
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 24643404
+      estimated_usd: 16.62
+      duration_minutes: 150
+      recorded_at: 2026-11-27
+      notes: "Floor, measured live from this session transcript (e804d70e), 114 deduplicated messages: input 242, cache creation 261,088, cache read 24,307,802, output 74,272; no subagents. USD at 5/25 per M with 1-hour cache writes. The commit, PR and CI wait after the measurement are not counted."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 59477579
+    estimated_usd: 40.31
+    session_count: 3
 ---
 
 # SPEC-098: Mandatory FixBadPixelsConstant on the colour entries and WarpRectilinear passed through at sensor geometry, the Q2, Q3 and SL3 files

@@ -92,7 +92,10 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   mandatory instance is still `UnsupportedRequiredOpcode { list: 1, id: 4 }`,
   and a malformed first one, optional or not, is now `MalformedOpcodeParams {
   id: 4, .. }` on these paths. The demosaic and colour-transform primitives
-  still refuse a mandatory one.
+  still refuse a mandatory one. A file with no CFA that carries one (the Leica
+  Q2 Monochrom) is still refused by these entries, now at the CFA check
+  (`NotAColorFilterArray`) where it was `UnsupportedRequiredOpcode { list: 1,
+  id: 4 }`.
 - **The sensor-geometry planes pass a mandatory `WarpRectilinear` through**
   (SPEC-098, DEC-086). `srgb_linear_plane_*` and `mono_mix_plane_*` accept the
   first `WarpRectilinear` in `OpcodeList3`, whatever its `N`, and leave it to the
