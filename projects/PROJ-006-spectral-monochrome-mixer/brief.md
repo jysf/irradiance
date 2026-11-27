@@ -4,8 +4,8 @@
 
 project:
   id: PROJ-006
-  status: proposed
-  activity: requirements
+  status: active
+  activity: design
   priority: medium
   target_ship: null
 
@@ -145,12 +145,12 @@ existing output.
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [ ] STAGE-031 (proposed) — Colour to mono: SPEC-091 the white-balanced linear RGB step + working-space DEC, SPEC-092 the mixer at sensor geometry + clip rule, SPEC-093 the developed mix on `develop_with_into` (outlines, chained)
-- [ ] STAGE-034 (proposed) — Leica colour bodies reach the colour path: SPEC-097 the M10 and M11 lossless-JPEG precision below `BitsPerSample`, then mandatory `FixBadPixelsConstant`/`WarpRectilinear` on the colour entries (the Q2, Q3 and SL3 files). Every onyx target body is refused until both ship
+- [x] STAGE-031 (shipped on 2026-11-27) — Colour to mono: SPEC-091 the white-balanced linear RGB step + working-space DEC (DEC-079), SPEC-092 the mixer at sensor geometry + the fade near clip (DEC-083), SPEC-093 the developed mix on `develop_with_into` (DEC-084)
+- [ ] STAGE-034 (proposed, next; framed in PR 357) — Leica colour bodies reach the colour path: SPEC-097 the M10 and M11 lossless-JPEG precision below `BitsPerSample`, then mandatory `FixBadPixelsConstant`/`WarpRectilinear` on the colour entries (the Q2, Q3 and SL3 files). Every onyx target body is refused until both ship
 - [ ] (not yet framed) — Filter presets: five named weight sets ledgered as approximations, Q3 and M11 colour fixtures, judged on a colour Leica file
 - [ ] (not yet framed) — The release: publish the mixer to crates.io, additions only, semver clean
 
-**Count:** 0 shipped / 0 active / 4 pending
+**Count:** 1 shipped / 0 active / 3 pending
 
 ## onyx's answers (2026-11-23)
 

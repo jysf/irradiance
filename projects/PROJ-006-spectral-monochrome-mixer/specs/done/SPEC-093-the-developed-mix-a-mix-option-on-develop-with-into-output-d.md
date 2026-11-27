@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -82,25 +82,26 @@ cost:
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 50795351
-      estimated_usd: 32.95
+      tokens_total: 55124174
+      estimated_usd: 35.41
       duration_minutes: 75
       recorded_at: 2026-11-27
-      notes: "FLOOR taken before the handback commit, from transcript 3a1702f3-fb46-4b6d-808b-f0a4d0906600.jsonl (146 unique message.ids, all claude-opus-5-5, no subagents): input 311 + cache-creation 430,377 (1-hour) + cache-read 50,223,435 + output 141,228, priced at 5 and 25 USD per million. Re-sum at ship. CI run 45898355595 on 6b29c48 green, 25 checks, both determinism legs."
+      notes: "Re-summed at ship (2026-11-27) over the whole transcript 3a1702f3-fb46-4b6d-808b-f0a4d0906600.jsonl (155 unique message.ids, all claude-opus-5-5, no subagents): input 329 + cache-creation 440,334 (1-hour) + cache-read 54,533,891 + output 149,620, priced at 5 and 25 USD per million, cache reads 0.1x, 1-hour writes 2x. The handback's floor was 50,795,351 / 32.95 USD, taken before the handback commit. CI run 45898355595 on 6b29c48 green, 25 checks, both determinism legs."
     - cycle: verify
       handoff: HANDOFF-205
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 21924077
-      estimated_usd: 17.05
+      tokens_total: 24939839
+      estimated_usd: 18.80
       duration_minutes: 240
       recorded_at: 2026-11-27
-      notes: "Floor, measured live from transcript ef47f062-3d10-4ec0-8ce2-86a58d193f1b.jsonl, deduplicated by message.id; re-sum at ship. Wall time includes an app restart that killed the mutant run part way (resumed). USD at Opus 5.5 rates, 1-hour cache writes."
+      notes: "Re-summed at ship (2026-11-27) over the whole transcript ef47f062-3d10-4ec0-8ce2-86a58d193f1b.jsonl (111 unique message.ids, claude-opus-5-5 plus synthetic entries with no usage, no subagents): input 226 + cache-creation 468,687 (1-hour) + cache-read 24,394,286 + output 76,640, priced as the build. The handback's floor was 21,924,077 / 17.05 USD, measured live. Wall time includes an app restart that killed the mutant run part way (resumed)."
   totals:
-    tokens_total: 72719428
-    estimated_usd: 50.00
+    tokens_total: 80064013
+    estimated_usd: 54.21
     session_count: 3
+shipped_at: 2026-11-27
 ---
 
 # SPEC-093: The developed mix: a mix option on develop_with_into, output_dimensions_with and scratch_len, through the existing geometry and resampling
@@ -360,7 +361,7 @@ absent.
 
 Pre-registered. Every check is exact; there is no tolerance in this spec.
 
-- [ ] **AC1, the rule on Tier-A fixtures (`DEC-084` item 1).** For every fixture × options
+- [x] **AC1, the rule on Tier-A fixtures (`DEC-084` item 1).** For every fixture × options
   × weights below, `develop_with_into` with the mix equals the §2 oracle (computed in the
   test from `mono_mix_plane_into` and a `develop_with_into` without the mix on
   `mono_of(sensor)`), and `develop_with_scratch_into` with exactly `scratch_len` samples
@@ -386,16 +387,16 @@ Pre-registered. Every check is exact; there is no tolerance in this spec.
   - Plus three hand-derived literal checks on fixture (i), Orientation 6, `StandardCrop`,
     no warp: named output pixels equal named `mixed` samples (coordinates worked out in
     the test, not through `crop_source_coords`).
-- [ ] **AC2, the option absent is today (Tier A).** `DevelopOptions::default().mono_mix`
+- [x] **AC2, the option absent is today (Tier A).** `DevelopOptions::default().mono_mix`
   is `None`; on fixtures (i) and (ii) developed as mono, `develop_with_into` with options
   whose `mono_mix` is `None` equals `develop_into`; every existing determinism constant
   and Tier-B pin is unchanged (AC13).
-- [ ] **AC3, the strip count and `T`'s cap (Tier A).** Width-8 fixtures whose ActiveArea is
+- [x] **AC3, the strip count and `T`'s cap (Tier A).** Width-8 fixtures whose ActiveArea is
   the whole plane, under `FullActiveArea` with no warp, at heights 512 (one strip
   exactly), 513 (two strips, the second one row), 519 and 520 (where `min(h, S + 7)`
   stops growing): each developed mix equals the oracle, and `scratch_len` with the mix
   is `8·(min(h, 519) + 8)` = 4,160, 4,168, 4,216 and 4,216, written as literals.
-- [ ] **AC4, the held files (Tier B, all five).** With the luminance weights, for each
+- [x] **AC4, the held files (Tier B, all five).** With the luminance weights, for each
   options set the developed mix equals the §2 oracle computed in the test, **and** its
   FNV-1a digest (little-endian `u16`) equals this table (oracle values measured by the
   design probe, 2026-11-26; a mismatch is reported, never edited). `DEVELOP_VERSION ==
@@ -413,11 +414,11 @@ Pre-registered. Every check is exact; there is no tolerance in this spec.
   `scale_max = 1.0015292540192604`, as its mono develop is. `scratch_len` with the mix
   equals §7's numbers on every file and options set above, and on the Pixel 3a and 7 Pro
   (default options) also equals the mono develop's `scratch_len` for `mono_of(sensor)`.
-- [ ] **AC5, `black_levels` is not read (Tier A).** On fixture (i) (its blacks differ by
+- [x] **AC5, `black_levels` is not read (Tier A).** On fixture (i) (its blacks differ by
   position), the developed mix under `BlackLevels::FirstValue` and `PerPosition` is
   identical and equals the oracle; the same fixture developed as mono differs between
   the two (asserted, so the fixture can tell).
-- [ ] **AC6, the opcodes (`DevelopPath::MonoMix`, Tier A).** (i) A mandatory
+- [x] **AC6, the opcodes (`DevelopPath::MonoMix`, Tier A).** (i) A mandatory
   `FixBadPixelsConstant` in `OpcodeList1`: the mix is
   `UnsupportedRequiredOpcode { list: 1, id: 4 }` on `develop_with_into` and
   `develop_with_scratch_into`, while the same file developed as mono succeeds. (ii) A
@@ -432,9 +433,9 @@ Pre-registered. Every check is exact; there is no tolerance in this spec.
   `DevelopPath::MonoMix` is unit-tested against the same lists: list 1 refuses every
   mandatory opcode, list 2 accepts every `GainMap`, list 3 accepts the first
   `WarpRectilinear` only; its malformed sets equal `Colour`'s.
-- [ ] **AC7, the four `Entry` tables.** Each gains `develop_with_into` and
+- [x] **AC7, the four `Entry` tables.** Each gains `develop_with_into` and
   `develop_with_scratch_into` with the mix (`DevelopPath::MonoMix`), and every row passes.
-- [ ] **AC8, the ranked refusals (`FU-6`, Tier A).** One representative fault per rank of
+- [x] **AC8, the ranked refusals (`FU-6`, Tier A).** One representative fault per rank of
   §3, each a single change to a valid fixture (i) with the mix:
 
   | Rank | Fault |
@@ -468,7 +469,7 @@ Pre-registered. Every check is exact; there is no tolerance in this spec.
     every other fault alone; `scratch_len` returns F0, F1, F4 and F8's errors (pairs: the
     lower rank's) and `Ok` with §7's length for every other fault alone, F2 and an
     optional malformed `FixBadPixelsConstant` included.
-- [ ] **AC9, the contract constants (`FU-5`).** One test,
+- [x] **AC9, the contract constants (`FU-5`).** One test,
   `developed_mix_contract_constants_are_the_computation`, ties:
   (a) the field's default: `DevelopOptions::default().mono_mix == None`, and the default
   develop of fixture (i) as mono equals `develop_into`;
@@ -483,24 +484,24 @@ Pre-registered. Every check is exact; there is no tolerance in this spec.
   `64 + max(64, 8·(8 + 8)) = 192`; fixture (iv) (active `18 × 1096 = 19,728`)
   `19,728 + max(19,728, 10,540) = 39,456` — and the strip constant is 512 and the ring 8
   (each named in the test).
-- [ ] **AC10, allocation (counted, `tests/develop_scratch_alloc.rs`).**
+- [x] **AC10, allocation (counted, `tests/develop_scratch_alloc.rs`).**
   `develop_with_scratch_into` with the mix makes **zero** allocations on fixtures (i),
   (ii) and (iii) under `StandardCrop` and `FullActiveArea`, Orientation 1 and 6, and on
   one representative refusal of each rank F0 to F13; `develop_with_into` with the mix
   makes exactly one allocation of `2·scratch_len` bytes. Tier B: the Pixel 7 Pro with
   scratch, zero.
-- [ ] **AC11, determinism on both architectures.** `tests/determinism.rs` asserts the four
+- [x] **AC11, determinism on both architectures.** `tests/determinism.rs` asserts the four
   committed hashes of §8 (recorded at build on macOS arm64), equality of each with the
   §2 oracle, and that the warped pair differs from the unwarped pair; the red-proof shows
   a one-bit sample change moves all four and a one-ulp change of a warp coefficient moves
   the warped two. The CI `determinism` job passes on both legs, debug and release.
-- [ ] **AC12, fuzzed and panic-free.** The `demosaic` and `develop` targets reach the four
+- [x] **AC12, fuzzed and panic-free.** The `demosaic` and `develop` targets reach the four
   entries with the mix as §10 says; a short `cargo +nightly fuzz run` of each (the
   toolchain brief's smoke length) finds nothing; `just lint-ci` and `just lint-fuzz` pass.
-- [ ] **AC13, nothing else moves.** The full suite passes with `IRRADIANCE_CORPUS_DIR` set;
+- [x] **AC13, nothing else moves.** The full suite passes with `IRRADIANCE_CORPUS_DIR` set;
   every existing determinism constant and Tier-B pin is unchanged;
   `tests/error_kind.rs` is unchanged; `just semver-check` reports only the two additions.
-- [ ] **AC14, the oracle can go red.** Each pre-registered mutant below, applied by hand in
+- [x] **AC14, the oracle can go red.** Each pre-registered mutant below, applied by hand in
   build, fails at least one named test; the handback lists which. Mutants marked
   equivalent are argued, not run.
 
@@ -684,31 +685,57 @@ construction, and about 10 MB of strip scratch suits iPad.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Read the code for every fact the design states about it, and probe every number
+   a red-proof depends on, before the handoff. Three details in the design were wrong
+   against the code (F10 "removes ColorMatrix1", the develop fuzz target's "spare bit 5",
+   and a one-ulp warp red-proof that moves no `u16` pixel); each cost the build a probe
+   loop, and none reached the code. And search for a counter-example before calling a
+   fault pair impossible: (F8, F13) can share one `WarpRectilinear` block.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — No DEC: DEC-084 holds as accepted. Three template changes, made at the STAGE-031
+   close in `projects/_templates/spec.md`: the Rule-clause map now names a public
+   contract constant, an order word and an "impossible" fault pair as clauses that need
+   their own row (`every-rule-clause-maps-to-a-reachable-test`); the Distinguishing
+   fixture paragraph says check per point and compare a perturbation with the output's
+   quantum (`a-designed-mutant-must-be-able-to-fail-on-its-fixture`); and a new "Claims
+   about existing code" paragraph asks for the `file:line` behind every such fact
+   (`read-the-kernel-before-deciding-the-approach`, codified at N=3). The unit tests
+   written after the code are a new `watch` lesson,
+   `red-first-covers-only-the-integration-suite`, at N=2.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. The `demosaic` fuzz CI job is the hygiene patch already scheduled at
+   the PROJ-005 close; with four specs' entries now behind it, it should land before the
+   PROJ-006 release. STAGE-034 (framed in PR 357) is next.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, onyx could mix a colour Bayer DNG to mono only at sensor geometry
+   (SPEC-092), so its export had to rebuild the crop, orientation, warp and resampling
+   itself and could not reuse its GPU-to-develop warp parity check. Now setting
+   `DevelopOptions::mono_mix` makes `develop_with_into`, `develop_with_scratch_into`,
+   `output_dimensions_with` and `scratch_len` give the developed mono at the mono
+   develop's geometry, bit-identical to the mono develop of the mixed plane (19 held
+   digests and every `scratch_len` as registered, four hashes equal on aarch64 and
+   x86_64), with no allocation in the scratch form and byte-identical output to today
+   when the option is absent.
+
+## Follow-ups
+
+Raised in HANDOFF-204 (build, `B`) and HANDOFF-205 (verify, `V-N`); the build did not
+number its findings, so they are numbered here. The verify's tests are in commit
+`6abe11c`, squashed into `f6c52da`.
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | B deviation 6, V ruling 6: only `tests/developed_mix.rs` was seen failing against the stub; the unit, allocation and determinism tests and the Entry rows were written after the code | `signal: red-first-covers-only-the-integration-suite` — new, `watch` at N=2 (SPEC-092/FU-3 is the first); every such test was shown red by a mutant, so no defect followed |
+| `FU-2` | B, V-4: the `demosaic` fuzz target, which now reaches the developed mix, has no CI smoke job and no `just` recipe | `signal: fuzz-targets-without-a-ci-smoke-job` — N=3 to N=4; still the hygiene patch scheduled at the PROJ-005 close |
+| `FU-3` | B: AC11's red-proof asked for one ulp of a warp coefficient, which moves no `u16` pixel; `2^-26` is the smallest power-of-two step that moves both warped hashes | `signal: a-designed-mutant-must-be-able-to-fail-on-its-fixture` — third recurrence since codification; the template's Distinguishing fixture paragraph now asks to compare a perturbation with the output's quantum |
+| `FU-4` | B reflection: F10 "removes ColorMatrix1" and "spare bit 5" were stated as facts the code contradicts | `signal: read-the-kernel-before-deciding-the-approach` — N=2 to N=3, codified at the STAGE-031 close ("Claims about existing code" in the spec template) |
+| `FU-5` | V-1: the design's (F8, F13) skip was wrong; one malformed `WarpRectilinear` block can carry a tangential term | `fixed` — verify, `tests/developed_mix.rs:418` `ac8_one_warp_block_both_malformed_and_tangential_is_f8`; the code was already right. The lesson tightens the Rule-clause map (`every-rule-clause-maps-to-a-reachable-test`) |
+| `FU-6` | V-2: onyx's parity grid was not fully crossed (`warp_alpha` 0 and 1/2 ran only with `apply_orientation` true) | `fixed` — verify, `tests/developed_mix.rs:123` `ac1_parity_grid_composes_every_option` |
+| `FU-7` | V-3 [XS]: `ac4_held_files_match_the_oracle_and_the_digests` continues past a held file missing from the corpus, so a partial corpus passes it vacuously | `signal: named-tests-can-pass-vacuously` — evidence added; the check that signal accepted (set means must run, as `tests/colour_sdk.rs` and `tests/dng_write_corpus.rs` do) closes it, at its project close. `just test`'s corpus-status lines show the gap meanwhile |
+| `FU-8` | V-5 (optional): `develop_into`'s warp has no cross-architecture hash of its own; the developed-mix warped pair is the only one | `closed` — the mono develop and the developed mix share one warp, and the warped pair in `tests/determinism.rs` goes red on a warp change (V9). The two can only diverge through a change that first fails AC1's equality (`ac1_the_developed_mix_is_the_mono_develop_of_the_mixed_plane`), which is the trigger to add a mono hash |

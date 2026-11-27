@@ -29,7 +29,7 @@ affected_scope:
   - src/color.rs
   - src/demosaic.rs
   - src/opcode.rs
-  - projects/PROJ-006-spectral-monochrome-mixer/specs/SPEC-093-the-developed-mix-a-mix-option-on-develop-with-into-output-d.md
+  - projects/PROJ-006-spectral-monochrome-mixer/specs/done/SPEC-093-the-developed-mix-a-mix-option-on-develop-with-into-output-d.md
 
 tags:
   - mixer
