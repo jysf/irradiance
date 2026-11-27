@@ -6,19 +6,19 @@
 task:
   id: SPEC-097
   type: bug                        # epic | story | task | bug | chore
-  cycle: design  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: S                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -77,10 +77,30 @@ cost:
       duration_minutes: 120
       recorded_at: 2026-11-27
       notes: "Design in a side session started by the PROJ-006 orchestrator: reading, the relaxed-check prototype on the M10 and M11, dng_validate stage 1 and 2, dnglab and LibRaw runs, the absent-WhiteLevel copy, synthetic precision fixtures, the SDK source read, DEC-085, this design, HANDOFF-206. Un-metered main-loop cycle; measured at the STAGE-034 close as orchestration cost."
+    - cycle: build
+      handoff: HANDOFF-206
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 17442907
+      estimated_usd: 11.98
+      duration_minutes: 24
+      recorded_at: 2026-11-27
+      notes: "Measured live from this session transcript, deduplicated by message.id: a floor."
+    - cycle: verify
+      handoff: HANDOFF-207
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 15174129
+      estimated_usd: 10.18
+      duration_minutes: 50
+      recorded_at: 2026-11-27
+      notes: "Floor, measured live from transcript f32aa39b-afea-4a0a-a3c6-79ec81471dc7.jsonl, deduplicated by message.id; re-sum at ship. USD at Opus 5.5 rates (5/25 per M, cache reads 0.5, 1-hour cache writes 2x)."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 32617036
+    estimated_usd: 22.16
+    session_count: 3
 ---
 
 # SPEC-097: Accept a lossless-JPEG precision below BitsPerSample, the Leica M10 file

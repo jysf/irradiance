@@ -1186,11 +1186,13 @@ pub enum Error {
         tag: u16,
     },
 
-    /// `SPEC-086`, `DEC-077` §3. A `Compression = 7` strip or tile's SOF-3
-    /// frame precision `P` is not the sensor's `BitsPerSample`. The frame and
-    /// the tags disagree about the sample range, and white defaults from
-    /// `BitsPerSample`, so the plane is refused at decode, after the shape
-    /// check ([`Error::LjpegPlaneShapeMismatch`]).
+    /// `SPEC-086`, `DEC-077` §3 as amended by `DEC-085` (`SPEC-097`). A
+    /// `Compression = 7` strip or tile's SOF-3 precision `P` is above the
+    /// sensor's `BitsPerSample`, or `BitsPerSample` is above 16, the most
+    /// lossless JPEG stores. White defaults from `BitsPerSample`, so a wider
+    /// frame would clip with `Ok`; the plane is refused at decode, after the
+    /// shape check ([`Error::LjpegPlaneShapeMismatch`]). A precision below
+    /// `BitsPerSample` decodes unchanged.
     LjpegPrecisionMismatch {
         /// The frame's precision `P`.
         precision: u8,

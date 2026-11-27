@@ -1962,18 +1962,34 @@ pub(crate) fn check_strip_shape(
     Ok(())
 }
 
+/// The widest sample a lossless-JPEG (SOF-3) frame stores, in bits: the
+/// most a `Compression = 7` plane's `BitsPerSample` may be (`DEC-085`).
+const MAX_LJPEG_PRECISION: u32 = 16;
+
 /// Bind a parsed SOF-3 frame's precision `P` to the sensor's `BitsPerSample`
-/// (`SPEC-086`, `DEC-077` §3). The develop never sees the frame header, and
-/// white defaults from `BitsPerSample` when `WhiteLevel` is absent, so a
-/// P = 16 frame tagged 12-bit would otherwise clip at 4095 with `Ok`. Called
-/// on every strip and tile after [`check_strip_shape`], before any sample is
-/// decoded.
+/// (`SPEC-086`, `DEC-077` §3 as amended by `SPEC-097`, `DEC-085`): the frame
+/// is accepted when `P ≤ BitsPerSample ≤` [`MAX_LJPEG_PRECISION`].
+///
+/// - `P > BitsPerSample` is refused. The develop never sees the frame header,
+///   and white defaults from `BitsPerSample` when `WhiteLevel` is absent, so a
+///   P = 16 frame tagged 12-bit would otherwise clip at 4095 with `Ok`.
+/// - `BitsPerSample` above [`MAX_LJPEG_PRECISION`] is refused: no lossless
+///   JPEG frame fills it.
+/// - `P < BitsPerSample` decodes unchanged: every sample is below `2^P`, so it
+///   fits the wider container, and it is stored unshifted. White still
+///   defaults from `BitsPerSample`, as the specification and the SDK do. The
+///   Leica M10 and M11 store P = 14 in a `BitsPerSample` of 16.
+///
+/// Called on every strip and tile after [`check_strip_shape`], before any
+/// sample is decoded.
 ///
 /// # Errors
 ///
-/// [`Error::LjpegPrecisionMismatch`] when they differ.
+/// [`Error::LjpegPrecisionMismatch`] when `P > BitsPerSample` or
+/// `BitsPerSample >` [`MAX_LJPEG_PRECISION`].
 fn check_precision(frame: &crate::ljpeg::Frame, bits_per_sample: u32) -> Result<(), Error> {
-    if u32::from(frame.precision) != bits_per_sample {
+    let fits = u32::from(frame.precision) <= bits_per_sample;
+    if !(fits && bits_per_sample <= MAX_LJPEG_PRECISION) {
         return Err(Error::LjpegPrecisionMismatch {
             precision: frame.precision,
             bits_per_sample,

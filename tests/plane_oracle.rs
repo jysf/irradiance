@@ -128,12 +128,20 @@ const PIXEL_TILED: [&str; 3] = [
     "GOOGLE-PIXEL-3A/IMG_20190918_164153.dng",
     "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng",
 ];
-const DECODABLE_COMPRESSED: [&str; 5] = [
+/// `SPEC-097`: the colour Leica M10 (CC0) and M11 (local only, never
+/// committed). One Compression-7 strip each, SOF-3 P=14 Nf=2 in a
+/// `BitsPerSample` of 16, which `DEC-085` accepts. Both are `Nf=2`, so the
+/// existing red-proof `ljpeg_decode_fault_turns_compression7_oracle_red`
+/// covers them with no new code.
+const LEICA_COLOUR: [&str; 2] = ["LEICA-M10/f5381888.dng", "LEICA-M11-PB/leica_m11_01.dng"];
+const DECODABLE_COMPRESSED: [&str; 7] = [
     TYP246_LJPEG,
     K3III_LJPEG,
     PIXEL_TILED[0],
     PIXEL_TILED[1],
     PIXEL_TILED[2],
+    LEICA_COLOUR[0],
+    LEICA_COLOUR[1],
 ];
 
 /// The corpus files this oracle does NOT decode, and why — named here rather

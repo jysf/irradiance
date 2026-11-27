@@ -69,6 +69,20 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   gains a dual-illuminant colour fixture whose `u16` and unclamped `f32`
   sensor-geometry planes have committed hashes on the x86_64 and arm64 CI legs.
 
+### Changed
+
+- **A lossless-JPEG precision below `BitsPerSample` now decodes** (SPEC-097,
+  STAGE-034, PROJ-006, DEC-085, amending DEC-077 §3). A `Compression = 7` strip
+  or tile whose SOF-3 precision `P` is narrower than its `BitsPerSample` (at most
+  16) unpacks with its samples unchanged, where it was refused with
+  `Error::LjpegPrecisionMismatch`. The colour Leica M10 and M11, which store 14-bit
+  frames in a 16-bit `BitsPerSample`, now reach the colour develop, the sRGB plane,
+  the mixer and the developed mix; both planes match dnglab's checksum. White
+  still defaults from `BitsPerSample` when `WhiteLevel` is absent. A precision
+  above `BitsPerSample`, or a `BitsPerSample` above 16, is still refused with the
+  same error. No file that decoded before changes output, and neither
+  `DEVELOP_VERSION` nor `MONO_MIX_VERSION` changes.
+
 ## [0.2.7] - 2026-11-25
 
 irradiance can now write DNG: the opt-in `write` feature adds `irradiance::dng::write`,

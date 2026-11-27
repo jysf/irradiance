@@ -18,10 +18,13 @@ use std::path::{Path, PathBuf};
 ///
 /// `7 → 9` (SPEC-027): the two uncompressed Bayer DNGs — Canon 5D-III
 /// (single-strip) and Nikon D300S (12-strip) — are now registered here.
-const MANIFEST_ENTRIES: usize = 12;
+///
+/// `12 → 14` (SPEC-097): the colour Leica M10 and M11, promoted from
+/// `[[available]]` once a precision below `BitsPerSample` decodes (`DEC-085`).
+const MANIFEST_ENTRIES: usize = 14;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. the reader exists and reads all 12 manifest entries
+// 1. the reader exists and reads all 14 manifest entries
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -415,7 +418,8 @@ fn corpus_files_match_their_pinned_sha256() {
 
 /// Every DNG entry carries its exiftool preview pins; the PEF (a vendor
 /// container, not a DNG preview source) carries none. 21 in all — the count
-/// the SPEC-062 probe found.
+/// the SPEC-062 probe found — plus SPEC-097's 7 on the colour Leica M10 (3)
+/// and M11 (4): 28.
 #[test]
 fn manifest_preview_pins_parse() {
     let m = Manifest::load().expect("manifest must parse with [[file.preview]] arrays");
@@ -432,7 +436,7 @@ fn manifest_preview_pins_parse() {
         assert!(!pins.is_empty(), "{}: empty preview pin list", f.path);
         total += pins.len();
     }
-    assert_eq!(total, 21);
+    assert_eq!(total, 28);
 
     // Spot check against the spec's probe table: the Q2M reference frame.
     let q2m = m

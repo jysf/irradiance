@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-27
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-097
@@ -46,19 +46,19 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
-  pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 17442907           # REAL combined count — what cost-audit reads
+  estimated_usd: 11.98             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 24
+  branch: feat/spec-097-ljpeg-precision-below-bps
+  pr: 362
+  completed_at: 2026-11-27         # YYYY-MM-DD
+  notes: "Measured live from this session transcript, deduplicated by message.id: a floor."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  synced_at: 2026-11-27
 ---
 
 # HANDOFF-206: Accept a lossless-JPEG precision below BitsPerSample, the Leica M10 file
@@ -170,43 +170,70 @@ If you cannot complete the task:
 
 ## Handback
 
-*Filled in by the receiving agent. The orchestrator does not reconstruct any of
-this — it transcribes it. The reflection questions are part of completion.*
-
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `feat/spec-097-ljpeg-precision-below-bps`, https://github.com/jysf/irradiance/pull/362. Not merged.
+- **Completed at:** 2026-11-27
+- **All acceptance criteria met?** Yes. AC1 to AC8 hold; nothing was edited to match.
+- **CI:** CI run 46021168302 on `4a02aa0` is green, all 25 checks. The handback commit after it is docs only.
+
+### Results
+
+- **Red first.** Against `main` (d3af59b), before the change:
+  - `ac1_precision_below_bits_per_sample_decodes_unchanged` and `ac4_white_defaults_from_bits_per_sample_not_precision` failed with `LjpegPrecisionMismatch { precision: 2, bits_per_sample: 16 }` and `{ 12, 16 }`.
+  - `ac2_…`, `ac3_…`, `ac5_matching_…` and the Display test were green, as the spec predicted.
+  - `tests/leica_colour.rs` (both tests) and `plane_md5_matches_the_pinned_raw_checksum`, `compressed_files_are_skipped_by_name`, `compression7_plane_is_byte_identical_across_two_decodes` and `ljpeg_decode_fault_turns_compression7_oracle_red` failed with the corpus present: the M10 refused at unpack.
+  - The preview pins (`corpus_previews_match_exiftool_pins`) and the count bumps were already green on `main`: preview walks don't decode the plane.
+- **AC1:** the lowest P the grid reached is **2** (P2 in BPS16). `tiff::lj92_strip` encodes it; no encoder change.
+  - Grid: (2,16), (8,16), (12,16), (14,16), (15,16), (8,12), (12,14), both orders, strips and tiles, all three paths.
+  - Every cell decodes to exactly the encoded samples.
+- **AC2 / AC3:** every listed pair refuses with `LjpegPrecisionMismatch { precision, bits_per_sample }`, `ErrorKind::Corrupt`, on every cell, and a sentinel-filled `dst` is untouched. Containers with `BitsPerSample` 17, 20 and 32 parse and reach the check; nothing refuses them earlier.
+- **AC4:** P12 in BPS16 with no `WhiteLevel` develops to exactly the decoded samples. With `WhiteLevel` 4095 it gives the hand-computed `round(min(v, 4095) · 65535 / 4095)`.
+- **AC5:** `plane_md5_matches_the_pinned_raw_checksum` passes on both files: the M10 at `a1c6050a2cbfaf7d1b9a827ee3fd5bf6` and the M11 at `9ae8c096b5ed99b86a88e52d8025168c`, both equal to dnglab.
+  - `ljpeg_decode_fault_turns_compression7_oracle_red` goes red on each under the fault: M10 mutant `90a70468a8070a869b565740adb55879`, M11 mutant `8d262e716b4824d3c72f4a75c41f32b1`.
+- **AC6:** every existing plane pin, determinism hash and Tier-B develop pin is unchanged and green. `DEVELOP_VERSION` is still `"8"` and `MONO_MIX_VERSION` still `"1"`. `just semver-check`: no semver update required (202 checks pass).
+- **AC7:** all ten digests matched the Implementation Context table as registered, and both developed sizes matched (5976×3984, 9528×6328). The M10's facts hold: max 16383, 1,243,041 above `WhiteLevel` 15000, none at or above 2^14.
+- **Preview pins:** all 7 new pins matched exiftool's values as registered (`corpus_previews_match_exiftool_pins`, 28 of 28).
+- **AC8:** the `plane` smoke ran **1,644,814 runs in 61 s** with no crash. It used the two new seeds, `compression7-p12-in-bps16.tiff` (one strip, little-endian) and `tiled-lj92-p14-in-bps16.tiff` (one tile, big-endian), written by `examples/fuzz-seeds.rs`. Regenerating the seeds left every existing seed byte-identical.
+- **Gates:** all green. `just test` with the corpus, 14 of 14 files present: 993 passed, 0 failed, 1 ignored. A `--no-fail-fast` corpus run also gave 974 passed, 0 failed. `lint-ci`, `lint-fuzz`, `fmt-check`, `doc-check`, `validate` and `cost-audit` pass.
+
+### The mutants
+
+Each was applied by a string-replacement harness, then `ljpeg_precision_binding` (and `plane_oracle` for (i)) ran with the corpus present. The file was restored after each run. All are red.
+
+- (a) the old equality: `ac1_…`, `ac4_…`.
+- (b) `<` for the P bound: `ac5_matching_precision_still_decodes`.
+- (c) the `≤ 16` bound dropped: `ac3_…`.
+- (d) the P bound dropped: `ac2_…`.
+- (e) the bound as `< 16`: `ac1_…`, `ac4_…`, `ac5_matching_…`.
+- (f) the tile arm's call removed: `ac2_…`, `ac3_…` (the tiled cells).
+- (g) the strip arm's call removed: `ac2_…`, `ac3_…` (the strip cells).
+- (h) white default `2^(BitsPerSample − 4) − 1`: `ac4_…`.
+- (i) a shift `v << (BitsPerSample − P)` after the strip decode: `ac1_…`, `ac4_…`, and with the corpus present `plane_md5_matches_the_pinned_raw_checksum`, `compression7_plane_is_byte_identical_across_two_decodes`, `the_ljpeg_red_proof_control_is_green` and `ljpeg_decode_fault_turns_compression7_oracle_red`.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 17,442,907 (input 183, cache creation 208,729, cache read 17,182,044, output 51,951), a floor
+- **Estimated about 11.98, at Opus 5.5 list rates of 5 and 25 USD per million input and output, with 1-hour cache writes at 2.0×:** about 11.98, at Opus 5.5 list rates of 5 and 25 USD per million input and output, with 1-hour cache writes at 2.0×
+- **Duration (minutes):** 24, by the transcript timestamps
+- **Source of the number:** this session's transcript, deduplicated by `message.id` per `docs/cost-tracking.md`, measured live (a floor).
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none. DEC-085 is the design's.
 - **Deviations from spec:**
-  - [list]
-- **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - `tests/corpus_manifest.rs`'s `manifest_preview_pins_parse` also hard-codes the preview total. It went from 21 to 28 along with `PINNED_PREVIEWS`; the spec named only the latter.
+  - The 16 is a private constant, `MAX_LJPEG_PRECISION` in `src/plane.rs`. The `ljpeg` module has no named bound (its parser uses a literal `2..=16`), and the decoder was out of bounds to touch.
+  - The seeds are generated by `examples/fuzz-seeds.rs` (the repo's seed source), not written by the test. They use the same writer and the same 16×16 LinearRaw shape.
+- **Follow-up work identified:** none new. The design's two open items stand: onyx on highlight headroom above `WhiteLevel`, and the M11's licence class, which the maintainer ruled `personal-evaluation-only` (2026-11-27).
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Very little. The second hard-coded preview total (`manifest_preview_pins_parse`) wasn't in the list of counts to bump. Also, `fuzz/corpus/plane` doesn't exist in a fresh worktree, so the smoke command fails until it's created.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — No.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Grep for every literal count of manifest entries and previews before the first run, not only the named constants.
