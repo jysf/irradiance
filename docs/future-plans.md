@@ -307,6 +307,8 @@ M10/M11, SL2/SL3) — the PROJ-002 bridge for the monochrome app.
 4. **CFA planes with their colour tags.** *Trigger:* crustyimg's RAW-in/DNG-out, or the
    Sony ARW wave wanting ARW-to-DNG. This makes the writer a permissive raw-to-DNG
    converter and is a project of its own, not a spec.
+   *Framed 2026-11-27 as PROJ-007 (proposed), triggered by the maintainer's "turn any
+   photo into a RAW" demo; it also takes in items 2 and 3 (Compression 7, tiles).*
 5. **Float or demosaiced LinearRaw RGB output.** *Trigger:* an HDR-merge or astro-stacking
    consumer (the parked scientific linear-raw idea).
 
