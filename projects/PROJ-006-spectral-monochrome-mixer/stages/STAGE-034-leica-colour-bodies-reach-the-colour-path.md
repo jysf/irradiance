@@ -81,7 +81,7 @@ They have no stated licence, so they are kept in the local corpus only and never
   `dng_validate` accepts it, with only string-termination warnings on metadata.
 
 So **every onyx target body is refused today**, and these two refusals are the whole list
-on the held files. SPEC-097 covers the M10 and M11; the opcode spec covers the Q2, Q3 and SL3.
+on the held files. SPEC-097 covers the M10 and M11; SPEC-098 covers the Q2, Q3 and SL3.
 This stage has to ship before the mixer's crates.io release.
 
 ## Success Criteria
@@ -108,7 +108,7 @@ This stage has to ship before the mixer's crates.io release.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-097 (shipped on 2026-11-27) — [S] accept a lossless-JPEG precision below `BitsPerSample` (the M10 and M11 files) (DEC-085 accepted; design PR 361, build PR 362, verify PR 363)
-- [ ] (not yet written; next) — mandatory `FixBadPixelsConstant` and `WarpRectilinear` on the colour entries, under onyx's two rules in Design Notes (the Q2, Q3 and SL3 files)
+- [ ] SPEC-098 (frame) — mandatory `FixBadPixelsConstant` and `WarpRectilinear` on the colour entries, under onyx's two rules in Design Notes (the Q2, Q3 and SL3 files); may split at design
 
 **Count:** 1 shipped / 0 active / 1 pending
 
