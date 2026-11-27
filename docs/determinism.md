@@ -55,7 +55,8 @@ local kernel mutants (each reverted) also went red: the `to_linear_f32_into` div
 | `color.rs` — the sensor-geometry plane `srgb_linear_plane_into` / `srgb_linear_plane_f32_into` (`SPEC-091`), whose `u16` pixels are `develop_color_into`'s pixels before the crop | `f64`, committed-constant matrices, basic ops only (`+ − × ÷`, polynomials as `n·n·n`), no FMA, no transcendental — `DEC-033`; the unclamped `f32` form adds one `f64 ÷ 65535` and one IEEE round-to-nearest-even cast to `f32` | **measured** (`SPEC-091`): the colour fixture below, dual-illuminant so the convergent interpolation (`DEC-076`) runs. |
 | `color.rs` — the crop/orient sink of `develop_color_into` / `develop_color_f32_into`, and `to_srgb_linear_into` | the same `f64` arithmetic; the crop is a rearrangement, `develop_color_f32_into` one more `f32 ÷` | **not hashed separately.** Same arithmetic as the measured plane (`develop_color_into`'s pixels are the plane's, cut to the crop: `tests/linear_plane.rs` AC1), but no fixture hashes these outputs themselves. |
 | `color.rs` — the mono mixer `mono_mix_row` / `mono_mix_plane_into` / `mono_mix_plane_rows_into` (`SPEC-092`, `DEC-083`) | the row: the same `f64` matrix, then `v = (w_0·M[0][i] + w_1·M[1][i]) + w_2·M[2][i]` with basic ops (no FMA) and one exact quantiser `⌊v·2^24 + 0.5⌋`; the plane: exact `i64` integer arithmetic on the traversal's integer camera triples | **measured** (`SPEC-092`): the two rows and the two mono planes of the colour fixture below. |
-| `warp.rs` — `WarpRectilinear` bilinear resampling | `f64` coordinate map and bilinear weights | **unmeasured.** Named for completeness; not covered by any hash. |
+| `develop.rs` — the developed mix, `DevelopOptions::mono_mix` on `develop_with_into` / `develop_with_scratch_into` (`SPEC-093`, `DEC-084`) | the mixer's exact integer kernel in 512-row strips (output-invariant), then the mono develop's geometry: a gather, or the `f64` warp below and a gather | **measured** (`SPEC-093`): four developed-mix hashes of the colour fixture below, two unwarped and two through an in-memory warp with Orientation 6. |
+| `warp.rs` — `WarpRectilinear` bilinear resampling | `f64` coordinate map and bilinear weights | **measured through the developed mix** (`SPEC-093`): the warped pair below. No hash covers `develop_into`'s warp on its own. |
 
 Rust does not fuse a multiply and an add into an FMA unless the source calls
 `mul_add`, and the library does not. That is why a basic-ops `f64` path is expected
@@ -114,6 +115,27 @@ fixtures instead (`SPEC-091/FU-10`): `color::tests::ac11_the_row_fuses_no_term_o
 `ac11_the_row_keeps_its_summation_order` (the two wrong pairings of each channel's
 three terms), each asserting the exact `f64` bits and that the mutant's value
 differs. The plane's step is integer, where order cannot matter.
+
+## The developed mix on the colour fixture (`SPEC-093`)
+
+`developed_mix_hashes_match_committed` develops the same colour fixture (its bytes
+unchanged) with `DevelopOptions::mono_mix`, for the luminance and the negative one-hot
+weights, under the default options and again with an optional non-identity radial
+`WarpRectilinear` (scale `1 − 0.08·r²`, centre `(½, ½)`) and Orientation 6 injected
+into the parsed sensor in memory: four committed hashes. Each output equals the
+`SPEC-093` §2 oracle (the mixed plane developed as a mono sensor at levels 0 and
+65535), and the warped pair differs from the unwarped pair. The fixture has no
+`ActiveArea`, `DefaultCrop` or Orientation, so the unwarped pair is the mixed plane
+itself and its two hashes are the mixer's plane hashes above (asserted). Both tests
+assert `MONO_MIX_VERSION == "1"` and `DEVELOP_VERSION == "8"`.
+
+The extended `colour_determinism_red_proof` shows the one-bit sample flip moves all
+four, and a change of `2^-26` in the warp's `kr0` moves the warped two and not the
+unwarped two. A one-ulp change of any warp coefficient moves no pixel (measured at
+`SPEC-093`'s build): the warped samples are rounded to `u16`, and a shift of about
+`10^-16` pixel crosses no rounding boundary on this fixture. So the warped hashes
+catch an `f64` difference only once it moves a rounded sample, and `2^-26` is the
+smallest power-of-two step of `kr0` that does here.
 
 ## If a hash diverges
 

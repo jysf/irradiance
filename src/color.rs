@@ -176,12 +176,12 @@
 //! See `docs/provenance-ledger.md`.
 
 use crate::demosaic::{
-    check_supported_bayer, develop_color_fused, develop_rows_banded, is_supported_bayer,
-    run_row_bands,
+    check_supported_bayer, develop_color_fused, develop_rows_banded, develop_rows_banded_in,
+    is_supported_bayer, run_row_bands,
 };
 use crate::develop::{
     black_pattern_dims, normalize_range, oriented_dimensions, output_coords_from_crop,
-    resolve_geometry,
+    resolve_geometry, Geometry,
 };
 use crate::ifd::{active_area_origin, Rational, Sensor};
 use crate::opcode::GainMaps;
@@ -837,6 +837,12 @@ pub const MONO_MIX_WHITE: u16 = 65535;
 /// (`DEVELOP_VERSION`, `MONO_MIX_VERSION`), and a caller that stores mixed
 /// output or a [`mono_mix_row`] (onyx's recipe) records both.
 ///
+/// The developed mix ([`crate::develop::DevelopOptions::mono_mix`],
+/// `SPEC-093`, `DEC-084` item 8) is this mixer's output run through the mono
+/// develop's geometry, so it is fixed by the same pair and the options: a
+/// change to the mixer's arithmetic bumps this, and a change to where the mix
+/// sits in the develop bumps [`crate::DEVELOP_VERSION`].
+///
 /// `"1"`: SPEC-092 (`DEC-083`), the first mixer.
 pub const MONO_MIX_VERSION: &str = "1";
 
@@ -1088,6 +1094,202 @@ fn mono_mix_pixel(q: &[i32; 3], x: [u16; 3]) -> u16 {
     // Clamped to `[0, 65535]` first, so the cast is exact; without the clamp
     // it would wrap (AC14 pins the extreme).
     (sum >> MIX_SHIFT).clamp(0, i64::from(MONO_MIX_WHITE)) as u16
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The developed mix (`SPEC-093`, `DEC-084`): the mixer's steps for
+// `crate::develop`'s `develop_core`, which owns the order and the geometry.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The developed mix's weights check, `develop_core`'s rank 1 (`DEC-083` §1):
+/// [`Error::InvalidMixWeights`], or the weights as `f64`.
+pub(crate) fn developed_mix_weights(weights: &[Rational; 3]) -> Result<[f64; 3], Error> {
+    mix_weights(weights)
+}
+
+/// The developed mix's stage 2, resolved once per develop (rank 5): the colour
+/// path's levels (`DEC-068` §2, `DEC-070`, so `DevelopOptions::black_levels` is
+/// not read) and then `OpcodeList2`'s `GainMap`s, exactly as
+/// [`mono_mix_plane_into`] resolves them.
+pub(crate) struct MixStageTwo<'a> {
+    levels: ColourLevels<'a>,
+    gains: GainMaps<'a>,
+}
+
+/// Rank 5: [`Error::InvalidLevels`] / [`Error::InvalidBlackLevelPattern`], then
+/// the `GainMap` refusals.
+pub(crate) fn resolve_mix_stage_two(sensor: &Sensor) -> Result<MixStageTwo<'_>, Error> {
+    let levels = resolve_colour_levels(sensor)?;
+    let gains = resolve_colour_gain_maps(sensor)?;
+    Ok(MixStageTwo { levels, gains })
+}
+
+/// Ranks 9 to 11: the CFA ([`Error::NotAColorFilterArray`], then the
+/// unsupported-CFA errors), the colour calibration
+/// ([`Error::MissingColorCalibration`]) and the row
+/// ([`Error::MixRowOutOfRange`]), in the fused path's order.
+pub(crate) fn developed_mix_row(sensor: &Sensor, weights: [f64; 3]) -> Result<[i32; 3], Error> {
+    check_supported_bayer(sensor)?;
+    mix_row_build(sensor, weights)()
+}
+
+/// Where the strip pass writes each mixed pixel.
+pub(crate) enum MixTarget {
+    /// No non-identity warp: the framed rows only, each framed pixel straight to
+    /// its output slot (`dst`) through the [`CropScatter`] of the options-applied
+    /// geometry.
+    Framed,
+    /// A non-identity warp: the `ActiveArea` rows, each active pixel into the
+    /// `ActiveArea`-sized buffer `A1` ([`ActiveWindow`]), for the mono develop's
+    /// warp and gather.
+    Active,
+}
+
+/// The developed mix's strip pass (`DEC-084` item 5): the mixed value of every
+/// pixel of `target`'s rows, written to `out` through `target`'s slot, in strips
+/// of `MIX_STRIP_ROWS` rows, each strip through the band traversal on the
+/// caller's `work` (`T` samples, [`crate::demosaic::mix_strip_work_len`]).
+/// Strips are output-invariant (the band's halo), so each value is the whole
+/// plane's [`mono_mix_plane_into`] value at that pixel.
+// Eight arguments: the develop's resolved pieces, each borrowed separately so
+// `develop_core` keeps owning its plan; bundling them would only rename them.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn developed_mix_strips(
+    sensor: &Sensor,
+    src: &[u16],
+    stage: &MixStageTwo<'_>,
+    row: &[i32; 3],
+    geometry: &Geometry,
+    target: MixTarget,
+    out: &mut [u16],
+    work: &mut [u16],
+) -> Result<(), Error> {
+    let to_usize = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
+    match target {
+        MixTarget::Framed => {
+            let top = geometry.active_top.saturating_add(geometry.crop_origin_y);
+            let rows = (
+                to_usize(top),
+                to_usize(top.saturating_add(geometry.crop_height)),
+            );
+            let slots = CropScatter::from_geometry(sensor.width, geometry);
+            mix_strips(sensor, src, stage, row, rows, slots, out, work)
+        }
+        MixTarget::Active => {
+            let top = geometry.active_top;
+            let rows = (
+                to_usize(top),
+                to_usize(top.saturating_add(geometry.active_height)),
+            );
+            let slots = ActiveWindow::new(sensor.width, geometry);
+            mix_strips(sensor, src, stage, row, rows, slots, out, work)
+        }
+    }
+}
+
+/// [`developed_mix_strips`] for one slot: bind the colour normalizer once, then
+/// run the strips.
+#[allow(clippy::too_many_arguments)]
+fn mix_strips<P: PixelSlot>(
+    sensor: &Sensor,
+    src: &[u16],
+    stage: &MixStageTwo<'_>,
+    row: &[i32; 3],
+    rows: (usize, usize),
+    slots: P,
+    out: &mut [u16],
+    work: &mut [u16],
+) -> Result<(), Error> {
+    with_normalizer!(sensor, src, stage.levels, stage.gains, |normalize| {
+        mix_strips_with(sensor, &normalize, row, rows, slots, out, work)
+    })
+}
+
+/// The strips `[s, min(s + MIX_STRIP_ROWS, end))` of `rows`, in order.
+fn mix_strips_with<P, N>(
+    sensor: &Sensor,
+    normalize: &N,
+    row: &[i32; 3],
+    (start, end): (usize, usize),
+    mut slots: P,
+    out: &mut [u16],
+    work: &mut [u16],
+) -> Result<(), Error>
+where
+    P: PixelSlot,
+    N: Fn(u32, u32) -> u16,
+{
+    let mut s = start;
+    while s < end {
+        let e = core::cmp::min(s.saturating_add(crate::demosaic::MIX_STRIP_ROWS), end);
+        develop_rows_banded_in(sensor, (s, e), normalize, work, |pixel, r, g, b| {
+            let Some(slot) = slots.slot_of(pixel) else {
+                return;
+            };
+            if let Some(sample) = out.get_mut(slot) {
+                *sample = mono_mix_pixel(row, [r, g, b]);
+            }
+        })?;
+        s = e;
+    }
+    Ok(())
+}
+
+/// The warp branch's slot (`SPEC-093`): plane pixel `(x, y)` inside the
+/// `ActiveArea` goes to `A1` index `(y − top)·active_width + (x − left)`; any
+/// other pixel (the masked border) is dropped. The row is cached as
+/// [`CropScatter`] caches it.
+struct ActiveWindow {
+    plane_width: usize,
+    left: usize,
+    top: usize,
+    width: usize,
+    height: usize,
+    /// The cached row: plane indices `row_start..row_end`, and its first `A1`
+    /// index (`None` when the row is outside the `ActiveArea`).
+    row_start: usize,
+    row_end: usize,
+    row_base: Option<usize>,
+}
+
+impl ActiveWindow {
+    fn new(plane_width: u32, geometry: &Geometry) -> Self {
+        let to_usize = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
+        Self {
+            plane_width: to_usize(plane_width),
+            left: to_usize(geometry.active_left),
+            top: to_usize(geometry.active_top),
+            width: to_usize(geometry.active_width),
+            height: to_usize(geometry.active_height),
+            row_start: 0,
+            row_end: 0,
+            row_base: None,
+        }
+    }
+
+    fn enter_row(&mut self, pixel: usize) {
+        let y = pixel.checked_div(self.plane_width).unwrap_or(0);
+        self.row_start = y.saturating_mul(self.plane_width);
+        self.row_end = self.row_start.saturating_add(self.plane_width);
+        self.row_base = y
+            .checked_sub(self.top)
+            .filter(|active_y| *active_y < self.height)
+            .and_then(|active_y| active_y.checked_mul(self.width));
+    }
+}
+
+impl PixelSlot for ActiveWindow {
+    fn slot_of(&mut self, pixel: usize) -> Option<usize> {
+        if pixel < self.row_start || pixel >= self.row_end {
+            self.enter_row(pixel);
+        }
+        let row_base = self.row_base?;
+        let active_x = pixel
+            .wrapping_sub(self.row_start)
+            .checked_sub(self.left)
+            .filter(|active_x| *active_x < self.width)?;
+        row_base.checked_add(active_x)
+    }
 }
 
 /// The camera → linear-sRGB matrix build, as the `build` step of an RGB plane
@@ -1565,6 +1767,14 @@ struct CropScatter {
 impl CropScatter {
     fn new(sensor: &Sensor) -> Result<Self, Error> {
         let geometry = resolve_geometry(sensor)?;
+        Ok(Self::from_geometry(sensor.width, &geometry))
+    }
+
+    /// The scatter for an already-resolved geometry on a plane `plane_width`
+    /// wide (`SPEC-093`): the developed mix builds it from the
+    /// options-applied geometry, so the framing and `apply_orientation` are the
+    /// mono develop's.
+    fn from_geometry(plane_width: u32, geometry: &Geometry) -> Self {
         let orientation = geometry.orientation;
         let (crop_width, crop_height) = (geometry.crop_width, geometry.crop_height);
         let (out_width, out_height) = oriented_dimensions(orientation, crop_width, crop_height);
@@ -1592,8 +1802,8 @@ impl CropScatter {
         };
 
         let to_usize = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
-        Ok(Self {
-            plane_width: to_usize(sensor.width),
+        Self {
+            plane_width: to_usize(plane_width),
             // Cannot overflow: `resolve_geometry` proved the crop fits inside
             // the ActiveArea, which fits inside the `u32`-sized plane.
             crop_left: to_usize(geometry.active_left.saturating_add(geometry.crop_origin_x)),
@@ -1608,7 +1818,7 @@ impl CropScatter {
             row_start: 0,
             row_end: 0,
             row_base: None,
-        })
+        }
     }
 
     /// Re-derive the cached row for `pixel`.
@@ -2326,6 +2536,7 @@ where
 /// each entry point then matches once, builds that shape's normalizer and runs
 /// a body generic over it, so no per-pixel branch picks the shape (the mono
 /// path's `Blacks` does the same).
+#[derive(Clone, Copy)]
 enum ColourLevels<'a> {
     /// `BlackLevelRepeatDim` rows and columns each 1 or 2, or no per-position
     /// black: the four `(row_odd, col_odd)` slots' `(black, range)`, for

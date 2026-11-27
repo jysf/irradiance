@@ -34,7 +34,8 @@ use irradiance::color::{
 };
 use irradiance::demosaic::{demosaic_into, demosaic_into_threaded};
 use irradiance::develop::{
-    develop_into, develop_with_scratch_into, output_dimensions, scratch_len, DevelopOptions,
+    develop_into, develop_with_into, develop_with_scratch_into, output_dimensions, scratch_len,
+    DevelopOptions,
 };
 use irradiance::ifd::{Container, Sensor};
 use irradiance::plane::unpack_into;
@@ -236,9 +237,13 @@ enum Entry {
     SrgbLinearPlaneRowsF32Into,
     MonoMixPlaneInto,
     MonoMixPlaneRowsInto,
+    // SPEC-093: the developed mix, the two option-taking develop entries
+    // with `DevelopOptions::mono_mix` (`DevelopPath::MonoMix`).
+    DevelopWithIntoMix,
+    DevelopWithScratchIntoMix,
 }
 
-const ENTRIES: [Entry; 15] = [
+const ENTRIES: [Entry; 17] = [
     Entry::DevelopInto,
     Entry::DevelopWithScratchInto,
     Entry::DevelopColorInto,
@@ -254,6 +259,8 @@ const ENTRIES: [Entry; 15] = [
     Entry::SrgbLinearPlaneRowsF32Into,
     Entry::MonoMixPlaneInto,
     Entry::MonoMixPlaneRowsInto,
+    Entry::DevelopWithIntoMix,
+    Entry::DevelopWithScratchIntoMix,
 ];
 
 impl Entry {
@@ -367,6 +374,24 @@ fn run(entry: Entry, fx: &Fixture) -> (Result<(), Error>, Written) {
         Entry::MonoMixPlaneRowsInto => {
             let mut dst = u16s(raw3 / 3);
             let r = mono_mix_plane_rows_into(sensor, plane, &MIX, 0..H, &mut dst);
+            (r, Written::U16(dst))
+        }
+        // SPEC-093: the developed mix (`DevelopPath::MonoMix`).
+        Entry::DevelopWithIntoMix => {
+            let mut options = DevelopOptions::default();
+            options.mono_mix = Some(MIX);
+            let mut dst = u16s(out_len());
+            let r = develop_with_into(sensor, plane, &mut dst, &options);
+            (r, Written::U16(dst))
+        }
+        Entry::DevelopWithScratchIntoMix => {
+            let mut options = DevelopOptions::default();
+            options.mono_mix = Some(MIX);
+            let n = scratch_len(sensor, &options).expect("the scratch length resolves");
+            let mut dst = u16s(out_len());
+            let mut scratch = u16s(n);
+            let r = develop_with_scratch_into(sensor, plane, &mut dst, &mut scratch, &options);
+            dst.extend_from_slice(&scratch);
             (r, Written::U16(dst))
         }
         Entry::DemosaicInto => {
