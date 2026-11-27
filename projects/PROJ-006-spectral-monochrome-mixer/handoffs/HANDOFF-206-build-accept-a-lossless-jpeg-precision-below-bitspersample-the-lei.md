@@ -58,7 +58,7 @@ handback:
   pr: 362
   completed_at: 2026-11-27         # YYYY-MM-DD
   notes: "Measured live from this session transcript, deduplicated by message.id: a floor."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-27
 ---
 
 # HANDOFF-206: Accept a lossless-JPEG precision below BitsPerSample, the Leica M10 file
