@@ -222,6 +222,61 @@ fn tiled_seeds() -> Vec<(&'static str, Vec<u8>)> {
     ]
 }
 
+/// `SPEC-097` (`DEC-085`): a 16 x 16 LinearRaw Compression-7 plane tagged
+/// `BitsPerSample` 16 whose SOF-3 precision is narrower, built as
+/// `tests/ljpeg_precision_binding.rs` builds them: P = 12 in one strip and
+/// P = 14 in one tile. Both decode `Ok` since the relaxed check.
+fn precision_below_bps_seeds() -> Vec<(&'static str, Vec<u8>)> {
+    use dng_writer::{
+        write_dng, DngDescription, DngMeta, IfdLayout, Organisation, Payload, PlaneKind,
+    };
+    const SIDE: u32 = 16;
+    let samples = |precision: u8| -> Vec<u16> {
+        (0..SIDE * SIDE)
+            .map(|i| ((i.wrapping_mul(2_654_435_761) >> 7) % (1 << precision)) as u16)
+            .collect()
+    };
+    let comp7 = |order: tiff::Order, tiled: bool, precision: u8| -> Vec<u8> {
+        let chunk = tiff::lj92_strip(&samples(precision), SIDE as usize, SIDE as usize, precision);
+        let organisation = if tiled {
+            Organisation::Tiles {
+                tile_width: SIDE,
+                tile_length: SIDE,
+                edge_fill: 0,
+            }
+        } else {
+            Organisation::Strips {
+                rows_per_strip: SIDE,
+            }
+        };
+        write_dng(&DngDescription {
+            order,
+            layout: IfdLayout::SensorInIfd0,
+            width: SIDE,
+            height: SIDE,
+            bits_per_sample: 16,
+            kind: PlaneKind::LinearRaw,
+            organisation,
+            payload: Payload::Encoded {
+                compression: 7,
+                chunks: vec![chunk],
+            },
+            meta: DngMeta::default(),
+            opcode_lists: [None, None, None],
+            extra_tags: Vec::new(),
+            fault: None,
+        })
+        .expect("the SPEC-097 precision seed writes")
+    };
+    vec![
+        (
+            "compression7-p12-in-bps16",
+            comp7(tiff::Order::Little, false, 12),
+        ),
+        ("tiled-lj92-p14-in-bps16", comp7(tiff::Order::Big, true, 14)),
+    ]
+}
+
 /// Seeds for `fuzz/fuzz_targets/plane.rs` — reaching BOTH of `DEC-008`'s
 /// paths is the point (a target that only ever drives one recreates
 /// `SPIKE-001`'s exact blind spot), plus the hostile shapes `SPEC-012`
@@ -333,6 +388,9 @@ fn plane_seeds() -> Vec<(&'static str, Vec<u8>)> {
             aliased_strips_seed(),
         ),
     ];
+    // SPEC-097 (DEC-085): a SOF-3 precision below BitsPerSample now gets past
+    // the precision check into the decode, on a strip and on a tile.
+    seeds.extend(precision_below_bps_seeds());
     // SPEC-058: the tile path.
     seeds.extend(tiled_seeds());
     // SPEC-068: one seed per unit kind the differential must reach.

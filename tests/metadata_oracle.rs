@@ -96,6 +96,14 @@ const CFA_METADATA_NOT_YET_ORACLED: &[&str] = &[
     "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng",
     "GOOGLE-PIXEL-3A/IMG_20190918_164153.dng",
     "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng",
+    // SPEC-097: the colour Leica M10 and M11. Bayer files, so their metadata
+    // is the colour oracle's claim, not this scalar mono one, and no
+    // colour-metadata oracle covers them yet: SPEC-097 is a plane-decode spec
+    // (their plane is checked against dnglab by `tests/plane_oracle.rs`,
+    // their colour outputs pinned by `tests/leica_colour.rs`). Their colour
+    // metadata belongs to the colour oracle once a spec adds them there.
+    "LEICA-M10/f5381888.dng",
+    "LEICA-M11-PB/leica_m11_01.dng",
 ];
 
 /// Whether the scalar mono oracle skips this Bayer file, by name.

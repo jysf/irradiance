@@ -609,8 +609,9 @@ fn preview_fields_defaults_and_values() {
 // AC3 / AC7 — tier B, against the exiftool pins
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The 21 previews the SPEC-062 probe found across the 11 held DNGs.
-const PINNED_PREVIEWS: usize = 21;
+/// The 21 previews the SPEC-062 probe found across the 11 held DNGs, plus the
+/// 7 SPEC-097 pinned on the colour Leica M10 (3) and M11 (4).
+const PINNED_PREVIEWS: usize = 28;
 
 #[test]
 fn corpus_previews_match_exiftool_pins() {
