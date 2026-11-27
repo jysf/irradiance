@@ -5,7 +5,7 @@
 
 stage:
   id: STAGE-034                     # stable, zero-padded, continuous across the repo
-  status: proposed                  # proposed | active | shipped | cancelled | on_hold
+  status: active                    # proposed | active | shipped | cancelled | on_hold
   priority: medium                  # critical | high | medium | low
   target_complete: null             # optional: YYYY-MM-DD
 
@@ -23,7 +23,7 @@ shipped_at: null
 value_contribution:
   advances: "the mixer works on the Leica colour bodies onyx targets, not only on the Canon, Nikon and Pixel files it was built on"
   delivers:
-    - "A Leica M10 colour DNG (14-bit lossless JPEG in a 16-bit BitsPerSample) unpacks"
+    - "A Leica M10 and M11 colour DNG (14-bit lossless JPEG in a 16-bit BitsPerSample) unpacks"
     - "A Leica Q2 colour DNG with mandatory FixBadPixelsConstant and WarpRectilinear reaches the colour path and the mixer"
   explicitly_does_not:
     - "filter presets (a later PROJ-006 stage)"
@@ -86,10 +86,10 @@ This stage has to ship before the mixer's crates.io release.
 
 ## Success Criteria
 
-- The held Q2 and M10 colour files produce a linear plane and a mixed plane, with no
-  refusal.
+- The held Q2, Q3, SL3, M10 and M11 colour files produce a linear plane and a mixed plane,
+  with no refusal.
 - No output changes for any file that develops today.
-- Once a Q3 or M11 colour file is held, it is probed and any new refusal gets a spec here.
+- Every newly held Leica colour file is probed, and any new refusal gets a spec here.
 
 ## Scope
 
@@ -107,10 +107,10 @@ This stage has to ship before the mixer's crates.io release.
 
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
-- [ ] SPEC-097 (frame) — accept a lossless-JPEG precision below `BitsPerSample` (the M10 and M11 files)
+- [ ] SPEC-097 (design) — [S] accept a lossless-JPEG precision below `BitsPerSample` (the M10 and M11 files) (DEC-085 proposed; HANDOFF-206)
 - [ ] (not yet written) — mandatory `FixBadPixelsConstant` and `WarpRectilinear` on the colour entries, under onyx's two rules in Design Notes (the Q2, Q3 and SL3 files)
 
-**Count:** 0 shipped / 0 active / 2 pending
+**Count:** 0 shipped / 1 active / 1 pending
 
 ## Design Notes
 
@@ -129,6 +129,10 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   - These change output only for files that are refused today.
 
 - Each spec is pinned to a held file and checked against `dng_validate` where possible.
+- **SPEC-097's design (2026-11-27):** with the precision check relaxed, the M10 and M11
+  decode bit-identical to `dng_validate`'s stage 1, dnglab and LibRaw, and reach every
+  colour and mixer entry with `Ok`. Neither has opcode lists, so after SPEC-097 the only
+  refusals left on held files are the Q2, Q3 and SL3 mandatory opcodes.
 - Files that develop today must not change, so `DEVELOP_VERSION` is unchanged unless a
   spec says why.
 
@@ -136,7 +140,8 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 ### Depends on
 - STAGE-031 (SPEC-091, SPEC-092) for the colour entries these files must reach.
-- External: colour Q3 and M11 DNGs (search in progress, 2026-11-26).
+- External: none outstanding. Q3, SL3 and M11 colour DNGs are held locally from Photography
+  Blog (2026-11-26), never committed; the Q2 and M10 are CC0 from raw.pixls.us.
 
 ### Enables
 - The PROJ-006 presets stage (judged on a colour Leica file) and the release.
