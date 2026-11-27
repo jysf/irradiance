@@ -113,6 +113,38 @@ fn ac1_the_developed_mix_is_the_mono_develop_of_the_mixed_plane() {
     );
 }
 
+/// `SPEC-093` verify (HANDOFF-205), onyx's parity case (its DEC-073): the mix
+/// composes with every other option at once. On the warped fixtures (ii) and
+/// (iv), the full product of both framings, `apply_orientation` true and
+/// false, and `warp_alpha` 0, ½ and 1 (AC1 crosses α 0 and ½ with
+/// `apply_orientation` true only), each equals the oracle, and α ½ differs
+/// from both ends, so the lerp is really exercised.
+#[test]
+fn ac1_parity_grid_composes_every_option() {
+    for (name, fixture) in [("(ii)", odd_warped as FixtureFn), ("(iv)", tall_warped)] {
+        let (sensor, src) = fixture();
+        let mixed = mixed_plane(&sensor, &src, &LUMINANCE);
+        for orientation in [1, 6, 7] {
+            let mut s = sensor.clone();
+            s.orientation = Some(orientation);
+            for framing in [Framing::StandardCrop, Framing::FullActiveArea] {
+                for apply in [true, false] {
+                    let mut outs = Vec::new();
+                    for alpha in [0.0, 0.5, 1.0] {
+                        let o = options(framing, apply, alpha);
+                        let label = format!("{name} orientation {orientation} {o:?}");
+                        let actual = developed(&s, &src, LUMINANCE, &o);
+                        assert_same!(actual, oracle_of_mixed(&s, &mixed, &o), "{label}");
+                        outs.push(actual.expect(&label));
+                    }
+                    assert_ne!(outs[1], outs[0], "{name}: α ½ is not α 0");
+                    assert_ne!(outs[1], outs[2], "{name}: α ½ is not α 1");
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn ac1_hand_derived_pixels_under_orientation_6() {
     // Fixture (i): ActiveArea left 1, top 3; DefaultCrop origin (1, 3), size
@@ -373,6 +405,40 @@ fn ac8_every_ranked_pair_on_both_develop_entries() {
     }
     // F10 with F11 and F7 with F13 run with one value carrying both faults.
     eprintln!("ac8 skipped: {skipped:?}");
+}
+
+/// `SPEC-093` verify (HANDOFF-205): the pair (F8, F13), which the build
+/// skipped as impossible. One `WarpRectilinear` block can carry both faults:
+/// it is malformed (a NaN optical centre, or one trailing byte past its exact
+/// `4 + 48·N + 16` length) and its tangential term is non-zero. Under
+/// `StandardCrop` the parse (rank 8) must refuse it before the applier
+/// (rank 13) could see the term, on both develop entries and `scratch_len`,
+/// with `dst` and the scratch untouched.
+#[test]
+fn ac8_one_warp_block_both_malformed_and_tangential_is_f8() {
+    let nan_centre =
+        opcode_support::single_warp_rectilinear_list(RADIAL, [0.01, 0.0], f64::NAN, 0.5, 1, 1);
+    let mut params = 1u32.to_be_bytes().to_vec();
+    for v in RADIAL.into_iter().chain([0.01, 0.0, 0.5, 0.5]) {
+        params.extend_from_slice(&v.to_be_bytes());
+    }
+    params.push(0);
+    let trailing =
+        opcode_support::opcode_list(&[opcode_support::raw_opcode(1, 0x0104_0000, 1, &params)]);
+    for (name, list) in [("NaN centre", nan_centre), ("trailing byte", trailing)] {
+        let mut c = case(&[]);
+        set_list(&mut c.sensor, 3, Some(list));
+        for with_scratch in [false, true] {
+            let label = format!("(F8, F13) as one block, {name}, scratch form {with_scratch}");
+            let (result, dst_untouched, scratch_untouched) = run_case(&c, with_scratch);
+            let err = result.expect_err(&label);
+            assert!(expected_error(8)(&err), "{label}: got {err:?}");
+            assert!(dst_untouched, "{label}: dst was written");
+            assert!(scratch_untouched, "{label}: scratch was written");
+        }
+        let err = scratch_len(&c.sensor, &c.options).unwrap_err();
+        assert!(expected_error(8)(&err), "scratch_len, {name}: got {err:?}");
+    }
 }
 
 #[test]
