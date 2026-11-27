@@ -124,6 +124,13 @@ and the tags disagree about the sample range, and `resolve_white` defaults white
 same class as `LjpegPlaneShapeMismatch`, the frame disagreeing with the tags about the
 plane.
 
+**Amended at SPEC-097's design (2026-11-27): a precision below `BitsPerSample`.** DEC-085
+§1 replaces "equal" with `P ≤ BitsPerSample ≤ 16`. A narrower frame in a wider tag (the
+Leica M10 and M11: P = 14 in 16) decodes with its samples unchanged, and white still
+defaults from `BitsPerSample` (DEC-085 §3). The reason above stands for `P >
+BitsPerSample`, which is still refused, as is a `BitsPerSample` above 16. The error, its
+kind and its paths are unchanged. Takes effect when SPEC-097 ships.
+
 ### 4. Errors and kinds
 
 Three variants, appended at the end of `Error` in this order (cargo-semver-checks; DEC-051):

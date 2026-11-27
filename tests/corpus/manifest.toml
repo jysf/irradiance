@@ -712,6 +712,51 @@ sha256_pef = "2d47df9825d1f0fa14321b589f2934678b19dcb28d74210b86bf8a0efc7d514a"
 why      = "A monochrome sensor from a different MAKE. Ships DNG and native PEF of the same scene — a free cross-container comparison later."
 priority = "medium"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# HELD 2026-11-26, RECORDED AT SPEC-097's DESIGN (2026-11-27): the colour Leica
+# M10 and M11. Both refuse at unpack today (SOF-3 precision 14 in BitsPerSample
+# 16, DEC-077 §3); SPEC-097's build promotes them to [[file]] entries with the
+# pins in its Design §5, once they decode. Measured on disk: bytes and sha256
+# by `stat` and `shasum -a 256`; raw_checksum by dnglab 0.7.2, which decodes both.
+#
+# ⚠ THE M11 (and every other `-PB` file) IS NEVER COMMITTED OR REDISTRIBUTED.
+#   It comes from a Photography Blog review gallery with no stated licence.
+#   Metadata only, here and in any [[file]] entry; no CI test may need it.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[available]]
+what         = "Leica M10 (colour) — 14-bit lossless JPEG in a 16-bit BitsPerSample"
+path         = "LEICA-M10/f5381888.dng"
+licence      = "CC0-1.0"
+source       = "https://raw.pixls.us/ — Leica M10 sample (public-domain sample library)"
+bytes        = 34209792
+sha256       = "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e"
+raw_checksum = "a1c6050a2cbfaf7d1b9a827ee3fd5bf6"   # dnglab 0.7.2
+why          = """
+5984x3992 RGGB, one Compression-7 strip, SOF-3 P=14 Nf=2 in BitsPerSample 16,
+WhiteLevel 15000 (1,243,041 samples above it, max 16383), BlackLevel 0, no
+opcode lists. SPEC-097's target: refused today with LjpegPrecisionMismatch
+{ precision: 14, bits_per_sample: 16 }; Adobe dng_validate accepts it.
+"""
+priority = "high"
+
+[[available]]
+what         = "Leica M11 (colour, 60 MP) — 14-bit lossless JPEG in a 16-bit BitsPerSample"
+path         = "LEICA-M11-PB/leica_m11_01.dng"
+licence      = "personal-evaluation-only"
+source       = "Photography Blog Leica M11 review gallery (img.photographyblog.com/reviews/leica_m11/sample_images/leica_m11_01.dng); no stated licence"
+redistribute = "never — local corpus only, never committed, no CI test may need it"
+bytes        = 102292452
+sha256       = "4b91e16064526ea26967f7ea6bc5b6cdb23c8022f7cbe4e29413a55bdca78fee"
+raw_checksum = "9ae8c096b5ed99b86a88e52d8025168c"   # dnglab 0.7.2
+why          = """
+9536x6336 RGGB, camera-original (firmware 1.22.4.19), one Compression-7 strip,
+SOF-3 P=14 Nf=2 in BitsPerSample 16, WhiteLevel 16383, BlackLevel 1023, no
+opcode lists. onyx's first-priority M body. Refused today exactly as the M10;
+dng_validate accepts it.
+"""
+priority = "high"
+
 [[wanted]]
 what     = "A monochrome DNG from a third make (M11 Monochrom, Phase One achromatic)"
 why      = "Nice-to-have once the three CC0 files above are exercised."
