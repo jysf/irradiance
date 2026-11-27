@@ -297,16 +297,21 @@ pub fn __fuzz_ljpeg(data: &[u8]) -> bool {
 /// raw-bytes body stays internal (the `Sensor`-level check is public since
 /// `SPEC-056`).
 ///
-/// Runs `lists` (`OpcodeList1`/`2`/`3`) through the check for both develop
-/// paths and returns `[mono_ok, colour_ok]`, so the fuzz target can assert the
-/// path invariant (the colour path applies a subset of what the mono path
-/// applies, so whatever colour accepts, mono must accept). Never panics.
+/// Runs `lists` (`OpcodeList1`/`2`/`3`) through the check for four develop
+/// paths and returns `[mono_ok, colour_ok, mono_mix_ok, sensor_geometry_ok]`,
+/// so the fuzz target can assert the path chain (`SPEC-098`): each path
+/// applies a superset of the one before it in Colour, MonoMix,
+/// SensorGeometry, Mono, so whatever a path accepts, every later path must
+/// accept. Never panics.
 #[cfg(feature = "fuzzing")]
 #[doc(hidden)]
-pub fn __fuzz_required_processing(lists: [Option<&[u8]>; 3]) -> [bool; 2] {
+pub fn __fuzz_required_processing(lists: [Option<&[u8]>; 3]) -> [bool; 4] {
+    let ok = |path| opcode::check_lists(lists, [false; 3], path).is_ok();
     [
-        opcode::check_lists(lists, [false; 3], opcode::DevelopPath::Mono).is_ok(),
-        opcode::check_lists(lists, [false; 3], opcode::DevelopPath::Colour).is_ok(),
+        ok(opcode::DevelopPath::Mono),
+        ok(opcode::DevelopPath::Colour),
+        ok(opcode::DevelopPath::MonoMix),
+        ok(opcode::DevelopPath::SensorGeometry),
     ]
 }
 

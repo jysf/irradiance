@@ -610,8 +610,9 @@ fn preview_fields_defaults_and_values() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The 21 previews the SPEC-062 probe found across the 11 held DNGs, plus the
-/// 7 SPEC-097 pinned on the colour Leica M10 (3) and M11 (4).
-const PINNED_PREVIEWS: usize = 28;
+/// 7 SPEC-097 pinned on the colour Leica M10 (3) and M11 (4), plus the 9
+/// SPEC-098 pinned on the colour Leica Q2, Q3 and SL3 (3 each).
+const PINNED_PREVIEWS: usize = 37;
 
 #[test]
 fn corpus_previews_match_exiftool_pins() {

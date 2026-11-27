@@ -379,19 +379,23 @@ pub struct DevelopOptions {
     /// denominators, summing to exactly one, else
     /// [`Error::InvalidMixWeights`].
     ///
-    /// - **Opcodes** ([`crate::opcode::DevelopPath::MonoMix`]): every
-    ///   `OpcodeList2` `GainMap` is applied inside the mix, as the colour
-    ///   develop applies it; the first `WarpRectilinear` in `OpcodeList3`
-    ///   whatever its flags, as the mono develop applies it (the colour
-    ///   develop skips an optional one); nothing from `OpcodeList1`, so a
-    ///   mandatory `FixBadPixelsConstant` is
-    ///   [`Error::UnsupportedRequiredOpcode`] `{ list: 1, id: 4 }` and an
-    ///   optional one is skipped unparsed.
+    /// - **Opcodes** ([`crate::opcode::DevelopPath::MonoMix`], `DEC-084`
+    ///   item 3 as amended by `DEC-086`): `OpcodeList1`'s first
+    ///   `FixBadPixelsConstant`, whatever its flags, and every `OpcodeList2`
+    ///   `GainMap` are applied inside the mix, as the colour develop applies
+    ///   them (the fix on the raw CFA from the four nearest photosites of the
+    ///   same colour; a malformed first one is
+    ///   [`Error::MalformedOpcodeParams`]); the first `WarpRectilinear` in
+    ///   `OpcodeList3` whatever its flags, as the mono develop applies it,
+    ///   **only when its `N` is 1**. A mandatory first warp with another `N`
+    ///   is [`Error::UnsupportedRequiredOpcode`] `{ list: 3, id: 1 }` and an
+    ///   optional one is skipped, until `SPEC-099`.
     /// - **[`DevelopOptions::black_levels`] is not read**: the mix's levels
     ///   are the colour path's, which already index `BlackLevelRepeatDim`.
     /// - **Errors**, in order: [`Error::InvalidWarpAlpha`],
     ///   [`Error::InvalidMixWeights`], required processing, the `src` length,
-    ///   the geometry, the colour levels then the `GainMap`s, the `dst` length,
+    ///   the geometry, the colour levels, the `GainMap`s and then
+    ///   `OpcodeList1`, the `dst` length,
     ///   `OpcodeList3` (parse, and the bounds rule under `FullActiveArea`), the
     ///   CFA ([`Error::NotAColorFilterArray`] for a mono file), the colour
     ///   calibration, [`Error::MixRowOutOfRange`], then the scratch length.
@@ -563,6 +567,21 @@ fn non_identity_warp(
     Ok(warp
         .map(|w| w.lerp(alpha))
         .filter(|w| !crate::warp::is_identity(w)))
+}
+
+/// The warp a develop applies: [`non_identity_warp`], except that under the
+/// developed mix a first `WarpRectilinear` whose `N` is not 1 is dropped
+/// (`SPEC-098`, `DEC-086` item 6). One coefficient set over the mixed plane is
+/// not the per-plane warp DNG specifies; a mandatory one never gets here (the
+/// required-processing check refused it first), so this skips an optional
+/// one. [`scratch_len`] and [`develop_core`] both ask this, so their scratch
+/// sizes agree.
+fn develop_warp(
+    sensor: &Sensor,
+    alpha: f64,
+    mix: bool,
+) -> Result<Option<crate::opcode::WarpRect>, Error> {
+    Ok(non_identity_warp(sensor, alpha)?.filter(|w| !mix || w.planes == 1))
 }
 
 /// Map a destination (post-orientation) pixel to its position within the
@@ -1638,8 +1657,9 @@ pub fn scratch_len(sensor: &Sensor, options: &DevelopOptions) -> Result<usize, E
     let geometry = apply_options(resolve_geometry(sensor)?, options);
     if mix.is_some() {
         // The developed mix (`DEC-084` item 6): `OpcodeList3` only, never
-        // `OpcodeList1`.
-        let warp = non_identity_warp(sensor, options.warp_alpha)?.is_some();
+        // `OpcodeList1` (its fix reads `src` in place and needs no scratch,
+        // `DEC-086` item 7). An optional warp with `N` other than 1 is skipped.
+        let warp = develop_warp(sensor, options.warp_alpha, true)?.is_some();
         return mix_needed_scratch(sensor, &geometry, warp, 0);
     }
     let fix_bad_pixels = match &sensor.opcode_list_1 {
@@ -1804,10 +1824,12 @@ struct Plan<'a> {
 /// With [`DevelopOptions::mono_mix`] (`SPEC-093`, `DEC-084` item 7) the same
 /// body adds the mix's checks at their ranks: the weights after `warp_alpha`;
 /// required processing on [`crate::opcode::DevelopPath::MonoMix`]; the colour
-/// levels and `GainMap`s in step 4's place; no `OpcodeList1`; then, after
-/// `OpcodeList3`, the CFA, the colour calibration and the mixer's row, before
-/// the scratch length. The passes are the strip mix, then the mono warp and
-/// gather.
+/// levels, the `GainMap`s and then `OpcodeList1`'s first
+/// `FixBadPixelsConstant` in step 4's place (`DEC-086` item 7; no step 7);
+/// then, after `OpcodeList3` (whose first warp is skipped when its `N` is not
+/// 1, `DEC-086` item 6), the CFA, the colour calibration and the mixer's row,
+/// before the scratch length. The passes are the strip mix (the bad-pixel fix
+/// at its raw reads), then the mono warp and gather.
 ///
 /// Nothing is written to `dst` or the scratch before step 10.
 fn develop_core(
@@ -1902,7 +1924,7 @@ fn develop_core(
     // precedence) under `StandardCrop` is exactly the pre-`SPEC-064` one.
     // `Some(warp)` carries the result down so the list is not parsed twice.
     let early_warp = if options.framing == Framing::FullActiveArea {
-        let warp = non_identity_warp(sensor, options.warp_alpha)?;
+        let warp = develop_warp(sensor, options.warp_alpha, mix.is_some())?;
         if let Some(w) = &warp {
             let (scale_min, scale_max) = crate::warp::scale_bounds(w);
             if !crate::warp::full_active_area_admits(w, (scale_min, scale_max)) {
@@ -1926,8 +1948,11 @@ fn develop_core(
     // `Error::UnsupportedMandatoryOpcode` for any DIFFERENT unrecognized
     // mandatory opcode in the same list (`AC6`).
     //
-    // The developed mix applies nothing from `OpcodeList1` (`DEC-084` item 3)
-    // and never parses it: an optional opcode there is skipped unread.
+    // The developed mix does not take this mono lookup: its first
+    // `FixBadPixelsConstant` was resolved with its stage 2 (rank 5, inside
+    // `resolve_mix_stage_two`) and is applied on the raw CFA inside the mix,
+    // from same-colour neighbours (`DEC-086` items 1 and 7), never by the mono
+    // applier's 3×3 median.
     let fix_bad_pixels = match (&sensor.opcode_list_1, &stage) {
         (Some(bytes), PendingStage::Mono(_)) => {
             crate::opcode::parse_fix_bad_pixels_constant(bytes)?
@@ -1937,7 +1962,7 @@ fn develop_core(
 
     let warp = match early_warp {
         Some(warp) => warp,
-        None => non_identity_warp(sensor, options.warp_alpha)?,
+        None => develop_warp(sensor, options.warp_alpha, mix.is_some())?,
     };
 
     // `SPEC-093` ranks 9 to 11: the CFA, the colour calibration, the row.

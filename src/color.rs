@@ -187,30 +187,30 @@ use crate::ifd::{active_area_origin, Rational, Sensor};
 use crate::opcode::GainMaps;
 use crate::Error;
 
-/// Bind `$n` to the resolved stage-2 normaliser for `$levels` and `$gains`
-/// and evaluate `$body` with it (`SPEC-059`). The match on the shapes runs
-/// once, outside every loop, and each arm is its own monomorphisation: with no
-/// `GainMap` the normaliser is exactly the [`slot_normalizer`] or
-/// [`pattern_normalizer`] closure the colour path ran before, so a file
-/// without one gains nothing in the hot loop.
+/// Bind `$n` to the resolved stage-2 normaliser for `$levels`, `$gains` and
+/// the bad-pixel fix `$fix` and evaluate `$body` with it (`SPEC-059`,
+/// `SPEC-098`). The match on the shapes runs once, outside every loop, and
+/// each arm is its own monomorphisation: with no `GainMap` the normaliser is
+/// exactly the [`slot_normalizer`] or [`pattern_normalizer`] closure, so a
+/// file without one gains nothing in the hot loop.
 macro_rules! with_normalizer {
-    ($sensor:expr, $src:expr, $levels:expr, $gains:expr, |$n:ident| $body:expr) => {
+    ($sensor:expr, $src:expr, $levels:expr, $gains:expr, $fix:expr, |$n:ident| $body:expr) => {
         match ($levels, $gains.is_empty()) {
             (ColourLevels::Slots(levels), true) => {
-                let $n = slot_normalizer($sensor, $src, levels);
+                let $n = slot_normalizer($sensor, $src, levels, $fix);
                 $body
             }
             (ColourLevels::Pattern(pattern, range), true) => {
-                let $n = pattern_normalizer($sensor, $src, pattern, range);
+                let $n = pattern_normalizer($sensor, $src, pattern, range, $fix);
                 $body
             }
             (ColourLevels::Slots(levels), false) => {
-                let inner = slot_normalizer($sensor, $src, levels);
+                let inner = slot_normalizer($sensor, $src, levels, $fix);
                 let $n = gained_normalizer($sensor, inner, &$gains);
                 $body
             }
             (ColourLevels::Pattern(pattern, range), false) => {
-                let inner = pattern_normalizer($sensor, $src, pattern, range);
+                let inner = pattern_normalizer($sensor, $src, pattern, range, $fix);
                 let $n = gained_normalizer($sensor, inner, &$gains);
                 $body
             }
@@ -394,11 +394,21 @@ pub fn to_srgb_linear_into(
 /// scratch is the green plane (`~47 MB` at 23 MP, down from the pre-fuse
 /// `~187 MB`); the rolling normalised-row cache is a few rows, negligible.
 ///
+/// `OpcodeList1`'s first `FixBadPixelsConstant`, whatever its flags, is applied
+/// on the raw mosaic as each sample is read, before the levels (`SPEC-098`,
+/// `DEC-086`): a photosite equal to its `Constant` inside the `ActiveArea` takes
+/// the mean, rounded half up, of its four nearest photosites of the same
+/// `CFAPattern` colour (green from its diagonals, red and blue from two away on
+/// the axes) whose own raw value is not `Constant`, or keeps its value when
+/// none is. `BayerPhase` is not used. It allocates nothing.
+///
 /// # Errors
 ///
 /// - [`Error::UnsupportedRequiredOpcode`] (checked first, `SPEC-054`) if any
-///   opcode list carries a mandatory recognized opcode other than an
-///   `OpcodeList2` `GainMap` — the one opcode this path applies (`SPEC-059`) —
+///   opcode list carries a mandatory recognized opcode other than
+///   `OpcodeList1`'s first `FixBadPixelsConstant` and the `OpcodeList2`
+///   `GainMap`s — the opcodes this path applies (`SPEC-059`, `SPEC-098`), so a
+///   mandatory `WarpRectilinear` is `{ list: 3, id: 1 }` until `SPEC-099` —
 ///   or [`Error::UnsupportedMandatoryOpcode`] for a mandatory
 ///   unrecognized one; [`Error::Truncated`] for a broken opcode list.
 /// - [`Error::ColorSourceWrongLength`] if `src.len() != width·height`.
@@ -413,6 +423,9 @@ pub fn to_srgb_linear_into(
 ///   (`DEC-070` §3), reporting `B` and `W`, before any write.
 /// - [`Error::MalformedOpcodeParams`] `{ id: 9, .. }` or [`Error::TooManyGainMaps`]
 ///   for `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069` §3), before any write.
+/// - [`Error::MalformedOpcodeParams`] `{ id: 4, .. }` for a malformed first
+///   `FixBadPixelsConstant` in `OpcodeList1`, optional or not (`DEC-086` item
+///   7), before any write.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] /
 ///   [`Error::UnsupportedCfaLayout`] / [`Error::UnsupportedCfaPlaneColor`] for a
 ///   non-CFA plane or an unsupported mosaic, or [`Error::MissingColorCalibration`]
@@ -429,7 +442,8 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
     // once, here, not per pixel.
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
-    with_normalizer!(sensor, src, levels, gains, |normalize| {
+    let fix = resolve_colour_bad_pixels(sensor)?;
+    with_normalizer!(sensor, src, levels, gains, fix, |normalize| {
         develop_color_with(
             sensor,
             expected_src,
@@ -480,6 +494,9 @@ pub fn develop_color_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Resu
 ///   (`DEC-070` §3), reporting `B` and `W`, before any write.
 /// - [`Error::MalformedOpcodeParams`] `{ id: 9, .. }` or [`Error::TooManyGainMaps`]
 ///   for `OpcodeList2`'s `GainMap`s (`SPEC-059`, `DEC-069` §3), before any write.
+/// - [`Error::MalformedOpcodeParams`] `{ id: 4, .. }` for a malformed first
+///   `FixBadPixelsConstant` in `OpcodeList1`, optional or not (`DEC-086` item
+///   7), before any write.
 /// - [`Error::NotAColorFilterArray`] / [`Error::UnsupportedCfaPattern`] /
 ///   [`Error::UnsupportedCfaLayout`] / [`Error::UnsupportedCfaPlaneColor`] /
 ///   [`Error::MissingColorCalibration`] (an unusable applied `CameraCalibration`
@@ -493,7 +510,8 @@ pub fn develop_color_f32_into(sensor: &Sensor, src: &[u16], dst: &mut [f32]) -> 
     // `GainMap`s once, before any write (`DEC-068` §2, `DEC-069` §3).
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
-    with_normalizer!(sensor, src, levels, gains, |normalize| {
+    let fix = resolve_colour_bad_pixels(sensor)?;
+    with_normalizer!(sensor, src, levels, gains, fix, |normalize| {
         develop_color_with(
             sensor,
             expected_src,
@@ -620,8 +638,17 @@ impl PixelSlot for WholePlane {
 /// index `3·(y·width + x)`, **every** pixel of the plane written, the masked
 /// border outside the `ActiveArea` included. No crop, no orientation, no warp.
 ///
-/// The pipeline is [`develop_color_into`]'s, the same fused traversal: levels,
-/// `OpcodeList2` `GainMap`s (`DEC-069`), Hamilton-Adams demosaic and the
+/// **The plane is not warped; the consumer applies `OpcodeList3`'s
+/// `WarpRectilinear`.** These entries ask with
+/// [`crate::opcode::DevelopPath::SensorGeometry`] (`SPEC-098`, `DEC-086` item
+/// 5): the first `WarpRectilinear` in `OpcodeList3`, mandatory or not and
+/// whatever its `N`, is accepted and never applied, so a viewer that warps on
+/// its GPU reads it from [`crate::ifd::Sensor::opcode_list_3`] (for example
+/// with [`crate::opcode::parse_warp_rectilinear`]) and applies it itself.
+///
+/// The pipeline is [`develop_color_into`]'s, the same fused traversal:
+/// `OpcodeList1`'s first `FixBadPixelsConstant` on the raw mosaic (`DEC-086`),
+/// levels, `OpcodeList2` `GainMap`s (`DEC-069`), Hamilton-Adams demosaic and the
 /// camera-to-linear-sRGB matrix `M` (`DEC-033`). Only the sink differs: the
 /// identity instead of the crop. So each pixel is exactly the value
 /// [`develop_color_into`] writes for it when it lies in the crop rectangle, and
@@ -637,14 +664,18 @@ impl PixelSlot for WholePlane {
 ///
 /// # Errors
 ///
-/// Exactly [`develop_color_into`]'s, in its order, except that `dst` is sized to
-/// the plane: required processing and malformed tags
-/// ([`crate::opcode::DevelopPath::Colour`]), [`Error::ColorSourceWrongLength`],
-/// the geometry ([`Error::InvalidActiveArea`] / [`Error::InvalidDefaultCrop`] /
+/// [`develop_color_into`]'s, in its order, except that `dst` is sized to the
+/// plane and required processing asks with
+/// [`crate::opcode::DevelopPath::SensorGeometry`] (so the first
+/// `WarpRectilinear` is accepted): required processing and malformed tags,
+/// [`Error::ColorSourceWrongLength`], the geometry
+/// ([`Error::InvalidActiveArea`] / [`Error::InvalidDefaultCrop`] /
 /// [`Error::UnsupportedOrientation`]: the plane exists exactly when the
 /// developed image does), [`Error::RgbBufferWrongLength`] if
-/// `dst.len() != width·height·3`, then the levels, the `GainMap`s, the CFA and
-/// the colour calibration. Nothing is written unless every check passes.
+/// `dst.len() != width·height·3`, then the levels, the `GainMap`s,
+/// `OpcodeList1`'s `FixBadPixelsConstant` ([`Error::MalformedOpcodeParams`]
+/// `{ id: 4, .. }`), the CFA and the colour calibration. Nothing is written
+/// unless every check passes.
 ///
 /// Never panics.
 pub fn srgb_linear_plane_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
@@ -672,6 +703,9 @@ pub fn srgb_linear_plane_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> 
 /// within half a code. The arithmetic is `f64` basic operations with committed
 /// constants and one IEEE cast (`DEC-033`), and `tests/determinism.rs` pins the
 /// plane's bits on x86_64 and aarch64.
+///
+/// The plane is not warped; the consumer applies `OpcodeList3`'s
+/// `WarpRectilinear`, as for [`srgb_linear_plane_into`] (`SPEC-098`).
 ///
 /// # Errors
 ///
@@ -706,6 +740,9 @@ pub fn srgb_linear_plane_f32_into(
 /// its internal scratch is proportional to the band, not the plane; `src` is
 /// still the whole mosaic.
 ///
+/// The plane is not warped; the consumer applies `OpcodeList3`'s
+/// `WarpRectilinear`, as for [`srgb_linear_plane_into`] (`SPEC-098`).
+///
 /// # Errors
 ///
 /// [`srgb_linear_plane_into`]'s, in its order, with [`Error::InvalidRowRange`]
@@ -736,6 +773,9 @@ pub fn srgb_linear_plane_rows_into(
 /// (`SPEC-091`): the band layout, halo and refusals of
 /// [`srgb_linear_plane_rows_into`], every value bit-identical to the same pixel
 /// of [`srgb_linear_plane_f32_into`] (unclamped).
+///
+/// The plane is not warped; the consumer applies `OpcodeList3`'s
+/// `WarpRectilinear`, as for [`srgb_linear_plane_into`] (`SPEC-098`).
 ///
 /// # Errors
 ///
@@ -897,7 +937,12 @@ pub fn mono_mix_row(sensor: &Sensor, weights: &[Rational; 3]) -> Result<[i32; 3]
 /// [`MONO_MIX_BLACK`] (`0`) and its white [`MONO_MIX_WHITE`] (`65535`) for
 /// every file.
 ///
-/// The pipeline is [`srgb_linear_plane_into`]'s fused traversal (levels,
+/// **The plane is not warped; the consumer applies `OpcodeList3`'s
+/// `WarpRectilinear`**, as for [`srgb_linear_plane_into`]
+/// ([`crate::opcode::DevelopPath::SensorGeometry`], `SPEC-098`).
+///
+/// The pipeline is [`srgb_linear_plane_into`]'s fused traversal
+/// (`OpcodeList1`'s first `FixBadPixelsConstant` on the raw mosaic, levels,
 /// `OpcodeList2` `GainMap`s, Hamilton-Adams demosaic); at each pixel, its
 /// camera triple `x` is mixed with the row `q` of [`mono_mix_row`] in exact
 /// `i64` arithmetic: `P = Σ_{q_i ≥ 0} q_i·x_i`, `N = Σ_{q_i < 0} q_i·x_i`,
@@ -947,6 +992,9 @@ pub fn mono_mix_plane_into(
 /// bit**: the band develops its rows plus a three-row halo through the same
 /// fused traversal (`develop_rows_banded`, `DEC-044`) and mixes each pixel with
 /// the same kernel and row.
+///
+/// The plane is not warped; the consumer applies `OpcodeList3`'s
+/// `WarpRectilinear`, as for [`srgb_linear_plane_into`] (`SPEC-098`).
 ///
 /// # Errors
 ///
@@ -1109,19 +1157,23 @@ pub(crate) fn developed_mix_weights(weights: &[Rational; 3]) -> Result<[f64; 3],
 
 /// The developed mix's stage 2, resolved once per develop (rank 5): the colour
 /// path's levels (`DEC-068` §2, `DEC-070`, so `DevelopOptions::black_levels` is
-/// not read) and then `OpcodeList2`'s `GainMap`s, exactly as
+/// not read), then `OpcodeList2`'s `GainMap`s, then `OpcodeList1`'s first
+/// `FixBadPixelsConstant` (`DEC-086` items 1 and 7), exactly as
 /// [`mono_mix_plane_into`] resolves them.
 pub(crate) struct MixStageTwo<'a> {
     levels: ColourLevels<'a>,
     gains: GainMaps<'a>,
+    fix: Option<CfaBadPixels>,
 }
 
 /// Rank 5: [`Error::InvalidLevels`] / [`Error::InvalidBlackLevelPattern`], then
-/// the `GainMap` refusals.
+/// the `GainMap` refusals, then `OpcodeList1`'s (a malformed first
+/// `FixBadPixelsConstant`, optional or not).
 pub(crate) fn resolve_mix_stage_two(sensor: &Sensor) -> Result<MixStageTwo<'_>, Error> {
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
-    Ok(MixStageTwo { levels, gains })
+    let fix = resolve_colour_bad_pixels(sensor)?;
+    Ok(MixStageTwo { levels, gains, fix })
 }
 
 /// Ranks 9 to 11: the CFA ([`Error::NotAColorFilterArray`], then the
@@ -1200,7 +1252,8 @@ fn mix_strips<P: PixelSlot>(
     out: &mut [u16],
     work: &mut [u16],
 ) -> Result<(), Error> {
-    with_normalizer!(sensor, src, stage.levels, stage.gains, |normalize| {
+    let (levels, gains, fix) = (stage.levels, &stage.gains, stage.fix);
+    with_normalizer!(sensor, src, levels, gains, fix, |normalize| {
         mix_strips_with(sensor, &normalize, row, rows, slots, out, work)
     })
 }
@@ -1342,11 +1395,12 @@ where
     B: FnOnce() -> Result<K, Error>,
     S: Fn(&mut [T; C], &K, [u16; 3]),
 {
-    check_colour_required_processing(sensor)?;
+    check_sensor_geometry_required_processing(sensor)?;
     let expected_src = check_plane_buffers(sensor, src.len(), None, dst.len(), samples)?;
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
-    with_normalizer!(sensor, src, levels, gains, |normalize| {
+    let fix = resolve_colour_bad_pixels(sensor)?;
+    with_normalizer!(sensor, src, levels, gains, fix, |normalize| {
         develop_color_with(
             sensor,
             expected_src,
@@ -1376,13 +1430,14 @@ where
     B: FnOnce() -> Result<K, Error>,
     S: Fn(&mut [T; C], &K, [u16; 3]),
 {
-    check_colour_required_processing(sensor)?;
+    check_sensor_geometry_required_processing(sensor)?;
     check_plane_buffers(sensor, src.len(), Some(&rows), dst.len(), samples)?;
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
+    let fix = resolve_colour_bad_pixels(sensor)?;
     check_supported_bayer(sensor)?;
     let coefficients = build()?;
-    with_normalizer!(sensor, src, levels, gains, |normalize| {
+    with_normalizer!(sensor, src, levels, gains, fix, |normalize| {
         srgb_linear_plane_rows_with(sensor, &rows, &normalize, &coefficients, dst, &store)
     })
 }
@@ -1556,11 +1611,19 @@ pub fn develop_color_f32_into_threaded(
 }
 
 /// The colour path's required-processing check (`SPEC-054`, `DEC-049`): it
-/// applies every `OpcodeList2` `GainMap` (`SPEC-059`, `DEC-069`) and nothing
-/// else, so any other mandatory opcode in any list is refused. Every
-/// public colour entry calls this first, before any allocation or decode.
+/// applies `OpcodeList1`'s first `FixBadPixelsConstant` (`SPEC-098`,
+/// `DEC-086`) and every `OpcodeList2` `GainMap` (`SPEC-059`, `DEC-069`) and
+/// nothing else, so any other mandatory opcode in any list is refused. Every
+/// developed colour entry calls this first, before any allocation or decode.
 fn check_colour_required_processing(sensor: &Sensor) -> Result<(), Error> {
     crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::Colour)
+}
+
+/// The sensor-geometry entries' required-processing check (`SPEC-098`,
+/// `DEC-086` item 5): the colour path's, and the first `WarpRectilinear` in
+/// `OpcodeList3` is accepted without being applied (the consumer applies it).
+fn check_sensor_geometry_required_processing(sensor: &Sensor) -> Result<(), Error> {
+    crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::SensorGeometry)
 }
 
 /// What a threaded colour develop needs, resolved once before spawning.
@@ -1637,7 +1700,8 @@ where
     // calling thread.
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
-    with_normalizer!(sensor, src, levels, gains, |normalize| {
+    let fix = resolve_colour_bad_pixels(sensor)?;
+    with_normalizer!(sensor, src, levels, gains, fix, |normalize| {
         develop_color_bands_with(sensor, &normalize, dst, threads, plan, store)
     })
 }
@@ -2531,6 +2595,148 @@ where
     }
 }
 
+/// `OpcodeList1`'s first `FixBadPixelsConstant`, resolved once per call for
+/// the colour paths (`SPEC-098`, `DEC-086` items 1 to 4), or `None` when the
+/// list or the opcode is absent, or when the CFA is not a supported 2×2 Bayer
+/// mosaic (the entry then refuses at its own CFA check, which runs before any
+/// sample is read).
+///
+/// Ranks after the levels and the `GainMap`s and before the CFA (`DEC-086`
+/// item 7): a malformed first instance, optional or not, is
+/// [`Error::MalformedOpcodeParams`] `{ id: 4, .. }` here. `BayerPhase` is
+/// parsed (so a malformed block is refused) and not used: the colour comes
+/// from `CFAPattern` (item 4).
+fn resolve_colour_bad_pixels(sensor: &Sensor) -> Result<Option<CfaBadPixels>, Error> {
+    let Some(bytes) = sensor.opcode_list_1.as_deref() else {
+        return Ok(None);
+    };
+    let Some(constant) = crate::opcode::parse_fix_bad_pixels_constant(bytes)? else {
+        return Ok(None);
+    };
+    Ok(CfaBadPixels::new(sensor, constant))
+}
+
+/// The colour paths' `FixBadPixelsConstant` kernel (`DEC-086` item 3), applied
+/// at the raw read of [`slot_normalizer`] and [`pattern_normalizer`], the only
+/// two places the colour path reads `src` (item 2). A pure function of `src`:
+/// it reads only unfixed values and writes nothing back, so every traversal
+/// (the fused one, the bands and their halos, the threads, the developed mix's
+/// strips) sees the same fixed value, and no visiting order changes it.
+/// `Copy`, a few words: resolved once, never per pixel.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CfaBadPixels {
+    /// `Constant`, compared with each raw sample as a `u32`: one above 65535
+    /// matches nothing.
+    constant: u32,
+    /// The plane's size: a neighbour counts anywhere inside it, the masked
+    /// border included (`SPEC-017` rule 1).
+    width: u32,
+    height: u32,
+    /// The `ActiveArea`, clamped to the plane: only a photosite inside it is a
+    /// candidate, and its colour is indexed from its origin (`DEC-040`).
+    top: u32,
+    left: u32,
+    bottom: u32,
+    right: u32,
+    /// Whether each 2×2 slot `(row & 1)·2 + (col & 1)` from the `ActiveArea`
+    /// origin is green in `CFAPattern`.
+    green: [bool; 4],
+}
+
+impl CfaBadPixels {
+    /// The kernel for `constant` on `sensor`'s CFA, or `None` when the CFA is
+    /// not a supported 2×2 Bayer mosaic.
+    fn new(sensor: &Sensor, constant: u32) -> Option<CfaBadPixels> {
+        if !is_supported_bayer(sensor) {
+            return None;
+        }
+        let cfa = sensor.color_filter.as_ref()?;
+        let mut green = [false; 4];
+        for (slot, &colour) in green.iter_mut().zip(cfa.pattern.iter()) {
+            *slot = colour == 1;
+        }
+        let (top, left) = active_area_origin(sensor);
+        let (bottom, right) = match sensor.active_area {
+            Some(a) => (a.bottom.min(sensor.height), a.right.min(sensor.width)),
+            None => (sensor.height, sensor.width),
+        };
+        Some(CfaBadPixels {
+            constant,
+            width: sensor.width,
+            height: sensor.height,
+            top,
+            left,
+            bottom,
+            right,
+            green,
+        })
+    }
+
+    /// The fixed value of the raw sample `v` at `(x, y)`. Not a candidate
+    /// (`v` returned) unless `v` equals `Constant` and `(x, y)` is inside the
+    /// `ActiveArea`. A green candidate reads its four diagonals, a red or blue
+    /// one the four photosites two away on the axes; each neighbour inside the
+    /// plane whose **unfixed** value is not `Constant` counts. The result is
+    /// `⌊(t + ⌊n/2⌋) / n⌋` for `n` neighbours summing to `t` (the mean rounded
+    /// half up), or `v` when `n` is 0. Checked arithmetic only: `n ≤ 4` and
+    /// `t ≤ 4·65535`.
+    #[inline]
+    fn sample(&self, src: &[u16], x: u32, y: u32, v: u16) -> u16 {
+        if u32::from(v) != self.constant
+            || y < self.top
+            || y >= self.bottom
+            || x < self.left
+            || x >= self.right
+        {
+            return v;
+        }
+        let row_odd = y.wrapping_sub(self.top) & 1 == 1;
+        let col_odd = x.wrapping_sub(self.left) & 1 == 1;
+        let slot = match (row_odd, col_odd) {
+            (false, false) => 0,
+            (false, true) => 1,
+            (true, false) => 2,
+            (true, true) => 3,
+        };
+        let green = self.green.get(slot).copied().unwrap_or(false);
+        let offsets: [(i64, i64); 4] = if green {
+            [(-1, -1), (1, -1), (-1, 1), (1, 1)]
+        } else {
+            [(0, -2), (-2, 0), (2, 0), (0, 2)]
+        };
+        let width = usize::try_from(self.width).unwrap_or(0);
+        let (mut n, mut t) = (0u32, 0u32);
+        for (dx, dy) in offsets {
+            let nx = i64::from(x).checked_add(dx);
+            let ny = i64::from(y).checked_add(dy);
+            let (Some(nx), Some(ny)) = (nx, ny) else {
+                continue;
+            };
+            let (Ok(nx), Ok(ny)) = (u32::try_from(nx), u32::try_from(ny)) else {
+                continue;
+            };
+            if nx >= self.width || ny >= self.height {
+                continue;
+            }
+            let index = usize::try_from(ny)
+                .ok()
+                .and_then(|row| row.checked_mul(width))
+                .and_then(|base| base.checked_add(usize::try_from(nx).ok()?));
+            let Some(&neighbour) = index.and_then(|i| src.get(i)) else {
+                continue;
+            };
+            if u32::from(neighbour) != self.constant {
+                n = n.saturating_add(1);
+                t = t.saturating_add(u32::from(neighbour));
+            }
+        }
+        match t.checked_add(n / 2).and_then(|sum| sum.checked_div(n)) {
+            Some(mean) => u16::try_from(mean).unwrap_or(v),
+            None => v,
+        }
+    }
+}
+
 /// The colour path's resolved levels, in one of two shapes (`SPEC-075`,
 /// `DEC-068` §2). [`resolve_colour_levels`] resolves them once per develop;
 /// each entry point then matches once, builds that shape's normalizer and runs
@@ -2717,6 +2923,7 @@ fn slot_normalizer<'a>(
     sensor: &'a Sensor,
     src: &'a [u16],
     levels: [(u32, u32); 4],
+    fix: Option<CfaBadPixels>,
 ) -> impl Fn(u32, u32) -> u16 + Sync + 'a {
     let width = usize::try_from(sensor.width).unwrap_or(0);
     let (active_top, active_left) = active_area_origin(sensor);
@@ -2737,6 +2944,8 @@ fn slot_normalizer<'a>(
         let (black, range) = levels.get(pos).copied().unwrap_or((0, u32::from(u16::MAX)));
         let index = row.checked_mul(width).and_then(|rb| rb.checked_add(col));
         let sample = index.and_then(|i| src.get(i)).copied().unwrap_or(0);
+        // `DEC-086` item 2: the fix runs on the raw sample, before the levels.
+        let sample = fix.map_or(sample, |f| f.sample(src, x, y, sample));
         normalize_range(sample, black, range)
     }
 }
@@ -2749,6 +2958,7 @@ fn pattern_normalizer<'a>(
     src: &'a [u16],
     pattern: BlackPattern<'a>,
     range: u32,
+    fix: Option<CfaBadPixels>,
 ) -> impl Fn(u32, u32) -> u16 + Sync + 'a {
     let width = usize::try_from(sensor.width).unwrap_or(0);
     move |x: u32, y: u32| -> u16 {
@@ -2757,6 +2967,8 @@ fn pattern_normalizer<'a>(
         let black = pattern.at(x, y);
         let index = row.checked_mul(width).and_then(|rb| rb.checked_add(col));
         let sample = index.and_then(|i| src.get(i)).copied().unwrap_or(0);
+        // `DEC-086` item 2: the fix runs on the raw sample, before the levels.
+        let sample = fix.map_or(sample, |f| f.sample(src, x, y, sample));
         normalize_range(sample, black, range)
     }
 }
@@ -3167,7 +3379,7 @@ mod tests {
         let Ok(ColourLevels::Pattern(pattern, range)) = resolve_colour_levels(&sensor) else {
             panic!("a [3, 2] pattern must take the general path");
         };
-        let normalize = pattern_normalizer(&sensor, &src, pattern, range);
+        let normalize = pattern_normalizer(&sensor, &src, pattern, range, None);
         // `DEC-070`: every photosite subtracts its own black but scales by
         // white minus the fixture's largest black, 65535 − 600.
         let max_black = u64::from(*blacks.iter().max().unwrap());
@@ -3265,7 +3477,7 @@ mod tests {
             [(2047, 12952), (2047, 12952), (2047, 12952), (2048, 12952)],
             "every slot scales by W − B"
         );
-        let normalize = slot_normalizer(&sensor, &src, levels);
+        let normalize = slot_normalizer(&sensor, &src, levels, None);
         for (x, y, sample, black, want) in AC1_COLOUR {
             assert_eq!(
                 normalize(x, y),
@@ -3291,7 +3503,7 @@ mod tests {
             panic!("a [4, 4] pattern takes the general path");
         };
         assert_eq!(range, 12952, "W − B");
-        let normalize = pattern_normalizer(&sensor, &src, pattern, range);
+        let normalize = pattern_normalizer(&sensor, &src, pattern, range, None);
         for (x, y, sample, black, want) in AC1_COLOUR {
             assert_eq!(
                 normalize(x, y),
@@ -3308,7 +3520,7 @@ mod tests {
         let Ok(ColourLevels::Slots(levels)) = resolve_colour_levels(&sensor) else {
             panic!("a [2, 2] pattern takes the slot path");
         };
-        let normalize = slot_normalizer(&sensor, &src, levels);
+        let normalize = slot_normalizer(&sensor, &src, levels, None);
         for (x, y, sample, _, _) in AC1_COLOUR {
             assert_eq!(
                 normalize(x, y),
@@ -3323,7 +3535,7 @@ mod tests {
             panic!("no pattern takes the slot path");
         };
         assert_eq!(levels, [(2047, 12953); 4]);
-        let normalize = slot_normalizer(&scalar, &src, levels);
+        let normalize = slot_normalizer(&scalar, &src, levels, None);
         assert_eq!(normalize(0, 0), 32765, "today's value at 8523");
     }
 
@@ -3385,7 +3597,7 @@ mod tests {
         // and one at or below it to 0 (the hand rule; no crate call).
         let blacks = [2047, 14_999, 2047, 2047];
         let expect = |sample: u16, black: u32| if u32::from(sample) > black { 65_535 } else { 0 };
-        let normalize = slot_normalizer(&sensor, &src, levels);
+        let normalize = slot_normalizer(&sensor, &src, levels, None);
         for y in 0..2u32 {
             for x in 0..4u32 {
                 let sample = src[(y * 4 + x) as usize];
@@ -3413,7 +3625,7 @@ mod tests {
             panic!("a [3, 3] pattern at W = B + 1 takes the general path");
         };
         assert_eq!(range, 1, "range W − B");
-        let normalize = pattern_normalizer(&sensor, &src, pattern, range);
+        let normalize = pattern_normalizer(&sensor, &src, pattern, range, None);
         for y in 0..2u32 {
             for x in 0..4u32 {
                 let sample = src[(y * 4 + x) as usize];

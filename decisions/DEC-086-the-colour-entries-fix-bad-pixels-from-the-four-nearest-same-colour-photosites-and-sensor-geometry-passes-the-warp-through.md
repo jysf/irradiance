@@ -212,6 +212,12 @@ and 3. That is the opposite of the specification's table for every phase.
   mix, and the demosaic and colour-transform primitives still refuse them.
 - **Neutral:** an optional `FixBadPixelsConstant` is now applied on the colour paths (as
   on the mono path), and a malformed one is refused. No held colour file has one.
+- **Accepted departure (maintainer, 2026-11-27, at SPEC-098's build).** The difference
+  from the Adobe SDK on red and blue bad photosites (above) is accepted: irradiance
+  fills them from the same colour per `CFAPattern` and does not follow the SDK's
+  `BayerPhase` parity. The departure is also recorded in `docs/provenance-ledger.md`
+  (the kernel's row) and `CHANGELOG.md`. The same ruling made the Q3 and SL3 tier-B
+  `[[file]]` entries, `personal-evaluation-only` and never redistributed, as the M11.
 
 ## Validation
 

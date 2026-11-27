@@ -403,9 +403,17 @@ pub fn skipped_pair(i: usize, j: usize) -> Option<&'static str> {
     }
 }
 
-/// A mandatory `FixBadPixelsConstant` (`OpcodeList1`).
+/// A mandatory `FixBadPixelsConstant` (`OpcodeList1`), which the mix applies
+/// (`SPEC-098`, `DEC-086` item 1).
 pub fn mandatory_fix_bad_pixels() -> Vec<u8> {
     crate::opcode_support::single_fix_bad_pixels_constant_list(0, 0, 0)
+}
+
+/// Two mandatory `FixBadPixelsConstant`s (`OpcodeList1`): the mix applies the
+/// first and refuses the second, so this is fault F2's list (`SPEC-098`).
+pub fn two_mandatory_fix_bad_pixels() -> Vec<u8> {
+    let fbpc = || raw_opcode(4, 0x0103_0000, 0, &[0u8; 8]);
+    opcode_list(&[fbpc(), fbpc()])
 }
 
 /// An optional `FixBadPixelsConstant` whose parameter block is 7 bytes.
@@ -430,7 +438,7 @@ pub fn case(set: &[usize]) -> Case {
         o.mono_mix = Some([r(1, 3), r(1, 3), r(1, 4)]);
     }
     if has(2) {
-        set_list(&mut sensor, 1, Some(mandatory_fix_bad_pixels()));
+        set_list(&mut sensor, 1, Some(two_mandatory_fix_bad_pixels()));
     }
     if has(3) {
         src.pop();

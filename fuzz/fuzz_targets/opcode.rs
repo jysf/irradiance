@@ -61,8 +61,11 @@ use irradiance::{__fuzz_required_processing, Error};
 /// entry runs, over the same hostile bytes, in each list slot and in all three
 /// at once. Two invariants beyond "never panics":
 ///
-/// 1. The colour path applies nothing and the mono path applies a superset,
-///    so a list set the colour check accepts, the mono check must accept.
+/// 1. The paths form a chain (`SPEC-098`): Colour applies the first
+///    `FixBadPixelsConstant` and the `GainMap`s, MonoMix adds a first
+///    single-plane `WarpRectilinear`, SensorGeometry any first
+///    `WarpRectilinear`, and Mono the same as SensorGeometry. So a list set a
+///    path accepts, every path after it in that chain must accept.
 /// 2. The check and `parse_opcode_list` share one framing reader, so a list
 ///    the colour check accepts (every opcode optional, framing intact) must
 ///    not be one the parser rejects as truncated or as a mandatory unknown.
@@ -70,10 +73,18 @@ fn check_required(
     lists: [Option<&[u8]>; 3],
     parsed: &Result<Vec<irradiance::opcode::Opcode>, Error>,
 ) {
-    let [mono_ok, colour_ok] = __fuzz_required_processing(lists);
+    let [mono_ok, colour_ok, mono_mix_ok, sensor_geometry_ok] = __fuzz_required_processing(lists);
     assert!(
-        !colour_ok || mono_ok,
-        "colour accepted a list set the mono path rejected: {lists:?}"
+        !colour_ok || mono_mix_ok,
+        "colour accepted a list set the developed mix rejected: {lists:?}"
+    );
+    assert!(
+        !mono_mix_ok || sensor_geometry_ok,
+        "the developed mix accepted a list set the sensor-geometry path rejected: {lists:?}"
+    );
+    assert!(
+        !sensor_geometry_ok || mono_ok,
+        "the sensor-geometry path accepted a list set the mono path rejected: {lists:?}"
     );
     if colour_ok && lists.iter().any(Option::is_some) {
         assert!(

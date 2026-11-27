@@ -146,6 +146,12 @@ const CFA_CHECKED_ELSEWHERE: &[&str] = &[
     // tests/leica_colour.rs.
     "LEICA-M10/f5381888.dng",
     "LEICA-M11-PB/leica_m11_01.dng",
+    // SPEC-098: the colour Leica Q2, Q3 and SL3, checked bit-exact by
+    // tests/plane_oracle.rs and pinned through the sensor-geometry entries by
+    // tests/leica_colour.rs.
+    "LEICA-Q2/L1000750.DNG",
+    "LEICA-Q3-PB/leica_q3_01.dng",
+    "LEICA-SL3-PB/leica_sl3_01.dng",
 ];
 
 /// Read one corpus file's bytes, or `None` when it is absent (skip).

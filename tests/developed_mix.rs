@@ -244,11 +244,29 @@ fn ac5_black_levels_is_not_read_under_the_mix() {
     );
 }
 
+/// `SPEC-098` (`DEC-086` item 1): the mix applies the first mandatory
+/// `FixBadPixelsConstant` on the raw CFA (the kernel's values are
+/// `tests/colour_bad_pixels.rs`'s) and refuses a second one.
 #[test]
-fn ac6_the_mix_refuses_a_mandatory_fix_bad_pixels() {
-    let (mut sensor, src) = odd();
+fn ac6_the_mix_applies_the_first_fix_bad_pixels() {
+    let (plain, src) = odd();
+    assert!(
+        !src.contains(&0),
+        "no photosite equals the Constant, so the fix is inert here"
+    );
+    let mut sensor = plain.clone();
     set_list(&mut sensor, 1, Some(mandatory_fix_bad_pixels()));
     let o = with_mix(&DevelopOptions::default(), LUMINANCE);
+    assert_same!(
+        developed(&sensor, &src, LUMINANCE, &o),
+        developed(&plain, &src, LUMINANCE, &o)
+    );
+    assert!(developed(&sensor, &src, LUMINANCE, &o).is_ok());
+    // The fix needs no scratch.
+    assert_same!(scratch_len(&sensor, &o), scratch_len(&plain, &o));
+
+    // A second mandatory one is refused, before any write, on both entries.
+    set_list(&mut sensor, 1, Some(two_mandatory_fix_bad_pixels()));
     let (w, h) = output_dimensions_with(&sensor, &o).unwrap();
     let mut dst = vec![SENTINEL; (w * h) as usize];
     assert_same!(
@@ -261,9 +279,6 @@ fn ac6_the_mix_refuses_a_mandatory_fix_bad_pixels() {
         Err::<(), Error>(Error::UnsupportedRequiredOpcode { list: 1, id: 4 })
     );
     assert!(dst.iter().all(|&v| v == SENTINEL));
-    // The same file developed as mono applies it.
-    let mono = DevelopOptions::default();
-    develop_with_into(&sensor, &src, &mut dst, &mono).expect("the mono develop applies it");
 }
 
 #[test]
@@ -271,12 +286,14 @@ fn ac6_the_mix_applies_a_mandatory_warp() {
     let (optional, src) = odd_warped();
     let mut mandatory = optional.clone();
     set_list(&mut mandatory, 3, Some(radial_warp(0)));
-    // The sensor-geometry plane refuses the mandatory warp...
+    // The sensor-geometry plane passes the mandatory warp through unapplied
+    // (`SPEC-098`, `DEC-086` item 5): the same plane as the optional copy's...
     let mut plane = vec![SENTINEL; src.len()];
-    assert_same!(
-        mono_mix_plane_into(&mandatory, &src, &LUMINANCE, &mut plane),
-        Err::<(), Error>(Error::UnsupportedRequiredOpcode { list: 3, id: 1 })
-    );
+    mono_mix_plane_into(&mandatory, &src, &LUMINANCE, &mut plane)
+        .expect("the plane passes the warp through");
+    let mut unwarped = vec![SENTINEL; src.len()];
+    mono_mix_plane_into(&optional, &src, &LUMINANCE, &mut unwarped).unwrap();
+    assert_eq!(plane, unwarped, "the sensor-geometry plane is not warped");
     // ...the developed mix applies it. The oracle's mixed plane comes from the
     // optional-flag copy (the flag does not touch the plane).
     for o in [
@@ -294,8 +311,12 @@ fn ac6_the_mix_applies_a_mandatory_warp() {
     }
 }
 
+/// `SPEC-098` (`DEC-086` item 7): the mix now parses `OpcodeList1` with its
+/// stage 2, so a malformed optional `FixBadPixelsConstant` is refused by the
+/// develop as by the mono one; `scratch_len` still does not parse it under the
+/// mix (the fix needs no scratch).
 #[test]
-fn ac6_the_mix_never_parses_opcode_list_1() {
+fn ac6_the_mix_refuses_a_malformed_fix_bad_pixels_and_scratch_len_ignores_it() {
     let (mut sensor, src) = odd();
     set_list(&mut sensor, 1, Some(malformed_optional_fix_bad_pixels()));
     let mono = DevelopOptions::default();
@@ -311,13 +332,20 @@ fn ac6_the_mix_never_parses_opcode_list_1() {
         develop_with_into(&sensor, &src, &mut dst, &mono),
         Err(Error::MalformedOpcodeParams { id: 4, .. })
     ));
-    // The mix skips it unparsed, on every entry.
+    // The mix refuses it too, on both entries, before any write...
+    let mut dst = vec![SENTINEL; (w * h) as usize];
+    assert!(matches!(
+        develop_with_into(&sensor, &src, &mut dst, &mix),
+        Err(Error::MalformedOpcodeParams { id: 4, .. })
+    ));
+    let mut scratch = vec![0u16; scratch_len(&sensor, &mix).unwrap()];
+    assert!(matches!(
+        develop_with_scratch_into(&sensor, &src, &mut dst, &mut scratch, &mix),
+        Err(Error::MalformedOpcodeParams { id: 4, .. })
+    ));
+    assert!(dst.iter().all(|&v| v == SENTINEL));
+    // ...and its scratch length does not read it.
     assert_same!(scratch_len(&sensor, &mix), scratch_len(&odd().0, &mix));
-    assert_same!(
-        developed(&sensor, &src, LUMINANCE, &mono),
-        oracle(&sensor, &src, &LUMINANCE, &mono)
-    );
-    assert!(developed(&sensor, &src, LUMINANCE, &mono).is_ok());
 }
 
 #[test]
