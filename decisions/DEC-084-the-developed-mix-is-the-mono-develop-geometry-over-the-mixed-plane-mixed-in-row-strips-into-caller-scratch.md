@@ -67,6 +67,13 @@ monochrome image at the mono develop's geometry.
    `UnsupportedRequiredOpcode { list: 1, id: 4 }`, and an optional one is skipped
    unparsed. Its malformed-tag sets are the colour path's (levels and geometry, CFA,
    colour).
+   **Amended at SPEC-098's design (2026-11-27), DEC-086 items 1 and 6.** The developed
+   mix now applies the first `FixBadPixelsConstant` in `OpcodeList1` on the CFA, with
+   the colour path's same-colour kernel, so a mandatory one is no longer refused and an
+   optional malformed one is refused rather than skipped. It applies the first
+   `WarpRectilinear` only when its `N` is 1; a mandatory one with `N ≠ 1` is
+   `UnsupportedRequiredOpcode { list: 3, id: 1 }` and an optional one is skipped, until
+   SPEC-099 decides the three-plane rule. Takes effect when SPEC-098 ships.
 4. **The other options.** `framing`, `apply_orientation` and `warp_alpha` mean what they
    mean for the mono develop, including `DEC-059` §3's bounds rule under
    `FullActiveArea`. `black_levels` is not read: the mix's levels are the colour path's

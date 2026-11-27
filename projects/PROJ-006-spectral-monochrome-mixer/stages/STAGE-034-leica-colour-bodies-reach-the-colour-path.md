@@ -108,9 +108,10 @@ This stage has to ship before the mixer's crates.io release.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-097 (shipped on 2026-11-27) — [S] accept a lossless-JPEG precision below `BitsPerSample` (the M10 and M11 files) (DEC-085 accepted; design PR 361, build PR 362, verify PR 363)
-- [ ] SPEC-098 (frame) — mandatory `FixBadPixelsConstant` and `WarpRectilinear` on the colour entries, under onyx's two rules in Design Notes (the Q2, Q3 and SL3 files); may split at design
+- [~] SPEC-098 (design) — [M] mandatory `FixBadPixelsConstant` on the CFA on every colour entry (four nearest same-colour photosites), and `WarpRectilinear` passed through at sensor geometry (the Q2, Q3 and SL3 files; DEC-086 proposed)
+- [ ] SPEC-099 (frame) — [M] the per-plane `WarpRectilinear` (`N = 3`) on the developed colour outputs and the developed mix; split out of SPEC-098 at its design; `depends_on: [SPEC-098]`
 
-**Count:** 1 shipped / 0 active / 1 pending
+**Count:** 1 shipped / 1 active / 1 pending
 
 ## Design Notes
 
@@ -140,6 +141,17 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   The only refusals left on held files are the Q2, Q3 and SL3 mandatory opcodes, which the
   next spec takes. onyx is asked in the PROJ-006 brief whether it wants highlight recovery
   above the M10's `WhiteLevel`; that is not a spec here.
+- **SPEC-098's design (2026-11-27), split in two.** The three files' warps have `N = 3`
+  (one set per colour plane, up to 1.3 px apart at the corner), which the developed
+  outputs cannot apply without a camera-RGB intermediate and onyx's answer on the
+  developed mix (DEC-084 warps the mixed plane once). So SPEC-098 is the bad-pixel fix
+  on every colour entry plus the sensor-geometry pass-through (a new
+  `DevelopPath::SensorGeometry`), which meets this stage's success criterion, and
+  SPEC-099 is the developed warp. The fix fills each bad photosite from its four nearest
+  same-colour photosites, colour from `CFAPattern`; `BayerPhase` is not used, because the
+  Adobe SDK reads its parity opposite to the specification (shown on the SL3's 27,651
+  bad photosites, all outside the crop). Only the SL3 has bad photosites; the Q2 and Q3
+  have none. No file that develops today changes.
 - **Orchestration cost at this stage's close:** SPEC-097's design transcript
   (`871eb085`) is counted in SPEC-097's own cost, so it must not be counted again here.
   The orchestrator's entry starts after 2026-11-27T06:00Z (STAGE-031 counted up to then),

@@ -841,6 +841,72 @@ sha256_pef = "2d47df9825d1f0fa14321b589f2934678b19dcb28d74210b86bf8a0efc7d514a"
 why      = "A monochrome sensor from a different MAKE. Ships DNG and native PEF of the same scene — a free cross-container comparison later."
 priority = "medium"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# HELD 2026-11-26, RECORDED AT SPEC-098's DESIGN (2026-11-27): the colour Leica
+# Q2, Q3 and SL3. All three unpack (bit-identical to dnglab and to dng_validate's
+# stage 1); every colour entry refuses their mandatory OpcodeList1
+# FixBadPixelsConstant today. SPEC-098's build promotes them to [[file]] entries
+# with the pins in its Design §7. Measured on disk: bytes and sha256 by `stat`
+# and `shasum -a 256`; raw_checksum by dnglab 0.7.2.
+#
+# ⚠ THE Q3 AND SL3 (like every `-PB` file) ARE NEVER COMMITTED OR REDISTRIBUTED.
+#   They come from Photography Blog review galleries with no stated licence.
+#   Metadata only, here and in any [[file]] entry; no CI test may need them.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[available]]
+what         = "Leica Q2 (colour) — 14-bit uncompressed, mandatory FixBadPixelsConstant and WarpRectilinear"
+path         = "LEICA-Q2/L1000750.DNG"
+licence      = "CC0-1.0"
+source       = "https://raw.pixls.us/ — Leica Q2 sample (public-domain sample library)"
+bytes        = 87194624
+sha256       = "a71f98405e9e9c1e4ac0f2d2e6c52d65daae3234fc0a9f6eed2a84ee4ce794ad"
+raw_checksum = "271a816a8ae17496988ebdda4e6780d9"   # dnglab 0.7.2
+why          = """
+8424x5632 GBRG, one uncompressed strip, BitsPerSample 14, BlackLevel 512 (2x2),
+WhiteLevel 16383, ActiveArea 0 0 5632 8392. OpcodeList1 FixBadPixelsConstant
+(flags 0, Constant 0, BayerPhase 2; no photosite equals 0) and OpcodeList3
+WarpRectilinear (flags 0, N = 3). SPEC-098's and SPEC-099's target.
+"""
+priority = "high"
+
+[[available]]
+what         = "Leica Q3 (colour, 60 MP) — 14-bit lossless JPEG, mandatory FixBadPixelsConstant and WarpRectilinear"
+path         = "LEICA-Q3-PB/leica_q3_01.dng"
+licence      = "personal-evaluation-only"
+source       = "Photography Blog Leica Q3 review gallery (img.photographyblog.com/reviews/leica_q3/sample_images/leica_q3_01.dng); no stated licence"
+redistribute = "never — local corpus only, never committed, no CI test may need it"
+bytes        = 90079744
+sha256       = "2bdafb50ef37cd7e7f94678675db3166fe4e8ab3552dd8f2ddec7b8f47668623"
+raw_checksum = "935a67a9ada37d56fb0ed6949e1827c0"   # dnglab 0.7.2
+why          = """
+9536x6344 RGGB, camera-original (firmware 1.0.0), one Compression-7 strip, SOF-3
+P=14 Nf=2 in BitsPerSample 14, BlackLevel 512 (2x2), WhiteLevel 16383,
+Orientation 8. OpcodeList1 FixBadPixelsConstant (flags 0, Constant 0,
+BayerPhase 0; no photosite equals 0) and OpcodeList3 WarpRectilinear (flags 0,
+N = 3). onyx's first-priority Q body.
+"""
+priority = "high"
+
+[[available]]
+what         = "Leica SL3 (colour, 60 MP) — 14-bit lossless JPEG, mandatory FixBadPixelsConstant and WarpRectilinear"
+path         = "LEICA-SL3-PB/leica_sl3_01.dng"
+licence      = "personal-evaluation-only"
+source       = "Photography Blog Leica SL3 review gallery (img.photographyblog.com/reviews/leica_sl3/sample_images/leica_sl3_01.dng); no stated licence"
+redistribute = "never — local corpus only, never committed, no CI test may need it"
+bytes        = 77727232
+sha256       = "31f7f69a235a00dae8a18f29fcc74c83b490b986e0a1d9735a301078abd23330"
+raw_checksum = "bfa290077f179102ddc28411104688d9"   # dnglab 0.7.2
+why          = """
+9536x6344 RGGB, camera-original (firmware 1.0.8-t), one Compression-7 strip,
+SOF-3 P=14 Nf=2 in BitsPerSample 14, as the Q3. OpcodeList1
+FixBadPixelsConstant (flags 0, Constant 0, BayerPhase 0) with 27,651 photosites
+equal to 0, all in columns 9528-9535 (inside the ActiveArea, outside the
+DefaultCrop): the only held colour file the fix changes. OpcodeList3
+WarpRectilinear (flags 0, N = 3).
+"""
+priority = "high"
+
 [[wanted]]
 what     = "A monochrome DNG from a third make (M11 Monochrom, Phase One achromatic)"
 why      = "Nice-to-have once the three CC0 files above are exercised."
