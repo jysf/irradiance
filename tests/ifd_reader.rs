@@ -141,6 +141,11 @@ const CFA_CHECKED_ELSEWHERE: &[&str] = &[
     "GOOGLE-PIXEL-4A/PXL_20201121_100251397.dng",
     "GOOGLE-PIXEL-3A/IMG_20190918_164153.dng",
     "GOOGLE-PIXEL-7-PRO/PXL_20221204_063131635.dng",
+    // SPEC-097: the colour Leica M10 and M11, checked bit-exact by
+    // tests/plane_oracle.rs and pinned through the colour path by
+    // tests/leica_colour.rs.
+    "LEICA-M10/f5381888.dng",
+    "LEICA-M11-PB/leica_m11_01.dng",
 ];
 
 /// Read one corpus file's bytes, or `None` when it is absent (skip).
