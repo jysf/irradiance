@@ -55,7 +55,7 @@ handback:
   estimated_usd: 10.18              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 50
   branch: claude/spec-097-verify
-  pr: PENDING_PR
+  pr: https://github.com/jysf/irradiance/pull/363
   completed_at: 2026-11-27               # YYYY-MM-DD
   notes: "Floor, measured live from transcript f32aa39b-afea-4a0a-a3c6-79ec81471dc7.jsonl, deduplicated by message.id; re-sum at ship. USD at Opus 5.5 rates (5/25 per M, cache reads 0.5, 1-hour cache writes 2x)."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: 2026-11-27
@@ -156,7 +156,7 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** `claude/spec-097-verify`, cut from PR 362's head `903fd2d`. Verify PR: PENDING_PR. Not merged.
+- **Branch / PR:** `claude/spec-097-verify`, cut from PR 362's head `903fd2d`. Verify PR: https://github.com/jysf/irradiance/pull/363. Not merged.
 - **Completed at:** 2026-11-27
 - **All acceptance criteria met?** Yes, each re-run here (below).
 - **For `verify`:** APPROVED at `4a02aa0` (the code; `903fd2d` adds only the build handback). The verify commit adds tests and docs only; `src/` is untouched.
