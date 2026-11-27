@@ -6,19 +6,19 @@
 task:
   id: SPEC-093
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -77,10 +77,30 @@ cost:
       duration_minutes: 90
       recorded_at: 2026-11-26
       notes: "Design in a side session started by the PROJ-006 orchestrator (reading, the corpus probe for strip overhead, the oracle digests and the opcode flags, DEC-084, this design, HANDOFF-204). Un-metered main-loop cycle; measured at the STAGE-031 close as orchestration cost."
+    - cycle: build
+      handoff: HANDOFF-204
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 50795351
+      estimated_usd: 32.95
+      duration_minutes: 75
+      recorded_at: 2026-11-27
+      notes: "FLOOR taken before the handback commit, from transcript 3a1702f3-fb46-4b6d-808b-f0a4d0906600.jsonl (146 unique message.ids, all claude-opus-5-5, no subagents): input 311 + cache-creation 430,377 (1-hour) + cache-read 50,223,435 + output 141,228, priced at 5 and 25 USD per million. Re-sum at ship. CI run 45898355595 on 6b29c48 green, 25 checks, both determinism legs."
+    - cycle: verify
+      handoff: HANDOFF-205
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 21924077
+      estimated_usd: 17.05
+      duration_minutes: 240
+      recorded_at: 2026-11-27
+      notes: "Floor, measured live from transcript ef47f062-3d10-4ec0-8ce2-86a58d193f1b.jsonl, deduplicated by message.id; re-sum at ship. Wall time includes an app restart that killed the mutant run part way (resumed). USD at Opus 5.5 rates, 1-hour cache writes."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 72719428
+    estimated_usd: 50.00
+    session_count: 3
 ---
 
 # SPEC-093: The developed mix: a mix option on develop_with_into, output_dimensions_with and scratch_len, through the existing geometry and resampling

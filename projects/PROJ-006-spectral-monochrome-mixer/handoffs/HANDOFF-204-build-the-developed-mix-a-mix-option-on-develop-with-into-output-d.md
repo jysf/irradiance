@@ -58,7 +58,7 @@ handback:
   pr: 358
   completed_at: 2026-11-26               # YYYY-MM-DD
   notes: "FLOOR taken before the handback commit, from transcript 3a1702f3-fb46-4b6d-808b-f0a4d0906600.jsonl (146 unique message.ids, all claude-opus-5-5, no subagents): input 311 + cache-creation 430,377 (1-hour) + cache-read 50,223,435 + output 141,228, priced at 5 and 25 USD per million. Re-sum at ship. CI run 45898355595 on 6b29c48 green, 25 checks, both determinism legs."                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  synced_at: 2026-11-27
 ---
 
 # HANDOFF-204: The developed mix: a mix option on develop_with_into, output_dimensions_with and scratch_len, through the existing geometry and resampling
