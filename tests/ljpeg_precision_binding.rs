@@ -66,7 +66,22 @@ fn comp7_with(
     plane: &[u16],
     meta: DngMeta,
 ) -> Vec<u8> {
-    let chunk = tiff::lj92_strip(plane, W as usize, H as usize, precision);
+    comp7_components(order, tiled, bits_per_sample, precision, plane, meta, 1)
+}
+
+/// [`comp7_with`] with `nf` frame components: 1, or the two-component
+/// (`Nf = 2`) column interleave both Leica files use (`SPEC-046`). `nf = 1` is
+/// byte-identical to `tiff::lj92_strip`.
+fn comp7_components(
+    order: Order,
+    tiled: bool,
+    bits_per_sample: u32,
+    precision: u8,
+    plane: &[u16],
+    meta: DngMeta,
+    nf: u8,
+) -> Vec<u8> {
+    let chunk = tiff::lj92_strip_components(plane, W as usize, H as usize, precision, nf, 0x11);
     let organisation = if tiled {
         Organisation::Tiles {
             tile_width: W,
@@ -228,6 +243,38 @@ fn ac1_precision_below_bits_per_sample_decodes_unchanged() {
     }
 }
 
+/// `SPEC-097` verify: AC1 on the two-component (`Nf = 2`) column interleave
+/// the Leica M10 and M11 use (P = 14 in 16). AC1's grid is single-component,
+/// so without this a decode fault confined to `Nf = 2` frames below
+/// `BitsPerSample` is caught only by the Tier-B dnglab checksum and the AC7
+/// pins, which never run in CI.
+#[test]
+fn ac1_two_component_precision_below_bits_per_sample_decodes_unchanged() {
+    for (precision, bits_per_sample) in [(14u8, 16u32), (12, 16), (8, 12)] {
+        let plane = samples(precision);
+        for order in ORDERS {
+            for tiled in LAYOUTS {
+                let file = comp7_components(
+                    order,
+                    tiled,
+                    bits_per_sample,
+                    precision,
+                    &plane,
+                    DngMeta::default(),
+                    2,
+                );
+                for path in PATHS {
+                    let ctx = format!(
+                        "Nf2 {order:?} tiled {tiled} P{precision}/BPS{bits_per_sample} {path:?}"
+                    );
+                    let got = decode(path, &file).unwrap_or_else(|e| panic!("{ctx}: {e}"));
+                    assert_eq!(got, plane, "{ctx}");
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn ac2_precision_above_bits_per_sample_is_refused() {
     for (precision, bits_per_sample) in [(16u8, 12u32), (14, 12), (13, 12), (16, 14), (16, 15)] {
@@ -315,4 +362,113 @@ fn precision_mismatch_display_names_both_values() {
     .to_string();
     assert!(msg.contains("16"), "{msg}");
     assert!(msg.contains("12"), "{msg}");
+}
+
+/// `SPEC-097` verify: DEC-085 §3 on both develop paths.
+///
+/// AC4 above pins the mono path at `BitsPerSample` 16 only, where "white is
+/// `2^BitsPerSample − 1`" and "white is always 65535" agree. This adds a
+/// 12-bit container (P = 8) on the mono path, checked analytically, and the
+/// colour path (`develop_color_into`, `resolve_colour_levels`) at P = 12 in 16,
+/// which AC4 does not reach. The colour half is checked against the tag
+/// rather than the colour arithmetic: with no `WhiteLevel` the frame must
+/// develop exactly as with an explicit `WhiteLevel` of `2^16 − 1`, and
+/// differently from one of `2^P − 1`.
+#[test]
+fn ac4_white_default_is_bits_per_sample_on_mono_and_colour() {
+    use irradiance::color::develop_color_into;
+
+    let develop_mono = |bits_per_sample: u32, precision: u8, white: Option<u32>| -> Vec<u16> {
+        let meta = DngMeta {
+            white_level: white.map(|w| vec![w]),
+            ..DngMeta::default()
+        };
+        let file = comp7_with(
+            Order::Little,
+            false,
+            bits_per_sample,
+            precision,
+            &samples(precision),
+            meta,
+        );
+        let container = Container::parse(&file).expect("the fixture parses");
+        let sensor = container.sensor().expect("the fixture has a sensor IFD");
+        let src = decode(Path::UnpackInto, &file).expect("P below BPS unpacks");
+        let mut dst = vec![0u16; (W * H) as usize];
+        develop_into(&sensor, &src, &mut dst).expect("develops");
+        dst
+    };
+    // Mono, P = 8 in a 12-bit container, analytically (DEC-004): white is
+    // 2^12 - 1 = 4095, black 0, so v develops to round(v * 65535 / 4095).
+    // White 2^P - 1 = 255 or a fixed 65535 would each give other values.
+    let want: Vec<u16> = samples(8)
+        .iter()
+        .map(|&v| u16::try_from((u64::from(v) * 65535 + 4095 / 2) / 4095).expect("fits u16"))
+        .collect();
+    assert_eq!(
+        develop_mono(12, 8, None),
+        want,
+        "mono P8/BPS12: no WhiteLevel must develop against white 2^12 - 1"
+    );
+
+    // Colour: an RGGB Compression 7 plane, P = 12 in a 16-bit container.
+    let develop_colour = |white: Option<u32>| -> Vec<u16> {
+        let row = |a: i32, b: i32, c: i32| [(a, 100_000), (b, 100_000), (c, 100_000)];
+        let meta = DngMeta {
+            white_level: white.map(|w| vec![w]),
+            forward_matrix_1: Some(
+                [
+                    row(60_000, 30_000, 6_422),
+                    row(20_000, 70_000, 10_000),
+                    row(10_000, 10_000, 62_521),
+                ]
+                .concat(),
+            ),
+            as_shot_neutral: Some(vec![(1, 2), (1, 1), (1, 2)]),
+            ..DngMeta::default()
+        };
+        let chunk = tiff::lj92_strip(&samples(12), W as usize, H as usize, 12);
+        let file = write_dng(&DngDescription {
+            order: Order::Little,
+            layout: IfdLayout::SensorInIfd0,
+            width: W,
+            height: H,
+            bits_per_sample: 16,
+            kind: PlaneKind::Cfa {
+                repeat_dim: [2, 2],
+                pattern: vec![0, 1, 1, 2],
+                plane_color: vec![0, 1, 2],
+            },
+            organisation: Organisation::Strips { rows_per_strip: H },
+            payload: Payload::Encoded {
+                compression: 7,
+                chunks: vec![chunk],
+            },
+            meta,
+            opcode_lists: [None, None, None],
+            extra_tags: Vec::new(),
+            fault: None,
+        })
+        .expect("the colour Compression 7 fixture writes");
+        let container = Container::parse(&file).expect("the fixture parses");
+        let sensor = container.sensor().expect("the fixture has a sensor IFD");
+        let mut src = vec![0u16; (W * H) as usize];
+        unpack_into(&sensor, container.byte_order(), &file, &mut src)
+            .expect("P12 in BPS16 unpacks");
+        let (w, h) = output_dimensions(&sensor).expect("dimensions");
+        let mut rgb = vec![0u16; (w * h * 3) as usize];
+        develop_color_into(&sensor, &src, &mut rgb).expect("the colour develop runs");
+        rgb
+    };
+    let default = develop_colour(None);
+    assert_eq!(
+        default,
+        develop_colour(Some(65535)),
+        "colour P12/BPS16: no WhiteLevel must develop as WhiteLevel 2^16 - 1"
+    );
+    assert_ne!(
+        default,
+        develop_colour(Some(4095)),
+        "colour P12/BPS16: the default must not be 2^P - 1"
+    );
 }
