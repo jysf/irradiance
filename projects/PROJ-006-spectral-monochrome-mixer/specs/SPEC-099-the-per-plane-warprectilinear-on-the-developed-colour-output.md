@@ -6,19 +6,19 @@
 task:
   id: SPEC-099
   type: story                      # epic | story | task | bug | chore
-  cycle: verify  # frame | design | build | verify | ship
+  cycle: ship  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
   complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
-  verify_verdict: null             # approved | punch-list | rejected — the OUTCOME of the verify
+  verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
                                    #   verify (same three verdicts Prompt 4 already returns).
                                    #   Recorded in front-matter, not just prose, so "verify never
                                    #   rejects anything" stops being a hunch and becomes a number.
-  verify_rounds: []                # every verify outcome, oldest first, appended by
+  verify_rounds: [approved]  # every verify outcome, oldest first, appended by
                                    #   `just advance-cycle` each time the spec leaves verify.
                                    #   verify_verdict keeps only the LAST one, so a spec sent
                                    #   back and then approved read as "approved": irradiance's
@@ -88,10 +88,20 @@ cost:
       duration_minutes: 45
       recorded_at: 2026-11-28
       notes: "Build in a side session started by the PROJ-006 orchestrator. A FLOOR measured live just before the commit over transcript 111b6c75-4198-4766-9cc9-425a4fe387af.jsonl (134 unique message.ids, all claude-opus-5-5, no subagents): input 271 + cache-creation 417,566 (all 1-hour) + cache-read 45,253,091 + output 158,067. The commit, PR and CI wait come after; re-measure at ship."
+    - cycle: verify
+      handoff: HANDOFF-211
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 17734375
+      estimated_usd: 12.57
+      duration_minutes: 45
+      recorded_at: 2026-11-28
+      notes: "Verify in a side session started by the PROJ-006 orchestrator. A FLOOR measured just before the commit over transcript 553db268-69b4-40d6-9090-2fc4c6f5fbb2.jsonl (84 unique message.ids, all claude-opus-5-5, no subagents): input 171 + cache-creation 223,687 (all 1-hour) + cache-read 17,445,970 + output 64,547. The commit, PR and CI wait come after."
   totals:
-    tokens_total: 63313746
-    estimated_usd: 45.03
-    session_count: 2
+    tokens_total: 81048121
+    estimated_usd: 57.60
+    session_count: 3
 ---
 
 # SPEC-099: The per-plane WarpRectilinear at sensor geometry: red and blue resampled to green's geometry, and the consumer's warp named

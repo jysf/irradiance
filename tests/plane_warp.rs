@@ -925,3 +925,149 @@ fn ac5_the_halo_covers_a_tall_narrow_active_area() {
     }
     assert!(bands == whole, "single-row bands equal the plane");
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-099 verify: branches the build's fixtures did not separate
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `DEC-087` items 2 and 5: sets are compared on all six coefficients, so a set
+/// that differs from green's in its tangential terms only makes the warp per
+/// plane, and the refusal names the first set in plane order with a non-zero
+/// `kt`, green's included. Tangential terms are refused before the fold.
+/// (Verify gaps: no fixture had sets differing in `kt` alone, a non-zero `kt`
+/// on green, or a non-zero `kt` together with a folding green.)
+#[test]
+fn verify_tangential_terms_count_in_the_comparison_and_come_before_the_fold() {
+    let src = mosaic();
+    let kt_is = |want: f64| move |e: &Error| matches!(e, Error::UnsupportedWarpTangentialTerms { kt0, .. } if *kt0 == want);
+
+    // Red and green share kr; only red's kt differs. The accessor calls it per
+    // plane and the entries refuse red's kt.
+    let red_kt = (GREEN.0, [0.001, 0.0]);
+    let list = warp_list(&[red_kt, GREEN, GREEN], 0.5, 0.5, MANDATORY);
+    let sensor = sensor_with(&src, Some(&list), Variant::Plain);
+    let warp = sensor_geometry_warp(&sensor).unwrap().unwrap();
+    assert!(warp.is_per_plane(), "a kt-only difference is per plane");
+    assert_all(
+        &six_results(&sensor, &src, &LUMA),
+        "kt-only difference",
+        kt_is(0.001),
+    );
+
+    // Only green carries a kt (kr all equal): green's kt, plane 1.
+    let green_kt = (GREEN.0, [0.002, 0.0]);
+    let list = warp_list(&[GREEN, green_kt, GREEN], 0.5, 0.5, MANDATORY);
+    let sensor = sensor_with(&src, Some(&list), Variant::Plain);
+    assert!(sensor_geometry_warp(&sensor)
+        .unwrap()
+        .unwrap()
+        .is_per_plane());
+    assert_all(
+        &six_results(&sensor, &src, &LUMA),
+        "green kt only",
+        kt_is(0.002),
+    );
+
+    // Differing kr, kt on green and blue: green's comes first in plane order.
+    let green_kt = (GREEN.0, [0.004, 0.0]);
+    let blue_kt = (BLUE.0, [0.005, 0.0]);
+    let list = warp_list(&[RED, green_kt, blue_kt], 0.5, 0.5, MANDATORY);
+    let sensor = sensor_with(&src, Some(&list), Variant::Plain);
+    assert_all(
+        &six_results(&sensor, &src, &LUMA),
+        "green before blue",
+        kt_is(0.004),
+    );
+
+    // A folding green and a kt on blue: the tangential refusal comes first.
+    let fold = ([1.0, -2.0, 0.0, 0.0], NO_KT);
+    let blue_kt = (BLUE.0, [0.006, 0.0]);
+    let list = warp_list(&[RED, fold, blue_kt], 0.5, 0.5, MANDATORY);
+    let sensor = sensor_with(&src, Some(&list), Variant::Plain);
+    assert_all(
+        &six_results(&sensor, &src, &LUMA),
+        "kt before fold",
+        kt_is(0.006),
+    );
+}
+
+/// `DEC-087` item 5's full order: the levels, the `GainMap`s and `OpcodeList1`
+/// are checked before the per-plane warp, on all six entries. Each sensor below
+/// carries a folding green and one earlier fault; its result must be the one
+/// the same sensor gives with no list 3 at all. (Verify gap: AC6 placed the
+/// warp after the CFA and before the calibration, but nothing separated it
+/// from the three checks before the CFA.)
+#[test]
+fn verify_the_levels_gain_maps_and_list_1_come_before_the_warp() {
+    let src = mosaic();
+    let fold = ([1.0, -2.0, 0.0, 0.0], NO_KT);
+    let list = warp_list(&[RED, fold, BLUE], 0.5, 0.5, MANDATORY);
+    let base = sensor_with(&src, Some(&list), Variant::Plain);
+    assert_all(&six_results(&base, &src, &LUMA), "the fold alone", |e| {
+        matches!(e, Error::UnsupportedWarpFold { .. })
+    });
+    let opcode_version = 0x0103_0000;
+
+    let mut levels = base.clone();
+    levels.black_levels = Vec::new();
+    levels.black_level = Some(65535);
+    levels.white_levels = Vec::new();
+    levels.white_level = Some(1000);
+
+    let mut gain_map = base.clone();
+    gain_map.opcode_list_2 = Some(opcode_list(&[raw_opcode(9, opcode_version, 0, &[0u8; 8])]));
+    gain_map.opcode_lists[1] = true;
+
+    let mut list_1 = base.clone();
+    list_1.opcode_list_1 = Some(opcode_list(&[raw_opcode(4, opcode_version, 0, &[0u8; 4])]));
+    list_1.opcode_lists[0] = true;
+
+    for (case, sensor, want) in [
+        ("levels", &levels, "InvalidLevels"),
+        ("GainMap", &gain_map, "MalformedOpcodeParams { id: 9"),
+        ("OpcodeList1", &list_1, "MalformedOpcodeParams { id: 4"),
+    ] {
+        let got = six_results(sensor, &src, &LUMA);
+        let without = six_results(&without_list_3(sensor), &src, &LUMA);
+        for ((g, w), name) in got.iter().zip(&without).zip(ENTRY_NAMES) {
+            let (g, w) = (format!("{g:?}"), format!("{w:?}"));
+            assert!(g.starts_with(&format!("Err({want}")), "{case}: {name}: {g}");
+            assert_eq!(g, w, "{case}: {name}: the earlier refusal wins");
+        }
+    }
+}
+
+/// The build's deviation 2: a non-finite coefficient in the second or third
+/// set is `MalformedOpcodeParams { id: 1, .. }`, from the accessor and from all
+/// six entries (the first set and the centre were already checked by
+/// `parse_warp_rectilinear`). (Verify gap: the refusal had no test.)
+#[test]
+fn verify_a_non_finite_later_set_is_malformed() {
+    let src = mosaic();
+    for (case, sets) in [
+        (
+            "NaN kr in green",
+            [RED, ([f64::NAN, 0.0, 0.0, 0.0], NO_KT), BLUE],
+        ),
+        (
+            "infinite kr in blue",
+            [RED, GREEN, ([0.94, f64::INFINITY, 0.0, 0.0], NO_KT)],
+        ),
+        ("NaN kt in blue", [RED, GREEN, (BLUE.0, [0.0, f64::NAN])]),
+        (
+            "NaN kt with identical sets",
+            [GREEN, GREEN, (GREEN.0, [f64::NAN, 0.0])],
+        ),
+    ] {
+        let list = warp_list(&sets, 0.5, 0.5, MANDATORY);
+        let sensor = sensor_with(&src, Some(&list), Variant::Plain);
+        let r = sensor_geometry_warp(&sensor);
+        assert!(
+            matches!(r, Err(Error::MalformedOpcodeParams { id: 1, .. })),
+            "{case}: accessor {r:?}"
+        );
+        assert_all(&six_results(&sensor, &src, &LUMA), case, |e| {
+            matches!(e, Error::MalformedOpcodeParams { id: 1, .. })
+        });
+    }
+}

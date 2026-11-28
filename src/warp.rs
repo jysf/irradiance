@@ -1084,6 +1084,20 @@ mod tests {
         // H is capped at the ActiveArea's height.
         let s = shift_of([1.0, 0.0, 0.0, 0.0], Some([1.5, 0.0, 0.0, 0.0]), 400, 20);
         assert_eq!(s.halo, 20);
+        // SPEC-099 verify: the bound's radius is √((j+1)/T), so the last
+        // interval reaches √1 = 1. With a constant ratio 1 + ε and m·ε just
+        // above 6, B is just above 6 and H = 8; a radius of √(j/T) would give
+        // B = m·ε·√(4095/4096), just below 6, and H = 7.
+        let eps = 6.0001 / m;
+        let s = shift_of(
+            [1.0, 0.0, 0.0, 0.0],
+            Some([1.0 + eps, 0.0, 0.0, 0.0]),
+            400,
+            300,
+        );
+        let reach = s.tables[0].as_ref().unwrap()[CA_TABLE_INTERVALS] - 1.0;
+        assert!(m * reach > 6.0 && m * reach * (4095.0f64 / 4096.0).sqrt() < 6.0);
+        assert_eq!(s.halo, 8, "H = ⌈B⌉ + 1 with B = m·ε·√(T/T)");
     }
 
     #[test]
@@ -1199,5 +1213,44 @@ mod tests {
         // On macOS's libm the two forms round apart here, so this test turns a
         // sqrt mutant red (SPEC-099 build); glibc's hypot rounds them alike, so
         // the difference is not asserted (it is platform-dependent).
+    }
+
+    /// SPEC-099 verify: [`ca_m_is_hypot`] separates `hypot` from the naive
+    /// `sqrt(mx² + my²)` only where the platform's libm rounds them apart, and
+    /// its one geometry does so on macOS but not under glibc, so the sqrt
+    /// mutant survived on Linux. This sweep of off-centre geometries asserts
+    /// `m` is `hypot` on each, and that the two forms differ somewhere on this
+    /// platform, so the sweep has teeth wherever it runs.
+    #[test]
+    fn ca_m_is_hypot_across_geometries() {
+        let red = [1.02, 0.0, 0.0, 0.0];
+        let green = [1.0, 0.0, 0.0, 0.0];
+        let mut apart = 0usize;
+        let mut cases = 0usize;
+        for (w, h) in [(6u32, 40u32), (7, 9), (13, 31), (29, 17), (40, 6), (3, 57)] {
+            for cxh in [0.07, 0.13, 0.31, 0.62, 0.77, 0.91] {
+                for cyh in [0.6, 0.11, 0.37, 0.83] {
+                    let r = warp_with(red, cxh, cyh);
+                    let g = warp_with(green, cxh, cyh);
+                    let s = ChromaticShift::new(&g, Some(&r), None, (0, 0, w, h))
+                        .unwrap()
+                        .unwrap();
+                    let (x1, y1) = (f64::from(w - 1), f64::from(h - 1));
+                    let (cx, cy) = (cxh * x1, cyh * y1);
+                    let mx = cx.abs().max((x1 - cx).abs());
+                    let my = cy.abs().max((y1 - cy).abs());
+                    let m = mx.hypot(my);
+                    assert_eq!(s.m, m, "{w}x{h} centre ({cxh}, {cyh})");
+                    cases += 1;
+                    if m != (mx * mx + my * my).sqrt() {
+                        apart += 1;
+                    }
+                }
+            }
+        }
+        assert!(
+            apart > 0,
+            "hypot and sqrt(mx² + my²) agree on all {cases} geometries on this platform"
+        );
     }
 }

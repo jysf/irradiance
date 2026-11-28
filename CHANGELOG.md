@@ -106,7 +106,9 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   within 0.05 px of Adobe `dng_validate -3` on them, against 0.4 to 2.1 px
   without the step. A file with `N = 1`, identical sets or no warp gives output
   bit-identical to before. On these six entries an `N` other than 1 or 3 is now
-  `MalformedOpcodeParams { id: 1, .. }` (it was passed through), and non-zero
+  `MalformedOpcodeParams { id: 1, .. }` (it was passed through), so is a
+  non-finite coefficient in the second or third set (`sensor_geometry_warp`
+  refuses it the same way), and non-zero
   tangential terms are refused when the sets differ. A file with an optional
   three-set warp whose sets differ would also change; none is known. The
   developed outputs are unchanged (SPEC-100), and neither `DEVELOP_VERSION` nor
