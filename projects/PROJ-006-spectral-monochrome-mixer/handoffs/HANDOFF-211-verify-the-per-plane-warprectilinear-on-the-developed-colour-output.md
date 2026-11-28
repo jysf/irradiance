@@ -55,7 +55,7 @@ handback:
   estimated_usd: 12.57             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 45
   branch: verify/spec-099-sensor-geometry-ca
-  pr: null
+  pr: 374
   completed_at: 2026-11-28         # YYYY-MM-DD
   notes: "Verify in a side session started by the PROJ-006 orchestrator. A FLOOR measured just before the commit over transcript 553db268-69b4-40d6-9090-2fc4c6f5fbb2.jsonl (84 unique message.ids, all claude-opus-5-5, no subagents): input 171 + cache-creation 223,687 (all 1-hour) + cache-read 17,445,970 + output 64,547. The commit, PR and CI wait come after."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: 2026-11-28

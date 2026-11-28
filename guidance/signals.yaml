@@ -2117,7 +2117,7 @@ signals:
   - id: token-estimate-undershoots-corpus-probing-specs
     type: lesson
     summary: "Design's tokens_estimate for a STAGE-034 spec undershot its actual several-fold: the estimate was sized like the build alone, while the design itself and the verify each ran on 60 MP corpus files and long sweeps."
-    evidence: "N=2. SPEC-097 (2026-11-27): estimate 18M, actual 65.0M over four cycles (design 20.7M, build 19.8M, verify 18.5M, ship 6.0M), complexity S as expected. SPEC-098 (2026-11-28, SPEC-098/FU-8): estimate 22M at complexity M, the build alone about 41.0M (34.8M floor) and the whole spec 119.1M over four cycles, complexity actual L. In both the design ran a prototype over the corpus and the verify ran a main-versus-PR sweep on the 60 MP files."
+    evidence: "N=2. SPEC-097 (2026-11-27): estimate 18M, actual 65.0M over four cycles (design 20.7M, build 19.8M, verify 18.5M, ship 6.0M), complexity S as expected. SPEC-098 (2026-11-28, SPEC-098/FU-8): estimate 22M at complexity M, the build alone about 41.0M (34.8M floor) and the whole spec 119.1M over four cycles, complexity actual L. In both the design ran a prototype over the corpus and the verify ran a main-versus-PR sweep on the 60 MP files. Counter-instance, SPEC-099 (2026-11-28): estimate 100M, set at design after this signal was raised and covering all four cycles; actual 102.2M (design 22.7M, build 54.4M, verify 21.5M, ship 3.7M as a floor), within 3 percent, complexity M expected and L actual. Still N=2 undershoots."
     bar: "N=3 same-outcome"
     status: watch
     disposition_at: stage-close
@@ -2131,6 +2131,12 @@ signals:
       the design plans (a prototype over the corpus, a sweep in the verify). If a third
       STAGE-034 or PROJ-006 spec undershoots by more than 2x, codify a design-template line:
       the estimate is the sum of four per-cycle guesses, each naming its corpus runs.
+      ══ SPEC-099 SHIP, 2026-11-28: a counter-instance, the falsifier holding. ══
+      The design priced all four cycles and the corpus work (the SDK stage-3 runs, the
+      oracle, the verify's sweep) at 100M; the spec took 102.2M. The size label still
+      drifted (M expected, L actual by the repo's band, where M tops out near 75M), so the
+      token estimate was right while the size label undershot. Candidate note if it
+      recurs: a design whose four-cycle estimate exceeds the M band labels the spec L.
   - id: parallel-pr-changelog-entries-land-under-the-promoted-version
     type: process-debt
     summary: "A PR that adds CHANGELOG entries under [Unreleased] and merges after a release prep (which renamed [Unreleased] to the version and opened a fresh one) merges cleanly, but its entries land under the released version's heading, and anything else merged before the tag would be in the release."

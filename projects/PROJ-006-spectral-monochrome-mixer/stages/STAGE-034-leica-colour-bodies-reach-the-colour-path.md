@@ -109,10 +109,10 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-097 (shipped on 2026-11-27) — [S] accept a lossless-JPEG precision below `BitsPerSample` (the M10 and M11 files) (DEC-085 accepted; design PR 361, build PR 362, verify PR 363)
 - [x] SPEC-098 (shipped on 2026-11-28) — [M, actual L] mandatory `FixBadPixelsConstant` on the CFA on every colour entry (four nearest same-colour photosites), and `WarpRectilinear` passed through at sensor geometry (the Q2, Q3 and SL3 files; DEC-086 accepted; design PR 366, build PR 367, verify PR 368)
-- [ ] SPEC-099 (build) — [M] the per-plane `WarpRectilinear` at sensor geometry (`N = 3`): red and blue resampled to green's geometry on the six sensor-geometry entries, and `opcode::sensor_geometry_warp` naming the consumer's warp (green's set) and every set with its colour (DEC-087 proposed; split at design, the developed outputs moved to SPEC-100)
-- [ ] SPEC-100 (frame) — [M] the per-plane warp on the developed colour output and the developed mix (green's warp at `warp_alpha` over the CA-corrected mixed plane, onyx's DEC-114); split out of SPEC-099 at its design; `depends_on: [SPEC-099]`
+- [x] SPEC-099 (shipped on 2026-11-28) — [M, actual L] the per-plane `WarpRectilinear` at sensor geometry (`N = 3`): red and blue resampled to green's geometry on the six sensor-geometry entries, and `opcode::sensor_geometry_warp` naming the consumer's warp (green's set) and every set with its colour (DEC-087 accepted; split at design, the developed outputs moved to SPEC-100; design PR 372, build PR 373, verify PR 374)
+- [ ] SPEC-100 (frame) — [M] the per-plane warp on the developed colour output and the developed mix (green's warp at `warp_alpha` over the CA-corrected mixed plane, onyx's DEC-114); split out of SPEC-099 at its design; `depends_on: [SPEC-099]`. **Next:** its blocker has shipped, so it is ready for design
 
-**Count:** 2 shipped / 1 active / 1 pending
+**Count:** 3 shipped / 0 active / 1 pending
 
 ## Design Notes
 
@@ -172,11 +172,20 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   developed mix. Measured against `dng_validate -3` (camera RGB), the CA step then green's
   warp registers red and blue to the SDK within 0.042 px of a green-only baseline, and
   0.41–2.2 px off without it. The developed outputs keep refusing until SPEC-100.
+- **SPEC-099 shipped (2026-11-28).** The Q2, Q3 and SL3 planes (`srgb_linear_plane_*`,
+  `mono_mix_plane_*` and their rows forms) are chromatic-aberration corrected, and
+  `opcode::sensor_geometry_warp` names green's set as the one warp the consumer applies.
+  The three pre-registered `u16` digests matched on the build's first run; the verify's
+  corpus sweep (16 DNGs, three entries) changed only those three files. The CA step takes
+  the Q3's `srgb_linear_plane_into` from 0.96 s to 2.27 s, mostly inherent (SPEC-099/FU-8,
+  optional). **The stage stays active** for SPEC-100, the developed colour output and the
+  developed mix.
 - **Orchestration cost at this stage's close:** SPEC-097's design transcript
   (`871eb085`) is counted in SPEC-097's own cost, so it must not be counted again here.
   The orchestrator's entry starts after 2026-11-27T06:00Z (STAGE-031 counted up to then),
   and the `leica-dng-search` transcript (`30266aa6`) belongs to this stage. SPEC-098's
-  design transcript (`43876ef9`) is likewise counted in SPEC-098's own cost, at its ship.
+  design transcript (`43876ef9`) is likewise counted in SPEC-098's own cost, at its ship,
+  and SPEC-099's (`ddeb3c1e`) in SPEC-099's.
 
 ## Dependencies
 

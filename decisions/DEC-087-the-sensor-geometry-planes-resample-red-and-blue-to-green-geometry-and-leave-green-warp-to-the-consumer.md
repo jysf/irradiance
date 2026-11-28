@@ -21,7 +21,7 @@ repo:
 created_at: 2026-11-28
 supersedes: null                   # amends DEC-086 items 5 and 8; DEC-086 stays active
 superseded_by: null
-status: proposed                   # accepted at the SPEC-099 ship; jysf accepts by merging it
+status: accepted                   # at the SPEC-099 ship, 2026-11-28 (verify HANDOFF-211 approved it at 24b4eb3); jysf accepts by merging the ship PR
 deciders: [claude, jysf]
 
 affected_scope:
@@ -30,7 +30,7 @@ affected_scope:
   - src/color.rs
   - src/lib.rs
   - decisions/DEC-086-the-colour-entries-fix-bad-pixels-from-the-four-nearest-same-colour-photosites-and-sensor-geometry-passes-the-warp-through.md
-  - projects/PROJ-006-spectral-monochrome-mixer/specs/SPEC-099-the-per-plane-warprectilinear-on-the-developed-colour-output.md
+  - projects/PROJ-006-spectral-monochrome-mixer/specs/done/SPEC-099-the-per-plane-warprectilinear-on-the-developed-colour-output.md
 
 tags:
   - opcode
@@ -57,7 +57,8 @@ tags:
      (one set for every plane, or no CFA);
    - `is_per_plane()`: whether the CA step of item 2 runs.
    `Ok(None)` without list 3 or a `WarpRectilinear` in it. `N` other than 1 or 3 is
-   `MalformedOpcodeParams { id: 1, .. }`. A `CFAPlaneColor` that is not one each of 0, 1
+   `MalformedOpcodeParams { id: 1, .. }`, and so is a non-finite coefficient in set 2 or
+   3, as `K1` already is (clarified at the SPEC-099 ship, SPEC-099/FU-7). A `CFAPlaneColor` that is not one each of 0, 1
    and 2, with `N = 3`, is `UnsupportedCfaPlaneColor`. It describes the file and refuses
    neither tangential terms nor a fold. It allocates nothing. `parse_warp_rectilinear` is
    unchanged: it still returns `K1`, which is red's set on a colour file, and monochrome
@@ -101,11 +102,13 @@ tags:
    and the entry's `store`. It is flushed after the traversal. The rows forms develop
    their band plus `H` rows on each side through `develop_rows_banded`, run the same ring,
    and store only their own rows. So every value equals the whole plane bit for bit, and
-   any tiling still gives the plane. All three stores (`u16`, unclamped `f32`, mono) are
+   any tiling still gives the plane. (The rows a finished row reads are exactly `2H + 1`,
+   so the ring holds one spare row; harmless and unchanged, SPEC-099/FU-9.) All three stores (`u16`, unclamped `f32`, mono) are
    unchanged and read the corrected triple.
 5. **Refusals and order.** On these entries, after the CFA check and before the colour
    calibration:
-   1. `MalformedOpcodeParams { id: 1, .. }` for `N` other than 1 or 3;
+   1. `MalformedOpcodeParams { id: 1, .. }` for `N` other than 1 or 3, or for a non-finite
+      coefficient in set 2 or 3 (clarified at the SPEC-099 ship, SPEC-099/FU-7);
    2. when the sets differ, `UnsupportedWarpTangentialTerms` for the first set (in plane
       order) with a non-zero `kt`;
    3. `UnsupportedWarpFold`.

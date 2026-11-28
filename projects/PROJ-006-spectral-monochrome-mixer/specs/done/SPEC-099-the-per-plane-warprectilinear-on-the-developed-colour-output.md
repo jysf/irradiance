@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -73,35 +73,45 @@ cost:
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 17484751
-      estimated_usd: 14.27
-      duration_minutes: 90
+      tokens_total: 22658138
+      estimated_usd: 17.26
+      duration_minutes: 35
       recorded_at: 2026-11-28
-      notes: "Design in a side session started by the PROJ-006 orchestrator: reading, the coefficient and fold probe, dng_validate -3 on the three files and on green-only patched copies, the camera-RGB Lucas-Kanade oracle, the sRGB-space attempt, the pre-registered digests, the split into SPEC-100, DEC-087, this design, HANDOFF-210. A FLOOR measured just before the commit over transcript ddeb3c1e-f355-441d-a270-9ed5a5e56e78.jsonl (77 unique message.ids, all claude-opus-5-5, no subagents): input 154 + cache-creation 291,192 (all 1-hour) + cache-read 17,080,573 + output 112,832, priced at 5 and 25 USD per million, cache reads 0.1x, 1-hour writes 2x. The commit, PR and CI wait come after; re-measure at ship. Counted here, so the STAGE-034 orchestration cost must not count this transcript again."
+      notes: "Design in a side session started by the PROJ-006 orchestrator: reading, the coefficient and fold probe, dng_validate -3 on the three files and on green-only patched copies, the camera-RGB Lucas-Kanade oracle, the sRGB-space attempt, the pre-registered digests, the split into SPEC-100, DEC-087, this design, HANDOFF-210. A FLOOR measured just before the commit over transcript ddeb3c1e-f355-441d-a270-9ed5a5e56e78.jsonl (77 unique message.ids, all claude-opus-5-5, no subagents): input 154 + cache-creation 291,192 (all 1-hour) + cache-read 17,080,573 + output 112,832, priced at 5 and 25 USD per million, cache reads 0.1x, 1-hour writes 2x. Re-summed at ship (2026-11-28) over the whole transcript (92 unique message.ids, all claude-opus-5-5, no subagents): input 190 + cache-creation 308,200 (all 1-hour) + cache-read 22,227,123 + output 122,625, priced as above; the floor was 17,484,751 / 14.27 USD. Duration is the transcript's first-to-last timestamp. Counted here, so the STAGE-034 orchestration cost must not count this transcript again."
     - cycle: build
       handoff: HANDOFF-210
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 45828995
-      estimated_usd: 30.76
-      duration_minutes: 45
+      tokens_total: 54368631
+      estimated_usd: 35.43
+      duration_minutes: 50
       recorded_at: 2026-11-28
-      notes: "Build in a side session started by the PROJ-006 orchestrator. A FLOOR measured live just before the commit over transcript 111b6c75-4198-4766-9cc9-425a4fe387af.jsonl (134 unique message.ids, all claude-opus-5-5, no subagents): input 271 + cache-creation 417,566 (all 1-hour) + cache-read 45,253,091 + output 158,067. The commit, PR and CI wait come after; re-measure at ship."
+      notes: "Build in a side session started by the PROJ-006 orchestrator. A FLOOR measured live just before the commit over transcript 111b6c75-4198-4766-9cc9-425a4fe387af.jsonl (134 unique message.ids, all claude-opus-5-5, no subagents): input 271 + cache-creation 417,566 (all 1-hour) + cache-read 45,253,091 + output 158,067. Re-summed at ship (2026-11-28) over the whole transcript (152 unique message.ids, all claude-opus-5-5, no subagents): input 313 + cache-creation 432,697 (all 1-hour) + cache-read 53,767,104 + output 168,517, priced as the design; the floor was 45,828,995 / 30.76 USD. Duration is the transcript's first-to-last timestamp."
     - cycle: verify
       handoff: HANDOFF-211
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 17734375
-      estimated_usd: 12.57
-      duration_minutes: 45
+      tokens_total: 21471734
+      estimated_usd: 14.73
+      duration_minutes: 51
       recorded_at: 2026-11-28
-      notes: "Verify in a side session started by the PROJ-006 orchestrator. A FLOOR measured just before the commit over transcript 553db268-69b4-40d6-9090-2fc4c6f5fbb2.jsonl (84 unique message.ids, all claude-opus-5-5, no subagents): input 171 + cache-creation 223,687 (all 1-hour) + cache-read 17,445,970 + output 64,547. The commit, PR and CI wait come after."
+      notes: "Verify in a side session started by the PROJ-006 orchestrator. A FLOOR measured just before the commit over transcript 553db268-69b4-40d6-9090-2fc4c6f5fbb2.jsonl (84 unique message.ids, all claude-opus-5-5, no subagents): input 171 + cache-creation 223,687 (all 1-hour) + cache-read 17,445,970 + output 64,547. Re-summed at ship (2026-11-28) over the whole transcript (97 unique message.ids, all claude-opus-5-5, no subagents): input 199 + cache-creation 234,068 (all 1-hour) + cache-read 21,165,433 + output 72,034, priced as the design; the floor was 17,734,375 / 12.57 USD. Duration is the transcript's first-to-last timestamp."
+    - cycle: ship
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 3668475
+      estimated_usd: 3.37
+      duration_minutes: 20
+      recorded_at: 2026-11-28
+      notes: "Ship in a side session started by the PROJ-006 orchestrator: re-summing the three earlier transcripts, DEC-087 promotion, reflection, follow-ups, signal, stage and brief, archive, brag. A FLOOR, measured from transcript 90022d7a-0f64-40ac-9521-f0b8e072e413.jsonl (27 unique message.ids, all claude-opus-5-5, no subagents) before the commit, the PR and the CI watch: input 54 + cache-creation 124,273 (all 1-hour) + cache-read 3,529,571 + output 14,577, priced as the design."
   totals:
-    tokens_total: 81048121
-    estimated_usd: 57.60
-    session_count: 3
+    tokens_total: 102166978
+    estimated_usd: 70.79
+    session_count: 4
+shipped_at: 2026-11-28
 ---
 
 # SPEC-099: The per-plane WarpRectilinear at sensor geometry: red and blue resampled to green's geometry, and the consumer's warp named
@@ -649,31 +659,56 @@ None blocks the build.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Write the order mutants first: for every refusal in a "Refusals and order" item,
+   one mutant that moves it a step earlier, and for every comparison one that drops a
+   term. The rule-clause map covered every sub-rule of item 3 but not item 5's order or
+   the tangential comparison, and that is where four of the verify's five gaps were. And
+   a float mutant whose test depends on one libm's rounding (the `hypot` one) needs a
+   sweep that shows the two forms differ on the CI host too.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — DEC-087 is promoted to accepted at this ship, with the verify's clarification in
+   items 1 and 5 (a non-finite coefficient in set 2 or 3 is malformed, FU-7) and a note
+   in item 4 that the ring holds one spare row (FU-9). No template change now. Signal
+   `token-estimate-undershoots-corpus-probing-specs` takes this spec's data point: the
+   100M estimate counted all four cycles and the spec came in on it, which is the
+   signal's falsifier holding, not a third undershoot. The verify's platform-dependent
+   float mutant is one instance and is recorded under FU-5, not as a signal.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. SPEC-100 (the developed colour output and the developed mix,
+   `depends_on: [SPEC-099]`) is already framed and is next. The optional speed-up of the
+   CA step (FU-8) is recorded below, not specced.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, the Leica Q2, Q3 and SL3 planes left the whole three-plane warp to the
+   consumer, which had only `parse_warp_rectilinear` (red's set) and one warp for all
+   three planes, so red and blue landed 0.41 to 2.2 px off Adobe's `dng_validate`.
+   Now `srgb_linear_plane_*` and `mono_mix_plane_*` resample red and blue to green's
+   geometry, so the consumer applies one warp, named by `opcode::sensor_geometry_warp`,
+   and lands within 0.042 px of the SDK's green-only baseline on all three files, matching
+   the three pre-registered digests; no other file changes output (16 corpus DNGs compared
+   on three entries). The developed outputs still refuse until SPEC-100.
+
+## Follow-ups
+
+Raised in HANDOFF-210 (build) and HANDOFF-211 (verify). The verify numbered FU-1 to FU-9;
+FU-10 and FU-11 are numbered here from the design's open questions and the ship brief. The
+verify's tests are in PR 374, merged into PR 373 and squashed into `6315741`.
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | V1, V2, V4: no fixture had sets differing in `kt` alone, a `kt` on green, or a `kt` with a folding green | `fixed` — verify, `verify_tangential_terms_count_in_the_comparison_and_come_before_the_fold` |
+| `FU-2` | V3 to V3d: nothing separated the warp check from the levels, the `GainMap`s and `OpcodeList1` | `fixed` — verify, `verify_the_levels_gain_maps_and_list_1_come_before_the_warp` |
+| `FU-3` | V10: the halo bound's radius `√(j/T)` instead of `√((j+1)/T)` survived | `fixed` — verify, `ca_table_and_bound_on_a_hand_checkable_set` extended (pins `H = 8`) |
+| `FU-4` | V13: the build's non-finite later-set check had no test | `fixed` — verify, `verify_a_non_finite_later_set_is_malformed` |
+| `FU-5` | The build's `ca_m_is_hypot` caught the sqrt mutant only under macOS's libm rounding, not on CI's Linux | `fixed` — verify, `ca_m_is_hypot_across_geometries` (144 geometries) |
+| `FU-6` | The CHANGELOG did not name the non-finite second or third set refusal | `fixed` — verify, `CHANGELOG.md` [Unreleased] |
+| `FU-7` | DEC-087 was silent on the non-finite later-set refusal (the build's accepted deviation) | `fixed` — at ship, DEC-087 items 1 and 5 |
+| `FU-8` | The CA step takes Q3's `srgb_linear_plane_into` from 0.96 s to 2.27 s; perhaps 0.3 to 0.5 s is recoverable without changing output (sharing `σ` between red and blue, a bilinear over row slices without the per-read clamp) | `closed` — optional and not a gate: the verify measured it as mostly inherent, no consumer has asked, and a reciprocal of `m` would change the pins. Recorded here only; a consumer's latency report would be a new spec |
+| `FU-9` | DEC-087 item 4's ring of `2H + 2` rows has one spare row; `2H + 1` suffices (V16 equivalent) | `closed` — harmless, unchanged; noted in DEC-087 item 4 at ship |
+| `FU-10` | Design, for onyx: beyond green's image the ratio is held at its rim value rather than extrapolated (under 0.2 px at the corner on the held files) | `closed` — an FYI with no answer needed; it goes in the maintainer's next message to onyx (recorded in the PROJ-006 brief) |
+| `FU-11` | Design, for the maintainer: `N = 2` and `N ≥ 4` become `MalformedOpcodeParams` on the sensor-geometry entries | `closed` — settled by the maintainer before the verify (HANDOFF-211); in the CHANGELOG |
