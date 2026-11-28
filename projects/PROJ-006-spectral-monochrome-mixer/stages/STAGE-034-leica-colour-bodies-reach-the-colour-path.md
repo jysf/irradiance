@@ -109,9 +109,10 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-097 (shipped on 2026-11-27) — [S] accept a lossless-JPEG precision below `BitsPerSample` (the M10 and M11 files) (DEC-085 accepted; design PR 361, build PR 362, verify PR 363)
 - [x] SPEC-098 (shipped on 2026-11-28) — [M, actual L] mandatory `FixBadPixelsConstant` on the CFA on every colour entry (four nearest same-colour photosites), and `WarpRectilinear` passed through at sensor geometry (the Q2, Q3 and SL3 files; DEC-086 accepted; design PR 366, build PR 367, verify PR 368)
-- [ ] SPEC-099 (frame) — [M, likely L] the per-plane `WarpRectilinear` (`N = 3`): red and blue resampled to green's geometry on the sensor-geometry planes, an accessor naming the consumer's warp (green's set), and the developed colour outputs and developed mix; split out of SPEC-098 at its design; `depends_on: [SPEC-098]`. **Next:** onyx answered on 2026-11-28 (the PROJ-006 brief); ready for design
+- [ ] SPEC-099 (build) — [M] the per-plane `WarpRectilinear` at sensor geometry (`N = 3`): red and blue resampled to green's geometry on the six sensor-geometry entries, and `opcode::sensor_geometry_warp` naming the consumer's warp (green's set) and every set with its colour (DEC-087 proposed; split at design, the developed outputs moved to SPEC-100)
+- [ ] SPEC-100 (frame) — [M] the per-plane warp on the developed colour output and the developed mix (green's warp at `warp_alpha` over the CA-corrected mixed plane, onyx's DEC-114); split out of SPEC-099 at its design; `depends_on: [SPEC-099]`
 
-**Count:** 2 shipped / 0 active / 1 pending
+**Count:** 2 shipped / 1 active / 1 pending
 
 ## Design Notes
 
@@ -163,6 +164,14 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   (`UnsupportedRequiredOpcode { list: 3, id: 1 }`). **The stage stays active** for
   SPEC-099, which waits on onyx's two warp questions in the PROJ-006 brief and is not
   designed until they are answered.
+- **SPEC-099's design (2026-11-28), split in two.** onyx's DEC-114 splits the three-plane
+  warp: at sensor geometry red and blue are resampled to green's geometry (lateral CA, up
+  to 1.66 px on the held files), and green's set is the one warp the consumer applies.
+  SPEC-099 is that CA step on the six sensor-geometry entries plus the accessor
+  (`opcode::sensor_geometry_warp`), DEC-087; SPEC-100 is the developed colour and the
+  developed mix. Measured against `dng_validate -3` (camera RGB), the CA step then green's
+  warp registers red and blue to the SDK within 0.042 px of a green-only baseline, and
+  0.41–2.2 px off without it. The developed outputs keep refusing until SPEC-100.
 - **Orchestration cost at this stage's close:** SPEC-097's design transcript
   (`871eb085`) is counted in SPEC-097's own cost, so it must not be counted again here.
   The orchestrator's entry starts after 2026-11-27T06:00Z (STAGE-031 counted up to then),
