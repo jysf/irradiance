@@ -6,7 +6,7 @@
 task:
   id: SPEC-100
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: L                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -78,10 +78,20 @@ cost:
       duration_minutes: 20
       recorded_at: 2026-11-28
       notes: "Design in a side session started by the PROJ-006 orchestrator: reading, the probe (the colour develop in both matrix orders, the developed mix under five options, dng_validate -3 in camera RGB and through the entry), DEC-088 and its amendment lines, this design, HANDOFF-212. A FLOOR measured just before the commit over transcript c67dc3fa-932b-4172-a1a4-12fdfbbaa17a.jsonl (68 unique message.ids, all claude-opus-5-5, no subagents): input 136 + cache-creation 336,137 (all 1-hour) + cache-read 17,460,050 + output 108,612, priced at 5 and 25 USD per million, cache reads 0.1x, 1-hour writes 2x. Duration is the transcript's first-to-last timestamp. Re-sum at ship; counted here, so the STAGE-034 orchestration cost must not count this transcript again."
+    - cycle: build
+      handoff: HANDOFF-212
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 44470294
+      estimated_usd: 30.36
+      duration_minutes: 47
+      recorded_at: 2026-11-28
+      notes: "Build in a side session started by the PROJ-006 orchestrator. A FLOOR measured just before the final commit over transcript bf11e18e-c2f6-4e4b-9ee0-d47bc9ea2619.jsonl (131 unique message.ids, all claude-opus-5-5, no subagents): input 269 + cache-creation 440,409 (all 1-hour) + cache-read 43,868,672 + output 160,944. The commit, push and CI wait come after; re-measure at ship."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 62375229
+    estimated_usd: 45.17
+    session_count: 2
 ---
 
 # SPEC-100: The per-plane warp on the developed colour output and the developed mix
