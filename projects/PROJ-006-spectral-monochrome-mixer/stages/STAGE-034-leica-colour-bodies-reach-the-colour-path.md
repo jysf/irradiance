@@ -108,10 +108,10 @@ This stage has to ship before the mixer's crates.io release.
 Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-097 (shipped on 2026-11-27) — [S] accept a lossless-JPEG precision below `BitsPerSample` (the M10 and M11 files) (DEC-085 accepted; design PR 361, build PR 362, verify PR 363)
-- [~] SPEC-098 (design) — [M] mandatory `FixBadPixelsConstant` on the CFA on every colour entry (four nearest same-colour photosites), and `WarpRectilinear` passed through at sensor geometry (the Q2, Q3 and SL3 files; DEC-086 proposed)
-- [ ] SPEC-099 (frame) — [M] the per-plane `WarpRectilinear` (`N = 3`) on the developed colour outputs and the developed mix; split out of SPEC-098 at its design; `depends_on: [SPEC-098]`
+- [x] SPEC-098 (shipped on 2026-11-28) — [M, actual L] mandatory `FixBadPixelsConstant` on the CFA on every colour entry (four nearest same-colour photosites), and `WarpRectilinear` passed through at sensor geometry (the Q2, Q3 and SL3 files; DEC-086 accepted; design PR 366, build PR 367, verify PR 368)
+- [ ] SPEC-099 (frame) — [M] the per-plane `WarpRectilinear` (`N = 3`) on the developed colour outputs and the developed mix; split out of SPEC-098 at its design; `depends_on: [SPEC-098]`. **Next, and blocked on onyx:** an outline only, not designed until onyx answers the two warp questions in the PROJ-006 brief
 
-**Count:** 1 shipped / 1 active / 1 pending
+**Count:** 2 shipped / 0 active / 1 pending
 
 ## Design Notes
 
@@ -152,10 +152,19 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   Adobe SDK reads its parity opposite to the specification (shown on the SL3's 27,651
   bad photosites, all outside the crop). Only the SL3 has bad photosites; the Q2 and Q3
   have none. No file that develops today changes.
+- **SPEC-098 shipped (2026-11-28).** The Q2, Q3 and SL3 now give the linear plane and
+  the mixed plane (`srgb_linear_plane_*`, `mono_mix_plane_*` and their rows forms) with
+  no refusal, so with SPEC-097 every held colour Leica file meets this stage's first
+  success criterion; no file that developed before changes output. The developed colour
+  and the developed mix still refuse the three files' mandatory `N = 3` warp
+  (`UnsupportedRequiredOpcode { list: 3, id: 1 }`). **The stage stays active** for
+  SPEC-099, which waits on onyx's two warp questions in the PROJ-006 brief and is not
+  designed until they are answered.
 - **Orchestration cost at this stage's close:** SPEC-097's design transcript
   (`871eb085`) is counted in SPEC-097's own cost, so it must not be counted again here.
   The orchestrator's entry starts after 2026-11-27T06:00Z (STAGE-031 counted up to then),
-  and the `leica-dng-search` transcript (`30266aa6`) belongs to this stage.
+  and the `leica-dng-search` transcript (`30266aa6`) belongs to this stage. SPEC-098's
+  design transcript (`43876ef9`) is likewise counted in SPEC-098's own cost, at its ship.
 
 ## Dependencies
 
