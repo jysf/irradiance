@@ -109,7 +109,7 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [x] SPEC-097 (shipped on 2026-11-27) — [S] accept a lossless-JPEG precision below `BitsPerSample` (the M10 and M11 files) (DEC-085 accepted; design PR 361, build PR 362, verify PR 363)
 - [x] SPEC-098 (shipped on 2026-11-28) — [M, actual L] mandatory `FixBadPixelsConstant` on the CFA on every colour entry (four nearest same-colour photosites), and `WarpRectilinear` passed through at sensor geometry (the Q2, Q3 and SL3 files; DEC-086 accepted; design PR 366, build PR 367, verify PR 368)
-- [ ] SPEC-099 (frame) — [M] the per-plane `WarpRectilinear` (`N = 3`) on the developed colour outputs and the developed mix; split out of SPEC-098 at its design; `depends_on: [SPEC-098]`. **Next, and blocked on onyx:** an outline only, not designed until onyx answers the two warp questions in the PROJ-006 brief
+- [ ] SPEC-099 (frame) — [M, likely L] the per-plane `WarpRectilinear` (`N = 3`): red and blue resampled to green's geometry on the sensor-geometry planes, an accessor naming the consumer's warp (green's set), and the developed colour outputs and developed mix; split out of SPEC-098 at its design; `depends_on: [SPEC-098]`. **Next:** onyx answered on 2026-11-28 (the PROJ-006 brief); ready for design
 
 **Count:** 2 shipped / 0 active / 1 pending
 
@@ -122,6 +122,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
     must **not** refuse a mandatory `WarpRectilinear`, and must document that the consumer
     applies it. Only the developed outputs (`develop_color_into` and the developed mix)
     apply the warp, or refuse when they cannot.
+    **Amended by onyx on 2026-11-28 (its DEC-114, for SPEC-099):** on a per-plane warp
+    (`N = 3`) these entries do resample red and blue to green's geometry, always, and only
+    green's set is left to the consumer. See SPEC-099's Context.
   - **`FixBadPixelsConstant` runs before demosaic, everywhere.** A bad photosite left in
     the CFA spreads into its neighbours through demosaic. So apply it on the CFA before
     demosaic in the sensor-geometry planes and in the developed mix alike, which keeps

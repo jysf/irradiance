@@ -146,7 +146,7 @@ existing output.
 Format: `- [status] STAGE-ID — one-line summary`
 
 - [x] STAGE-031 (shipped on 2026-11-27) — Colour to mono: SPEC-091 the white-balanced linear RGB step + working-space DEC (DEC-079), SPEC-092 the mixer at sensor geometry + the fade near clip (DEC-083), SPEC-093 the developed mix on `develop_with_into` (DEC-084)
-- [ ] STAGE-034 (active; framed in PR 357; SPEC-097 shipped 2026-11-27 with DEC-085; SPEC-098 shipped 2026-11-28 with DEC-086; SPEC-099, the developed warp, waits on onyx's answers) — Leica colour bodies reach the colour path: SPEC-097 the M10 and M11 lossless-JPEG precision below `BitsPerSample`, then mandatory `FixBadPixelsConstant`/`WarpRectilinear` on the colour entries (the Q2, Q3 and SL3 files). Every onyx target body is refused until both ship
+- [ ] STAGE-034 (active; framed in PR 357; SPEC-097 shipped 2026-11-27 with DEC-085; SPEC-098 shipped 2026-11-28 with DEC-086; SPEC-099, the per-plane warp, ready for design after onyx's 2026-11-28 answers) — Leica colour bodies reach the colour path: SPEC-097 the M10 and M11 lossless-JPEG precision below `BitsPerSample`, then mandatory `FixBadPixelsConstant`/`WarpRectilinear` on the colour entries (the Q2, Q3 and SL3 files). Every onyx target body is refused until both ship
 - [ ] (not yet framed) — Filter presets: five named weight sets ledgered as approximations, Q3 and M11 colour fixtures, judged on a colour Leica file
 - [ ] (not yet framed) — The release: publish the mixer to crates.io, additions only, semver clean
 
@@ -218,6 +218,11 @@ SDK and LibRaw do, so that range is discarded in every irradiance output. **Does
 highlight recovery from above `WhiteLevel`?** If it does, it is a later spec, by demand; no
 spec is written until onyx asks (SPEC-097/FU-6).
 
+**Answered 2026-11-28 (onyx's DEC-114): no.** Clip at `WhiteLevel`, as the SDK and LibRaw
+do: above the declared white the data is not guaranteed linear, and recovery would be
+highlight reconstruction, which PROJ-006 excludes. onyx's instruments read the raw plane
+and report the margin above white as a measurement. No spec follows.
+
 ## Open questions for onyx, from SPEC-098's design (2026-11-27)
 
 The Q2, Q3 and SL3 carry a mandatory `WarpRectilinear` with `N = 3`: one coefficient set
@@ -228,6 +233,14 @@ After SPEC-098 their linear and mixed planes reach the viewport unwarped, as ony
    viewport, so this answer decides SPEC-099's developed mix.
 2. **Does the viewport read the three sets from `OpcodeList3`'s bytes itself,** or does it
    need irradiance to expose them (today `parse_warp_rectilinear` returns the first set)?
+
+**Answered 2026-11-28 (onyx's DEC-114).** (1) Split the warp: the sensor-geometry planes
+resample red and blue to green's geometry (each set relative to green's, always, not
+following `warp_alpha`), then one warp, green's set, goes over the mixed plane, in the
+viewport at the user's alpha and in the developed mix at the same alpha. `N = 1` or
+identical sets stay bit-identical to today. This amends onyx's rule 1. (2) Yes to an
+accessor: the consumer's warp (green's set) and all `N` sets with their plane colours.
+Monochrome files keep `parse_warp_rectilinear`. SPEC-099's outline carries the detail.
 
 ## Dependencies
 
