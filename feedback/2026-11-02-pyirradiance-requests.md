@@ -2,7 +2,7 @@
 source: "pyirradiance"
 captured_at: 2026-11-02
 captured_by: claude
-status: open
+status: addressed
 ---
 
 # pyirradiance: validate before allocating, a release with `demosaic`, error categories, cross-arch evidence
@@ -130,3 +130,5 @@ built. Fill in merge commits and the released version as each ships.
 | 2 release with `demosaic` | SPEC-042 `[S]` release | version to pin: **`0.2.0`** (not yet cut); depends_on SPEC-039 |
 
 Status stays `open` until SPEC-039 and SPEC-042 ship.
+
+**Closed 2026-11-24.** SPEC-039 shipped on 2026-11-10 (PR 179) and SPEC-042 shipped on 2026-11-11 (PR 188); both went out in `0.2.0`, tagged 2026-11-11. The closing rule above is met, so the status is `addressed`.

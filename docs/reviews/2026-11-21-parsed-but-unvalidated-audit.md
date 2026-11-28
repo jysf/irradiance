@@ -183,6 +183,19 @@ fixes for the exact PR 301 class broken out.
 | **11** | Degenerate finite warp, negative/zero gains, `GainMap` `Plane ≥ 1` (§2e) | Needs a hostile file. Never a panic. | XS each |
 | **12** | `DefaultScale`, `WhiteLevel` above the bit maximum, mono `FirstValue` blacks, `FillOrder` | Small effects, by-design choices, or practically absent. Record them, don't spec them yet. | — |
 
+> **Status of ranks 8, 9 and 11 (checked 2026-11-24 against `bf0ffdd`, after 0.2.6).**
+> Read-only; nothing was fixed. STAGE-027 left all three unscheduled (its stage file,
+> "Left unscheduled"), and STAGE-029 and SPEC-089 name them out of scope. Line numbers
+> are at `bf0ffdd`.
+>
+> | Rank | Status | Evidence |
+> |---|---|---|
+> | 8 — unknown `CalibrationIlluminant` | **Partly closed.** A malformed, empty or misshapen `CalibrationIlluminant1/2` tag now refuses at develop (SPEC-087, SPEC-089; the tags are read through the malformed-tag path at `src/ifd.rs:2646`). A well-formed but unknown code (0, 255, or any code outside `ILLUMINANT_CCT`) still takes the single-illuminant fallback with `Ok` and no signal. | `dual_illuminant` returns `Ok(None)` on an unknown code (`src/color.rs:1269`–`1276`); `cct_of_illuminant` (`src/color.rs:1356`). SPEC-089 lists the unknown code as out of scope. |
+> | 9 — several qualifying sensor IFDs | **Open.** Unchanged: the first match wins, with no refusal and no rule. | `sensor_ifd` takes `matches.first()` (`src/ifd.rs:2148`); `sensor` does the same (`src/ifd.rs:2454`). `sensor_candidates` (`src/ifd.rs:2141`) is still the only way to see there were several. |
+> | 11 — degenerate finite warp | **Open** under the default-crop framing. Only non-finite coefficients are refused; `FullActiveArea` still refuses an off-image centre or a scale outside `[0, 1]`. | `NonFiniteWarpCoefficients` is the only coefficient check in the applier (`src/warp.rs:371`); `full_active_area_admits` (`src/warp.rs:211`). |
+> | 11 — negative or zero `GainMap` gains | **Open.** Gains are checked for finiteness only, then clamped to 0 at apply. | `parse_gain_map_params` finite check (`src/opcode.rs:563`–`569`); clamp in `apply` (`src/opcode.rs:690`). |
+> | 11 — `GainMap` `Plane ≥ 1` | **Open.** A map for plane 1 or above touches nothing and still counts as applied. | `prepare` empties the row range when `plane != 0` (`src/opcode.rs:716`). |
+
 ### Suggested spec grouping
 
 - **Spec 0, "apply CameraCalibration and AnalogBalance" (rank 1):** a colour-path

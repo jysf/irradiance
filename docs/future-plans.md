@@ -17,7 +17,10 @@ planning sessions and folded in here (see [Open questions](#open-questions--to-r
 _Last reconstructed: 2026-10-27; PROJ-003/004/005 and sequencing added 2026-11-02;
 reconciled to current status (PROJ-001 published, PROJ-002 colour shipped, PROJ-003
 closing) and the post-PROJ-003 sequence 2026-11-06; tooling-landscape survey
-refreshed 2026-11-24 (DNG 1.7 / JPEG XL, new entrants, second-oracle options)._
+refreshed 2026-11-24 (DNG 1.7 / JPEG XL, new entrants, second-oracle options); status,
+near-term and sequencing reconciled to 0.2.6 and the PROJ-001..006 state, and an
+adoption-push candidate drafted, 2026-11-24; status re-reconciled to 0.2.7, the PROJ-005
+close and SPEC-091, and a DNG-writer Later section added, 2026-11-25._
 
 ## The through-line
 
@@ -30,48 +33,62 @@ consumer is **crustyimg** (whose "RAW" support today is really the camera's
 embedded JPEG); the maintainer's own driver is developing Leica Q2 Monochrom
 files reproducibly into web assets.
 
+> **Note (2026-11-24).** The first sentence is no longer true of the category: three
+> permissively-licensed pure-Rust DNG crates (gamut-dng, filmcraft-dng, flashraw)
+> appeared in 2026. See `docs/rust-ecosystem-and-semver-decisions.md` §1.1 and the
+> [2026-11-24 refresh](#refresh-2026-11-24). What still sets irradiance apart is the bar
+> below, not the licence alone.
+
 Every wave is held to the same bar: **independent-oracle-verified correctness,
 no panics on hostile input, deterministic output, and a provenance-ledger entry
 for every algorithm and decoder** naming its source and that source's licence.
 
 ## Where we are now
 
-Three waves are in flight or shipped, and the crate is published to crates.io.
+Status as of 2026-11-25 (`origin/main` at `efac6b6`). Each project's `brief.md` is the
+source of truth.
 
-- **`PROJ-001 — Monochrome DNG develop`** — the pixel pipeline (container → plane →
-  develop → tone) is shipped and published as **`0.1.1`** (`0.1.0` yanked). Foundations,
-  the monochrome plane, and opcodes + output (STAGE-001/002/003) shipped; harness
-  hardening (STAGE-005) and crustyimg integration landed.
-- **`PROJ-002 — Bayer develop (colour)`** — well advanced: the CFA model, the clean-room
-  Malvar–He–Cutler demosaic, and the colour transform + dual-illuminant interpolation
-  (SPEC-033/SPEC-034) have shipped; the ColorChecker ΔE oracle (SPEC-035) is the one spec
-  left, **blocked on a physical chart**. A reconciled downstream wave (STAGE-010) carries
-  the `0.2.0` release prep.
-- **`PROJ-003 — Compressed planes (SOF-3)`** — the single-component decoder (STAGE-009)
-  shipped; the DNG `Compression 7` binding (STAGE-011) is **one spec from closing**. Both
-  held compressed monochrome files (Leica M Typ 246, Pentax K-3 III) now decode bit-exact
-  against `dnglab`; only the capstone (SPEC-045: provenance, determinism, container
-  hardening) remains.
+- **Release.** **`0.2.7`** is the live crate on crates.io (published 2026-11-25). It
+  adds the public DNG writer. `0.2.0` (2026-11-11) was the first release with demosaic,
+  colour and SOF-3; `0.2.1`..`0.2.6` followed as correctness and refusal releases.
+- **`PROJ-001 — Monochrome DNG develop`** — **shipped** (2026-11-11).
+- **`PROJ-002 — Bayer develop (colour)`** — **active, with one stage open.** Demosaic
+  (Hamilton-Adams, DEC-031), the colour transform, dual-illuminant interpolation,
+  CameraCalibration/AnalogBalance (SPEC-085) and the refusal work of STAGE-027..029 have
+  shipped. Only **STAGE-008** is open, holding the ColorChecker ΔE oracle (SPEC-035),
+  which is **blocked on a physical chart capture**.
+- **`PROJ-003 — Compressed planes (SOF-3)`** — **shipped** (2026-11-06).
+- **`PROJ-004 — Instrument layer and consumer integration`** — **shipped** (2026-11-20):
+  the test-only writer, tiled reader, GainMap, preview accessors and develop options.
+  STAGE-004 (crustyimg integration) was cancelled here; crustyimg tracks the
+  `raw-develop` integration in its own STAGE-056.
+- **`PROJ-005 — Public DNG writer for the onyx Darkroom`** — **shipped** (2026-11-25,
+  PR 350). The writer (`irradiance::dng::write`, feature `write`) is in `0.2.7`; its
+  follow-ups are under [Later — the DNG writer](#later--the-dng-writer-after-proj-005).
+- **`PROJ-006 — Spectral monochrome mixer`** — **STAGE-031 active.** SPEC-091 (the
+  white-balanced linear RGB plane, DEC-079) shipped (PR 351); SPEC-092 and SPEC-093 are
+  at frame.
+- **Wasm.** A `wasm32` build gate with a red-proof shipped (SPEC-096, STAGE-033).
 
-## Near-term: close PROJ-003, then review and release
+## Near-term: the mixer, and a decision on the chart
 
-- **Close PROJ-003.** Ship SPEC-045 (the STAGE-011 capstone — a provenance-ledger
-  binding row, a plane-level determinism pin, and lossless-JPEG header hardening), then
-  the STAGE-011 stage-ship and the PROJ-003 project-ship.
-- **Full code review AT the PROJ-003 close** (maintainer decision, 2026-11-06). A
-  whole-crate review — pointed hard at the new `ljpeg` decoder and the Compression-7
-  binding — on a clean slate, before PROJ-004/005 build on top of it. User-triggered
-  (`/code-review ultra`); the orchestrator prepares the scope and acts on the findings.
-- **Cut `0.2.0`.** The next workstream after the close — see Sequencing below.
+- **Design SPEC-092** (PROJ-006 / STAGE-031): the mixer at sensor geometry, then
+  SPEC-093 (the developed mix).
+- **Decide STAGE-008**: capture a ColorChecker or cancel the stage and close PROJ-002.
+  The options are in the 2026-11-24 landscape-refresh PR; nothing is decided yet.
+- **Audit leftovers.** Ranks 8, 9 and 11 of the 2026-11-21 parsed-but-unvalidated audit
+  are still unscheduled (status table in that file, 2026-11-24). They are small and can
+  ride along with whichever spec touches the code.
 
-## PROJ-002 — Bayer develop (colour) · *active — demosaic + colour transform shipped; ΔE oracle (SPEC-035) blocked on a chart*
+## PROJ-002 — Bayer develop (colour) · *active — only STAGE-008 (ΔE oracle, SPEC-035) open, blocked on a chart*
 
 The colour pipeline that PROJ-001 deliberately omits (a Monochrom sensor has no
 colour filter array, so there is nothing to demosaic). Planned content:
 
 - A **CFA model** (Bayer mosaic description and indexing).
 - A **clean-room Malvar–He–Cutler demosaic** — implemented from the published
-  algorithm, not ported from any copyleft decoder.
+  algorithm, not ported from any copyleft decoder. *(Superseded: DEC-031 replaced it with
+  Hamilton-Adams on patent grounds; that is what shipped.)*
 - **Colour matrices** — camera-native to a working/display colour space.
 - A **ColorChecker ΔE oracle** — the first *fully independent* correctness
   check. PROJ-001's oracle is single-sourced (both the plane checksum and the
@@ -87,33 +104,26 @@ shipped; `DEC-038` corrected the ColorMatrix-only white-balance path. The ColorC
 colour-geometry spec (crop/orient + `ActiveArea`-relative mosaic phase, from the external
 0.2.0 review §3B) is a likely addition. A parallel session owns the live colour thread.
 
-## Sequencing — `0.1.1` is live; close PROJ-003, review, then `0.2.0`
+## Sequencing — `0.2.7` is live with the writer; mixer next, adoption after
 
-`0.1.1` is published (2026-10-29, `rust_version` 1.90); `0.1.0` is yanked. Both predate
-all demosaic and compressed-plane work, so the next release is a minor, **`0.2.0`**,
-carrying what is under `[Unreleased]` in `CHANGELOG.md` (demosaic, colour metadata, the
-SOF-3 compressed-plane binding) plus the downstream `pyirradiance` asks
-(`feedback/2026-11-02-pyirradiance-requests.md`) and the external 0.2.0 review's
-semver-urgent `#[non_exhaustive]`.
+The earlier order (close PROJ-003, review, cut `0.2.0`, then PROJ-004/006/adoption) is
+done through PROJ-005: `0.2.0` was cut on 2026-11-11, PROJ-004 shipped on 2026-11-20,
+and PROJ-005 shipped the public writer in `0.2.7` on 2026-11-25.
 
-**Reconciled order (maintainer decision, 2026-11-06):**
+**Current order (2026-11-25; nothing here is a new decision):**
 
-1. **Close PROJ-003** — ship SPEC-045, then the STAGE-011 stage-ship and the PROJ-003
-   project-ship.
-2. **Full code review** at that close — whole crate, clean slate, before new project work
-   (user-triggered `/code-review ultra`; the orchestrator preps scope and acts on findings).
-3. **`0.2.0`** — a release spec (`just new-release-spec`) under the `DEC-028` publish
-   checks, coordinated with the PROJ-002 colour thread: what colour surface `0.2.0`
-   exposes is a maintainer call that depends on where SPEC-035 and the colour-geometry
-   work land. The crate docs, README and CHANGELOG must say exactly what the surface is.
-4. **Then, order TBD:** **PROJ-004** (instrument layer — starts with the opcode-inventory
-   spike, which also covers the `GainMap` deferred out of PROJ-003), **PROJ-006**, the
-   mono mixer (now unblocked — SPEC-033/034 shipped), and the **adoption push** (an `image`-crate adapter +
-   outreach to zenraw/oculante, `DEC-028`).
-5. Any M10 / M11 / Q3 Monochrom conformance claim waits for real Tier-B files and
+1. **PROJ-006: STAGE-031** (SPEC-091 shipped; SPEC-092 → 093 next). onyx has it on its
+   later horizon, after its Darkroom v1.
+2. **PROJ-002: STAGE-008.** The maintainer chooses: capture a chart, or cancel the stage
+   and close the project.
+3. **Then, order TBD:** the **adoption push** (unminted; see
+   [the candidate below](#project-candidate-not-minted-adoption-push)), a coverage
+   decision on JXL-compressed DNG and 3-sample LinearRaw (ProRAW) (see the
+   [2026-11-24 refresh](#refresh-2026-11-24)), and the audit leftovers.
+4. Any M10 / M11 / Q3 Monochrom conformance claim still waits for real Tier-B files and
    their rows in `docs/conformance-matrix.md`.
 
-## PROJ-003 — Compressed planes: lossless JPEG (SOF-3) · *closing — STAGE-009 core shipped; STAGE-011 binding one spec from close*
+## PROJ-003 — Compressed planes: lossless JPEG (SOF-3) · *shipped 2026-11-06*
 
 The compressed-plane decoder. The Q2M is uncompressed so PROJ-001 does not need
 it, but it is the **keystone shared by roughly eight vendor decoders** — most
@@ -142,7 +152,7 @@ people actually have."
   currently `UnsupportedCompression`); M10 / M11 / Q3 Monochrom and the Nikon
   D750 DNG **only once files are held**.
 
-## PROJ-004 — Instrument layer, opcode coverage and DNG writing · *proposed — project created 2026-11-11*
+## PROJ-004 — Instrument layer, opcode coverage and DNG writing · *shipped 2026-11-20 (the public writer moved to PROJ-005)*
 
 > **Updated 2026-11-11.** PROJ-004 now exists as `projects/PROJ-004-instrument-layer-and-consumer-integration/`.
 > Its framed stages come before the instrument layer below:
@@ -248,7 +258,7 @@ A bounded `SPIKE-NNN` on the held Q2M files (and the rest of the corpus):
   median over ~32 columns **removes banding or injects its own row noise** (and
   whether smoothing in y is then needed — which contradicts "zero blur").
 
-## PROJ-006 — Post-WB spectral monochrome mixer (Bayer → mono) · *unblocked — SPEC-033/034 shipped*
+## PROJ-006 — Post-WB spectral monochrome mixer (Bayer → mono) · *STAGE-031 active — SPEC-091 shipped 2026-11-25*
 
 > **Renumbered 2026-11-21 (was PROJ-005).** This plan was never created under
 > `projects/`, so when the public DNG writer left PROJ-004 the ID tool gave it
@@ -320,6 +330,47 @@ caller-encoded preview is the boundary), and editing and re-saving an existing D
 `ljpeg-private-doc-links-break-the-private-items-doc-build`): CI fuzz smoke jobs for
 `develop` and `demosaic` plus a `just fuzz-demosaic` recipe, and the 13 private `ljpeg`
 doc links. One `just new-patch`; neither touches the writer.
+
+## Project candidate (not minted): adoption push
+
+> **Draft, 2026-11-24.** No PROJ ID is minted and nothing is committed; the maintainer
+> decides whether this becomes a project and where it goes in the order. It builds on
+> `DEC-028` (publish so others can depend on the crate) and on
+> `docs/rust-ecosystem-and-semver-decisions.md` §1 (2026-11-12).
+
+**Thesis.** irradiance is on crates.io, but nobody looking for DNG in Rust finds it,
+and its first pitch ("the only permissive pure-Rust RAW crate") stopped being true when
+gamut-dng, filmcraft-dng and flashraw appeared. The case for using it is now quality,
+not the licence alone: zero runtime dependencies, no `unsafe`, panic-free under fuzzing,
+oracles that are shown red, a determinism contract (`DEVELOP_VERSION`), a provenance
+ledger, and refusing a file rather than guessing. The push turns that into adoption in
+two moves. First, an `image`-crate decoding hook, shipped as a **separate
+`irradiance-image` crate** so irradiance itself keeps zero dependencies and its semver
+stays apart from `image`'s major version. Second, outreach to the projects that sit on
+copyleft RAW crates for `.dng`: oculante (quickraw, LGPL) and zenraw (an AGPL wrapper
+over rawler/rawloader).
+
+**First spec it would contain: the head-to-head evidence.** Run irradiance,
+gamut-dng, filmcraft-dng and flashraw over the held corpus and record plane checksums
+against `dnglab`, panics under a short fuzz pass, and what each does with the Pixel
+files that carry a mandatory GainMap. If irradiance is not measurably better on
+correctness or safety, the pitch is weak and the adapter can wait. If it is, the
+adapter spec follows: `IrradianceDecoder`, `impl ImageDecoder`,
+`register_dng_decoding_hook()`, and a corpus round-trip through `image::ImageReader`
+with a red-proof. The 11-12 memo's first gate (STAGE-016, GainMap) has since shipped.
+
+**What it needs from the maintainer:**
+
+- Whether `irradiance-image` lives in this repo as a workspace member or in its own
+  repo. Either way it brings in `image` as a dependency of a sibling crate, which needs a
+  DEC under `no-new-top-level-deps-without-decision`.
+- A coverage decision first, or an accepted gap: many recent phone DNGs are JXL-compressed
+  (52546) or 3-sample LinearRaw (ProRAW), and irradiance refuses both today. An adapter
+  that refuses the files `image` users bring may make a worse first impression than no
+  adapter (see the [2026-11-24 refresh](#refresh-2026-11-24)).
+- The outreach itself (issues or PRs on oculante and zenraw) goes out under the
+  maintainer's GitHub account, so the maintainer sends it or approves each message.
+- Where it ranks against PROJ-006 and the writer follow-ups above.
 
 ## Later — more sensors and vendor containers
 
@@ -519,3 +570,41 @@ Goal: stop the plane checksum and the reference render both coming from dnglab/r
 5. Should `gamut-dng` and `oxideav-jpegxl` be named in the provenance ledger as class-4 candidates to watch, as the October pass suggested for photocraft and oxideav-mjpeg?
 
 _Sources (fetched 2026-11-24, treated as untrusted): crates.io API listings for `flashraw`, `flashraw-core`, `oxideav-mjpeg`, `oxideav-jpegxl`, `kamadak-exif`, `ssimulacra2`, `dng`, `rawler`, `zenraw`, `gamut-dng`, `rawshift`, `jxl`, `jxl-oxide` (incl. its 0.12.6 dependency list), `zenjxl-decoder`, `ljpeg`, `quickraw`; GitHub READMEs of `ybouane/flashraw` (+ `docs/references.md`, workspace `Cargo.toml`s), `OxideAV/oxideav-mjpeg`, `OxideAV/oxideav-jpegxl`, `justin13888/gamut`, `tirr-c/jxl-oxide` (+ code search for `unsafe`), `libjxl/jxl-rs`, `imazen/zenraw`, `storytold/photocraft`, `rdespres87/rraw`, `kamadak/exif-rs`; `github.com/dnglab/dnglab/releases`; `support.apple.com/119916`; `juniperphoton.substack.com/p/supporting-jpeg-xl-compression-in`; `petapixel.com/2024/09/18/why-apple-uses-jpeg-xl-in-the-iphone-16-and-what-it-means-for-your-photos`; `macrumors.com/how-to/iphone-16-pro-choose-jpeg-xl-proraw-formats`; `cloudinary.com/blog/samsung-now-supports-dng-1-7-including-jpeg-xl`; Samsung CamCyclopedia "JPEG XL Image Codec"; `community.adobe.com` (S26 Ultra Expert RAW thread); `discuss.pixls.us/t/looking-for-samples-smartphone-dngs-with-embedded-gainmap/27296`; `libraw.org/node/2786`; `developer.chrome.com/blog/jpeg-xl-in-chrome`; `theregister.com/2022/02/17/microsoft_ans_patent/`; arXiv 2506.05987 (JPEG XL overview)._
+
+**Addendum: second pass, same day.** A separate research pass ran on 2026-11-24
+before the refresh above had merged. Most of what it found duplicates the refresh.
+The points below add to it or disagree with it. They follow the same untrusted-data
+rule.
+
+- **Adobe writes JXL DNG.** Since Lightroom 13.0 (October 2023), lossy DNG and
+  derived DNGs (merge, Enhance) use JPEG XL instead of JPEG (an Adobe-verified answer on
+  community.adobe.com). No camera vendor was found writing it, but Adobe software is a
+  source of 52546 files.
+- **iPhone 17 Pro.** Apple's iOS 26 guide lists the 17 Pro models as ProRAW devices. That
+  they keep the JXL options rests on one forum post, so it is *unverified*.
+- **FlashRaw provenance: the two passes disagree.** The 0.3.0 CHANGELOG (2026-11-14) adds
+  a statement that decoders, codecs and the camera database were "rewritten from format
+  descriptions and sample files", with values "measured from sample files or taken from
+  Adobe DNG profiles". The refresh above read `docs/references.md`, which still gives no
+  per-entry origin. Both may be true. Taking matrices from Adobe DNG profiles has its
+  own licence question, so the verdict (matrices not provenance-clean) stands.
+- **FlashRaw 0.3.1 added Nikon High Efficiency NEF**, which is TicoRAW-based.
+  **Patent / proprietary: skip.** This does not affect running FlashRaw as a plane
+  oracle on DNG files.
+- **RustDNG** (Henry-GongZY) is a Rust translation of the Adobe DNG SDK 1.7.1 under the
+  SDK's source-available licence, and it decodes JXL through jxl-oxide. **Proprietary,
+  and derived from Adobe code: do not read.** Only its README was seen.
+- **LibRaw's `unprocessed_raw`** (LGPL-2.1 or CDDL-1.0, run only) with black subtraction
+  and scaling turned off writes the raw plane as a TIFF. That makes it a bit-exact plane
+  oracle. The refresh above calls LibRaw "less independent" because it shares lineage
+  with dcraw. It is still independent of **rawler**, which is the single source that
+  needs replacing. rawpy (MIT, bundles LibRaw, 0.28.0 of 2026-10-31) exposes the same
+  plane as a `uint16` array and is the easiest to script.
+- **Choosing a JXL oracle.** rawler, FlashRaw's `jpegxl` feature and RustDNG all decode
+  through **jxl-oxide**. If JXL lands, check its tiles with jxl-rs or libjxl's `djxl`,
+  not with a jxl-oxide-based tool.
+- **zenjxl-decoder** (imazen's jxl-rs fork) is `forbid(unsafe_code)` by default with an
+  opt-in `allow-unsafe` feature. It reports 17 of 23 passing on Level 5 conformance
+  (README, December 2025). Of the JXL decoders listed above, it is the only one that
+  keeps `unsafe` out by default.
+- **Repo location.** `github.com/justin13888/gamut` redirects to `visualcommons/gamut`.
