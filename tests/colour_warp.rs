@@ -555,7 +555,8 @@ fn ac6_colour_refusals_and_their_order() {
     let blue_kt = (BLUE.0, [0.001, -0.002]);
     let fold = ([1.0, -2.0, 0.0, 0.0], NO_KT);
     let kt = ([1.0, -0.05, -0.05, 0.0], [0.001, -0.002]);
-    let cases: [(&str, Vec<Set>, fn(&Error) -> bool); 6] = [
+    type Case = (&'static str, Vec<Set>, fn(&Error) -> bool);
+    let cases: [Case; 6] = [
         ("N = 2", vec![RED, GREEN], |e| {
             matches!(e, Error::MalformedOpcodeParams { id: 1, .. })
         }),
@@ -602,7 +603,7 @@ fn ac6_colour_refusals_and_their_order() {
         s.color_matrix_1 = None;
         s.color_matrix_2 = None;
         s.forward_matrix_2 = None;
-        assert_refused(&s, &src, &format!("{case}, before calibration"), &pred);
+        assert_refused(&s, &src, &format!("{case}, before calibration"), pred);
 
         // Flagged optional, the same list develops as with no list 3.
         let list = warp_list(&sets, 0.5, 0.5, OPTIONAL);

@@ -1862,6 +1862,11 @@ fn mix_needed_scratch(
 /// Stage 2 as the passes read it: the mono develop's levels and `GainMap`s, or
 /// the developed mix's (`SPEC-093`): the colour path's levels and `GainMap`s
 /// inside the mixer, and the mixer's row.
+// The mix variant holds the CA step's two 4097-entry tables inline (about
+// 64 KB, on the stack once per develop). Boxing them would be a heap
+// allocation, which `develop_with_scratch_into` must never make (`DEC-060` §2,
+// `DEC-088` item 3), so the size difference is deliberate.
+#[allow(clippy::large_enum_variant)]
 enum Stage<'a> {
     Mono(StageTwo<'a>),
     Mix {
