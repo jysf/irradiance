@@ -18,7 +18,7 @@ handoff:
   from_role: architect
   to_role: implementer             # implementer | verifier
   created_at: 2026-11-28
-  status: pending                  # pending | accepted | completed | rejected
+  status: completed                # pending | accepted | completed | rejected
 
 task:
   spec_id: SPEC-099
@@ -46,19 +46,19 @@ repo:
 # write why in `notes` — then set `cost.metering_source: none` in
 # .repo-context.yaml so the gate stops asking. Do not invent a number.
 handback:
-  status: null                     # completed | blocked | rejected
-  agent: null                      # the model that ACTUALLY ran (message.model) —
+  status: completed                # completed | blocked | rejected
+  agent: claude-opus-5-5           # the model that ACTUALLY ran (message.model) —
                                    #   to_agent above is a prediction from tier_map
   verdict: null                    # verify handoffs: approved | punch-list | rejected
-  basis: null                      # transcript | agent-result | slash-cost | api-usage | estimate
-  tokens_total: null               # REAL combined count — what cost-audit reads
-  estimated_usd: null              # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
-  duration_minutes: null
-  branch: null
+  basis: transcript                # transcript | agent-result | slash-cost | api-usage | estimate
+  tokens_total: 45828995           # REAL combined count — what cost-audit reads
+  estimated_usd: 30.76             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
+  duration_minutes: 45
+  branch: feat/spec-099-sensor-geometry-ca
   pr: null
-  completed_at: null               # YYYY-MM-DD
-  notes: null                      # if unusual; double-quote it — an unquoted " #" starts a YAML comment
-  synced_at: null                  # stamped by `just handback-sync` — do not edit
+  completed_at: 2026-11-28         # YYYY-MM-DD
+  notes: "Build in a side session started by the PROJ-006 orchestrator. A FLOOR measured live just before the commit over transcript 111b6c75-4198-4766-9cc9-425a4fe387af.jsonl (134 unique message.ids, all claude-opus-5-5, no subagents): input 271 + cache-creation 417,566 (all 1-hour) + cache-read 45,253,091 + output 158,067. The commit, PR and CI wait come after; re-measure at ship."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
+  synced_at: 2026-11-28
 ---
 
 # HANDOFF-210: The per-plane WarpRectilinear at sensor geometry: red and blue resampled to green's geometry, and the consumer's warp named
@@ -164,38 +164,72 @@ this — it transcribes it. The reflection questions are part of completion.*
 
 ### Execution notes
 
-- **Branch / PR:** [link]
-- **Completed at:** YYYY-MM-DD
-- **All acceptance criteria met?** yes/no (if no, explain)
-- **For `verify`:** the verdict — ✅ APPROVED (at commit SHA) / ⚠ PUNCH LIST / ❌ REJECTED
+- **Branch / PR:** `feat/spec-099-sensor-geometry-ca`, PR linked in the PR's own description (opened after this commit).
+- **Completed at:** 2026-11-28
+- **All acceptance criteria met?** yes.
+  - AC1: `tests/plane_warp.rs` `ac1_sensor_geometry_warp_names_the_consumer_warp_and_every_set`: no list 3 and a warp-free list give `Ok(None)`; three distinct sets come back in file order coloured `[0, 1, 2]`, each equal to its set with `planes == 3`, `consumer()` green's, per plane; mandatory and optional agree; `CFAPlaneColor` `[2, 1, 0]`, `[1, 0, 2]`, `[0, 2, 1]` colour by `CFAPlaneColor` and name the set coloured 1; identical sets are not per plane; `N = 1` gives one uncoloured set; monochrome `N = 1` and `N = 3` give `K1`; `N = 2` and `N = 4` are malformed; `[0, 1, 1]` is `UnsupportedCfaPlaneColor`; a second warp is ignored; `kt` is reported; `parse_warp_rectilinear` still returns `K1` (red).
+  - AC2: `ac2_no_per_plane_difference_is_bit_identical`, six entries (three whole, three rows forms over two strips), plain and `ActiveArea` scenes, four list shapes.
+  - AC3: `ac3_red_and_blue_are_resampled_to_green_geometry` (including the optional flag and red-only) and `ac3_the_active_area_and_the_optical_centre` (`ActiveArea (2, 2, 38, 46)`, `cx 0.3 cy 0.6`, and both). The reference is `tests/support/ca_reference.rs`, written from DEC-087 item 3 and shared with AC7 and AC8. Every sample equal; the masked border equals the no-CA output; the corner reaches the held rim (`f_g(1)^2 = 0.81`).
+  - AC4: `src/color.rs` `ac4_every_store_sees_the_corrected_triple` (the triple captured through the same body with a store that writes the camera triple; u16, unclamped f32 and mono each equal their store on it; green passes through, red and blue move).
+  - AC5: `ac5_bands_equal_the_whole_plane`: tilings `0..3, 3..11, 11..40`, every single row, `0..40` and `0..1, 1..39, 39..40`, on the plain and `ActiveArea` scenes, three rows entries.
+  - AC6: `ac6_refusals_and_their_order`: blue kt and red-before-blue kt; the fold (`slope_min == -5`, kind `Unsupported`, `Display` names it); `q` minimum exactly 0 refuses; a fold with identical sets is not refused; `N = 2` differing and identical; CFA pattern and `CFAPlaneColor` beat the warp; the warp beats `MissingColorCalibration`; `MissingColorCalibration` still comes after a clean warp; `InvalidMixWeights` beats it on both mix entries; `InvalidRowRange` stays before it; sentinel `dst` untouched on every refusal; a 1x1 `ActiveArea` with a folding green equals the no-list-3 output; `develop_color_into`/`_f32_` still `{ list: 3, id: 1 }`, the developed mix refuses a mandatory N = 3 and skips an optional one (equal to the no-list-3 develop). `tests/error_kind.rs` classifies the variant (`Unsupported`, 29).
+  - AC7: `tests/leica_colour.rs` `ac7_the_opcode_files_are_ca_corrected`, ran on 3/3 files. The accessor gives the table's three sets, coloured R, G, B, `consumer()` the G row, per plane. **The three pre-registered `u16` digests matched first**: Q2 `0xd352bb75bf29d270`, Q3 `0xc6f67381a8b94593`, SL3 `0xbb9908b919ce2b08`. Re-pinned after that: `srgb_linear_plane_f32_into` Q2 `0x46f44d43f6882eb4`, Q3 `0xaf64a2b4e74aef07`, SL3 `0x1112c7705d7631e7`; `mono_mix_plane_into` Q2 `0xe6bb2752f00f7913`, Q3 `0x97329ab81317c5ec`, SL3 `0x00d47ed9b11d1be2`; each differs from its SPEC-098 pin. Rows 100..200, 0..5 and the last 5 equal the plane on all three entries. The plain mono `develop_into` pins are unchanged; the developed outputs still refuse. On the Q2 and Q3, `srgb_linear_plane_into` equals `to_srgb_linear_into(reference(demosaic_into(n)))` at every sample (0 differ).
+  - AC8: `tests/colour_sdk_stage3.rs` `ac8_red_and_blue_register_to_dng_validate_stage_3`, with `scripts/sdk-stage3.sh` outputs outside the repo, 3/3 files. Worst `|CA+green - baseline|` / smallest `|green-only - baseline|` (bound 0.10 / red-proof 0.30): Q2 red 0.042 / 0.592, Q2 blue 0.022 / 0.480, Q3 red 0.018 / 0.690, Q3 blue 0.016 / 0.442, SL3 red 0.032 / 0.620, SL3 blue 0.036 / 0.406. Per patch in the test's output; close to the design probe's table.
+  - AC9: the whole suite is green with the corpus (counts below); `DEVELOP_VERSION` "8", `MONO_MIX_VERSION` "1"; `just semver-check` reports "no semver update required" (additions only).
+  - AC10: `fuzz/fuzz_targets/warp_opcode.rs` runs `__fuzz_warp_planes` for `None`, `[0, 1, 2]` and `[2, 1, 0]` with the invariants asserted; seed `fuzz/seeds/warp_opcode/warp-rectilinear-n3-distinct.bin`; smoke 3,243,469 runs in 61 s, no crash.
+- **Failing tests first:** `tests/plane_warp.rs`'s AC2, AC3 and AC5 were run against main (with the accessor import removed): AC3 (both) and AC5 red (4,700 and 3,889 samples differ from the reference; the CA step did not run), AC2 green (the guard). AC1, AC6 and the unit tests name `sensor_geometry_warp` / `UnsupportedWarpFold`, which do not exist on main (red by compile). AC7's u16 digest on main is SPEC-098's pin, not the pre-registered one.
+- **Gates:** `just test` with the corpus (every manifest file present, including the Q2, Q3 and SL3): 62 binaries, 1,032 passed, 0 failed, 1 ignored. The first run failed only `tests/error_kind.rs` `every_variant_classified` (its pinned variant count, 82 to 83; DEC-051's tally sentence gained the new variant) and stopped there, so the suite was run again in full. `just lint-ci`, `lint-fuzz`, `fmt-check`, `doc-check`, `wasm-check`, `validate` and `semver-check` pass; `cost-audit` passes after the sync. AC8 ran locally with `IRRADIANCE_SDK_STAGE3_DIR` set (3/3 files); unset, `corpus-status` prints its SKIP line.
+
+### Mutants (scripted string replacement, each applied, tested, reverted)
+
+Harness: `mutants.py` in this session's scratchpad (each mutant applied by exact string replacement, `tests/plane_warp.rs` plus the CA unit tests run, then reverted). All 21 red in the end:
+- 1 consumer = `K1` (red's set): red, ac1, both ac3, ac6, `ac4_every_store_sees_the_corrected_triple`, `ca_equal_sets_build_no_step` (AC7's consumer assertion would also fail; not run under the mutant, being tier B).
+- 1 colours by index: red, ac1 (the `[2, 1, 0]`, `[1, 0, 2]`, `[0, 2, 1]` cases).
+- 2 resample an equal-set plane anyway (output-equivalent): red, `ca_equal_sets_build_no_step`.
+- 2 identical sets still per plane: red, ac1, ac2.
+- 3.1 plane coordinates instead of `ActiveArea`-relative: red, `ac3_the_active_area_and_the_optical_centre`, `ca_value_samples_inside_the_active_area_only`.
+- 3.1 `sqrt(mx² + my²)` instead of `hypot`: **survived at first**. On every centred geometry (all held files and the first fixtures) `mx`, `my` are half-integers, the sum is exact and both round alike, so no plane can tell. Closed by `ca_m_is_hypot` (a 6 × 40 `ActiveArea`, centre `(0.07, 0.6)`, where the two differ in the last bit under macOS's libm; the mutant turns it red there). Linux's glibc `hypot` rounds that case like the sqrt form, so CI's run showed the difference is platform-dependent; the test asserts only `m == mx.hypot(my)`.
+- 3.2 refuse at `q < 0` only: red, ac6, `ca_fold_boundary_refuses`. 3.2 never refuse: red, the same two.
+- 3.3 extrapolate past `s = 1` (bisect on `[0, 2]`, no rim): red, both ac3, `ca_bisection_inverts_a_known_map`.
+- 3.4 nearest node: red, both ac3, `ca_ratio_interpolates_and_clamps_at_the_rim`. 3.4 no `min(u, T)` clamp: red, `ca_ratio_interpolates_and_clamps_at_the_rim` (on a plane it is output-equivalent: σ never exceeds 1 by more than an ulp).
+- 3.5 clamp 2 px beyond the `ActiveArea` (into the masked border): red, both ac3, ac5. 3.5 truncate instead of half up: red, both ac3.
+- 3.6 `H = 0`: red, both ac3, both ac5, `ca_table_and_bound_on_a_hand_checkable_set`. 3.6 `H = ⌈B⌉ − 1`: **red only in the unit test at first**: on the 48 × 40 scenes `B` (a radial bound) is well above the vertical reach, and red's outward sources clamp at the edge. Closed by `ac5_the_halo_covers_a_tall_narrow_active_area` (an 8 × 40 `ActiveArea`, blue shrinking to 0.7 so its sources move inward about 5.9 rows, whole plane against the reference and single-row bands).
+- 4 resample the masked border: red, `ac3_the_active_area_and_the_optical_centre`, `ca_value_samples_inside_the_active_area_only`. 4 the ring finishes a row before row `y + H` arrives: red, both ac3, ac5.
+- 5 warp before the CFA: red, ac6. 5 warp after the calibration: red, ac6. 5 tangential terms not refused: red, ac6. 5 `N = 2` accepted: red, ac1, ac6.
+
+### Timing (`srgb_linear_plane_into`, release, Q3, best of 5)
+
+- Before (origin/main, SPEC-098, the warp passed through): min 0.964 s, median 0.985 s.
+- After: min 2.297 s, median 2.301 s. So the step adds about 1.33 s on a 60 MP plane, single-threaded, against the design probe's 0.49 to 0.64 s for a bare two-plane loop. The extra cost is the ring's per-sample lookups (a row modulo per bilinear read) and the per-plane σ; a follow-up could precompute the ring row bases and share σ between red and blue. Not a gate; recorded, not optimised here.
 
 ### Cost self-report
 
-Mirror what you put in the `handback:` front-matter, and say where the number
-came from. **This is the number that lands in the spec** — the orchestrator
-transcribes it via `just handback-sync`, it does not estimate it.
-
-- **Tokens (total):** <real number, or null + why>
-- **Estimated USD:** <number, or null>
-- **Duration (minutes):** <estimate>
-- **Source of the number:** `/cost` | API `usage` | harness report | none available
+- **Tokens (total):** 45,828,995 (a floor measured live before the commit; input 271, cache creation 417,566, all 1-hour, cache read 45,253,091, output 158,067; 134 messages, all claude-opus-5-5, no subagents)
+- **Estimated USD:** 30.76 (5 and 25 USD per million, cache reads 0.1x, 1-hour writes 2x)
+- **Duration (minutes):** 45
+- **Source of the number:** transcript `111b6c75-4198-4766-9cc9-425a4fe387af.jsonl` (this session's scratchpad id), per `docs/cost-tracking.md` "Measuring a cycle": unique `message.id`s, the largest `output_tokens` per message, no subagents. A floor taken before the commit.
 
 ### Drift and new artifacts
 
-- **New decisions emitted:**
-  - `DEC-NNN` — <title> (if any)
+- **New decisions emitted:** none (DEC-087 built as written).
 - **Deviations from spec:**
-  - [list]
+  - `tests/leica_colour.rs` `ac8_the_sl3_bad_columns_are_fixed` (SPEC-098's, not in this spec's list) now drops list 3 from both sensors before counting the pixels the fix changes. With list 3 kept, the CA resample spreads each fixed photosite into its neighbours' red and blue, and the count moved from 22,761 to 28,012. Without the warp the comparison isolates the fix as SPEC-098 measured it, and every registered number still holds.
+  - The per-plane parse also refuses a non-finite coefficient in set 2 or 3 as `MalformedOpcodeParams { id: 1, .. }` (`parse_warp_rectilinear_params` checks only `K1` and the centre). DEC-087 does not say; a NaN set cannot be resampled. No held file has one.
+  - `is_per_plane()` is `false` on a sensor with no CFA (no sensor-geometry entry runs there), and the one-pixel `ActiveArea` case (`m = 0`) checks no fold: DEC-087 item 3 lists "if m = 0 there is no step" before the fold check, so the geometry decides first. The tangential refusal comes before both (item 5's order).
+  - `bilinear_sample`'s arithmetic moved into `bilinear_sample_with` (a sampler closure), which both `apply_warp_into` and the CA step call; `apply_warp_into`'s output is unchanged (every warp pin and test green).
+  - AC8's `n` applies no bad-pixel fix on the SL3: the patches never reach its bad columns (9528 to 9535, outside the crop). Stated in the test's header.
+  - Extra tests beyond the spec's list: the rows forms' `InvalidRowRange` stays before the warp refusal; a one-row-then-38-then-one tiling; `ac5_the_halo_covers_a_tall_narrow_active_area` and `ca_m_is_hypot` (both added to close mutants, above); `ca_value_samples_inside_the_active_area_only`.
 - **Follow-up work identified:**
-  - [any new specs that should be added to the stage's backlog]
+  - SPEC-100 (framed) as planned: the developed colour output and the developed mix.
+  - Optional, small: the CA step's cost (2.3 s against 1.0 s for the Q3 plane). Precomputing the ring's row bases and sharing σ between the two planes should bring it near the probe's figure; output-invariant.
 
 ### Reflection (3 questions, short answers)
 
 1. **What was unclear in the spec or handoff that slowed you down?**
-   — <answer>
+   — Little. The one undefined detail was whether a one-pixel `ActiveArea` with a folding green refuses (fold first) or runs nothing (geometry first); AC6 settles the 1x1 case only with a well-behaved green. I took DEC-087 item 3's order (geometry, then fold) and tested it.
 
 2. **Was there a constraint or decision that should have been listed but wasn't?**
-   — <answer>
+   — SPEC-098's `ac8_the_sl3_bad_columns_are_fixed` depends on the sensor-geometry plane's warp behaviour, so it moves with this spec; it was not in the spec's list of tests to change.
 
 3. **If you did this task again, what would you do differently?**
-   — <answer>
+   — Nothing structural: the shared test-side reference (`tests/support/ca_reference.rs`) let AC3, AC7 and AC8 check one rule, and the pre-registered digests matched on the first run.

@@ -10,6 +10,19 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **`opcode::sensor_geometry_warp`** (SPEC-099, STAGE-034, PROJ-006, DEC-087).
+  Reads the first `WarpRectilinear` in `OpcodeList3`, whatever its flags, and
+  returns a `SensorGeometryWarp`: `consumer()` is the one warp a consumer applies
+  to the sensor-geometry planes (green's set for three sets on a colour file, the
+  one set for `N = 1`, `K1` with no CFA), `sets()` lists every set as a
+  `PlaneWarp { plane, color, warp }` with its `CFAPlaneColor` colour, and
+  `is_per_plane()` says whether the planes resample red and blue. A consumer of
+  the colour planes should use `consumer()` instead of `parse_warp_rectilinear`,
+  which returns `K1` (red's set on a colour file) and is unchanged.
+- **`Error::UnsupportedWarpFold { slope_min }`** (SPEC-099, DEC-087,
+  `ErrorKind::Unsupported`). A sensor-geometry entry that must resample red and
+  blue refuses a green set whose radial map is not strictly increasing on
+  `[0, 1]`. No held file reaches it.
 - **`opcode::DevelopPath::SensorGeometry`** (SPEC-098, STAGE-034, PROJ-006,
   DEC-086). The path of the sensor-geometry entries (`srgb_linear_plane_*`,
   `mono_mix_plane_*`): the colour path's opcodes, and the first
@@ -77,6 +90,29 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **The sensor-geometry planes correct lateral chromatic aberration** (SPEC-099,
+  STAGE-034, PROJ-006, DEC-087, amending DEC-086 items 5 and 8, onyx's DEC-114).
+  On a first `WarpRectilinear` with three coefficient sets whose red or blue set
+  differs from green's, `srgb_linear_plane_into`, `srgb_linear_plane_f32_into`,
+  `mono_mix_plane_into` and their `_rows_` forms resample red and blue to green's
+  geometry on the demosaiced camera triple, before the colour matrix: the ratio
+  of each plane's radial scale to green's, tabulated at 4096 intervals over the
+  squared radius, held at its rim value beyond green's image, sampled bilinearly
+  inside the `ActiveArea`. Only green's set is left for the consumer to apply
+  (`sensor_geometry_warp(..).consumer()`). It runs whatever the opcode's flags.
+  The rows forms develop a few more rows each side (three on the held files) and
+  still equal the whole plane bit for bit. The Leica Q2, Q3 and SL3 planes change
+  (unreleased: they reached these entries in SPEC-098); red and blue register
+  within 0.05 px of Adobe `dng_validate -3` on them, against 0.4 to 2.1 px
+  without the step. A file with `N = 1`, identical sets or no warp gives output
+  bit-identical to before. On these six entries an `N` other than 1 or 3 is now
+  `MalformedOpcodeParams { id: 1, .. }` (it was passed through), so is a
+  non-finite coefficient in the second or third set (`sensor_geometry_warp`
+  refuses it the same way), and non-zero
+  tangential terms are refused when the sets differ. A file with an optional
+  three-set warp whose sets differ would also change; none is known. The
+  developed outputs are unchanged (SPEC-100), and neither `DEVELOP_VERSION` nor
+  `MONO_MIX_VERSION` moves.
 - **The colour entries apply a mandatory `FixBadPixelsConstant`** (SPEC-098,
   STAGE-034, PROJ-006, DEC-086, amending DEC-084 item 3). The colour develop,
   the sensor-geometry planes and the developed mix apply `OpcodeList1`'s first

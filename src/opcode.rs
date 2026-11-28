@@ -1042,6 +1042,255 @@ pub fn parse_fix_bad_pixels_constant(bytes: &[u8]) -> Result<Option<u32>, Error>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The per-plane `WarpRectilinear` at sensor geometry — `SPEC-099`, `DEC-087`
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Every coefficient set of one `WarpRectilinear`, parsed: `len` is `N` (1 or
+/// 3) and `sets[..len]` are the sets in file order, each as a [`WarpRect`] with
+/// the shared `cx`, `cy` and `planes = N`. Unused slots repeat the first set.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct WarpPlanes {
+    pub(crate) sets: [WarpRect; 3],
+    pub(crate) len: usize,
+}
+
+/// Parse `WarpRectilinear`'s parameter block with **all** `N` coefficient sets
+/// (`DEC-087` item 1). It first runs [`parse_warp_rectilinear_params`] (so the
+/// length rule and `K1`'s finiteness refuse exactly as there), then requires
+/// `N` to be 1 or 3 (DNG 1.7.1.0: "N must be 1 or the total number of image
+/// planes", and every image this crate reads has 1 or 3) and every further set
+/// to be finite. Each refusal is [`Error::MalformedOpcodeParams`].
+fn parse_warp_planes_params(params: &[u8], id: u32) -> Result<WarpPlanes, Error> {
+    let malformed = || Error::MalformedOpcodeParams {
+        id,
+        declared_size: u32::try_from(params.len()).unwrap_or(u32::MAX),
+    };
+    let first = parse_warp_rectilinear_params(params, id)?;
+    let len = match first.planes {
+        1 => 1,
+        3 => 3,
+        _ => return Err(malformed()),
+    };
+    let mut sets = [first; 3];
+    for (k, set) in sets.iter_mut().enumerate().take(len).skip(1) {
+        // Set `k` starts at 4 + 48·k: kr0..kr3, then kt0, kt1.
+        let base = k.checked_mul(48).and_then(|v| v.checked_add(4));
+        let mut values = [0.0f64; 6];
+        for (i, value) in values.iter_mut().enumerate() {
+            let at = base
+                .and_then(|b| i.checked_mul(8).and_then(|o| b.checked_add(o)))
+                .ok_or_else(malformed)?;
+            *value = read_f64_be(params, at).map_err(|_| malformed())?;
+        }
+        if !values.iter().all(|v| v.is_finite()) {
+            return Err(malformed());
+        }
+        let [kr0, kr1, kr2, kr3, kt0, kt1] = values;
+        set.kr = [kr0, kr1, kr2, kr3];
+        set.kt = [kt0, kt1];
+    }
+    Ok(WarpPlanes { sets, len })
+}
+
+/// The first `WarpRectilinear` in an `OpcodeList` byte stream with all its
+/// sets, or `None` when the list holds none. The whole list is validated
+/// exactly as [`parse_opcode_list`] validates it (through
+/// [`parse_warp_rectilinear`]), then the first instance's parameter block is
+/// read again by [`parse_warp_planes_params`]. Allocates nothing.
+pub(crate) fn first_warp_planes(bytes: &[u8]) -> Result<Option<WarpPlanes>, Error> {
+    if parse_warp_rectilinear(bytes)?.is_none() {
+        return Ok(None);
+    }
+    let count = read_u32_be(bytes, 0)?;
+    let mut pos: usize = 4;
+    for _ in 0..count {
+        let raw = read_raw_opcode(bytes, &mut pos)?;
+        if raw.known_id() == Some(OPCODE_ID_WARP_RECTILINEAR) {
+            return parse_warp_planes_params(raw.params, raw.id).map(Some);
+        }
+    }
+    Ok(None)
+}
+
+/// One coefficient set of a file's `WarpRectilinear`, as
+/// [`sensor_geometry_warp`] reports it (`SPEC-099`, `DEC-087` item 1).
+///
+/// A parser-output view, sealed with `#[non_exhaustive]` like [`WarpRect`]: a
+/// future field is additive.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub struct PlaneWarp {
+    /// The image plane this set belongs to: its index in the opcode.
+    pub plane: u32,
+    /// `CFAPlaneColor[plane]` (0 red, 1 green, 2 blue) when the warp has three
+    /// sets on a CFA sensor; `None` when the one set applies to every plane
+    /// (`N = 1`) or the sensor has no CFA.
+    pub color: Option<u8>,
+    /// The set, as [`parse_warp_rectilinear`] would return it if it were `K1`:
+    /// the shared `cx`, `cy`, and `planes` is the file's `N`.
+    pub warp: WarpRect,
+}
+
+/// What a file's first `WarpRectilinear` means at sensor geometry
+/// (`SPEC-099`, `DEC-087` item 1): the one warp the consumer applies to the
+/// sensor-geometry planes, and every coefficient set with its plane colour.
+/// Built by [`sensor_geometry_warp`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SensorGeometryWarp {
+    sets: [PlaneWarp; 3],
+    len: usize,
+    consumer: usize,
+    per_plane: bool,
+}
+
+impl SensorGeometryWarp {
+    /// The one warp the consumer applies at sensor geometry, to the planes of
+    /// [`crate::color::srgb_linear_plane_into`],
+    /// [`crate::color::srgb_linear_plane_f32_into`],
+    /// [`crate::color::mono_mix_plane_into`] and their `_rows_` forms. It is
+    /// green's set (the set whose `CFAPlaneColor` is 1) for three sets on a
+    /// CFA sensor, the one set for `N = 1`, and `K1` for three sets on a
+    /// sensor with no CFA (what [`crate::develop::develop_into`] applies).
+    #[must_use]
+    pub fn consumer(&self) -> &WarpRect {
+        // `consumer` is always below `len` (at most 3) by construction.
+        let [first, second, third] = &self.sets;
+        match self.consumer {
+            1 => &second.warp,
+            2 => &third.warp,
+            _ => &first.warp,
+        }
+    }
+
+    /// Every coefficient set, in file order: one or three of them.
+    #[must_use]
+    pub fn sets(&self) -> &[PlaneWarp] {
+        let [first, ..] = &self.sets;
+        self.sets
+            .get(..self.len)
+            .unwrap_or(core::slice::from_ref(first))
+    }
+
+    /// Whether the sensor-geometry entries resample red and blue to green's
+    /// geometry (`DEC-087` item 2): three sets on a CFA sensor, with red's or
+    /// blue's set different from green's (all six coefficients compared with
+    /// `==`). `false` for `N = 1`, for identical sets and for a sensor with no
+    /// CFA. An entry that runs the step can still refuse it (tangential terms,
+    /// a fold) or find nothing to do (a one-pixel `ActiveArea`).
+    #[must_use]
+    pub fn is_per_plane(&self) -> bool {
+        self.per_plane
+    }
+}
+
+/// Whether two sets have the same six coefficients, compared with `==`
+/// (`cx`, `cy` are shared by every set).
+pub(crate) fn same_coefficients(a: &WarpRect, b: &WarpRect) -> bool {
+    a.kr == b.kr && a.kt == b.kt
+}
+
+/// Describe `planes` for a sensor whose `CFAPlaneColor` is `plane_color`
+/// (`None`: no CFA). The body of [`sensor_geometry_warp`], shared with the
+/// sensor-geometry entries and the fuzz hook.
+///
+/// # Errors
+///
+/// [`Error::UnsupportedCfaPlaneColor`] for three sets on a CFA whose
+/// `CFAPlaneColor` is not one each of 0, 1 and 2.
+pub(crate) fn describe_warp_planes(
+    planes: &WarpPlanes,
+    plane_color: Option<&[u8]>,
+) -> Result<SensorGeometryWarp, Error> {
+    let first = planes.sets[0];
+    let mut sets = [PlaneWarp {
+        plane: 0,
+        color: None,
+        warp: first,
+    }; 3];
+    for ((slot, warp), plane) in sets.iter_mut().zip(planes.sets).zip(0u32..) {
+        slot.plane = plane;
+        slot.warp = warp;
+    }
+    let len = planes.len;
+    let colours = match (len, plane_color) {
+        (3, Some(pc)) => {
+            let mut sorted = [0u8; 3];
+            let Ok(three) = <[u8; 3]>::try_from(pc) else {
+                return Err(Error::UnsupportedCfaPlaneColor {
+                    plane_color: pc.to_vec(),
+                });
+            };
+            sorted.copy_from_slice(&three);
+            sorted.sort_unstable();
+            if sorted != [0, 1, 2] {
+                return Err(Error::UnsupportedCfaPlaneColor {
+                    plane_color: pc.to_vec(),
+                });
+            }
+            Some(three)
+        }
+        _ => None,
+    };
+    let mut consumer = 0;
+    let mut per_plane = false;
+    if let Some(colours) = colours {
+        for (slot, colour) in sets.iter_mut().zip(colours) {
+            slot.color = Some(colour);
+        }
+        consumer = colours.iter().position(|&c| c == 1).unwrap_or(0);
+        let green = planes.sets.get(consumer).copied().unwrap_or(first);
+        per_plane = planes
+            .sets
+            .iter()
+            .any(|set| !same_coefficients(set, &green));
+    }
+    Ok(SensorGeometryWarp {
+        sets,
+        len,
+        consumer,
+        per_plane,
+    })
+}
+
+/// The first `WarpRectilinear` in `sensor`'s `OpcodeList3`, whatever its
+/// flags, as the sensor-geometry entries read it (`SPEC-099`, `DEC-087`
+/// item 1): the one warp the consumer applies to the sensor-geometry planes
+/// ([`SensorGeometryWarp::consumer`]) and every coefficient set with its
+/// `CFAPlaneColor` colour ([`SensorGeometryWarp::sets`]).
+///
+/// On a colour file with three sets the planes come back with red and blue
+/// already resampled to green's geometry, so the consumer applies green's set;
+/// [`parse_warp_rectilinear`] returns `K1`, which is **red's** set there, and is
+/// for monochrome consumers (where `K1` is the one plane's set). Three sets on
+/// a sensor with no CFA name `K1`, which is what
+/// [`crate::develop::develop_into`] applies.
+///
+/// `Ok(None)` without `OpcodeList3` or without a `WarpRectilinear` in it. It
+/// describes the file: it refuses neither tangential terms nor a fold (the
+/// entries do). It allocates nothing and never panics.
+///
+/// # Errors
+///
+/// - Whatever [`parse_opcode_list`] returns for the list's bytes.
+/// - [`Error::MalformedOpcodeParams`] `{ id: 1, .. }` for an `N` other than 1
+///   or 3, or a non-finite coefficient in any set.
+/// - [`Error::UnsupportedCfaPlaneColor`] for three sets on a CFA sensor whose
+///   `CFAPlaneColor` is not one each of 0, 1 and 2.
+pub fn sensor_geometry_warp(sensor: &Sensor) -> Result<Option<SensorGeometryWarp>, Error> {
+    let Some(bytes) = sensor.opcode_list_3.as_deref() else {
+        return Ok(None);
+    };
+    let Some(planes) = first_warp_planes(bytes)? else {
+        return Ok(None);
+    };
+    let plane_color = sensor
+        .color_filter
+        .as_ref()
+        .map(|cfa| cfa.plane_color.as_slice());
+    describe_warp_planes(&planes, plane_color).map(Some)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Required-processing validation — `SPEC-054`, `DEC-049`
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1101,12 +1350,15 @@ pub enum DevelopPath {
     /// [`crate::color::srgb_linear_plane_f32_into`] and their `_rows_` forms)
     /// and the `SPEC-092` mixed planes ([`crate::color::mono_mix_plane_into`],
     /// [`crate::color::mono_mix_plane_rows_into`]). It applies what
-    /// [`DevelopPath::Colour`] applies, and it **accepts without applying** the
-    /// first `WarpRectilinear` in `OpcodeList3`, whatever its flags and its
-    /// `N`: these planes are at sensor geometry, and the consumer applies the
-    /// file's warp itself. A later mandatory instance, or any other mandatory
-    /// opcode, is refused as on the colour path. It refuses a malformed tag of
-    /// the colour path's three sets.
+    /// [`DevelopPath::Colour`] applies, and it accepts the first
+    /// `WarpRectilinear` in `OpcodeList3`, whatever its flags. These planes are
+    /// at sensor geometry, so the consumer applies the file's warp itself, but
+    /// with three coefficient sets whose red or blue differs from green's the
+    /// entries first resample red and blue to green's geometry (`SPEC-099`,
+    /// `DEC-087`) and leave only green's set to the consumer
+    /// ([`sensor_geometry_warp`]). A later mandatory instance, or any other
+    /// mandatory opcode, is refused as on the colour path. It refuses a
+    /// malformed tag of the colour path's three sets.
     SensorGeometry,
 }
 
@@ -1244,7 +1496,7 @@ impl DevelopPath {
 ///    `FixBadPixelsConstant` in list 1 on every path but the two stage
 ///    primitives (`SPEC-098`, `DEC-086`); the first `WarpRectilinear` in
 ///    list 3 on [`DevelopPath::Mono`] and [`DevelopPath::SensorGeometry`]
-///    (which passes it through to the consumer unapplied), and on
+///    (which leaves green's set to the consumer, `SPEC-099`), and on
 ///    [`DevelopPath::MonoMix`] only when its `N` is 1; and every `GainMap` in
 ///    list 2 on every path (`SPEC-059`, `DEC-069`). "First" is the first
 ///    instance with that ID, whatever its own flags. Optional opcodes are

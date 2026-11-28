@@ -134,7 +134,8 @@ const FIXTURE_NAMES: [&str; 3] = [
 ];
 
 /// The `warp_opcode` fuzz target's seed corpus — real bytes from all three
-/// decodable frames plus three hand-truncated/adversarial variants
+/// decodable frames plus three hand-truncated/adversarial variants and
+/// `SPEC-099`'s three-distinct-set warp
 /// (`## Implementation Context`'s "Fuzz seed set for `warp_opcode`"). Shared
 /// by `tests/opcode.rs`'s smoke test and `examples/fuzz-seeds.rs`'s
 /// `fuzz/seeds/warp_opcode/` writer, so the two can never drift apart.
@@ -160,6 +161,28 @@ pub fn fuzz_seed_corpus() -> Vec<(&'static str, Vec<u8>)> {
     seeds.push((
         "unknown-mandatory-opcode",
         opcode_list(&[raw_opcode(0xDEAD_BEEF, 0x0104_0000, 0, &[1, 2, 3, 4])]),
+    ));
+
+    // SPEC-099: N = 3 with three distinct sets (the Leica colour shape,
+    // coefficients synthetic), for the per-plane parse through
+    // `__fuzz_warp_planes`.
+    let mut params = Vec::new();
+    params.extend_from_slice(&3u32.to_be_bytes());
+    let sets: [[f64; 4]; 3] = [
+        [1.0004, -0.0546, -0.0811, 0.0446],
+        [0.9993, -0.0541, -0.0810, 0.0442],
+        [0.9992, -0.0535, -0.0804, 0.0431],
+    ];
+    for kr in sets {
+        for v in kr.iter().chain(&[0.0f64, 0.0]) {
+            params.extend_from_slice(&v.to_be_bytes());
+        }
+    }
+    params.extend_from_slice(&0.5f64.to_be_bytes());
+    params.extend_from_slice(&0.5f64.to_be_bytes());
+    seeds.push((
+        "warp-rectilinear-n3-distinct",
+        opcode_list(&[raw_opcode(1, 0x0103_0000, 0, &params)]),
     ));
 
     seeds

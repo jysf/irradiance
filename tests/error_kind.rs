@@ -40,7 +40,8 @@ use irradiance::{Error, ErrorKind};
 /// `InvalidWriteInput` (CallerError) and `UnsupportedOpcodeForFraming`
 /// (Unsupported); SPEC-091/DEC-079 added `InvalidRowRange` (CallerError);
 /// SPEC-092/DEC-083 added `InvalidMixWeights` and `MonoBufferWrongLength`
-/// (CallerError) and `MixRowOutOfRange` (Unsupported)).
+/// (CallerError) and `MixRowOutOfRange` (Unsupported); SPEC-099/DEC-087 added
+/// `UnsupportedWarpFold` (Unsupported)).
 fn dec_051_table() -> Vec<(Error, ErrorKind)> {
     use ErrorKind::{CallerError, Corrupt, Unsupported};
     vec![
@@ -196,6 +197,7 @@ fn dec_051_table() -> Vec<(Error, ErrorKind)> {
             Error::UnsupportedWarpTangentialTerms { kt0: 0.5, kt1: 0.0 },
             Unsupported,
         ),
+        (Error::UnsupportedWarpFold { slope_min: -5.0 }, Unsupported),
         (Error::NotAColorFilterArray, Unsupported),
         (
             Error::UnsupportedCfaPattern {
@@ -534,8 +536,8 @@ fn every_variant_classified() {
     // this number, and DEC-051 together.
     assert_eq!(
         declared.len(),
-        82,
-        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069, the 2026-11 review fixes, DEC-077, DEC-078, DEC-075, DEC-079 and DEC-083) classified 82",
+        83,
+        "parsed {} variants from src/lib.rs; DEC-051 (+ DEC-053, DEC-056, DEC-057, DEC-058, DEC-059, DEC-060, DEC-061, DEC-063, DEC-069, the 2026-11 review fixes, DEC-077, DEC-078, DEC-075, DEC-079, DEC-083 and DEC-087) classified 83",
         declared.len()
     );
 
@@ -560,10 +562,10 @@ fn every_variant_classified() {
     // Corrupt; the 2026-11 review fixes three Unsupported and one
     // CallerError; DEC-077 two Unsupported and one Corrupt; DEC-078 one
     // Corrupt; DEC-075 one CallerError and one Unsupported; DEC-079 one
-    // CallerError).
+    // CallerError; DEC-087 one Unsupported).
     let count = |kind| table.iter().filter(|(_, k)| *k == kind).count();
     assert_eq!(count(ErrorKind::CallerError), 21);
-    assert_eq!(count(ErrorKind::Unsupported), 28);
+    assert_eq!(count(ErrorKind::Unsupported), 29);
     assert_eq!(count(ErrorKind::Corrupt), 33);
 }
 

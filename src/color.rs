@@ -185,6 +185,7 @@ use crate::develop::{
 };
 use crate::ifd::{active_area_origin, Rational, Sensor};
 use crate::opcode::GainMaps;
+use crate::warp::ChromaticShift;
 use crate::Error;
 
 /// Bind `$n` to the resolved stage-2 normaliser for `$levels`, `$gains` and
@@ -638,13 +639,21 @@ impl PixelSlot for WholePlane {
 /// index `3·(y·width + x)`, **every** pixel of the plane written, the masked
 /// border outside the `ActiveArea` included. No crop, no orientation, no warp.
 ///
-/// **The plane is not warped; the consumer applies `OpcodeList3`'s
-/// `WarpRectilinear`.** These entries ask with
-/// [`crate::opcode::DevelopPath::SensorGeometry`] (`SPEC-098`, `DEC-086` item
-/// 5): the first `WarpRectilinear` in `OpcodeList3`, mandatory or not and
-/// whatever its `N`, is accepted and never applied, so a viewer that warps on
-/// its GPU reads it from [`crate::ifd::Sensor::opcode_list_3`] (for example
-/// with [`crate::opcode::parse_warp_rectilinear`]) and applies it itself.
+/// **The plane is CA-corrected; the consumer applies
+/// [`crate::opcode::sensor_geometry_warp`]`(..).consumer()`.** These entries ask
+/// with [`crate::opcode::DevelopPath::SensorGeometry`] (`SPEC-098`, `DEC-086`
+/// item 5, amended by `SPEC-099`, `DEC-087`): the first `WarpRectilinear` in
+/// `OpcodeList3`, mandatory or not, is accepted and its lens-distortion warp is
+/// left to the consumer, which warps on its GPU. When it has three coefficient
+/// sets and red's or blue's differs from green's, red and blue are first
+/// resampled to green's geometry on the demosaiced camera triple, before the
+/// matrix (lateral chromatic aberration, `DEC-087` item 3: the ratio of each
+/// plane's radial scale to green's, from a 4096-interval table, bilinear inside
+/// the `ActiveArea`, held at the rim beyond green's image); only green's set is
+/// then left, and that is what `consumer()` names. With `N = 1`, identical sets
+/// or no warp, the plane is exactly the unwarped one. On a colour file
+/// [`crate::opcode::parse_warp_rectilinear`] returns `K1`, red's set: use
+/// `consumer()` instead.
 ///
 /// The pipeline is [`develop_color_into`]'s, the same fused traversal:
 /// `OpcodeList1`'s first `FixBadPixelsConstant` on the raw mosaic (`DEC-086`),
@@ -658,9 +667,11 @@ impl PixelSlot for WholePlane {
 /// unclamped values see [`srgb_linear_plane_f32_into`].
 ///
 /// `src` is the unpacked raw mosaic (`width·height`); both buffers are
-/// caller-owned (`DEC-016`), and the one internal scratch is the `width·height`
-/// green plane. For a plane too large to hold at once, develop it in row strips
-/// with [`srgb_linear_plane_rows_into`].
+/// caller-owned (`DEC-016`), and the internal scratch is the `width·height`
+/// green plane (plus, when red and blue are resampled, a ring of `2H + 2`
+/// camera-RGB rows, `H` the step's halo: three rows on the held Leica files).
+/// For a plane too large to hold at once, develop it in row strips with
+/// [`srgb_linear_plane_rows_into`].
 ///
 /// # Errors
 ///
@@ -674,8 +685,12 @@ impl PixelSlot for WholePlane {
 /// developed image does), [`Error::RgbBufferWrongLength`] if
 /// `dst.len() != width·height·3`, then the levels, the `GainMap`s,
 /// `OpcodeList1`'s `FixBadPixelsConstant` ([`Error::MalformedOpcodeParams`]
-/// `{ id: 4, .. }`), the CFA and the colour calibration. Nothing is written
-/// unless every check passes.
+/// `{ id: 4, .. }`), the CFA, the per-plane warp (`DEC-087` item 5:
+/// [`Error::MalformedOpcodeParams`] `{ id: 1, .. }` for an `N` other than 1 or
+/// 3; when red's or blue's set differs from green's,
+/// [`Error::UnsupportedWarpTangentialTerms`] for the first set with a non-zero
+/// tangential term, then [`Error::UnsupportedWarpFold`]) and the colour
+/// calibration. Nothing is written unless every check passes.
 ///
 /// Never panics.
 pub fn srgb_linear_plane_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> Result<(), Error> {
@@ -704,8 +719,9 @@ pub fn srgb_linear_plane_into(sensor: &Sensor, src: &[u16], dst: &mut [u16]) -> 
 /// constants and one IEEE cast (`DEC-033`), and `tests/determinism.rs` pins the
 /// plane's bits on x86_64 and aarch64.
 ///
-/// The plane is not warped; the consumer applies `OpcodeList3`'s
-/// `WarpRectilinear`, as for [`srgb_linear_plane_into`] (`SPEC-098`).
+/// The plane is CA-corrected (red and blue resampled to green's geometry) and
+/// the consumer applies [`crate::opcode::sensor_geometry_warp`]`(..).consumer()`,
+/// as for [`srgb_linear_plane_into`] (`SPEC-099`, `DEC-087`).
 ///
 /// # Errors
 ///
@@ -738,10 +754,14 @@ pub fn srgb_linear_plane_f32_into(
 /// plane. The band develops its rows plus a three-row halo each side through
 /// the same fused traversal (`SPEC-051`'s `develop_rows_banded`, `DEC-044`), so
 /// its internal scratch is proportional to the band, not the plane; `src` is
-/// still the whole mosaic.
+/// still the whole mosaic. When red and blue are resampled (`SPEC-099`), it
+/// develops `H` more rows each side (the step's halo, three on the held Leica
+/// files), since a row's resample reads rows `y − H..=y + H`, and every value
+/// is still the whole plane's.
 ///
-/// The plane is not warped; the consumer applies `OpcodeList3`'s
-/// `WarpRectilinear`, as for [`srgb_linear_plane_into`] (`SPEC-098`).
+/// The plane is CA-corrected (red and blue resampled to green's geometry) and
+/// the consumer applies [`crate::opcode::sensor_geometry_warp`]`(..).consumer()`,
+/// as for [`srgb_linear_plane_into`] (`SPEC-099`, `DEC-087`).
 ///
 /// # Errors
 ///
@@ -774,8 +794,9 @@ pub fn srgb_linear_plane_rows_into(
 /// [`srgb_linear_plane_rows_into`], every value bit-identical to the same pixel
 /// of [`srgb_linear_plane_f32_into`] (unclamped).
 ///
-/// The plane is not warped; the consumer applies `OpcodeList3`'s
-/// `WarpRectilinear`, as for [`srgb_linear_plane_into`] (`SPEC-098`).
+/// The plane is CA-corrected (red and blue resampled to green's geometry) and
+/// the consumer applies [`crate::opcode::sensor_geometry_warp`]`(..).consumer()`,
+/// as for [`srgb_linear_plane_into`] (`SPEC-099`, `DEC-087`).
 ///
 /// # Errors
 ///
@@ -937,9 +958,10 @@ pub fn mono_mix_row(sensor: &Sensor, weights: &[Rational; 3]) -> Result<[i32; 3]
 /// [`MONO_MIX_BLACK`] (`0`) and its white [`MONO_MIX_WHITE`] (`65535`) for
 /// every file.
 ///
-/// **The plane is not warped; the consumer applies `OpcodeList3`'s
-/// `WarpRectilinear`**, as for [`srgb_linear_plane_into`]
-/// ([`crate::opcode::DevelopPath::SensorGeometry`], `SPEC-098`).
+/// **The plane is CA-corrected; the consumer applies
+/// [`crate::opcode::sensor_geometry_warp`]`(..).consumer()`**, as for
+/// [`srgb_linear_plane_into`] ([`crate::opcode::DevelopPath::SensorGeometry`],
+/// `SPEC-098`, `SPEC-099`): the mixer reads the corrected camera triple.
 ///
 /// The pipeline is [`srgb_linear_plane_into`]'s fused traversal
 /// (`OpcodeList1`'s first `FixBadPixelsConstant` on the raw mosaic, levels,
@@ -990,11 +1012,13 @@ pub fn mono_mix_plane_into(
 ///
 /// Every value equals the same pixel of [`mono_mix_plane_into`] **bit for
 /// bit**: the band develops its rows plus a three-row halo through the same
-/// fused traversal (`develop_rows_banded`, `DEC-044`) and mixes each pixel with
+/// fused traversal (`develop_rows_banded`, `DEC-044`), and `H` more rows each
+/// side when red and blue are resampled (`SPEC-099`), and mixes each pixel with
 /// the same kernel and row.
 ///
-/// The plane is not warped; the consumer applies `OpcodeList3`'s
-/// `WarpRectilinear`, as for [`srgb_linear_plane_into`] (`SPEC-098`).
+/// The plane is CA-corrected (red and blue resampled to green's geometry) and
+/// the consumer applies [`crate::opcode::sensor_geometry_warp`]`(..).consumer()`,
+/// as for [`srgb_linear_plane_into`] (`SPEC-099`, `DEC-087`).
 ///
 /// # Errors
 ///
@@ -1400,17 +1424,282 @@ where
     let levels = resolve_colour_levels(sensor)?;
     let gains = resolve_colour_gain_maps(sensor)?;
     let fix = resolve_colour_bad_pixels(sensor)?;
+    // The per-plane warp (`SPEC-099`, `DEC-087`): after the CFA check, before
+    // the colour calibration. Without a CA step the body is the one it was.
+    let Some(shift) = resolve_chromatic_shift(sensor)? else {
+        return with_normalizer!(sensor, src, levels, gains, fix, |normalize| {
+            develop_color_with(
+                sensor,
+                expected_src,
+                WholePlane,
+                &normalize,
+                dst,
+                build,
+                store,
+            )
+        });
+    };
+    let coefficients = build()?;
     with_normalizer!(sensor, src, levels, gains, fix, |normalize| {
-        develop_color_with(
+        srgb_linear_plane_shifted(
             sensor,
             expected_src,
-            WholePlane,
             &normalize,
+            &shift,
+            &coefficients,
             dst,
-            build,
-            store,
+            &store,
         )
     })
+}
+
+/// The whole-plane body with the CA step (`SPEC-099`, `DEC-087` item 4): the
+/// fused traversal emits each pixel's camera triple into a [`CaDelay`], which
+/// hands each row to `store` once the rows its resample reads have arrived, and
+/// is flushed after the traversal. Every check has passed before this runs.
+fn srgb_linear_plane_shifted<T, K, S, N, const C: usize>(
+    sensor: &Sensor,
+    expected_src: usize,
+    normalize: &N,
+    shift: &ChromaticShift,
+    coefficients: &K,
+    dst: &mut [T],
+    store: &S,
+) -> Result<(), Error>
+where
+    S: Fn(&mut [T; C], &K, [u16; 3]),
+    N: Fn(u32, u32) -> u16,
+{
+    let mut green = vec![0u16; expected_src];
+    let (groups, _remainder) = dst.as_chunks_mut::<C>();
+    let height = usize::try_from(sensor.height).unwrap_or(0);
+    let mut delay = CaDelay::new(shift, sensor.width, 0..height);
+    let mut out = |pixel: usize, rgb: [u16; 3]| {
+        if let Some(group) = groups.get_mut(pixel) {
+            store(group, coefficients, rgb);
+        }
+    };
+    {
+        let delay = &mut delay;
+        let out = &mut out;
+        develop_color_fused(sensor, &mut green, normalize, move || {
+            Ok(move |pixel: usize, r: u16, g: u16, b: u16| delay.push(pixel, [r, g, b], out))
+        })?;
+    }
+    delay.flush(&mut out);
+    Ok(())
+}
+
+/// The rows-form body with the CA step (`SPEC-099`, `DEC-087` item 4): the band
+/// develops its rows plus `H` rows each side (clamped to the plane) through
+/// [`develop_rows_banded`], whose pixels equal the whole plane's (`DEC-044`),
+/// runs the same [`CaDelay`] over them and stores only its own rows. So every
+/// value equals the whole plane's bit for bit.
+fn srgb_linear_plane_rows_shifted<T, K, S, N, const C: usize>(
+    sensor: &Sensor,
+    rows: &core::ops::Range<u32>,
+    normalize: &N,
+    shift: &ChromaticShift,
+    coefficients: &K,
+    dst: &mut [T],
+    store: &S,
+) -> Result<(), Error>
+where
+    S: Fn(&mut [T; C], &K, [u16; 3]),
+    N: Fn(u32, u32) -> u16,
+{
+    let to_usize = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
+    let (start, end) = (to_usize(rows.start), to_usize(rows.end));
+    let height = to_usize(sensor.height);
+    let halo = shift.halo();
+    let developed = (
+        start.saturating_sub(halo),
+        core::cmp::min(end.saturating_add(halo), height),
+    );
+    // The band's first pixel, as a whole-plane index: `dst` starts there.
+    let first = start.saturating_mul(to_usize(sensor.width));
+    let (groups, _remainder) = dst.as_chunks_mut::<C>();
+    let mut delay = CaDelay::new(shift, sensor.width, start..end);
+    let mut out = |pixel: usize, rgb: [u16; 3]| {
+        if let Some(group) = pixel.checked_sub(first).and_then(|i| groups.get_mut(i)) {
+            store(group, coefficients, rgb);
+        }
+    };
+    develop_rows_banded(sensor, developed, normalize, |pixel, r, g, b| {
+        delay.push(pixel, [r, g, b], &mut out);
+    })?;
+    delay.flush(&mut out);
+    Ok(())
+}
+
+/// The sensor-geometry entries' CA step for `sensor` (`SPEC-099`, `DEC-087`
+/// items 2 and 5), resolved once per call: `None` when the traversal is the
+/// plain one (no `OpcodeList3`, no `WarpRectilinear`, `N = 1`, red's and blue's
+/// sets equal to green's, or a one-pixel `ActiveArea`).
+///
+/// Refuses in order, after the CFA check ([`check_supported_bayer`], the fused
+/// path's own, run first so an unsupported CFA wins):
+/// [`Error::MalformedOpcodeParams`] `{ id: 1, .. }` for `N` other than 1 or 3
+/// (whether or not the sets differ); when the sets differ,
+/// [`Error::UnsupportedWarpTangentialTerms`] for the first set in plane order
+/// with a non-zero tangential term; then [`Error::UnsupportedWarpFold`].
+fn resolve_chromatic_shift(sensor: &Sensor) -> Result<Option<ChromaticShift>, Error> {
+    let Some(bytes) = sensor.opcode_list_3.as_deref() else {
+        return Ok(None);
+    };
+    check_supported_bayer(sensor)?;
+    let Some(planes) = crate::opcode::first_warp_planes(bytes)? else {
+        return Ok(None);
+    };
+    let plane_color = sensor
+        .color_filter
+        .as_ref()
+        .map(|cfa| cfa.plane_color.as_slice());
+    let warp = crate::opcode::describe_warp_planes(&planes, plane_color)?;
+    if !warp.is_per_plane() {
+        return Ok(None);
+    }
+    if let Some(set) = warp.sets().iter().find(|set| set.warp.kt != [0.0, 0.0]) {
+        return Err(Error::UnsupportedWarpTangentialTerms {
+            kt0: set.warp.kt[0],
+            kt1: set.warp.kt[1],
+        });
+    }
+    let green = *warp.consumer();
+    // A plane whose set equals green's is not resampled.
+    let differing = |colour: u8| {
+        warp.sets()
+            .iter()
+            .find(|set| set.color == Some(colour))
+            .map(|set| set.warp)
+            .filter(|set| !crate::opcode::same_coefficients(set, &green))
+    };
+    let (red, blue) = (differing(0), differing(2));
+    let geometry = resolve_geometry(sensor)?;
+    ChromaticShift::new(
+        &green,
+        red.as_ref(),
+        blue.as_ref(),
+        (
+            geometry.active_left,
+            geometry.active_top,
+            geometry.active_width,
+            geometry.active_height,
+        ),
+    )
+}
+
+/// The sink-side delay ring of the CA step (`SPEC-099`, `DEC-087` item 4): the
+/// last `2H + 2` emitted rows of camera triples, `width` wide. Row `y` is
+/// finished (red and blue resampled inside the `ActiveArea`, everything else as
+/// emitted) and handed to `out` once row `y + H` has arrived, or at
+/// [`CaDelay::flush`]; only rows in `keep` are handed on. Pixels arrive in
+/// row-major order, as both traversals emit them.
+struct CaDelay<'a> {
+    shift: &'a ChromaticShift,
+    width: usize,
+    ring_rows: usize,
+    ring: Vec<[u16; 3]>,
+    keep: core::ops::Range<usize>,
+    /// The next row to finish; `None` before the first pixel.
+    next: Option<usize>,
+    /// Every row below this has fully arrived.
+    arrived: usize,
+}
+
+impl<'a> CaDelay<'a> {
+    fn new(shift: &'a ChromaticShift, width: u32, keep: core::ops::Range<usize>) -> CaDelay<'a> {
+        let width = usize::try_from(width).unwrap_or(0);
+        let ring_rows = shift.halo().saturating_mul(2).saturating_add(2);
+        CaDelay {
+            shift,
+            width,
+            ring_rows,
+            ring: vec![[0u16; 3]; ring_rows.saturating_mul(width)],
+            keep,
+            next: None,
+            arrived: 0,
+        }
+    }
+
+    /// The ring index of plane pixel `(x, row)`.
+    fn slot(&self, row: usize, x: usize) -> Option<usize> {
+        row.checked_rem(self.ring_rows)?
+            .checked_mul(self.width)?
+            .checked_add(x)
+    }
+
+    /// Take plane pixel `pixel`'s camera triple; finish every row that can be.
+    fn push(&mut self, pixel: usize, rgb: [u16; 3], out: &mut impl FnMut(usize, [u16; 3])) {
+        let (Some(row), Some(x)) = (pixel.checked_div(self.width), pixel.checked_rem(self.width))
+        else {
+            return;
+        };
+        if let Some(cell) = self.slot(row, x).and_then(|i| self.ring.get_mut(i)) {
+            *cell = rgb;
+        }
+        if self.next.is_none() {
+            self.next = Some(row);
+        }
+        if x.saturating_add(1) == self.width {
+            self.arrived = row.saturating_add(1);
+            let halo = self.shift.halo();
+            while let Some(next) = self.next {
+                if next.saturating_add(halo) >= self.arrived {
+                    break;
+                }
+                self.finish(next, out);
+                self.next = Some(next.saturating_add(1));
+            }
+        }
+    }
+
+    /// Finish the rows still held after the traversal.
+    fn flush(&mut self, out: &mut impl FnMut(usize, [u16; 3])) {
+        while let Some(next) = self.next {
+            if next >= self.arrived {
+                break;
+            }
+            self.finish(next, out);
+            self.next = Some(next.saturating_add(1));
+        }
+    }
+
+    /// Camera plane `c`'s sample at plane `(x, y)` from the ring.
+    fn read(&self, x: u32, y: u32, c: usize) -> u16 {
+        let (Ok(x), Ok(y)) = (usize::try_from(x), usize::try_from(y)) else {
+            return 0;
+        };
+        self.slot(y, x)
+            .and_then(|i| self.ring.get(i))
+            .and_then(|t| t.get(c).copied())
+            .unwrap_or(0)
+    }
+
+    fn finish(&self, row: usize, out: &mut impl FnMut(usize, [u16; 3])) {
+        if !self.keep.contains(&row) {
+            return;
+        }
+        let Ok(y) = u32::try_from(row) else {
+            return;
+        };
+        let base = row.saturating_mul(self.width);
+        for (x, xu) in (0..self.width).zip(0u32..) {
+            let Some(mut rgb) = self.slot(row, x).and_then(|i| self.ring.get(i)).copied() else {
+                continue;
+            };
+            if self.shift.contains(xu, y) {
+                for c in [0usize, 2] {
+                    if let Some(v) = self.shift.value(c, xu, y, |px, py| self.read(px, py, c)) {
+                        if let Some(slot) = rgb.get_mut(c) {
+                            *slot = v;
+                        }
+                    }
+                }
+            }
+            out(base.saturating_add(x), rgb);
+        }
+    }
 }
 
 /// The band entries' body: the whole-plane checks with the row range, then the
@@ -1436,9 +1725,24 @@ where
     let gains = resolve_colour_gain_maps(sensor)?;
     let fix = resolve_colour_bad_pixels(sensor)?;
     check_supported_bayer(sensor)?;
+    // The per-plane warp (`SPEC-099`, `DEC-087`), between the CFA and `build`.
+    let shift = resolve_chromatic_shift(sensor)?;
     let coefficients = build()?;
+    let Some(shift) = shift else {
+        return with_normalizer!(sensor, src, levels, gains, fix, |normalize| {
+            srgb_linear_plane_rows_with(sensor, &rows, &normalize, &coefficients, dst, &store)
+        });
+    };
     with_normalizer!(sensor, src, levels, gains, fix, |normalize| {
-        srgb_linear_plane_rows_with(sensor, &rows, &normalize, &coefficients, dst, &store)
+        srgb_linear_plane_rows_shifted(
+            sensor,
+            &rows,
+            &normalize,
+            &shift,
+            &coefficients,
+            dst,
+            &store,
+        )
     })
 }
 
@@ -1621,7 +1925,9 @@ fn check_colour_required_processing(sensor: &Sensor) -> Result<(), Error> {
 
 /// The sensor-geometry entries' required-processing check (`SPEC-098`,
 /// `DEC-086` item 5): the colour path's, and the first `WarpRectilinear` in
-/// `OpcodeList3` is accepted without being applied (the consumer applies it).
+/// `OpcodeList3` is accepted: its per-plane chromatic aberration is applied
+/// here when its sets differ (`SPEC-099`, `DEC-087`) and green's lens warp is
+/// left to the consumer.
 fn check_sensor_geometry_required_processing(sensor: &Sensor) -> Result<(), Error> {
     crate::opcode::check_required_processing(sensor, crate::opcode::DevelopPath::SensorGeometry)
 }
@@ -4701,6 +5007,170 @@ mod tests {
                 mono_mix_pixel(&[1 << 23, 0, 0], x),
                 mix_oracle(&[1 << 23, 0, 0], x)
             );
+        }
+    }
+
+    // ── SPEC-099 / DEC-087: the CA step at sensor geometry ──────────────────
+
+    /// A one-`WarpRectilinear` `OpcodeList3` with `sets` (`kr`, no `kt`).
+    fn ca_warp_list(sets: &[[f64; 4]]) -> Vec<u8> {
+        let mut params = Vec::new();
+        params.extend_from_slice(&u32::try_from(sets.len()).unwrap().to_be_bytes());
+        for kr in sets {
+            for v in kr.iter().chain(&[0.0, 0.0]) {
+                params.extend_from_slice(&v.to_be_bytes());
+            }
+        }
+        params.extend_from_slice(&0.5f64.to_be_bytes());
+        params.extend_from_slice(&0.5f64.to_be_bytes());
+        let mut list = Vec::new();
+        for word in [
+            1u32,
+            1,
+            0x0103_0000,
+            0,
+            u32::try_from(params.len()).unwrap(),
+        ] {
+            list.extend_from_slice(&word.to_be_bytes());
+        }
+        list.extend_from_slice(&params);
+        list
+    }
+
+    const CA_GREEN: [f64; 4] = [1.0, -0.05, -0.05, 0.0];
+    const CA_RED: [f64; 4] = [1.08, -0.04, -0.05, 0.01];
+    const CA_BLUE: [f64; 4] = [0.94, -0.06, -0.04, 0.0];
+
+    /// A 24×20 RGGB sensor with a colour calibration and `list3`.
+    fn ca_sensor(list3: Vec<u8>) -> Sensor {
+        use crate::ifd::Cfa;
+        let mut sensor = color_sensor(ColorMeta {
+            forward_matrix_1: Some(matrix_rationals([
+                [6000, 3000, 642],
+                [2000, 7000, 1000],
+                [1000, 1000, 6252],
+            ])),
+            color_matrix_1: None,
+            as_shot_neutral: Some(vec![
+                Rational { num: 1, den: 2 },
+                Rational { num: 1, den: 1 },
+                Rational { num: 1, den: 2 },
+            ]),
+        });
+        sensor.width = 24;
+        sensor.height = 20;
+        sensor.color_filter = Some(Cfa {
+            repeat_dim: [2, 2],
+            pattern: vec![0, 1, 1, 2],
+            plane_color: vec![0, 1, 2],
+            layout: 1,
+        });
+        sensor.opcode_list_3 = Some(list3);
+        sensor.opcode_lists[2] = true;
+        sensor
+    }
+
+    fn ca_src() -> Vec<u16> {
+        (0..24u32 * 20)
+            .map(|i| u16::try_from((i * 7919 + 1234) % 50000 + 3000).unwrap())
+            .collect()
+    }
+
+    /// Rule-clause map, DEC-087 item 2: a plane whose set equals green's is
+    /// not resampled, and with both equal no step (and no ring) is built.
+    #[test]
+    fn ca_equal_sets_build_no_step() {
+        let none = |sets: &[[f64; 4]]| {
+            resolve_chromatic_shift(&ca_sensor(ca_warp_list(sets)))
+                .unwrap()
+                .is_none()
+        };
+        assert!(none(&[CA_GREEN, CA_GREEN, CA_GREEN]), "identical sets");
+        assert!(none(&[CA_RED]), "N = 1");
+        assert!(!none(&[CA_RED, CA_GREEN, CA_BLUE]), "differing sets");
+        // Only red differs: blue is not resampled.
+        let shift =
+            resolve_chromatic_shift(&ca_sensor(ca_warp_list(&[CA_RED, CA_GREEN, CA_GREEN])))
+                .unwrap()
+                .unwrap();
+        assert!(shift.value(0, 5, 5, |_, _| 9).is_some(), "red resampled");
+        assert_eq!(shift.value(2, 5, 5, |_, _| 9), None, "blue not resampled");
+        let shift =
+            resolve_chromatic_shift(&ca_sensor(ca_warp_list(&[CA_GREEN, CA_GREEN, CA_BLUE])))
+                .unwrap()
+                .unwrap();
+        assert_eq!(shift.value(0, 5, 5, |_, _| 9), None, "red not resampled");
+        assert!(shift.value(2, 5, 5, |_, _| 9).is_some(), "blue resampled");
+    }
+
+    /// SPEC-099 AC4: the `u16`, unclamped `f32` and mono stores all read the
+    /// one corrected camera triple. The triple is captured through the same
+    /// body with a store that writes the camera triple itself.
+    #[test]
+    fn ac4_every_store_sees_the_corrected_triple() {
+        let sensor = ca_sensor(ca_warp_list(&[CA_RED, CA_GREEN, CA_BLUE]));
+        let src = ca_src();
+        let n = 24 * 20;
+        let capture = |out: &mut [u16; 3], _: &(), rgb: [u16; 3]| *out = rgb;
+        let mut triples = vec![0u16; n * 3];
+        srgb_linear_plane(
+            &sensor,
+            &src,
+            &mut triples,
+            PlaneSamples::Rgb,
+            || Ok(()),
+            capture,
+        )
+        .unwrap();
+        // The captured triple is CA-corrected: green is the demosaic's, red and
+        // blue moved.
+        let mut camera = vec![0u16; n * 3];
+        let mut plain = sensor.clone();
+        plain.opcode_list_3 = None;
+        plain.opcode_lists[2] = false;
+        crate::demosaic::demosaic_into(&plain, &src, &mut camera).unwrap();
+        let (t, c) = (triples.as_chunks::<3>().0, camera.as_chunks::<3>().0);
+        assert!(
+            t.iter().zip(c).all(|(a, b)| a[1] == b[1]),
+            "green passes through"
+        );
+        assert!(t.iter().zip(c).any(|(a, b)| a[0] != b[0]), "red moved");
+        assert!(t.iter().zip(c).any(|(a, b)| a[2] != b[2]), "blue moved");
+
+        let m = build_camera_to_srgb_linear(&sensor).unwrap();
+        let mut u16_plane = vec![0u16; n * 3];
+        srgb_linear_plane_into(&sensor, &src, &mut u16_plane).unwrap();
+        let mut f32_plane = vec![0f32; n * 3];
+        srgb_linear_plane_f32_into(&sensor, &src, &mut f32_plane).unwrap();
+        let weights = [
+            Rational {
+                num: 2126,
+                den: 10000,
+            },
+            Rational {
+                num: 7152,
+                den: 10000,
+            },
+            Rational {
+                num: 722,
+                den: 10000,
+            },
+        ];
+        let row = mono_mix_row(&sensor, &weights).unwrap();
+        let mut mono = vec![0u16; n];
+        mono_mix_plane_into(&sensor, &src, &weights, &mut mono).unwrap();
+        for (i, &tri) in t.iter().enumerate() {
+            let mut want_u16 = [0u16; 3];
+            store_u16(&mut want_u16, &m, tri);
+            assert_eq!(u16_plane[i * 3..i * 3 + 3], want_u16, "u16 pixel {i}");
+            let mut want_f32 = [0f32; 3];
+            store_f32_unclamped(&mut want_f32, &m, tri);
+            let got: Vec<u32> = f32_plane[i * 3..i * 3 + 3]
+                .iter()
+                .map(|v| v.to_bits())
+                .collect();
+            assert_eq!(got, want_f32.map(f32::to_bits), "f32 pixel {i}");
+            assert_eq!(mono[i], mono_mix_pixel(&row, tri), "mono pixel {i}");
         }
     }
 }

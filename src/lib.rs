@@ -315,6 +315,23 @@ pub fn __fuzz_required_processing(lists: [Option<&[u8]>; 3]) -> [bool; 4] {
     ]
 }
 
+/// libFuzzer entry for the per-plane `WarpRectilinear` parse (`SPEC-099`,
+/// `DEC-087` item 1): the crate-private first-warp walk with every set, and the
+/// description [`opcode::sensor_geometry_warp`] returns for a sensor whose
+/// `CFAPlaneColor` is `plane_color` (`None`: no CFA). Same `fuzzing`-feature
+/// gating and `#[doc(hidden)]` rationale as [`__fuzz_ljpeg`]. Never panics.
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub fn __fuzz_warp_planes(
+    list: &[u8],
+    plane_color: Option<&[u8]>,
+) -> Result<Option<opcode::SensorGeometryWarp>, Error> {
+    let Some(planes) = opcode::first_warp_planes(list)? else {
+        return Ok(None);
+    };
+    opcode::describe_warp_planes(&planes, plane_color).map(Some)
+}
+
 /// Errors produced while reading or developing a RAW file.
 ///
 /// Every fallible path in this crate returns this type rather than
@@ -830,6 +847,20 @@ pub enum Error {
         kt0: f64,
         /// The warp's `kt1` coefficient.
         kt1: f64,
+    },
+
+    /// `SPEC-099`, `DEC-087` item 3. A sensor-geometry entry
+    /// ([`color::srgb_linear_plane_into`], [`color::srgb_linear_plane_f32_into`],
+    /// [`color::mono_mix_plane_into`] or a `_rows_` form) must resample red and
+    /// blue to green's geometry (a `WarpRectilinear` with three sets whose red
+    /// or blue differs from green's), but green's radial map `ρ = r·f_g(r²)` is
+    /// not strictly increasing on `r ∈ [0, 1]`, so it has no inverse to resample
+    /// through. `slope_min` is the minimum over `s ∈ [0, 1]` of
+    /// `q(s) = kr0 + 3·kr1·s + 5·kr2·s² + 7·kr3·s³` (green's coefficients),
+    /// which must be `> 0`; it may be NaN.
+    UnsupportedWarpFold {
+        /// The minimum of `q` over `[0, 1]` (not positive, or NaN).
+        slope_min: f64,
     },
 
     /// `SPEC-063`, `DEC-058` §4, narrowed by `SPEC-064`, `DEC-059` §3.
@@ -1636,6 +1667,14 @@ impl fmt::Display for Error {
                     "WarpRectilinear has non-zero tangential terms (kt0 {kt0}, kt1 {kt1}), which this build does not apply"
                 )
             }
+            Error::UnsupportedWarpFold { slope_min } => {
+                write!(
+                    f,
+                    "WarpRectilinear's green coefficient set folds: its radial map is not strictly \
+                     increasing on [0, 1] (slope minimum {slope_min}), so red and blue cannot be \
+                     resampled to green's geometry"
+                )
+            }
             Error::UnsupportedWarpedFullActiveArea {
                 active_width,
                 active_height,
@@ -2020,6 +2059,7 @@ impl Error {
             | Error::UnsupportedOpcodeVersion { .. }
             | Error::UnsupportedRequiredOpcode { .. }
             | Error::UnsupportedWarpTangentialTerms { .. }
+            | Error::UnsupportedWarpFold { .. }
             | Error::UnsupportedWarpedFullActiveArea { .. }
             | Error::NotAColorFilterArray
             | Error::UnsupportedCfaPattern { .. }

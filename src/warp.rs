@@ -224,6 +224,26 @@ pub(crate) fn full_active_area_admits(warp: &WarpRect, bounds: (f64, f64)) -> bo
 /// in-range `u16` samples cannot overshoot that range, but the clamp keeps
 /// this function total rather than trusting the arithmetic.
 fn bilinear_sample(src: &[u16], width: u32, height: u32, x: f64, y: f64) -> u16 {
+    bilinear_sample_with(width, height, x, y, |xi, yi| {
+        let index = u64::from(yi)
+            .checked_mul(u64::from(width))
+            .and_then(|v| v.checked_add(u64::from(xi)))
+            .and_then(|v| usize::try_from(v).ok());
+        index.and_then(|i| src.get(i).copied()).unwrap_or(0)
+    })
+}
+
+/// [`bilinear_sample`]'s kernel (`DEC-024`) over a `width x height` plane whose
+/// sample at `(xi, yi)` (both already clamped into the plane) is `at(xi, yi)`:
+/// the one arithmetic both the warp and the sensor-geometry CA step
+/// (`SPEC-099`, `DEC-087` item 3) use, so neither can drift from the other.
+fn bilinear_sample_with(
+    width: u32,
+    height: u32,
+    x: f64,
+    y: f64,
+    at: impl Fn(u32, u32) -> u16,
+) -> u16 {
     let max_x = f64::from(width.saturating_sub(1));
     let max_y = f64::from(height.saturating_sub(1));
     let x = x.clamp(0.0, max_x);
@@ -239,11 +259,7 @@ fn bilinear_sample(src: &[u16], width: u32, height: u32, x: f64, y: f64) -> u16 
     let sample = |xi: f64, yi: f64| -> f64 {
         let xi = xi as u32; // clamped into [0, width-1] above; cast cannot overflow
         let yi = yi as u32; // clamped into [0, height-1] above; cast cannot overflow
-        let index = u64::from(yi)
-            .checked_mul(u64::from(width))
-            .and_then(|v| v.checked_add(u64::from(xi)))
-            .and_then(|v| usize::try_from(v).ok());
-        f64::from(index.and_then(|i| src.get(i).copied()).unwrap_or(0))
+        f64::from(at(xi, yi))
     };
 
     let v00 = sample(x0, y0);
@@ -392,6 +408,240 @@ pub fn apply_warp_into(
     }
 
     Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-099, DEC-087 item 3: red and blue resampled to green's geometry
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `T`, the number of intervals of the CA ratio table (`DEC-087` item 3).
+const CA_TABLE_INTERVALS: usize = 4096;
+
+/// `T` as `f64`.
+const CA_TABLE_INTERVALS_F64: f64 = 4096.0;
+
+/// `f(k, s) = k0 + k1·s + k2·s·s + k3·s·s·s`, in exactly this operation order
+/// (`DEC-087` item 3; not [`scale_bounds`]' Horner form).
+fn radial_scale(k: &[f64; 4], s: f64) -> f64 {
+    let [k0, k1, k2, k3] = *k;
+    k0 + k1 * s + k2 * s * s + k3 * s * s * s
+}
+
+/// The fold check's minimum (`DEC-087` item 3): green's radial map
+/// `ρ = r·f_g(r²)` is strictly increasing on `r ∈ [0, 1]` exactly when
+/// `q(s) = kr0 + 3·kr1·s + 5·kr2·s² + 7·kr3·s³ > 0` on `s ∈ [0, 1]`, and this is
+/// `q`'s minimum there: [`scale_bounds`] (closed form, `DEC-059` §3) of the
+/// coefficients `[kr0, 3·kr1, 5·kr2, 7·kr3]`. NaN when a coefficient is NaN.
+fn fold_slope_min(green: &WarpRect) -> f64 {
+    let [k0, k1, k2, k3] = green.kr;
+    let q = WarpRect {
+        kr: [k0, 3.0 * k1, 5.0 * k2, 7.0 * k3],
+        ..*green
+    };
+    scale_bounds(&q).0
+}
+
+/// The table node `s_j` for `σ_j` (`DEC-087` item 3): `1` at and beyond green's
+/// rim (`σ ≥ f_g(1)·f_g(1)`), else the bisection of `h(s) = s·f_g(s)·f_g(s)`
+/// against `σ` on `[0, 1]`, run until the midpoint equals an end.
+fn table_node(green: &[f64; 4], sigma: f64) -> f64 {
+    let rim = radial_scale(green, 1.0);
+    if sigma >= rim * rim {
+        return 1.0;
+    }
+    let (mut lo, mut hi) = (0.0f64, 1.0f64);
+    loop {
+        let mid = 0.5 * (lo + hi);
+        // Halving an interval of doubles reaches an end in at most about 1100
+        // steps; a NaN `h` compares false and moves `hi`, so it ends too.
+        if mid == lo || mid == hi {
+            break;
+        }
+        let fm = radial_scale(green, mid);
+        if mid * fm * fm < sigma {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
+/// The ratio `k` at `σ` from a table `t[0..=T]` (`DEC-087` item 3):
+/// `u = min(σ·T, T)`, `j = min(⌊u⌋, T − 1)`, `k = t[j] + (t[j+1] − t[j])·(u − j)`.
+fn ratio(table: &[f64], sigma: f64) -> f64 {
+    let u = (sigma * CA_TABLE_INTERVALS_F64).min(CA_TABLE_INTERVALS_F64);
+    // `u` is in [0, T] (σ ≥ 0), so the cast is exact; a NaN casts to 0.
+    let j = (u.floor() as usize).min(CA_TABLE_INTERVALS.saturating_sub(1));
+    let t0 = table.get(j).copied().unwrap_or(1.0);
+    let t1 = table.get(j.saturating_add(1)).copied().unwrap_or(t0);
+    t0 + (t1 - t0) * (u - j as f64)
+}
+
+/// The CA step of the sensor-geometry entries, resolved once per call
+/// (`SPEC-099`, `DEC-087` item 3): the `ActiveArea`, the optical centre and
+/// `m`, the ratio table `t_c` of each plane that is resampled (red, blue), and
+/// the halo `H` in rows.
+pub(crate) struct ChromaticShift {
+    /// The `ActiveArea`'s origin in plane coordinates and its size.
+    left: u32,
+    top: u32,
+    width: u32,
+    height: u32,
+    /// The optical centre and `m`, in `ActiveArea`-relative coordinates.
+    cx: f64,
+    cy: f64,
+    m: f64,
+    /// `t_c[0..=T]` for red (plane 0) and blue (plane 2); `None` for a plane
+    /// whose set equals green's, which is not resampled.
+    tables: [Option<Vec<f64>>; 2],
+    /// `H = ⌈B⌉ + 1`, capped at the `ActiveArea`'s height.
+    halo: usize,
+}
+
+impl ChromaticShift {
+    /// Resolve the step for green's set and the red and blue sets that differ
+    /// from it (`None`: equal to green's), over the `ActiveArea`
+    /// `(left, top, width, height)`.
+    ///
+    /// `Ok(None)` when there is nothing to do: no plane differs, or `m == 0`
+    /// (a one-pixel `ActiveArea`: every pixel is the optical centre).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UnsupportedWarpFold`] when [`fold_slope_min`] is not `> 0`.
+    pub(crate) fn new(
+        green: &WarpRect,
+        red: Option<&WarpRect>,
+        blue: Option<&WarpRect>,
+        (left, top, width, height): (u32, u32, u32, u32),
+    ) -> Result<Option<ChromaticShift>, Error> {
+        if red.is_none() && blue.is_none() {
+            return Ok(None);
+        }
+        // Geometry exactly as `source_coord`, over the ActiveArea.
+        let x1 = f64::from(width.saturating_sub(1));
+        let y1 = f64::from(height.saturating_sub(1));
+        let cx = green.cx * x1;
+        let cy = green.cy * y1;
+        let mx = cx.abs().max((x1 - cx).abs());
+        let my = cy.abs().max((y1 - cy).abs());
+        let m = mx.hypot(my);
+        if m == 0.0 {
+            return Ok(None);
+        }
+
+        let slope_min = fold_slope_min(green);
+        // A NaN refuses too.
+        if slope_min.is_nan() || slope_min <= 0.0 {
+            return Err(Error::UnsupportedWarpFold { slope_min });
+        }
+
+        // The nodes are shared by both planes; each plane divides its own
+        // scale by green's at every node.
+        let nodes: Vec<f64> = (0..=CA_TABLE_INTERVALS)
+            .map(|j| table_node(&green.kr, j as f64 / CA_TABLE_INTERVALS_F64))
+            .collect();
+        let table = |set: &WarpRect| -> Vec<f64> {
+            nodes
+                .iter()
+                .map(|&s| radial_scale(&set.kr, s) / radial_scale(&green.kr, s))
+                .collect()
+        };
+        let tables = [red.map(table), blue.map(table)];
+
+        // B = m · max_j max(|t[j] − 1|, |t[j+1] − 1|) · √((j+1)/T): on interval
+        // j the ratio is linear between its nodes and √σ ≤ √((j+1)/T), so no
+        // source row lies farther than B from its pixel's row.
+        let mut bound = 0.0f64;
+        for t in tables.iter().flatten() {
+            for (j, pair) in t.windows(2).enumerate() {
+                let [a, b] = pair else { continue };
+                let reach = (a - 1.0).abs().max((b - 1.0).abs());
+                let radius = ((j as f64 + 1.0) / CA_TABLE_INTERVALS_F64).sqrt();
+                // `max` would drop a NaN; keep it, so the halo falls back to
+                // the whole ActiveArea below.
+                let term = m * reach * radius;
+                bound = if term.is_nan() || bound.is_nan() {
+                    f64::NAN
+                } else {
+                    bound.max(term)
+                };
+            }
+        }
+        let rows = usize::try_from(height).unwrap_or(usize::MAX);
+        let halo = if bound.is_finite() && bound < f64::from(height) {
+            // `bound` is finite, non-negative and below `height`, so the cast
+            // is exact.
+            (bound.ceil() as usize).saturating_add(1).min(rows)
+        } else {
+            rows
+        };
+
+        Ok(Some(ChromaticShift {
+            left,
+            top,
+            width,
+            height,
+            cx,
+            cy,
+            m,
+            tables,
+            halo,
+        }))
+    }
+
+    /// `H`: the rows on each side of a pixel's row its resampled value reads.
+    pub(crate) fn halo(&self) -> usize {
+        self.halo
+    }
+
+    /// Whether plane pixel `(x, y)` lies inside the `ActiveArea` (the masked
+    /// border passes through unresampled).
+    pub(crate) fn contains(&self, x: u32, y: u32) -> bool {
+        x.checked_sub(self.left).is_some_and(|ax| ax < self.width)
+            && y.checked_sub(self.top).is_some_and(|ay| ay < self.height)
+    }
+
+    /// The resampled value of camera plane `c` (0 red, 2 blue) at plane pixel
+    /// `(x, y)` inside the `ActiveArea`, or `None` when that plane is not
+    /// resampled. `at(px, py)` reads plane `c`'s camera sample at **plane**
+    /// coordinates; every read lies inside the `ActiveArea` and within
+    /// [`ChromaticShift::halo`] rows of `y`.
+    ///
+    /// `DEC-087` item 3: `σ = dx·dx + dy·dy`, `u = min(σ·T, T)`,
+    /// `j = min(⌊u⌋, T − 1)`, `k = t[j] + (t[j+1] − t[j])·(u − j)`, the source
+    /// `(cx + k·(x − cx), cy + k·(y − cy))`, and [`bilinear_sample`]'s kernel
+    /// clamped to the `ActiveArea`, rounded half up.
+    pub(crate) fn value(
+        &self,
+        c: usize,
+        x: u32,
+        y: u32,
+        at: impl Fn(u32, u32) -> u16,
+    ) -> Option<u16> {
+        let table = match c {
+            0 => self.tables.first(),
+            2 => self.tables.get(1),
+            _ => None,
+        }?
+        .as_deref()?;
+        let fx = f64::from(x.wrapping_sub(self.left));
+        let fy = f64::from(y.wrapping_sub(self.top));
+        let dx = (fx - self.cx) / self.m;
+        let dy = (fy - self.cy) / self.m;
+        let k = ratio(table, dx * dx + dy * dy);
+        let sx = self.cx + k * (fx - self.cx);
+        let sy = self.cy + k * (fy - self.cy);
+        let (left, top) = (self.left, self.top);
+        Some(bilinear_sample_with(
+            self.width,
+            self.height,
+            sx,
+            sy,
+            |xi, yi| at(left.saturating_add(xi), top.saturating_add(yi)),
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -804,5 +1054,203 @@ mod tests {
         let clean = warp_with([1.0, -0.1, 0.0, 0.0], 0.5, 0.5);
         assert!(!full_active_area_admits(&clean, (f64::NAN, 0.9)));
         assert!(!full_active_area_admits(&clean, (0.5, f64::NAN)));
+    }
+
+    // ── SPEC-099 / DEC-087 item 3: the CA rule ──────────────────────────────
+
+    fn shift_of(green: [f64; 4], red: Option<[f64; 4]>, w: u32, h: u32) -> ChromaticShift {
+        let warp = |kr| warp_with(kr, 0.5, 0.5);
+        let (g, r) = (warp(green), red.map(warp));
+        ChromaticShift::new(&g, r.as_ref(), None, (0, 0, w, h))
+            .expect("admitted")
+            .expect("a step")
+    }
+
+    #[test]
+    fn ca_table_and_bound_on_a_hand_checkable_set() {
+        // Green the identity, red kr0 = 1.02: every node's ratio is exactly
+        // 1.02 / 1 = 1.02, and B = 0.02·m (the largest term is at j = T − 1,
+        // where √((j+1)/T) = 1).
+        let s = shift_of([1.0, 0.0, 0.0, 0.0], Some([1.02, 0.0, 0.0, 0.0]), 400, 300);
+        let table = s.tables[0].as_ref().unwrap();
+        assert_eq!(table.len(), CA_TABLE_INTERVALS + 1);
+        assert!(table.iter().all(|&t| t == 1.02), "every node is 1.02");
+        assert!(s.tables[1].is_none(), "blue is not resampled");
+        let m = 199.5f64.hypot(149.5);
+        assert_eq!(s.m, m);
+        let bound = m * (1.02f64 - 1.0).abs();
+        assert_eq!(s.halo, bound.ceil() as usize + 1, "H = ⌈B⌉ + 1 ({bound})");
+        assert_eq!(s.halo, 6);
+        // H is capped at the ActiveArea's height.
+        let s = shift_of([1.0, 0.0, 0.0, 0.0], Some([1.5, 0.0, 0.0, 0.0]), 400, 20);
+        assert_eq!(s.halo, 20);
+        // SPEC-099 verify: the bound's radius is √((j+1)/T), so the last
+        // interval reaches √1 = 1. With a constant ratio 1 + ε and m·ε just
+        // above 6, B is just above 6 and H = 8; a radius of √(j/T) would give
+        // B = m·ε·√(4095/4096), just below 6, and H = 7.
+        let eps = 6.0001 / m;
+        let s = shift_of(
+            [1.0, 0.0, 0.0, 0.0],
+            Some([1.0 + eps, 0.0, 0.0, 0.0]),
+            400,
+            300,
+        );
+        let reach = s.tables[0].as_ref().unwrap()[CA_TABLE_INTERVALS] - 1.0;
+        assert!(m * reach > 6.0 && m * reach * (4095.0f64 / 4096.0).sqrt() < 6.0);
+        assert_eq!(s.halo, 8, "H = ⌈B⌉ + 1 with B = m·ε·√(T/T)");
+    }
+
+    #[test]
+    fn ca_bisection_inverts_a_known_map() {
+        // f_g = 0.5: h(s) = s·0.25, so s = 4σ below the rim σ = 0.25, and 1 at
+        // and beyond it.
+        let g = [0.5, 0.0, 0.0, 0.0];
+        for sigma in [0.0, 0.01, 0.1, 0.2, 0.249] {
+            let s = table_node(&g, sigma);
+            assert!((s - 4.0 * sigma).abs() <= 4e-16, "σ {sigma}: s {s}");
+        }
+        assert_eq!(table_node(&g, 0.25), 1.0, "at the rim");
+        assert_eq!(table_node(&g, 0.3), 1.0, "beyond the rim, held");
+        // A real green (Q3's): h(s_j) reproduces σ_j to the last bits.
+        let g = [
+            0.999_265_877_659_388,
+            -0.054_056_477_178_819_784,
+            -0.081_045_705_643_041_78,
+            0.044_197_416_001_376_6,
+        ];
+        let rim = radial_scale(&g, 1.0);
+        for j in [1usize, 100, 2048, 3000] {
+            let sigma = j as f64 / CA_TABLE_INTERVALS_F64;
+            assert!(sigma < rim * rim);
+            let s = table_node(&g, sigma);
+            let f = radial_scale(&g, s);
+            assert!((s * f * f - sigma).abs() < 1e-15, "j {j}");
+        }
+    }
+
+    #[test]
+    fn ca_ratio_interpolates_and_clamps_at_the_rim() {
+        let table: Vec<f64> = (0..=CA_TABLE_INTERVALS).map(|j| j as f64).collect();
+        // Linear between nodes (not the nearest node).
+        assert_eq!(ratio(&table, 10.25 / CA_TABLE_INTERVALS_F64), 10.25);
+        assert_eq!(ratio(&table, 10.75 / CA_TABLE_INTERVALS_F64), 10.75);
+        // σ = 1 reaches the last node exactly; beyond it, u is clamped to T.
+        assert_eq!(ratio(&table, 1.0), 4096.0);
+        assert_eq!(ratio(&table, 1.5), 4096.0);
+        assert_eq!(ratio(&table, 0.0), 0.0);
+    }
+
+    #[test]
+    fn ca_fold_boundary_refuses() {
+        let red = warp_with([1.02, 0.0, 0.0, 0.0], 0.5, 0.5);
+        // q = 0.5 − 0.5·s²: its minimum is exactly 0, at s = 1.
+        let green = warp_with([0.5, 0.0, -0.1, 0.0], 0.5, 0.5);
+        let r = ChromaticShift::new(&green, Some(&red), None, (0, 0, 10, 10));
+        assert!(
+            matches!(r, Err(Error::UnsupportedWarpFold { slope_min }) if slope_min == 0.0),
+            "{:?}",
+            r.err()
+        );
+        // Just inside: q(1) > 0.
+        let green = warp_with([0.5, 0.0, -0.099, 0.0], 0.5, 0.5);
+        assert!(ChromaticShift::new(&green, Some(&red), None, (0, 0, 10, 10)).is_ok());
+        // A NaN slope refuses.
+        let green = warp_with([f64::NAN, 0.0, 0.0, 0.0], 0.5, 0.5);
+        let r = ChromaticShift::new(&green, Some(&red), None, (0, 0, 10, 10));
+        assert!(matches!(r, Err(Error::UnsupportedWarpFold { slope_min }) if slope_min.is_nan()));
+        // m = 0 (a one-pixel ActiveArea) is no step, even folding.
+        let green = warp_with([1.0, -2.0, 0.0, 0.0], 0.5, 0.5);
+        assert!(matches!(
+            ChromaticShift::new(&green, Some(&red), None, (3, 4, 1, 1)),
+            Ok(None)
+        ));
+        // Nothing differs: no step.
+        assert!(matches!(
+            ChromaticShift::new(&green, None, None, (0, 0, 10, 10)),
+            Ok(None)
+        ));
+    }
+
+    #[test]
+    fn ca_value_samples_inside_the_active_area_only() {
+        // ActiveArea at (left 2, top 1), 6 × 4; red magnified 1.5×: a corner
+        // source falls outside and clamps to the ActiveArea's edge.
+        let red = warp_with([1.5, 0.0, 0.0, 0.0], 0.5, 0.5);
+        let green = warp_with([1.0, 0.0, 0.0, 0.0], 0.5, 0.5);
+        let s = ChromaticShift::new(&green, Some(&red), None, (2, 1, 6, 4))
+            .unwrap()
+            .unwrap();
+        assert!(s.contains(2, 1) && s.contains(7, 4));
+        assert!(!s.contains(1, 1) && !s.contains(8, 1) && !s.contains(2, 0) && !s.contains(2, 5));
+        let reads = std::cell::RefCell::new(Vec::new());
+        let at = |x: u32, y: u32| {
+            reads.borrow_mut().push((x, y));
+            u16::try_from(x * 100 + y).unwrap()
+        };
+        // Pixel (2, 1) is the ActiveArea's top-left: source (-1.25, -0.75)
+        // relative, clamped to (0, 0) relative = plane (2, 1).
+        assert_eq!(s.value(0, 2, 1, at), Some(201));
+        assert!(reads
+            .borrow()
+            .iter()
+            .all(|&(x, y)| (2..8).contains(&x) && (1..5).contains(&y)));
+        assert_eq!(s.value(2, 2, 1, |_, _| 7), None, "blue is not resampled");
+        assert_eq!(s.value(1, 2, 1, |_, _| 7), None, "green is never resampled");
+    }
+
+    #[test]
+    fn ca_m_is_hypot() {
+        // The step's m is source_coord's own `hypot` (DEC-087 item 3).
+        let red = warp_with([1.02, 0.0, 0.0, 0.0], 0.07, 0.6);
+        let green = warp_with([1.0, 0.0, 0.0, 0.0], 0.07, 0.6);
+        let s = ChromaticShift::new(&green, Some(&red), None, (0, 0, 6, 40))
+            .unwrap()
+            .unwrap();
+        let (cx, cy) = (0.07 * 5.0, 0.6 * 39.0);
+        let mx = f64::abs(cx).max((5.0 - cx).abs());
+        let my = f64::abs(cy).max((39.0 - cy).abs());
+        assert_eq!(s.m, mx.hypot(my));
+        // On macOS's libm the two forms round apart here, so this test turns a
+        // sqrt mutant red (SPEC-099 build); glibc's hypot rounds them alike, so
+        // the difference is not asserted (it is platform-dependent).
+    }
+
+    /// SPEC-099 verify: [`ca_m_is_hypot`] separates `hypot` from the naive
+    /// `sqrt(mx² + my²)` only where the platform's libm rounds them apart, and
+    /// its one geometry does so on macOS but not under glibc, so the sqrt
+    /// mutant survived on Linux. This sweep of off-centre geometries asserts
+    /// `m` is `hypot` on each, and that the two forms differ somewhere on this
+    /// platform, so the sweep has teeth wherever it runs.
+    #[test]
+    fn ca_m_is_hypot_across_geometries() {
+        let red = [1.02, 0.0, 0.0, 0.0];
+        let green = [1.0, 0.0, 0.0, 0.0];
+        let mut apart = 0usize;
+        let mut cases = 0usize;
+        for (w, h) in [(6u32, 40u32), (7, 9), (13, 31), (29, 17), (40, 6), (3, 57)] {
+            for cxh in [0.07, 0.13, 0.31, 0.62, 0.77, 0.91] {
+                for cyh in [0.6, 0.11, 0.37, 0.83] {
+                    let r = warp_with(red, cxh, cyh);
+                    let g = warp_with(green, cxh, cyh);
+                    let s = ChromaticShift::new(&g, Some(&r), None, (0, 0, w, h))
+                        .unwrap()
+                        .unwrap();
+                    let (x1, y1) = (f64::from(w - 1), f64::from(h - 1));
+                    let (cx, cy) = (cxh * x1, cyh * y1);
+                    let mx = cx.abs().max((x1 - cx).abs());
+                    let my = cy.abs().max((y1 - cy).abs());
+                    let m = mx.hypot(my);
+                    assert_eq!(s.m, m, "{w}x{h} centre ({cxh}, {cyh})");
+                    cases += 1;
+                    if m != (mx * mx + my * my).sqrt() {
+                        apart += 1;
+                    }
+                }
+            }
+        }
+        assert!(
+            apart > 0,
+            "hypot and sqrt(mx² + my²) agree on all {cases} geometries on this platform"
+        );
     }
 }

@@ -342,6 +342,13 @@ cargo test --all-features --test metadata_oracle
 #              unset (always in CI) it prints a SKIP line in corpus-status.
 IRRADIANCE_SDK_STAGE2_DIR=<out_dir> cargo test --all-features --profile corpus --test gain_map_corpus
 
+# sdk-stage3 — OPTIONAL local cross-check of the sensor-geometry CA step
+#              against Adobe dng_validate stage 3 (SPEC-099, DEC-087). Generate
+#              its outputs with scripts/sdk-stage3.sh (outside the repo), then
+#              set $IRRADIANCE_SDK_STAGE3_DIR; unset (always in CI) it prints a
+#              SKIP line in corpus-status.
+IRRADIANCE_SDK_STAGE3_DIR=<out_dir> cargo test --all-features --profile corpus --test colour_sdk_stage3
+
 # lint       — BOTH halves; `just lint` runs them in this order
 # PATCH-004: both lint recipes now print WHICH clippy answered — `lint` is
 # unpinned (PATH may resolve Homebrew's, not rustup's) and says so; `lint-ci`
