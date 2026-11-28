@@ -11,7 +11,7 @@ task:
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
                                    #   (XL/XXL almost certainly means it's a stage, not a spec)
-  complexity_actual: null          # stamped at ship: what it ACTUALLY took, same scale.
+  complexity_actual: L             # stamped at ship: what it ACTUALLY took, same scale.
                                    #   Expected-vs-actual drift is what `just calibration` reads.
   verify_verdict: approved  # approved | punch-list | rejected — the OUTCOME of the verify
                                    #   cycle, stamped by `just advance-cycle` when the spec leaves
@@ -71,36 +71,47 @@ cost:
   sessions:
     - cycle: design
       agent: claude-opus-5-5
-      interface: claude-code
-      tokens_total: null
-      estimated_usd: null
-      duration_minutes: 180
+      interface: other
+      basis: transcript
+      tokens_total: 43317157
+      estimated_usd: 30.35
+      duration_minutes: 40
       recorded_at: 2026-11-27
-      notes: "Design in a side session started by the PROJ-006 orchestrator: reading, dng_validate stage 1/2/3 on the three files, the SDK bad-pixel source read, synthetic CFA DNGs through dng_validate, an uncommitted prototype driven on every colour and mixer entry and through the whole corpus suite, the manifest count audit, the split into SPEC-099, DEC-086, this design, HANDOFF-208. Un-metered main-loop cycle; measured at the STAGE-034 close as orchestration cost."
+      notes: "Design in a side session started by the PROJ-006 orchestrator: reading, dng_validate stage 1/2/3 on the three files, the SDK bad-pixel source read, synthetic CFA DNGs through dng_validate, an uncommitted prototype driven on every colour and mixer entry and through the whole corpus suite, the manifest count audit, the split into SPEC-099, DEC-086, this design, HANDOFF-208. Recorded un-metered at design; measured at ship (2026-11-28) over the whole transcript 43876ef9-ac70-4ed1-8101-0d1e4c8ee2b6.jsonl plus its subagents folder (174 unique message.ids, all claude-opus-5-5): input 347 + cache-creation 534,204 (392,228 1-hour, 141,976 5-minute) + cache-read 42,613,336 + output 169,270, priced at 5 and 25 USD per million, cache reads 0.1x, 1-hour writes 2x, 5-minute writes 1.25x. Duration is the transcript's first-to-last timestamp. Counted here, so the STAGE-034 orchestration cost must not count this transcript again."
     - cycle: build
       handoff: HANDOFF-208
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 34834175
-      estimated_usd: 23.69
-      duration_minutes: 95
+      tokens_total: 41033219
+      estimated_usd: 27.28
+      duration_minutes: 108
       recorded_at: 2026-11-27
-      notes: "Floor, measured live from this session's transcript (db3b4676), 119 deduplicated messages: input 249, cache creation 354,425, cache read 34,360,863, output 118,638; no subagents. USD at 5/25 per M with 1-hour cache writes."
+      notes: "Re-summed at ship (2026-11-28) over the whole transcript db3b4676-4884-4af4-b1b7-abe51de25600.jsonl (134 unique message.ids, all claude-opus-5-5, no subagents): input 285 + cache-creation 370,917 (1-hour) + cache-read 40,529,998 + output 132,019, priced as the design. The handback's floor was 34,834,175 / 23.69 USD, measured live before the handback commit and the PR."
     - cycle: verify
       handoff: HANDOFF-209
       agent: claude-opus-5-5
       interface: other
       basis: transcript
-      tokens_total: 24643404
-      estimated_usd: 16.62
-      duration_minutes: 150
+      tokens_total: 29073976
+      estimated_usd: 19.32
+      duration_minutes: 41
       recorded_at: 2026-11-27
-      notes: "Floor, measured live from this session transcript (e804d70e), 114 deduplicated messages: input 242, cache creation 261,088, cache read 24,307,802, output 74,272; no subagents. USD at 5/25 per M with 1-hour cache writes. The commit, PR and CI wait after the measurement are not counted."
+      notes: "Re-summed at ship (2026-11-28) over the whole transcript e804d70e-465f-435b-a0c3-5aec0927f277.jsonl (128 unique message.ids, all claude-opus-5-5, no subagents): input 276 + cache-creation 276,410 (1-hour) + cache-read 28,709,134 + output 88,156, priced as the design. The handback's floor was 24,643,404 / 16.62 USD, measured live before the commit, the PR and the CI wait. Duration is the transcript's first-to-last timestamp (the handback said about 150)."
+    - cycle: ship
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 5628575
+      estimated_usd: 4.56
+      duration_minutes: 30
+      recorded_at: 2026-11-28
+      notes: "Ship in a side session started by the PROJ-006 orchestrator: re-summing the three earlier transcripts, archive, follow-ups, signals, stage and brief, DEC-086 promotion, brag. A floor, measured from transcript 17ec3e06-19f0-4110-a441-07b8849a5828.jsonl (39 unique message.ids, all claude-opus-5-5, no subagents) before the commit, the PR and the CI watch: input 77 + cache-creation 130,545 (1-hour) + cache-read 5,477,194 + output 20,759, priced as the design."
   totals:
-    tokens_total: 59477579
-    estimated_usd: 40.31
-    session_count: 3
+    tokens_total: 119052927
+    estimated_usd: 81.51
+    session_count: 4
+shipped_at: 2026-11-28
 ---
 
 # SPEC-098: Mandatory FixBadPixelsConstant on the colour entries and WarpRectilinear passed through at sensor geometry, the Q2, Q3 and SL3 files
@@ -586,31 +597,56 @@ None blocks the build.
 *Appended during **ship**. Three questions, short answers.*
 
 1. **What would I do differently next time?**
-   — <answer>
+   — Give every boundary and level clause a scene where its value is not the identity.
+   The AC1 scenes came from SDK runs and inherited their geometry (`ActiveArea` top 0,
+   ending at the plane edge, blacks 0, a linear ramp with no rounding tie), so five
+   mutants could not fail on them until the cold verify added four scenes. And size the
+   estimate from all four cycles: 22M was about the build alone, which itself took 41M.
 
 2. **Does any template, constraint, or decision need updating?**
-   — <answer — if yes but not done this session, record it in
-   `/guidance/signals.yaml`: `type: lesson` (with its N-count) for a recurring
-   coding pattern, `type: process-debt` for tooling/process friction. A close
-   then forces the decision. See `docs/signals.md`.>
+   — DEC-086 is promoted to accepted at this ship, with the verify's one-sentence
+   clarification in item 7 (`scratch_len` under the mix sizes an optional `N ≠ 1` warp
+   as skipped). DEC-084 item 3 already carries the dated amendment note. No template
+   change now. Three signals take evidence: `a-designed-mutant-must-be-able-to-fail-on-its-fixture`
+   (a recurrence after codification, five mutants), `every-rule-clause-maps-to-a-reachable-test`
+   (the build's s4, a rule at two read sites mapped to one), and the new watch signal
+   `token-estimate-undershoots-corpus-probing-specs`.
 
 3. **Is there a follow-up spec I should write now before I forget?**
-   — <answer>
+   — No new spec. SPEC-099, the per-plane warp on the developed outputs, is already an
+   outline and waits on onyx's two warp questions in the PROJ-006 brief; it is not
+   designed until they are answered.
 
-4. **Where was the worst defect caught?** — one word from a fixed vocabulary so
-   the defect-escape distribution is greppable across specs:
-   `design` | `build` | `verify` | `ship` | `escaped` (reached prod/runtime) |
-   `none` (clean first try).
-   — <one word>
-   *(Runtime/operational defects — the escape-prone class — only exist once the
-   artifact meets its real host. `escaped` here is a signal to strengthen the
-   §12 behavioral pre-flight for that surface.)*
+4. **Where was the worst defect caught?**
+   — verify
 
-5. **What can a user do now that they couldn't before?** — one sentence,
-   before → after; quote the confirming number if one exists, name the outcome
-   if not. Write `none` if this spec has no user-visible outcome — that is a
-   real, greppable result, not a blank. This is the line a downstream work-log's
-   `impact` field is transcribed from, and both halves are already written above
-   (## Context is the before, ## Goal is the after): confirm the prediction,
-   don't reconstruct it from memory.
-   — <answer | none>
+5. **What can a user do now that they couldn't before?**
+   — Before, every colour entry refused the Leica Q2, Q3 and SL3 with
+   `UnsupportedRequiredOpcode { list: 1, id: 4 }`, so onyx's viewport got no linear or
+   mixed plane from those bodies. Now `srgb_linear_plane_*` and `mono_mix_plane_*` give
+   both on all three, with the SL3's 10,615 fixable bad photosites filled from their
+   same-colour neighbours and the warp passed through for the GPU, matching the 12
+   registered digests; no file that developed before changes output (3,377 results
+   compared). The developed colour and the developed mix still refuse the `N = 3` warp,
+   until SPEC-099.
+
+## Follow-ups
+
+Raised in HANDOFF-208 (build) and HANDOFF-209 (verify). The verify numbered FU-1 to FU-7;
+FU-8 to FU-11 are numbered here from the build's handback, the ship brief and the design's
+open questions. The verify's tests are in PR 368, merged into PR 367 and squashed into
+`e63a0bc`.
+
+| id | finding | disposition |
+|---|---|---|
+| `FU-1` | V4: no AC1 site is a rounding tie, so rounding half down passed | `fixed` — verify, `tests/colour_bad_pixels.rs` `ac1_a_tie_rounds_half_up`; evidence to `signal: a-designed-mutant-must-be-able-to-fail-on-its-fixture` |
+| `FU-2` | V6b: every fixture had `ActiveArea` top 0, so colour rows indexed from the plane origin passed | `fixed` — verify, `tests/colour_bad_pixels.rs` `ac1_colour_rows_are_indexed_from_the_active_area_top`; same signal |
+| `FU-3` | V11: no fixture's `ActiveArea` ended inside the plane, so a candidate one past its bottom and right passed | `fixed` — verify, `tests/colour_bad_pixels.rs` `ac1_the_active_area_bottom_and_right_are_exclusive`; same signal |
+| `FU-4` | V7a, V7b: the black-pattern scene had blacks 0, so the fix (or its candidate test) after the levels passed | `fixed` — verify, `tests/colour_bad_pixels.rs` `ac4_the_fix_reads_raw_samples_under_a_black_pattern`; same signal |
+| `FU-5` | V: the CHANGELOG did not say the Q2 Monochrom files' colour, plane and mix refusals move from `{1,4}` to `NotAColorFilterArray` | `fixed` — verify, `CHANGELOG.md` [Unreleased] Changed, first SPEC-098 entry |
+| `FU-6` | V: DEC-086 item 7 did not say `scratch_len` under the mix sizes an optional `N ≠ 1` warp as skipped (the build's accepted deviation) | `fixed` — at ship, DEC-086 item 7 |
+| `FU-7` | V, informational: `scratch_len` returns a size for a file whose develop is refused at the required-processing check, because it does not run that check; true on main before SPEC-098 | `closed` — pre-existing and harmless: the develop still refuses before any write, so the size is never used; noted here only |
+| `FU-8` | Ship: designed at M and 22M tokens, the build alone took 41.0M and the spec about 119M in all | `signal: token-estimate-undershoots-corpus-probing-specs` — new, watch, N=2 with SPEC-097 |
+| `FU-9` | B [XS]: a public CFA bad-pixel applier, so the demosaic and colour-transform primitives could accept `OpcodeList1` | `closed` — kept out by DEC-086 item 8 (a composer cannot apply the kernel in place); no consumer asks, and a request would be a new spec against that item |
+| `FU-10` | Design, for onyx: which warp set the viewport applies on an `N = 3` file, and whether it needs irradiance to expose the three sets | `closed` — not a spec of its own: both questions are in the PROJ-006 brief, and SPEC-099 (outline, `depends_on: [SPEC-098]`) waits on the answers |
+| `FU-11` | Design, for the maintainer: the Q3 and SL3 as tier-B `personal-evaluation-only` entries, and the departure from the SDK on red and blue bad pixels | `closed` — both ruled by the maintainer at the build (2026-11-27), recorded as a dated note in DEC-086 |

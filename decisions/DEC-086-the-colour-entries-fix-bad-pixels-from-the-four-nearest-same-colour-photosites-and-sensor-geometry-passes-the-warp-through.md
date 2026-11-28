@@ -21,7 +21,7 @@ repo:
 created_at: 2026-11-27
 supersedes: null                   # amends DEC-084 item 3; DEC-084 stays active
 superseded_by: null
-status: proposed                   # SPEC-098 design, 2026-11-27; accepted at the SPEC-098 ship
+status: accepted                   # at the SPEC-098 ship, 2026-11-28 (verify HANDOFF-209 approved it at 2006ceb); jysf accepts by merging the ship PR
 deciders: [claude, jysf]
 
 affected_scope:
@@ -30,7 +30,7 @@ affected_scope:
   - src/develop.rs
   - src/lib.rs
   - decisions/DEC-084-the-developed-mix-is-the-mono-develop-geometry-over-the-mixed-plane-mixed-in-row-strips-into-caller-scratch.md
-  - projects/PROJ-006-spectral-monochrome-mixer/specs/SPEC-098-mandatory-fixbadpixelsconstant-and-warprectilinear-on-the-co.md
+  - projects/PROJ-006-spectral-monochrome-mixer/specs/done/SPEC-098-mandatory-fixbadpixelsconstant-and-warprectilinear-on-the-co.md
 
 tags:
   - opcode
@@ -105,7 +105,9 @@ tags:
    `GainMap`s, then the `OpcodeList1` lookup (`parse_fix_bad_pixels_constant`), all
    before the CFA and before any write. On the developed mix that is `DEC-084` item 7's
    rank 5, extended. `scratch_len` does not parse `OpcodeList1` under the mix, because the
-   fix needs no scratch. A malformed first `FixBadPixelsConstant`, optional or not, is now
+   fix needs no scratch. Under the mix, `scratch_len` sizes an optional warp with `N ≠ 1`
+   as skipped, as the develop skips it (item 6), so the scratch form agrees with the
+   develop (clarified at the SPEC-098 ship, SPEC-098/FU-6). A malformed first `FixBadPixelsConstant`, optional or not, is now
    `MalformedOpcodeParams { id: 4, .. }` on these paths, where an optional one was skipped
    unread before. No held file has one.
 8. **Scope kept out.** No public CFA applier (a composer cannot apply this kernel in

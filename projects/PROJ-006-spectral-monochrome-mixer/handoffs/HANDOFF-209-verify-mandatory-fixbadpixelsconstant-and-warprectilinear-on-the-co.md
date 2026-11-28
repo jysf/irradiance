@@ -55,7 +55,7 @@ handback:
   estimated_usd: 16.62             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 150
   branch: claude/spec-098-verify
-  pr: null
+  pr: 368
   completed_at: 2026-11-27         # YYYY-MM-DD
   notes: "Floor, measured live from this session transcript (e804d70e), 114 deduplicated messages: input 242, cache creation 261,088, cache read 24,307,802, output 74,272; no subagents. USD at 5/25 per M with 1-hour cache writes. The commit, PR and CI wait after the measurement are not counted."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: 2026-11-27

@@ -55,7 +55,7 @@ handback:
   estimated_usd: 23.69             # per component at `agent`'s rates (docs/cost-tracking.md "Pricing")
   duration_minutes: 95
   branch: feat/spec-098-colour-fix-bad-pixels
-  pr: null
+  pr: 367
   completed_at: 2026-11-27         # YYYY-MM-DD
   notes: "Floor, measured live from this session's transcript (db3b4676), 119 deduplicated messages: input 249, cache creation 354,425, cache read 34,360,863, output 118,638; no subagents. USD at 5/25 per M with 1-hour cache writes."  # if unusual; double-quote it — an unquoted " #" starts a YAML comment
   synced_at: 2026-11-27

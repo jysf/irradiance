@@ -1852,9 +1852,15 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-19
-    last_touched: 2026-11-27
+    last_touched: 2026-11-28
     raised_by: claude
     notes: |
+      ══ SPEC-098 SHIP, 2026-11-28: one instance at build, not after a verify (HANDOFF-208 mutant s4). ══
+      DEC-086 applies the fix in both normalisers (the 2x2 slot path and the larger black
+      pattern path), but every designed mutant and tier-A fixture reached only the 2x2 path,
+      so removing the fix from the black-pattern path survived. The build caught it with its
+      own extra mutant and closed it with a test. Shape: a rule applied at two read sites
+      mapped to one. The build's reflection asks for "every read site needs its own fixture".
       ══ STAGE-016 CLOSE, 2026-11-19: CODIFIED. ══ Bar reached at N=3 (SPEC-059's V24).
       projects/_templates/spec.md's Failing Tests section now carries a "Rule-clause map"
       paragraph: map every DEC clause to a named test and the code path where the clause
@@ -1919,9 +1925,23 @@ signals:
     status: codified
     disposition_at: stage-close
     first_flagged: 2026-11-20
-    last_touched: 2026-11-27
+    last_touched: 2026-11-28
     raised_by: claude
     notes: |
+      ══ SPEC-098 SHIP, 2026-11-28: recurrence after codification, five mutants (SPEC-098/FU-1 to FU-4). ══
+      The cold verify (HANDOFF-209) found five mutants the build's fixtures could not fail,
+      each on a fixture where the right and wrong readings agree: round half down (V4; the
+      AC1 scenes are linear ramps, so no same-colour sum is a tie), colour rows from the
+      plane origin (V6b; every fixture had ActiveArea top 0), the candidate test one past
+      the ActiveArea bottom and right (V11; no fixture's ActiveArea ended inside the plane),
+      and the fix or its candidate test after the black-pattern normaliser's levels (V7a and
+      V7b; the pattern scene's blacks were 0, where normalising is the identity). Closed by
+      four test-only additions in PR 368, merged into PR 367. The verify's diagnosis is the
+      new shape: a scene derived from an SDK run inherits that run's geometry (top 0, the
+      ActiveArea ending at the plane edge, blacks 0), so every boundary or level clause needs
+      a scene where its value is not the identity. Candidate template line if it recurs: a
+      fixture copied from an external tool's run lists which of its parameters are at their
+      identity value, and each such parameter that a clause reads gets a non-identity scene.
       ══ STAGE-027 CLOSE, 2026-11-22: CODIFIED. ══ Bar reached (N=5). projects/_templates/spec.md's
       Failing Tests section now carries a "Distinguishing fixture" paragraph beside the
       rule-clause map: for each pre-registered mutant, and for each quantifier (every/any),
@@ -2094,6 +2114,23 @@ signals:
       Recorded at the STAGE-017 close. Fix the 13 links (plain code or reachable paths);
       optionally add the private-items build to doc-check so they stay fixed.
       ══ PROJ-005 CLOSE, 2026-11-25: ACCEPTED, scheduled: the same hygiene patch as fuzz-targets-without-a-ci-smoke-job. Fix the 13 links; decide there whether doc-check builds private items. ══
+  - id: token-estimate-undershoots-corpus-probing-specs
+    type: lesson
+    summary: "Design's tokens_estimate for a STAGE-034 spec undershot its actual several-fold: the estimate was sized like the build alone, while the design itself and the verify each ran on 60 MP corpus files and long sweeps."
+    evidence: "N=2. SPEC-097 (2026-11-27): estimate 18M, actual 65.0M over four cycles (design 20.7M, build 19.8M, verify 18.5M, ship 6.0M), complexity S as expected. SPEC-098 (2026-11-28, SPEC-098/FU-8): estimate 22M at complexity M, the build alone about 41.0M (34.8M floor) and the whole spec 119.1M over four cycles, complexity actual L. In both the design ran a prototype over the corpus and the verify ran a main-versus-PR sweep on the 60 MP files."
+    bar: "N=3 same-outcome"
+    status: watch
+    disposition_at: stage-close
+    first_flagged: 2026-11-28
+    last_touched: 2026-11-28
+    raised_by: claude
+    notes: |
+      Recorded at the SPEC-098 ship. Not yet a calibration fix: the earlier PROJ-006 specs
+      went both ways (SPEC-091 35M to 58.6M, SPEC-092 65M to 45.2M, SPEC-093 60M to 80.1M).
+      The falsifier is whether an estimate counts all four cycles and prices the corpus work
+      the design plans (a prototype over the corpus, a sweep in the verify). If a third
+      STAGE-034 or PROJ-006 spec undershoots by more than 2x, codify a design-template line:
+      the estimate is the sum of four per-cycle guesses, each naming its corpus runs.
   - id: parallel-pr-changelog-entries-land-under-the-promoted-version
     type: process-debt
     summary: "A PR that adds CHANGELOG entries under [Unreleased] and merges after a release prep (which renamed [Unreleased] to the version and opened a fresh one) merges cleanly, but its entries land under the released version's heading, and anything else merged before the tag would be in the release."
