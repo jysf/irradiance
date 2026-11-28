@@ -42,6 +42,8 @@ value:
     - "Invented sensors may develop in dng_validate and still not in Lightroom, which may refuse or mis-render non-Bayer patterns it has never seen. The demo's 'watch the demosaic struggle' needs a manual check that no gate can make"
     - "Compression changes the size query. `written_len` can no longer be exact before encoding, so the two-call API of DEC-071 §7 needs a decision, and it must not break mono callers"
     - "The LJ92 encoder is the largest new code in the writer, and tiles add a layout that the mono writer never had. Either could turn its stage from M into L"
+    - "Synthetic raws can pass as real originals. Raw files are treated as proof of authenticity (contests, journalism), and the demo makes a believable DNG from any JPEG. The writer stays neutral (it writes only what the caller passes), but the demo must not claim a real camera by default and must mark its files as synthesised (added 2026-11-28)"
+    - "Lightroom may ignore the written colour tags. It looks up its own profile by `UniqueCameraModel`, so a file that names a real camera renders with Adobe's profile for that camera, not the caller's `ColorMatrix`. An invented sensor needs a name of its own (added 2026-11-28)"
 
 value_realized:
   thesis_held: null
@@ -201,6 +203,9 @@ Compression 7 decodes back bit for bit, and mono output and the default build do
   the crate from ITU-T T.81 (clean-room, provenance row).
 - Test-support synthesis of CFA planes (a mosaic from known RGB) for oracles. This is
   `tests/support` only.
+- Raw-data digests: the writer computes `NewRawImageDigest` itself (MD5, patent-clean) or writes none. It never copies a caller's, because a digest copied from a source is wrong once the samples or their encoding change (added 2026-11-28).
+- `LinearizationTable` carried as a typed option, since the reader already parses it (added 2026-11-28).
+- `WriteOptions` from a `Sensor`, promoted from the roadmap: for a CFA re-wrap it fills about twenty fields, and the re-wrap oracle builds it anyway (added 2026-11-28).
 - One 0.2.x release.
 
 ### Explicitly out of scope
@@ -213,21 +218,51 @@ Compression 7 decodes back bit for bit, and mono output and the default build do
 - `CFALayout` other than 1 (staggered or SuperCCD, parked since PR 301), big-endian output,
   float or demosaiced `LinearRaw` RGB (extension 5), deflate (it needs zlib), and lossy or
   JXL codecs.
+- Tags outside the typed set: `DNGPrivateData`, the MakerNote (`MakerNoteSafety`), `OriginalRawFileData` and `OriginalRawFileName`, and any unknown or private tag, are dropped. Adobe's converter keeps MakerNotes; this writer does not, and its docs say so (added 2026-11-28).
+- DNG 1.6 triple-illuminant colour (`CalibrationIlluminant3`, `ColorMatrix3`, `ForwardMatrix3`, `IlluminantData`): neither read nor written today, and no held file carries it (added 2026-11-28).
+- Policy for synthetic files (camera names, a "synthesised" marker in `Software` and XMP). That is the demo's, recorded under `risks_to_thesis`; the writer only writes what it is given.
 - Rewriting `CFAPattern` or opcode lists for a cut. Cuts stay at the `ActiveArea` edge, where
   nothing needs rewriting.
+
+## Considerations added 2026-11-28
+
+After the frame merged (PR 360), a review of what a colour writer adds beyond the mono one
+found eleven points. The first three change what STAGE-035 builds. The next three are lines
+in STAGE-035's DECs. The last five wait for the stage they touch.
+
+1. **Lightroom's profile lookup by `UniqueCameraModel`** (risk above). STAGE-035's module docs
+   say what a caller's camera name does.
+2. **Synthetic files** (risk above). The demo's policy; the writer stays neutral.
+3. **Raw-data digests** (scope above). STAGE-035's colour-tags DEC.
+4. **`LinearizationTable`** (scope above). STAGE-035's rendering-tags spec.
+5. **Unknown and private tags are dropped** (out of scope above). STAGE-035's core DEC states it.
+6. **Triple-illuminant colour** (out of scope above).
+7. **`NoiseProfile` for the demo.** Already in STAGE-035's tag list. The demo should compute
+   it from the noise it adds, so Lightroom's denoise treats the file correctly.
+8. **The browser.** The demo runs as wasm, so an uncompressed 120 MB buffer is the user's
+   download. STAGE-037 should land before the demo goes public, or the demo uses a smaller
+   resolution. `wasm-check` gains a CFA write in STAGE-035.
+9. **`WriteOptions` from a `Sensor`** (scope above). Promoted into STAGE-035 as an [S] spec.
+10. **More readers.** PROJ-005 never recorded a Lightroom, Capture One or Windows open, and
+    colour raises the stakes. STAGE-036 adds a local-only lane that opens the outputs in
+    darktable, RawTherapee, rawpy/LibRaw and Quick Look. These are tools that are run, never
+    linked, like dnglab.
+11. **The raw plane is IFD0.** DNG recommends a thumbnail in IFD0 with the raw in a SubIFD;
+    the writer puts the raw in IFD0 (DEC-082). dng_validate does not warn and no probed tool
+    cared, but an old reader might. Item 10's lane checks it.
 
 ## Stage Plan
 
 Format: `- [status] STAGE-ID — one-line summary`
 
-- [ ] STAGE-035 (proposed) — CFA plane core: 2×2 Bayer CFA plane, CFA and colour tags as typed options, rational levels, all three framings, held colour DNGs re-wrapped bit-exact and developing identically, dng_validate clean. ~145M tokens / ~$105.
-- [ ] STAGE-036 (proposed) — Invented sensors: any CFA pattern DNG allows (non-2×2 repeat, 4-colour plane colours), with dng_validate's render as the develop oracle and a recorded Lightroom check. ~60M / ~$45.
+- [ ] STAGE-035 (proposed) — CFA plane core: 2×2 Bayer CFA plane, CFA and colour tags as typed options, rational levels, all three framings, held colour DNGs re-wrapped bit-exact and developing identically, dng_validate clean. ~165M tokens / ~$120 (with the promoted `from_sensor` spec).
+- [ ] STAGE-036 (proposed) — Invented sensors: any CFA pattern DNG allows (non-2×2 repeat, 4-colour plane colours), with dng_validate's render as the develop oracle, a recorded Lightroom check and a local multi-reader lane. ~80M / ~$60.
 - [ ] STAGE-037 (proposed) — Lossless Compression 7 and tiles, for mono and CFA: a public-crate LJ92 encoder and a tiled layout, plus the size-query decision. **Has an L.** ~150M / ~$110.
 - [ ] STAGE-038 (proposed) — The 0.2.x release of the colour writer. ~45M / ~$30.
 
 **Count:** 0 shipped / 0 active / 4 pending
 
-**Cost estimate.** About 400M tokens / $290 for the project, against PROJ-005's 193M / $140
+**Cost estimate.** About 440M tokens / $320 for the project, against PROJ-005's 193M / $140
 for one stage and one release. The baseline is PROJ-005's actuals: an [M] spec 17–36M, an
 [S] 13–20M, stage orchestration about 0.7× the spec total, a release stage about 45M, and
 about $0.73 per million tokens. The estimate is borrowed, so re-estimate at each stage's
