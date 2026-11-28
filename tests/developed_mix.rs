@@ -12,6 +12,8 @@
 //! no `OpcodeList1` or `OpcodeList2`. It shares with the implementation only the
 //! mixer's kernel, the warp and the mono gather, none of which this spec changes.
 
+#[path = "support/ca_reference.rs"]
+mod ca_reference;
 #[path = "support/corpus.rs"]
 mod corpus;
 #[path = "support/developed_mix.rs"]
@@ -380,13 +382,12 @@ fn ac5_the_mix_strips_see_the_fix_across_a_strip_edge() {
     }
 }
 
-/// `SPEC-098` verify, the build's `scratch_len` deviation: under the mix an
-/// optional first warp whose `N` is not 1 is skipped (`DEC-086` item 6), and
-/// `scratch_len` sizes it as skipped, so the scratch form takes exactly that
-/// length and equals the allocating form and the no-warp mix. With `N = 1`
-/// the same coefficients are applied and sized as a warp. Without the mix
-/// (the mono develop) an `N = 3` warp is neither skipped nor resized. A
-/// mandatory `N = 3` warp is refused on both mix entries.
+/// `SPEC-100` (`DEC-088` item 3, replacing `DEC-086` item 6): the developed
+/// mix applies the first `WarpRectilinear` whatever its flags, with `N` 1 or
+/// 3. An optional `N = 3` warp with identical sets is applied as `W` (the one
+/// set) and sized as a warp, so it equals the `N = 1` warp with that set on
+/// both mix entries; a mandatory one too (no longer refused). Without the mix
+/// (the mono develop) an `N = 3` warp is applied as `K1`, as before.
 #[test]
 fn ac6_the_mix_sizes_an_optional_multi_plane_warp_as_it_develops() {
     let (plain, src) = odd();
@@ -400,23 +401,29 @@ fn ac6_the_mix_sizes_an_optional_multi_plane_warp_as_it_develops() {
         let mono = options(framing, true, 1.0);
         let mix = with_mix(&mono, LUMINANCE);
 
-        // The mix: an optional N = 3 warp is skipped, and sized as skipped.
-        let n3 = warped(3, 1);
-        assert_same!(scratch_len(&n3, &mix), scratch_len(&plain, &mix));
-        assert_same!(
-            developed(&n3, &src, LUMINANCE, &mono),
-            developed(&plain, &src, LUMINANCE, &mono)
-        );
-        // The same coefficients with N = 1 are applied, and need more scratch.
+        // The mix: N = 1 is applied, and needs more scratch than no warp.
         let n1 = warped(1, 1);
         assert!(scratch_len(&n1, &mix).unwrap() > scratch_len(&plain, &mix).unwrap());
+        let applied = developed(&n1, &src, LUMINANCE, &mono).unwrap();
         assert_ne!(
-            developed(&n1, &src, LUMINANCE, &mono).unwrap(),
+            applied,
             developed(&plain, &src, LUMINANCE, &mono).unwrap(),
             "{framing:?}: the N = 1 warp is applied by the mix"
         );
+        // An identical-set N = 3 warp, optional or mandatory: applied as W and
+        // sized as a warp.
+        for flags in [1, 0] {
+            let n3 = warped(3, flags);
+            assert_same!(scratch_len(&n3, &mix), scratch_len(&n1, &mix));
+            assert_same!(
+                developed(&n3, &src, LUMINANCE, &mono),
+                Ok::<&Vec<u16>, Error>(&applied),
+                "{framing:?}: an N = 3 warp (flags {flags}) is applied as W"
+            );
+        }
 
         // The mono develop: N = 3 sized as N = 1, applied, scratch form equal.
+        let n3 = warped(3, 1);
         assert_same!(scratch_len(&n3, &mono), scratch_len(&n1, &mono));
         let (w, h) = output_dimensions_with(&n3, &mono).unwrap();
         let mut allocating = vec![SENTINEL; (w * h) as usize];
@@ -432,20 +439,337 @@ fn ac6_the_mix_sizes_an_optional_multi_plane_warp_as_it_develops() {
             allocating, unwarped,
             "{framing:?}: the mono develop warps N = 3"
         );
+    }
+}
 
-        // A mandatory N = 3 warp: refused on both mix entries, before any write.
-        let mandatory = warped(3, 0);
-        let mut dst = vec![SENTINEL; output_len(&mandatory, &mix)];
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-100 (DEC-088 items 3 to 5): the per-plane warp on the developed mix
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `DEC-087` item 3's halo, from the decision's text with the tests' own
+/// table: `H = ⌈B⌉ + 1` capped at the `ActiveArea` height, `B = m · max_j
+/// max(|t[j] − 1|, |t[j+1] − 1|) · √((j+1)/T)` over the resampled planes.
+fn halo_of(planes: &[[f64; 4]], cx: f64, cy: f64, aw: u32, ah: u32) -> u64 {
+    let (x1, y1) = (f64::from(aw - 1), f64::from(ah - 1));
+    let (cx, cy) = (cx * x1, cy * y1);
+    let m = cx
+        .abs()
+        .max((x1 - cx).abs())
+        .hypot(cy.abs().max((y1 - cy).abs()));
+    let t_len = ca_reference::T as f64;
+    let mut b = 0.0f64;
+    for &set in planes {
+        let t = ca_reference::table(set, CA_GREEN);
+        for j in 0..ca_reference::T {
+            let reach = (t[j] - 1.0).abs().max((t[j + 1] - 1.0).abs());
+            b = b.max(m * reach * ((j as f64 + 1.0) / t_len).sqrt());
+        }
+    }
+    (b.ceil() as u64 + 1).min(u64::from(ah))
+}
+
+/// `T_H` and `R` (`DEC-088` item 4) for a `w × h` plane and halo `hh`.
+fn strip_and_ring(w: u32, h: u32, hh: u64) -> (u64, u64) {
+    let t = u64::from(w) * (u64::from(h).min(STRIP_ROWS + 2 * hh + 7) + RING_ROWS);
+    (t, 3 * (2 * hh + 2) * u64::from(w))
+}
+
+/// AC4: on the three scene variants with the differing `N = 3` list, mandatory
+/// and optional, the developed mix is the mono develop of
+/// `mono_mix_plane_into`'s CA-corrected plane with `W` as one `N = 1` set,
+/// over SPEC-093's grid and both weight sets, on both develop entries.
+#[test]
+fn ac4_the_mix_is_the_mono_develop_of_the_ca_plane() {
+    let mut ran = 0;
+    for (name, sensor, src, cx, cy) in ca_scenes() {
+        for flags in [0u32, 1] {
+            let mut s0 = sensor.clone();
+            set_list(&mut s0, 3, Some(ca_list(cx, cy, flags)));
+            let negative = negative_set(&s0);
+            for weights in [LUMINANCE, negative] {
+                let mixed = mixed_plane(&s0, &src, &weights);
+                // The CA step moves the plane, so the oracle's input is not
+                // the uncorrected one.
+                let mut no_ca = s0.clone();
+                set_list(&mut no_ca, 3, Some(w_list(cx, cy)));
+                assert_ne!(
+                    mixed,
+                    mixed_plane(&no_ca, &src, &weights),
+                    "{name}: the CA step changes the mixed plane"
+                );
+                for (orientation, o) in ac1_grid() {
+                    let mut s = s0.clone();
+                    s.orientation = Some(orientation);
+                    let expected = oracle_with_list3(&s, &mixed, &o, Some(w_list(cx, cy)));
+                    assert!(
+                        expected.is_ok(),
+                        "{name}: the oracle develops: {expected:?}"
+                    );
+                    assert_same!(
+                        developed(&s, &src, weights, &o),
+                        expected,
+                        "{name} flags {flags} orientation {orientation} {o:?}"
+                    );
+                    ran += 1;
+                }
+                // W is green's set, not red's (K1, what the mono develop of the
+                // file would apply).
+                let o = DevelopOptions::default();
+                let k1 = single_warp_rectilinear_list(CA_RED, [0.0, 0.0], cx, cy, 1, 0);
+                assert_ne!(
+                    developed(&s0, &src, weights, &o).unwrap(),
+                    oracle_with_list3(&s0, &mixed, &o, Some(k1)).unwrap(),
+                    "{name}: red's set as the warp"
+                );
+            }
+        }
+    }
+    eprintln!("ac4: {ran} cases equal the oracle");
+}
+
+/// AC4's strips: an 8 × 1100 plane (taller than two strips) with the CA step,
+/// whose halo reaches across the strip edges at rows 512 and 1024; every
+/// option equals the oracle.
+#[test]
+fn ac4_ca_strips_tile_across_a_strip_edge() {
+    let (mut sensor, src) = narrow(1100);
+    set_list(&mut sensor, 3, Some(ca_list(0.5, 0.5, 0)));
+    let halo = halo_of(&[CA_RED, CA_BLUE], 0.5, 0.5, 8, 1100);
+    eprintln!("ac4 strips: H = {halo}");
+    assert!(halo > 8, "the halo reaches well across a strip edge");
+    let mixed = mixed_plane(&sensor, &src, &LUMINANCE);
+    for o in [
+        options(Framing::StandardCrop, true, 1.0),
+        options(Framing::StandardCrop, true, 0.0),
+        options(Framing::FullActiveArea, true, 0.5),
+        options(Framing::FullActiveArea, false, 0.0),
+    ] {
         assert_same!(
-            develop_with_into(&mandatory, &src, &mut dst, &mix),
-            Err::<(), Error>(Error::UnsupportedRequiredOpcode { list: 3, id: 1 })
+            developed(&sensor, &src, LUMINANCE, &o),
+            oracle_with_list3(&sensor, &mixed, &o, Some(w_list(0.5, 0.5))),
+            "{o:?}"
         );
-        let mut scratch = vec![0u16; scratch_len(&mandatory, &mix).unwrap()];
-        assert_same!(
-            develop_with_scratch_into(&mandatory, &src, &mut dst, &mut scratch, &mix),
-            Err::<(), Error>(Error::UnsupportedRequiredOpcode { list: 3, id: 1 })
+    }
+}
+
+/// AC5: `scratch_len` under the mix is `DEC-088` item 4's formula: no CA step
+/// (`SPEC-093`'s numbers), the CA step without an applied warp (`T_H + R`),
+/// with one (`A + max(A, T_H + R)`), on a scene where `T_H + R > A` and one
+/// where `A` is larger; one sample more or less is refused.
+#[test]
+fn ac5_scratch_len_is_the_formula() {
+    let mix = |alpha| with_mix(&options(Framing::StandardCrop, true, alpha), LUMINANCE);
+    // No CA step: today's numbers.
+    let (plain, _) = odd_warped();
+    assert_same!(
+        scratch_len(&plain, &mix(1.0)),
+        Ok::<usize, Error>(warp_scratch(22, 18, 280) as usize)
+    );
+    assert_same!(
+        scratch_len(&plain, &mix(0.0)),
+        Ok::<usize, Error>(strip_t(22, 18) as usize)
+    );
+    // (i) with the CA step: A = 280 is below T_H + R.
+    let (mut small, src) = odd();
+    set_list(&mut small, 3, Some(ca_list(0.5, 0.5, 0)));
+    let hh = halo_of(&[CA_RED, CA_BLUE], 0.5, 0.5, 20, 14);
+    let (t, r) = strip_and_ring(22, 18, hh);
+    assert!(t + r > 280, "the small scene: T_H + R > A");
+    assert_same!(
+        scratch_len(&small, &mix(0.0)),
+        Ok::<usize, Error>((t + r) as usize),
+        "CA, no warp"
+    );
+    assert_same!(
+        scratch_len(&small, &mix(1.0)),
+        Ok::<usize, Error>((280 + t + r) as usize),
+        "CA and a warp, T_H + R > A"
+    );
+    // The tall narrow plane: A = 8800 is above T_H + R.
+    let (mut tall, _) = narrow(1100);
+    set_list(&mut tall, 3, Some(ca_list(0.5, 0.5, 0)));
+    let hh = halo_of(&[CA_RED, CA_BLUE], 0.5, 0.5, 8, 1100);
+    let (t, r) = strip_and_ring(8, 1100, hh);
+    assert!(t + r < 8800, "the tall scene: A > T_H + R");
+    assert_same!(
+        scratch_len(&tall, &mix(1.0)),
+        Ok::<usize, Error>(2 * 8800),
+        "CA and a warp, A > T_H + R"
+    );
+    assert_same!(
+        scratch_len(&tall, &mix(0.0)),
+        Ok::<usize, Error>((t + r) as usize),
+        "tall, CA, no warp"
+    );
+    // One sample more or less is refused, before any write.
+    for alpha in [0.0, 1.0] {
+        let o = mix(alpha);
+        let len = scratch_len(&small, &o).unwrap();
+        for wrong in [len - 1, len + 1] {
+            let mut dst = vec![SENTINEL; output_len(&small, &o)];
+            let mut scratch = vec![SENTINEL; wrong];
+            let r = develop_with_scratch_into(&small, &src, &mut dst, &mut scratch, &o);
+            assert!(
+                matches!(r, Err(Error::DevelopScratchWrongLength { .. })),
+                "{wrong}: {r:?}"
+            );
+            assert!(dst.iter().all(|&v| v == SENTINEL));
+            assert!(scratch.iter().all(|&v| v == SENTINEL));
+        }
+    }
+}
+
+/// Both develop entries' results on `sensor`, from sentinel buffers sized by
+/// `scratch_len` (or the plain fixture's when it refuses), with whether `dst`
+/// and the scratch stayed untouched.
+fn mix_results(sensor: &Sensor, src: &[u16], o: &DevelopOptions) -> [(Result<(), Error>, bool); 2] {
+    let (plain, _) = odd();
+    let valid = with_mix(&without_mix(o), LUMINANCE);
+    let dims = output_dimensions_with(sensor, o)
+        .or_else(|_| output_dimensions_with(&plain, &valid))
+        .unwrap();
+    let n = dims.0 as usize * dims.1 as usize;
+    let len = scratch_len(sensor, o)
+        .or_else(|_| scratch_len(&plain, &valid))
+        .unwrap();
+    let mut dst = vec![SENTINEL; n];
+    let a = develop_with_into(sensor, src, &mut dst, o);
+    let a_untouched = dst.iter().all(|&v| v == SENTINEL);
+    let mut dst = vec![SENTINEL; n];
+    let mut scratch = vec![SENTINEL; len];
+    let b = develop_with_scratch_into(sensor, src, &mut dst, &mut scratch, o);
+    let b_untouched = dst.iter().chain(&scratch).all(|&v| v == SENTINEL);
+    [(a, a_untouched), (b, b_untouched)]
+}
+
+#[track_caller]
+fn assert_mix_refused(
+    sensor: &Sensor,
+    src: &[u16],
+    o: &DevelopOptions,
+    case: &str,
+    pred: fn(&Error) -> bool,
+) {
+    for (i, (r, untouched)) in mix_results(sensor, src, o).into_iter().enumerate() {
+        match r {
+            Err(e) if pred(&e) => assert!(untouched, "{case}: entry {i} wrote before {e:?}"),
+            other => panic!("{case}: entry {i}: unexpected {other:?}"),
+        }
+    }
+}
+
+/// AC6 (the mix): `N = 2` is malformed, optional or not; differing sets with a
+/// tangential term are refused after the CFA and before the calibration;
+/// `InvalidMixWeights` stays first; under `FullActiveArea` the bounds rule
+/// reads `W`, not `K1`; `scratch_len` reads the per-plane parse, the plane
+/// colours and the fold, and sizes a sensor with no CFA with `H = 0`.
+#[test]
+fn ac6_the_mix_per_plane_refusals() {
+    let (base, src) = odd();
+    let z = [0.0, 0.0];
+    let with = |list: Vec<u8>| {
+        let mut s = base.clone();
+        set_list(&mut s, 3, Some(list));
+        s
+    };
+    let o = with_mix(&DevelopOptions::default(), LUMINANCE);
+    let malformed: fn(&Error) -> bool = |e| matches!(e, Error::MalformedOpcodeParams { id: 1, .. });
+    for flags in [0, 1] {
+        let s = with(sets_list(&[(CA_RED, z), (CA_GREEN, z)], 0.5, 0.5, flags));
+        assert_mix_refused(&s, &src, &o, &format!("N = 2, flags {flags}"), malformed);
+        assert!(
+            malformed(&scratch_len(&s, &o).unwrap_err()),
+            "scratch_len N = 2"
         );
-        assert!(dst.iter().all(|&v| v == SENTINEL));
+    }
+
+    // Differing sets with blue's kt: after the CFA, before the calibration.
+    let kt: fn(&Error) -> bool = |e| matches!(e, Error::UnsupportedWarpTangentialTerms { kt0, kt1 } if *kt0 == 0.002 && *kt1 == 0.0);
+    let kt_list = sets_list(
+        &[(CA_RED, z), (CA_GREEN, z), (CA_BLUE, [0.002, 0.0])],
+        0.5,
+        0.5,
+        0,
+    );
+    let s = with(kt_list.clone());
+    assert_mix_refused(&s, &src, &o, "blue kt", kt);
+    let mut cfa = s.clone();
+    cfa.color_filter.as_mut().unwrap().pattern = vec![0, 0, 1, 2];
+    assert_mix_refused(&cfa, &src, &o, "CFA first", |e| {
+        matches!(e, Error::UnsupportedCfaPattern { .. })
+    });
+    let mut uncalibrated = s.clone();
+    uncalibrated.color_matrix_1 = None;
+    uncalibrated.forward_matrix_1 = None;
+    assert_mix_refused(&uncalibrated, &src, &o, "before the calibration", kt);
+    let mut weights = o;
+    weights.mono_mix = Some([r(1, 3), r(1, 3), r(1, 4)]);
+    assert_mix_refused(&s, &src, &weights, "weights first", |e| {
+        matches!(e, Error::InvalidMixWeights { .. })
+    });
+    // scratch_len reads no tangential term.
+    assert_same!(
+        scratch_len(&s, &o),
+        scratch_len(&with(ca_list(0.5, 0.5, 0)), &o),
+        "scratch_len sizes the kt list"
+    );
+    // A folding green with differing sets.
+    let fold = [1.0, -2.0, 0.0, 0.0];
+    let s = with(sets_list(
+        &[(CA_RED, z), (fold, z), (CA_BLUE, z)],
+        0.5,
+        0.5,
+        0,
+    ));
+    let folds: fn(&Error) -> bool = |e| matches!(e, Error::UnsupportedWarpFold { .. });
+    assert_mix_refused(&s, &src, &o, "fold", folds);
+    assert!(
+        folds(&scratch_len(&s, &o).unwrap_err()),
+        "scratch_len reads the fold"
+    );
+    // CFAPlaneColor [0, 1, 1] with N = 3.
+    let mut s = with(ca_list(0.5, 0.5, 0));
+    s.color_filter.as_mut().unwrap().plane_color = vec![0, 1, 1];
+    assert!(
+        matches!(
+            scratch_len(&s, &o),
+            Err(Error::UnsupportedCfaPlaneColor { .. })
+        ),
+        "scratch_len reads CFAPlaneColor"
+    );
+    // A sensor with no CFA sizes N = 3 with H = 0 (W is K1, red's set), and
+    // the develop refuses it at the CFA.
+    let mut s = with(ca_list(0.5, 0.5, 0));
+    s.color_filter = None;
+    assert_same!(
+        scratch_len(&s, &o),
+        Ok::<usize, Error>(warp_scratch(22, 18, 280) as usize),
+        "no CFA: H = 0"
+    );
+    assert_mix_refused(&s, &src, &o, "no CFA", |e| {
+        matches!(e, Error::NotAColorFilterArray)
+    });
+
+    // FullActiveArea: the bounds rule reads W (green), not K1 (red).
+    let full = with_mix(&options(Framing::FullActiveArea, true, 1.0), LUMINANCE);
+    let out = [1.0, 0.08, 0.0, 0.0];
+    let s = with(sets_list(
+        &[(CA_RED, z), (out, z), (CA_BLUE, z)],
+        0.5,
+        0.5,
+        0,
+    ));
+    assert_mix_refused(&s, &src, &full, "W fails the bounds rule", |e| {
+        matches!(e, Error::UnsupportedWarpedFullActiveArea { .. })
+    });
+    let s = with(sets_list(
+        &[(out, z), (CA_GREEN, z), (CA_BLUE, z)],
+        0.5,
+        0.5,
+        0,
+    ));
+    for (r, _) in mix_results(&s, &src, &full) {
+        r.expect("red fails the bounds rule, W passes: develops");
     }
 }
 
@@ -476,9 +800,9 @@ fn ac6_gain_maps_apply_once() {
 // AC8: the ranked refusals (FU-6)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// F12 (scratch) applies to `develop_with_scratch_into` only.
+/// F13 (scratch) applies to `develop_with_scratch_into` only.
 fn entry_faults(with_scratch: bool) -> Vec<usize> {
-    (0..FAULTS).filter(|&f| with_scratch || f != 12).collect()
+    (0..FAULTS).filter(|&f| with_scratch || f != 13).collect()
 }
 
 fn assert_refused(label: &str, set: &[usize], expected: usize, with_scratch: bool) {
@@ -490,7 +814,7 @@ fn assert_refused(label: &str, set: &[usize], expected: usize, with_scratch: boo
         "{label}: expected F{expected}'s error, got {err:?}"
     );
     assert!(dst_untouched, "{label}: dst was written ({err:?})");
-    if expected != 13 {
+    if expected != 14 {
         assert!(scratch_untouched, "{label}: scratch was written ({err:?})");
     }
 }
@@ -535,18 +859,18 @@ fn ac8_every_ranked_pair_on_both_develop_entries() {
                 "develop_with_into"
             }
         );
-        assert_eq!(pairs, if with_scratch { 89 } else { 76 });
+        assert_eq!(pairs, if with_scratch { 102 } else { 88 });
     }
-    // F10 with F11 and F7 with F13 run with one value carrying both faults.
+    // F11 with F12 and F7 with F14 run with one value carrying both faults.
     eprintln!("ac8 skipped: {skipped:?}");
 }
 
-/// `SPEC-093` verify (HANDOFF-205): the pair (F8, F13), which the build
+/// `SPEC-093` verify (HANDOFF-205): the pair (F8, F14; F13 before SPEC-100), which the build
 /// skipped as impossible. One `WarpRectilinear` block can carry both faults:
 /// it is malformed (a NaN optical centre, or one trailing byte past its exact
 /// `4 + 48·N + 16` length) and its tangential term is non-zero. Under
 /// `StandardCrop` the parse (rank 8) must refuse it before the applier
-/// (rank 13) could see the term, on both develop entries and `scratch_len`,
+/// (rank 14) could see the term, on both develop entries and `scratch_len`,
 /// with `dst` and the scratch untouched.
 #[test]
 fn ac8_one_warp_block_both_malformed_and_tangential_is_f8() {
@@ -563,7 +887,7 @@ fn ac8_one_warp_block_both_malformed_and_tangential_is_f8() {
         let mut c = case(&[]);
         set_list(&mut c.sensor, 3, Some(list));
         for with_scratch in [false, true] {
-            let label = format!("(F8, F13) as one block, {name}, scratch form {with_scratch}");
+            let label = format!("(F8, F14) as one block, {name}, scratch form {with_scratch}");
             let (result, dst_untouched, scratch_untouched) = run_case(&c, with_scratch);
             let err = result.expect_err(&label);
             assert!(expected_error(8)(&err), "{label}: got {err:?}");
@@ -598,8 +922,13 @@ fn ac8_the_sizing_entries_check_only_what_they_need() {
                 // F7 under FullActiveArea is the active area's size.
                 let want = if f == 7 { (20, 14) } else { base_dims };
                 assert_same!(dims, Ok::<(u32, u32), Error>(want), "dims F{f}");
-                let want_len = if f == 7 || f == 13 {
+                let want_len = if f == 7 || f == 14 {
                     warp_scratch(w, h, active)
+                } else if f == 10 {
+                    // `SPEC-100`: W and the CA halo (`DEC-088` item 4).
+                    let hh = halo_of(&[CA_RED, CA_BLUE], 0.5, 0.5, 20, 14);
+                    let (t, r) = strip_and_ring(w, h, hh);
+                    active + active.max(t + r)
                 } else {
                     strip_t(w, h)
                 };

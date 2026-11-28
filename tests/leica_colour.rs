@@ -38,6 +38,14 @@
 //! checked at every sample against the tests' own reference of the rule
 //! (`tests/support/ca_reference.rs`) through the public stage primitives; the
 //! registration oracle is `tests/colour_sdk_stage3.rs` (`dng_validate -3`).
+//!
+//! `SPEC-100` AC7 (`DEC-088`): the developed outputs apply the warp. The colour
+//! develop is the CA step, then green's set on each camera plane, then the
+//! matrix, the crop and the orientation; the developed mix is the mono develop
+//! of the CA-corrected mixed plane with green's set. Their digests were
+//! pre-registered by SPEC-100's design probe (public primitives and the tests'
+//! own CA reference); on the Q2 and Q3 the colour develop is also checked at
+//! every sample against that composition.
 //! The developed outputs still refuse the warp until `SPEC-100`.
 //! ⚠ The Q3 (`LEICA-Q3-PB`) and SL3 (`LEICA-SL3-PB`) have no stated licence:
 //! never committed, copied or redistributed, and no CI test may need them.
@@ -51,17 +59,20 @@ mod corpus;
 
 use corpus::{CorpusRoot, Manifest};
 use irradiance::color::{
-    develop_color_f32_into, develop_color_into, mono_mix_plane_into, mono_mix_plane_rows_into,
-    mono_mix_row, srgb_linear_plane_f32_into, srgb_linear_plane_into,
-    srgb_linear_plane_rows_f32_into, srgb_linear_plane_rows_into, to_srgb_linear_into,
+    develop_color_f32_into, develop_color_f32_into_threaded, develop_color_into,
+    develop_color_into_threaded, mono_mix_plane_into, mono_mix_plane_rows_into, mono_mix_row,
+    srgb_linear_plane_f32_into, srgb_linear_plane_into, srgb_linear_plane_rows_f32_into,
+    srgb_linear_plane_rows_into, to_srgb_linear_into,
 };
 use irradiance::demosaic::demosaic_into;
 use irradiance::develop::{
-    develop_into, develop_with_into, output_dimensions, output_dimensions_with, DevelopOptions,
+    develop_into, develop_with_into, develop_with_scratch_into, output_dimensions,
+    output_dimensions_with, scratch_len, DevelopOptions, Framing,
 };
 use irradiance::ifd::{Container, Rational, Sensor};
 use irradiance::opcode::sensor_geometry_warp;
 use irradiance::plane::unpack_into;
+use irradiance::warp::apply_warp_into;
 use irradiance::Error;
 
 const M10: &str = "LEICA-M10/f5381888.dng";
@@ -623,32 +634,9 @@ fn ac7_the_opcode_files_are_ca_corrected() {
         assert_pin(path, "develop_into", fnv1a(&developed), pins.mono_develop);
         drop(developed);
 
-        // The developed outputs refuse the warp (SPEC-100); the primitives
-        // still refuse the fix. Each refusal is the entry's first check, so no
-        // buffer is needed.
-        assert_refused(
-            path,
-            "develop_color_into",
-            develop_color_into(&sensor, &src, &mut []),
-            3,
-            1,
-        );
-        assert_refused(
-            path,
-            "develop_color_f32_into",
-            develop_color_f32_into(&sensor, &src, &mut []),
-            3,
-            1,
-        );
-        let mut options = DevelopOptions::default();
-        options.mono_mix = Some(LUMA);
-        assert_refused(
-            path,
-            "develop_with_into mono_mix",
-            develop_with_into(&sensor, &src, &mut [], &options),
-            3,
-            1,
-        );
+        // The stage primitives still refuse the fix (the developed outputs
+        // apply the warp since SPEC-100: `ac7_the_opcode_files_develop`). Each
+        // refusal is the entry's first check, so no buffer is needed.
         assert_refused(
             path,
             "demosaic_into",
@@ -669,6 +657,278 @@ fn ac7_the_opcode_files_are_ca_corrected() {
         "ac7_the_opcode_files_are_ca_corrected: {ran}/{} file(s) present",
         OPCODE_PINS.len()
     );
+}
+
+/// `SPEC-100`'s pre-registered digests for one opcode file (Implementation
+/// Context): the colour develop (`u16`, `f32`) and the developed mix (Rec. 709
+/// luma) under default options, `warp_alpha` 0.5 and 0, `FullActiveArea` and
+/// `apply_orientation: false`.
+struct DevelopedPins {
+    path: &'static str,
+    colour: u64,
+    colour_f32: u64,
+    mix: [u64; 5],
+}
+
+const DEVELOPED_PINS: [DevelopedPins; 3] = [
+    DevelopedPins {
+        path: Q2,
+        colour: 0x15fd_e0a3_aad3_b45e,
+        colour_f32: 0xbd4b_ee08_8e77_3f2c,
+        mix: [
+            0x0ade_8942_5f87_6db3,
+            0x617d_4140_fb3c_402b,
+            0x6ee6_dcab_f9bc_96b6,
+            0xa3cf_e647_9e1a_d080,
+            0x0ade_8942_5f87_6db3,
+        ],
+    },
+    DevelopedPins {
+        path: Q3,
+        colour: 0x3a82_2d18_12f1_9464,
+        colour_f32: 0x6af7_d2cd_38f9_5e42,
+        mix: [
+            0xe928_25ab_103f_946b,
+            0x6ca0_d150_26c5_bcd4,
+            0xcaa9_94ae_f757_9659,
+            0xc689_0e7b_9cd4_b4e4,
+            0xe2b1_12f9_36cc_588f,
+        ],
+    },
+    DevelopedPins {
+        path: SL3,
+        colour: 0x1d8d_6442_e403_cd46,
+        colour_f32: 0xd5f7_9bb4_f80c_b5d0,
+        mix: [
+            0xbf5f_e5e4_fe7a_7c6c,
+            0x0bca_0992_e2b9_f84b,
+            0xc900_805e_87b9_b166,
+            0xd384_f0f8_66b2_b422,
+            0x4cca_e484_4a48_c7ac,
+        ],
+    },
+];
+
+/// Output pixel `(ox, oy)`'s position in the crop, from the TIFF
+/// `Orientation` table: the test's own.
+fn crop_of(orientation: u32, ox: u32, oy: u32, cw: u32, ch: u32) -> (u32, u32) {
+    match orientation {
+        1 => (ox, oy),
+        2 => (cw - 1 - ox, oy),
+        3 => (cw - 1 - ox, ch - 1 - oy),
+        4 => (ox, ch - 1 - oy),
+        5 => (oy, ox),
+        6 => (oy, ch - 1 - ox),
+        7 => (cw - 1 - oy, ch - 1 - ox),
+        8 => (cw - 1 - oy, ox),
+        other => panic!("orientation {other}"),
+    }
+}
+
+/// AC3's composition on a held file (Q2, Q3: no bad photosite), compared
+/// with `got` at every sample: `to_srgb_linear_into(warp_planes(reference(
+/// demosaic_into(n))))` on the `Sensor` with lists 1 and 3 removed, then the
+/// crop and orientation; `n` the levels by hand (black 512, white 16383).
+fn assert_composition(path: &str, sensor: &Sensor, src: &[u16], pins: &OpcodePins, got: &[u16]) {
+    let (width, height) = (sensor.width as usize, sensor.height as usize);
+    let plane = width * height;
+    let mut stripped = sensor.clone();
+    stripped.opcode_list_1 = None;
+    stripped.opcode_list_3 = None;
+    stripped.opcode_lists[0] = false;
+    stripped.opcode_lists[2] = false;
+    assert_eq!(sensor.black_level, Some(512), "{path}: black 512");
+    assert_eq!(sensor.white_level, Some(16383), "{path}: white 16383");
+    assert!(src.iter().all(|&v| v != 0), "{path}: no bad photosite");
+    let n: Vec<u16> = src
+        .iter()
+        .map(|&raw| {
+            let v = (f64::from(raw) - 512.0).max(0.0) * 65535.0 / (16383.0 - 512.0);
+            (v + 0.5).floor().min(65535.0) as u16
+        })
+        .collect();
+    let mut cam = vec![0u16; plane * 3];
+    demosaic_into(&stripped, &n, &mut cam).unwrap_or_else(|e| panic!("{path}: demosaic: {e}"));
+    drop(n);
+    let mut ca = cam.clone();
+    let active = sensor.active_area.expect("an ActiveArea");
+    let area = (active.top, active.left, active.bottom, active.right);
+    let rule = ca_reference::Rule {
+        green: pins.sets[1],
+        red: Some(pins.sets[0]),
+        blue: Some(pins.sets[2]),
+        cx: 0.5,
+        cy: 0.5,
+    };
+    ca_reference::resample_in_place(&cam, &mut ca, width, area, &rule);
+    drop(cam);
+    // W per camera plane over the ActiveArea (green's set, public accessor).
+    let warp = *sensor_geometry_warp(sensor).unwrap().unwrap().consumer();
+    let (top, left) = (active.top as usize, active.left as usize);
+    let (aw, ah) = (
+        (active.right - active.left) as usize,
+        (active.bottom - active.top) as usize,
+    );
+    let mut channel = vec![0u16; aw * ah];
+    let mut warped = vec![0u16; aw * ah];
+    for c in 0..3 {
+        for y in 0..ah {
+            for x in 0..aw {
+                channel[y * aw + x] = ca[((y + top) * width + x + left) * 3 + c];
+            }
+        }
+        apply_warp_into(&warp, aw as u32, ah as u32, &channel, &mut warped)
+            .unwrap_or_else(|e| panic!("{path}: apply_warp_into: {e}"));
+        for y in 0..ah {
+            for x in 0..aw {
+                ca[((y + top) * width + x + left) * 3 + c] = warped[y * aw + x];
+            }
+        }
+    }
+    drop((channel, warped));
+    let mut lin = vec![0u16; plane * 3];
+    to_srgb_linear_into(&stripped, &ca, &mut lin)
+        .unwrap_or_else(|e| panic!("{path}: to_srgb_linear_into: {e}"));
+    drop(ca);
+    let origin = sensor.default_crop_origin.expect("a DefaultCropOrigin");
+    let size = sensor.default_crop_size.expect("a DefaultCropSize");
+    let (cw, ch) = (size.width, size.height);
+    let o = sensor.orientation.unwrap_or(1);
+    let (ow, oh) = if o >= 5 { (ch, cw) } else { (cw, ch) };
+    assert_eq!(got.len(), (ow * oh * 3) as usize, "{path}: output size");
+    let mut differ = 0usize;
+    for oy in 0..oh {
+        for ox in 0..ow {
+            let (cx, cy) = crop_of(o, ox, oy, cw, ch);
+            let (x, y) = (
+                left + (origin.x + cx) as usize,
+                top + (origin.y + cy) as usize,
+            );
+            let want = &lin[(y * width + x) * 3..][..3];
+            let at = ((oy * ow + ox) * 3) as usize;
+            differ += got[at..at + 3]
+                .iter()
+                .zip(want)
+                .filter(|(a, b)| a != b)
+                .count();
+        }
+    }
+    assert_eq!(
+        differ, 0,
+        "{path}: samples that differ from the composition"
+    );
+}
+
+/// `SPEC-100` AC7 (`DEC-088`): the Q2, Q3 and SL3 develop to colour and to a
+/// developed mix with no refusal, at the pre-registered digests; the threaded
+/// colour forms at 2, 3 and 8 threads give the same bytes; both mix entries
+/// agree and `scratch_len` is `2A`; on the Q2 and Q3 the colour develop is
+/// the composition at every sample. A digest that misses is reported, never
+/// edited.
+#[test]
+fn ac7_the_opcode_files_develop() {
+    let mut ran = 0;
+    let mut mismatches = Vec::new();
+    for (pins, developed) in OPCODE_PINS.iter().zip(&DEVELOPED_PINS) {
+        let path = pins.path;
+        assert_eq!(path, developed.path);
+        let Some(bytes) = load(path) else {
+            continue;
+        };
+        let (sensor, src) = unpack(path, &bytes);
+        drop(bytes);
+        let mut check = |entry: &str, got: u64, want: u64| {
+            eprintln!("ac7 {path}: {entry} 0x{got:016x}");
+            if got != want {
+                mismatches.push(format!(
+                    "{path}: {entry} 0x{got:016x}, registered 0x{want:016x}"
+                ));
+            }
+        };
+
+        // The colour develop.
+        let (w, h) = output_dimensions(&sensor).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let n = w as usize * h as usize * 3;
+        let mut colour = vec![0u16; n];
+        develop_color_into(&sensor, &src, &mut colour)
+            .unwrap_or_else(|e| panic!("{path}: develop_color_into: {e}"));
+        check("develop_color_into", fnv1a(&colour), developed.colour);
+        for threads in [2, 3, 8] {
+            let mut t = vec![0xA5A5u16; n];
+            develop_color_into_threaded(&sensor, &src, &mut t, threads)
+                .unwrap_or_else(|e| panic!("{path}: threaded: {e}"));
+            assert!(t == colour, "{path}: {threads} threads");
+        }
+        if pins.no_bad_photosite {
+            assert_composition(path, &sensor, &src, pins, &colour);
+        }
+        let mut colour_f32 = vec![0f32; n];
+        develop_color_f32_into(&sensor, &src, &mut colour_f32)
+            .unwrap_or_else(|e| panic!("{path}: develop_color_f32_into: {e}"));
+        assert!(
+            colour_f32
+                .iter()
+                .zip(&colour)
+                .all(|(a, &b)| a.to_bits() == (f32::from(b) / 65535.0).to_bits()),
+            "{path}: the f32 develop is the u16 one over 65535"
+        );
+        drop(colour);
+        check(
+            "develop_color_f32_into",
+            fnv1a_f32(&colour_f32),
+            developed.colour_f32,
+        );
+        for threads in [2, 3, 8] {
+            let mut t = vec![-1.0f32; n];
+            develop_color_f32_into_threaded(&sensor, &src, &mut t, threads)
+                .unwrap_or_else(|e| panic!("{path}: f32 threaded: {e}"));
+            assert!(
+                t.iter()
+                    .map(|v| v.to_bits())
+                    .eq(colour_f32.iter().map(|v| v.to_bits())),
+                "{path}: f32 {threads} threads"
+            );
+        }
+        drop(colour_f32);
+
+        // The developed mix, on both entries.
+        let active = sensor.active_area.expect("an ActiveArea");
+        let a = (active.right - active.left) as usize * (active.bottom - active.top) as usize;
+        let sets = [
+            (Framing::StandardCrop, true, 1.0),
+            (Framing::StandardCrop, true, 0.5),
+            (Framing::StandardCrop, true, 0.0),
+            (Framing::FullActiveArea, true, 1.0),
+            (Framing::StandardCrop, false, 1.0),
+        ];
+        for (k, (framing, apply, alpha)) in sets.into_iter().enumerate() {
+            let mut o = DevelopOptions::default();
+            o.framing = framing;
+            o.apply_orientation = apply;
+            o.warp_alpha = alpha;
+            o.mono_mix = Some(LUMA);
+            let (mw, mh) = output_dimensions_with(&sensor, &o).unwrap();
+            let mut dst = vec![0u16; mw as usize * mh as usize];
+            develop_with_into(&sensor, &src, &mut dst, &o)
+                .unwrap_or_else(|e| panic!("{path}: developed mix {k}: {e}"));
+            check(&format!("developed mix {k}"), fnv1a(&dst), developed.mix[k]);
+            let len = scratch_len(&sensor, &o).unwrap();
+            if alpha > 0.0 {
+                assert_eq!(len, 2 * a, "{path}: scratch_len is 2A");
+            }
+            let mut scratch = vec![0x5A5Au16; len];
+            let mut dst2 = vec![0u16; dst.len()];
+            develop_with_scratch_into(&sensor, &src, &mut dst2, &mut scratch, &o)
+                .unwrap_or_else(|e| panic!("{path}: scratch mix {k}: {e}"));
+            assert!(dst2 == dst, "{path}: the two mix entries agree ({k})");
+        }
+        ran += 1;
+    }
+    eprintln!(
+        "ac7_the_opcode_files_develop: {ran}/{} file(s) present",
+        DEVELOPED_PINS.len()
+    );
+    assert!(mismatches.is_empty(), "AC7 digests: {mismatches:#?}");
 }
 
 /// `SPEC-098` AC8: the SL3's bad photosites. 27,651 equal its `Constant` (0),

@@ -90,6 +90,40 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **The developed outputs apply the per-plane `WarpRectilinear`** (SPEC-100,
+  STAGE-034, PROJ-006, DEC-088, amending DEC-084 items 1, 3, 6 and 7 and
+  DEC-087 item 6, replacing DEC-086 item 6). The Leica Q2, Q3 and SL3 now
+  develop with `develop_color_into`, `develop_color_f32_into`, their threaded
+  forms and the developed mix, where they were refused with
+  `UnsupportedRequiredOpcode { list: 3, id: 1 }`.
+  - **The colour develop** applies a **mandatory** first `WarpRectilinear` in
+    DNG's stage order: SPEC-099's chromatic-aberration step on the camera
+    triple, then green's set (`sensor_geometry_warp(..).consumer()`, the one
+    set for `N = 1`) on each camera plane over the `ActiveArea`, then the
+    colour matrix, the `DefaultCrop` and the orientation. It takes no options.
+    An optional first warp is still skipped, so the Pixel 3a and 7 Pro keep
+    their bytes. With a mandatory warp the entry holds an `ActiveArea`-sized
+    camera-RGB buffer (about 363 MB at 60 MP) besides the green plane, and the
+    threaded forms run on one thread. A mandatory warp with an `N` other than
+    1 or 3 is `MalformedOpcodeParams { id: 1, .. }`, and tangential terms are
+    refused (`UnsupportedWarpTangentialTerms`), after the CFA check and before
+    the colour calibration.
+  - **The developed mix** applies the first `WarpRectilinear` **whatever its
+    flags**, with `N` 1 or 3: the mono develop of `mono_mix_plane_into`'s
+    CA-corrected plane with green's set at `warp_alpha` and the framing, so
+    `warp_alpha` dials back lens distortion only. A mandatory `N = 3` warp is
+    applied (it was refused), and **an optional warp with `N` other than 1,
+    which was skipped, is now applied (`N = 3`) or refused as malformed
+    (`N = 2` or `N ≥ 4`)**; no held file has one. Under `FullActiveArea` the
+    bounds rule now reads green's set (it read `K1`, red's set). The
+    chromatic-aberration ring runs inside each 512-row strip in the caller's
+    scratch, so `develop_with_scratch_into` still allocates nothing;
+    `scratch_len` adds the ring when red and blue are resampled (on the held
+    files it stays twice the `ActiveArea`) and now reads `CFAPlaneColor` and
+    green's fold for a three-set warp.
+  - No file that developed before changes output. Neither `DEVELOP_VERSION`
+    nor `MONO_MIX_VERSION` moves: the colour develop only stops refusing, and
+    the developed mix is unreleased.
 - **The sensor-geometry planes correct lateral chromatic aberration** (SPEC-099,
   STAGE-034, PROJ-006, DEC-087, amending DEC-086 items 5 and 8, onyx's DEC-114).
   On a first `WarpRectilinear` with three coefficient sets whose red or blue set
@@ -111,8 +145,8 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
   refuses it the same way), and non-zero
   tangential terms are refused when the sets differ. A file with an optional
   three-set warp whose sets differ would also change; none is known. The
-  developed outputs are unchanged (SPEC-100), and neither `DEVELOP_VERSION` nor
-  `MONO_MIX_VERSION` moves.
+  developed outputs were unchanged here (SPEC-100 applies the warp there), and
+  neither `DEVELOP_VERSION` nor `MONO_MIX_VERSION` moves.
 - **The colour entries apply a mandatory `FixBadPixelsConstant`** (SPEC-098,
   STAGE-034, PROJ-006, DEC-086, amending DEC-084 item 3). The colour develop,
   the sensor-geometry planes and the developed mix apply `OpcodeList1`'s first

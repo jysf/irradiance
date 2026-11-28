@@ -854,41 +854,29 @@ fn ac6_refusals_and_their_order() {
     let want = six_entries(&without_list_3(&sensor), &src);
     assert_same_six(&got, &want, "1×1 ActiveArea");
 
-    // The developed outputs are unchanged on these lists.
+    // SPEC-100 (`DEC-088`): the developed outputs apply these lists (their own
+    // oracles are `tests/colour_warp.rs` and `tests/developed_mix.rs`).
     let list = warp_list(&[RED, GREEN, BLUE], 0.5, 0.5, MANDATORY);
     let sensor = sensor_with(&src, Some(&list), Variant::Plain);
-    let refused = |r: Result<(), Error>, what: &str| {
-        assert!(
-            matches!(r, Err(Error::UnsupportedRequiredOpcode { list: 3, id: 1 })),
-            "{what}: {r:?}"
-        );
-    };
-    refused(
-        develop_color_into(&sensor, &src, &mut []),
-        "develop_color_into",
-    );
-    refused(
-        develop_color_f32_into(&sensor, &src, &mut []),
-        "develop_color_f32_into",
-    );
+    let (cw, ch) = output_dimensions_with(&sensor, &DevelopOptions::default()).unwrap();
+    let rgb = (cw * ch * 3) as usize;
+    develop_color_into(&sensor, &src, &mut vec![0; rgb]).expect("develop_color_into");
+    develop_color_f32_into(&sensor, &src, &mut vec![0.0; rgb]).expect("develop_color_f32_into");
     let mut options = DevelopOptions::default();
     options.mono_mix = Some(LUMA);
-    refused(
-        develop_with_into(&sensor, &src, &mut [], &options),
-        "developed mix, mandatory",
-    );
-    // An optional N = 3 warp is skipped by the developed mix (DEC-086 item 6).
-    let optional = warp_list(&[RED, GREEN, BLUE], 0.5, 0.5, OPTIONAL);
-    let sensor = sensor_with(&src, Some(&optional), Variant::Plain);
-    let (mw, mh) = output_dimensions_with(&sensor, &options).unwrap();
-    let mut with = vec![0u16; (mw * mh) as usize];
-    develop_with_into(&sensor, &src, &mut with, &options).unwrap();
-    let mut without = vec![0u16; (mw * mh) as usize];
-    develop_with_into(&without_list_3(&sensor), &src, &mut without, &options).unwrap();
-    assert_eq!(
-        with, without,
-        "the developed mix skips an optional N = 3 warp"
-    );
+    for flags in [MANDATORY, OPTIONAL] {
+        let list = warp_list(&[RED, GREEN, BLUE], 0.5, 0.5, flags);
+        let sensor = sensor_with(&src, Some(&list), Variant::Plain);
+        let (mw, mh) = output_dimensions_with(&sensor, &options).unwrap();
+        let mut with = vec![0u16; (mw * mh) as usize];
+        develop_with_into(&sensor, &src, &mut with, &options).expect("the developed mix");
+        let mut without = vec![0u16; (mw * mh) as usize];
+        develop_with_into(&without_list_3(&sensor), &src, &mut without, &options).unwrap();
+        assert_ne!(
+            with, without,
+            "the developed mix applies N = 3, flags {flags}"
+        );
+    }
 }
 
 /// AC5's halo on a tall, narrow `ActiveArea` (8 × 40): there the vertical reach

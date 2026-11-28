@@ -624,12 +624,18 @@ pub(crate) const MIX_STRIP_LOCAL_ROWS: usize = MIX_STRIP_ROWS + 2 * BAND_HALO + 
 /// Private; strips are output-invariant, so only the scratch size reads it.
 pub(crate) const MIX_STRIP_ROWS: usize = 512;
 
-/// `T`, the developed mix's strip working memory for a `w × h` plane
-/// (`SPEC-093` Design §7): `w·(min(h, S + 7) + RING)` samples, enough for
-/// [`develop_rows_banded_in`] on any strip of at most [`MIX_STRIP_ROWS`] rows.
-/// `None` on overflow.
-pub(crate) fn mix_strip_work_len(w: u32, h: u32) -> Option<u64> {
-    let local = core::cmp::min(u64::from(h), MIX_STRIP_LOCAL_ROWS as u64);
+/// `T_H`, the developed mix's strip working memory for a `w × h` plane and a
+/// CA halo of `halo` rows (`SPEC-093` Design §7, `SPEC-100` / `DEC-088` item
+/// 4): `w·(min(h, S + 2H + 7) + RING)` samples, enough for
+/// [`develop_rows_banded_in`] on any band of at most [`MIX_STRIP_ROWS`] `+ 2H`
+/// rows (a strip and its CA halo on each side). `halo = 0` is `SPEC-093`'s
+/// `T`. `None` on overflow.
+pub(crate) fn mix_strip_work_len(w: u32, h: u32, halo: usize) -> Option<u64> {
+    let band = u64::try_from(halo)
+        .ok()?
+        .checked_mul(2)?
+        .checked_add(MIX_STRIP_LOCAL_ROWS as u64)?;
+    let local = core::cmp::min(u64::from(h), band);
     local.checked_add(RING as u64)?.checked_mul(u64::from(w))
 }
 

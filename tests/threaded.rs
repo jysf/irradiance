@@ -380,3 +380,58 @@ fn threaded_errors_match_the_single_thread_errors() {
     assert!(threaded.is_err());
     assert_eq!(format!("{single:?}"), format!("{threaded:?}"));
 }
+
+/// `SPEC-100` AC8 (`DEC-088` item 2): with a mandatory per-plane
+/// `WarpRectilinear` (N = 3, sets that differ) the threaded colour entries run
+/// the single-thread warped body, so every thread count gives its bytes, on
+/// every Bayer phase and orientation of the odd-top geometry.
+#[test]
+fn threaded_colour_develop_with_a_mandatory_warp_equals_single_threaded() {
+    // `WarpRectilinear` (id 1), mandatory, N = 3: red, green, blue radial sets.
+    let sets: [[f64; 4]; 3] = [
+        [1.08, -0.04, -0.05, 0.01],
+        [1.0, -0.05, -0.05, 0.0],
+        [0.94, -0.06, -0.04, 0.0],
+    ];
+    let mut params = 3u32.to_be_bytes().to_vec();
+    for kr in sets {
+        for v in kr.into_iter().chain([0.0, 0.0]) {
+            params.extend_from_slice(&v.to_be_bytes());
+        }
+    }
+    for v in [0.5f64, 0.5] {
+        params.extend_from_slice(&v.to_be_bytes());
+    }
+    let mut list = 1u32.to_be_bytes().to_vec();
+    for word in [1u32, 0x0103_0000, 0, u32::try_from(params.len()).unwrap()] {
+        list.extend_from_slice(&word.to_be_bytes());
+    }
+    list.extend_from_slice(&params);
+
+    let mosaic = noisy_mosaic(GEO_W, GEO_H);
+    for pattern in BAYER_PHASES {
+        for orientation in 1..=8 {
+            let mut s = geometry_sensor(&pattern, Some(orientation));
+            s.opcode_list_3 = Some(list.clone());
+            s.opcode_lists[2] = true;
+            let mut plain = s.clone();
+            plain.opcode_list_3 = None;
+            plain.opcode_lists[2] = false;
+            let want = single_colour(&s, &mosaic);
+            assert_ne!(want, single_colour(&plain, &mosaic), "the warp is applied");
+            let want_f32 = single_f32(&s, &mosaic);
+            for threads in [1, 2, 3, 8] {
+                assert_eq!(
+                    threaded_colour(&s, &mosaic, threads),
+                    want,
+                    "{pattern:?} orientation {orientation}, {threads} threads"
+                );
+                assert_eq!(
+                    threaded_f32(&s, &mosaic, threads),
+                    want_f32,
+                    "{pattern:?} orientation {orientation}, {threads} threads (f32)"
+                );
+            }
+        }
+    }
+}

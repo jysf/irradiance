@@ -410,6 +410,29 @@ pub fn apply_warp_into(
     Ok(())
 }
 
+/// The value [`apply_warp_into`]`(warp, width, height, plane_c, ..)` writes at
+/// `(x, y)`, for each of three planes at once (`SPEC-100`, `DEC-088` item 2):
+/// `at(xi, yi, c)` reads plane `c` at `(xi, yi)`. The same two functions
+/// [`apply_warp_into`] calls, in the same order: [`source_coord`] once, then
+/// [`bilinear_sample`]'s kernel per plane, so each value equals the per-plane
+/// warp bit for bit. The caller handles the identity (which
+/// [`apply_warp_into`] copies) and has checked `warp` is finite.
+///
+/// # Errors
+///
+/// [`Error::UnsupportedWarpTangentialTerms`] if `warp.kt != [0.0, 0.0]`.
+pub(crate) fn warp_sample3(
+    warp: &WarpRect,
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    at: impl Fn(u32, u32, usize) -> u16,
+) -> Result<[u16; 3], Error> {
+    let (sx, sy) = source_coord(warp, width, height, x, y)?;
+    Ok([0usize, 1, 2].map(|c| bilinear_sample_with(width, height, sx, sy, |xi, yi| at(xi, yi, c))))
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SPEC-099, DEC-087 item 3: red and blue resampled to green's geometry
 // ─────────────────────────────────────────────────────────────────────────────
@@ -419,6 +442,9 @@ const CA_TABLE_INTERVALS: usize = 4096;
 
 /// `T` as `f64`.
 const CA_TABLE_INTERVALS_F64: f64 = 4096.0;
+
+/// `T + 1`, the nodes (and table entries) `j = 0..=T`.
+const CA_TABLE_LEN: usize = CA_TABLE_INTERVALS + 1;
 
 /// `f(k, s) = k0 + k1·s + k2·s·s + k3·s·s·s`, in exactly this operation order
 /// (`DEC-087` item 3; not [`scale_bounds`]' Horner form).
@@ -493,8 +519,10 @@ pub(crate) struct ChromaticShift {
     cy: f64,
     m: f64,
     /// `t_c[0..=T]` for red (plane 0) and blue (plane 2); `None` for a plane
-    /// whose set equals green's, which is not resampled.
-    tables: [Option<Vec<f64>>; 2],
+    /// whose set equals green's, which is not resampled. Fixed-size arrays,
+    /// not `Vec`s, so resolving the step allocates nothing and the developed
+    /// mix's scratch form stays allocation-free (`SPEC-100`, `DEC-088` item 3).
+    tables: [Option<[f64; CA_TABLE_LEN]>; 2],
     /// `H = ⌈B⌉ + 1`, capped at the `ActiveArea`'s height.
     halo: usize,
 }
@@ -539,14 +567,14 @@ impl ChromaticShift {
 
         // The nodes are shared by both planes; each plane divides its own
         // scale by green's at every node.
-        let nodes: Vec<f64> = (0..=CA_TABLE_INTERVALS)
-            .map(|j| table_node(&green.kr, j as f64 / CA_TABLE_INTERVALS_F64))
-            .collect();
-        let table = |set: &WarpRect| -> Vec<f64> {
-            nodes
-                .iter()
-                .map(|&s| radial_scale(&set.kr, s) / radial_scale(&green.kr, s))
-                .collect()
+        // On the stack, in the same order and arithmetic as the `Vec`s they
+        // replaced (`SPEC-100`): node `j` is `table_node(σ_j)`, `σ_j = j / T`.
+        let mut nodes = [0.0f64; CA_TABLE_LEN];
+        for (j, node) in nodes.iter_mut().enumerate() {
+            *node = table_node(&green.kr, j as f64 / CA_TABLE_INTERVALS_F64);
+        }
+        let table = |set: &WarpRect| -> [f64; CA_TABLE_LEN] {
+            nodes.map(|s| radial_scale(&set.kr, s) / radial_scale(&green.kr, s))
         };
         let tables = [red.map(table), blue.map(table)];
 
@@ -625,7 +653,8 @@ impl ChromaticShift {
             2 => self.tables.get(1),
             _ => None,
         }?
-        .as_deref()?;
+        .as_ref()?
+        .as_slice();
         let fx = f64::from(x.wrapping_sub(self.left));
         let fy = f64::from(y.wrapping_sub(self.top));
         let dx = (fx - self.cx) / self.m;
