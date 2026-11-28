@@ -92,6 +92,11 @@ tags:
    the consumer applies the file's `WarpRectilinear`. A later mandatory instance in
    `OpcodeList3`, or any other mandatory opcode, is refused as on the colour path. Its
    malformed-tag sets are the colour path's three (`DEC-078` §2).
+   **Amended at SPEC-099's design (2026-11-28), DEC-087 items 2 and 7.** On a first
+   `WarpRectilinear` with `N = 3` whose red or blue set differs from green's, these entries
+   resample red and blue to green's geometry before the colour matrix (onyx's DEC-114),
+   and only green's set is left to the consumer, named by `opcode::sensor_geometry_warp`.
+   `N = 1` and identical sets are unchanged. Takes effect when SPEC-099 ships.
 6. **The developed outputs.** `DevelopPath::Colour` applies no warp and still refuses a
    mandatory `WarpRectilinear` (`UnsupportedRequiredOpcode { list: 3, id: 1 }`) until
    `SPEC-099`. `DevelopPath::MonoMix` applies the first `WarpRectilinear` as `DEC-084`
@@ -114,6 +119,8 @@ tags:
    place without a second buffer, because it reads unfixed values only), so the demosaic
    and colour-transform primitives keep refusing a mandatory `FixBadPixelsConstant`. No
    per-plane warp accessor (it comes with `SPEC-099`, which needs the per-plane parse).
+   **Amended at SPEC-099's design (2026-11-28), DEC-087 item 1:** the accessor is
+   `opcode::sensor_geometry_warp`.
 9. **Versions and errors.** No `Error` variant is added or changed. `DEVELOP_VERSION`
    (`"8"`) and `MONO_MIX_VERSION` (`"1"`) do not move: no file that develops today
    changes (Validation).
