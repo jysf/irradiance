@@ -24,6 +24,7 @@ value_contribution:
     - "`CFAPlaneColor` with three or four colours (for example CMYG or RGBE), with colour-matrix sizes that follow the colour count (3×n)"
     - "An oracle for patterns irradiance cannot develop: the parser round trip plus dng_validate's render, compared against a test-support mosaic of a known image"
     - "A recorded Lightroom Classic open of an invented-CFA file (manual, not gated)"
+    - "A local-only reader lane: every PROJ-007 output (and the PROJ-005 mono outputs) opened in darktable, RawTherapee, rawpy/LibRaw and Quick Look, results recorded. These are run as tools, never linked"
   explicitly_does_not:
     - "Develop a non-2×2 or four-colour CFA in irradiance (`UnsupportedCfaPattern` stays)"
     - "Ship named vendor presets (an X-Trans layout) without a patent re-check"
@@ -81,11 +82,13 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 
 - [ ] (not yet written) — [S] Spike, timeboxed to one session: what dng_validate 1.7.1 and Lightroom Classic accept and render (repeat dimensions up to 8×8, four colours, a 3×3, whether `ColorMatrix` must be 4×3 for four colours), with a hand-built file from the STAGE-035 writer. Settles the limits the next spec enforces
 - [ ] (not yet written) — [M] General CFA patterns: any repeat dimension and three or four plane colours within the spike's limits, matrix sizes by colour count, refusals named and typed, parser round trip and the dng_validate render oracle with its red-proof, fuzz target widened. A DEC for the accepted pattern space
+
+- [ ] (not yet written) — [S] Local reader lane: a script that opens written files in darktable, RawTherapee, rawpy/LibRaw and Quick Look and records whether each develops, including whether any reader minds the raw plane in IFD0 (DEC-082). Skips loudly when a tool is absent, like `sdk-stage2`. Never in CI
 - [ ] (not yet written) — [S] STAGE-036 follow-ups, bundled (reserve)
 
-**Count:** 0 shipped / 0 active / 3 pending
+**Count:** 0 shipped / 0 active / 4 pending
 
-**Estimate.** Specs about 37M (12 + 25), orchestration about 25M: about 60M / $45.
+**Estimate.** Specs about 50M (12 + 25 + 13), orchestration about 30M: about 80M / $60.
 
 ## Design Notes
 

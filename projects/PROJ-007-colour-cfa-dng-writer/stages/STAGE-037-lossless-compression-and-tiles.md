@@ -98,6 +98,10 @@ The highest-variance stage in the project.
 - The SOF-3 decoder already reads the cameras' CFA layout (two components, half width), so
   it is the encoder's oracle as written. Reading a copyleft encoder is not allowed
   (`provenance-recorded-per-algorithm`).
+- **Added 2026-11-28.** The demo runs as wasm in the browser, where an uncompressed 120 MB
+  file is the user's download. If the demo goes public before this stage ships, it writes a
+  smaller resolution. A compressed file's `NewRawImageDigest` is computed over the samples as
+  DNG defines it, so STAGE-035's digest rule carries over unchanged.
 - If the L will not fit one spec, the natural split is the encoder (a pure function, bytes
   in, bytes out) and then its binding into the writer.
 
