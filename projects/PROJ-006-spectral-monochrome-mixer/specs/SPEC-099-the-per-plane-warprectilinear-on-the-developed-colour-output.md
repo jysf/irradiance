@@ -52,7 +52,7 @@ claimed_by: null
 # One sentence on what this spec contributes to its stage's
 # value_contribution. For plumbing: "infrastructure enabling
 # STAGE-034's <capability>". Optional; null is acceptable.
-value_link: "STAGE-034: the Leica Q2, Q3 and SL3 colour DNGs (a mandatory three-plane WarpRectilinear) give a colour develop and a developed mix instead of refusing"
+value_link: "STAGE-034: the Leica Q2, Q3 and SL3 colour DNGs (a mandatory three-plane WarpRectilinear) give CA-corrected sensor-geometry planes, a colour develop and a developed mix instead of refusing"
 
 # Self-reported AI cost per cycle. Each cycle (design, build, verify,
 # ship) appends one entry to sessions[]. Totals are computed at ship.
@@ -88,7 +88,8 @@ Third spec of STAGE-034 (PROJ-006), split out of SPEC-098 at its design (2026-11
 DEC-086). After SPEC-098 the Q2 (`LEICA-Q2/L1000750.DNG`, CC0), Q3 and SL3
 (`LEICA-Q3-PB/leica_q3_01.dng`, `LEICA-SL3-PB/leica_sl3_01.dng`, Photography Blog, local
 only, never committed) give a linear plane and a mixed plane at sensor geometry, with
-`FixBadPixelsConstant` applied on the CFA. Their developed outputs still refuse:
+`FixBadPixelsConstant` applied on the CFA and the whole `WarpRectilinear` left to the
+consumer. Their developed outputs still refuse:
 
 - `develop_color_into`, `develop_color_f32_into` and the threaded forms refuse with
   `UnsupportedRequiredOpcode { list: 3, id: 1 }`: `DevelopPath::Colour` applies no warp.
@@ -102,59 +103,94 @@ and the three planes' sets differ by up to 1.1, 1.2 and 1.3 px at the corner (la
 chromatic aberration). The mono warp (`SPEC-064`, `src/warp.rs`) applies one set to one
 plane, and the parser keeps only `K1` (`src/opcode.rs`, `parse_warp_rectilinear_params`).
 
-onyx's rule 1 (STAGE-034 Design Notes): only the developed outputs apply the warp, or
-refuse when they cannot. DEC-084 makes the developed mix equal onyx's viewport, which warps
-the mixed plane, so the developed mix's three-plane rule depends on what the viewport does.
+**onyx's answers (2026-11-28, onyx's DEC-114)** to the two questions SPEC-098's design
+left in the PROJ-006 brief. They amend onyx's rule 1 (STAGE-034 Design Notes) and so
+DEC-086's sensor-geometry pass-through:
+
+1. **Split the warp in two.**
+   - At sensor geometry, before the mix, `srgb_linear_plane_*` and `mono_mix_plane_*`
+     resample red and blue to green's geometry: each plane's set relative to green's, with
+     plane colours from `CFAPlaneColor`. This step always runs and does not follow
+     `warp_alpha`. With the opcode's one shared centre it is radial, so it needs only a 1D
+     inverse of green's radial polynomial. Non-zero tangential terms stay refused.
+   - Then one warp, green's set, on the mixed plane. onyx's viewport applies it on the GPU
+     at the user's alpha, and the developed mix applies the same warp at the same alpha, so
+     export equals the viewport by construction (DEC-084) and onyx's warp parity check
+     carries over. On colour files `warp_alpha` then dials back lens distortion only;
+     chromatic aberration is always corrected.
+   - A file with `N = 1`, or with identical sets, gives output bit-identical to today's.
+2. **An accessor, yes.** It exposes the warp the consumer must apply (green's set), so the
+   choice of set lives in one place and matches the developed mix, and all `N` sets with
+   their plane colours (onyx's Optics bench draws them as lateral-CA vectors). onyx stops
+   using `parse_warp_rectilinear` on colour files; monochrome files keep it, since `K1` is
+   the right set for a single plane.
+
+onyx also answered SPEC-097's question: no highlight recovery above `WhiteLevel`. Outputs
+keep clipping at white, so nothing in this spec changes for the M10.
 
 ## Goal
 
-The held Q2, Q3 and SL3 files give a colour develop and a developed mix with no refusal,
-each plane warped by its own coefficient set as DNG 1.7.1.0 specifies, with no output
-change for any file that develops today.
+The held Q2, Q3 and SL3 files give chromatic-aberration-corrected linear and mixed planes
+at sensor geometry, a colour develop and a developed mix with no refusal, and an accessor
+that names the warp the consumer applies. Every file that has no per-plane difference
+(`N = 1`, or identical sets) gives output bit-identical to today's.
 
 ## Inputs
 
 - **Files to read:** `src/warp.rs` (`apply_warp_into`, `source_coord`, the bilinear
   sampler); `src/opcode.rs` (`parse_warp_rectilinear_params`, `WarpRect`, `DevelopPath`);
-  `src/color.rs` (the fused traversal and every colour entry); `src/develop.rs`
-  (`develop_core`, `run_mix_passes`, `mix_needed_scratch`); SPEC-064, SPEC-093, SPEC-098;
-  DEC-059, DEC-084, DEC-086.
+  `src/color.rs` (the fused traversal, `srgb_linear_plane_*` including the `_rows_` forms,
+  `mono_mix_plane_*`, every colour entry); `src/develop.rs` (`develop_core`,
+  `run_mix_passes`, `mix_needed_scratch`); SPEC-064, SPEC-093, SPEC-098; DEC-059, DEC-084,
+  DEC-086.
 - **External:** DNG 1.7.1.0 `WarpRectilinear` ("N must be 1 or the total number of image
   planes"). `dng_validate -3` on each file: stage 3 is the camera-RGB `ActiveArea` after
   the per-plane warp (3 planes, 8392×5632 on the Q2, 9536×6344 on the Q3 and SL3; already
-  generated at SPEC-098's design), the oracle candidate.
-- **Corpus:** the three files, promoted to `[[file]]` entries by SPEC-098's build.
+  generated at SPEC-098's design), the oracle candidate for the colour develop.
+- **Corpus:** the three files, already tier-B `[[file]]` entries from SPEC-098's build.
 
 ## Questions for design
 
-- **Where the colour warp runs:** on camera RGB before the colour matrix (the DNG stage-3
-  position, needed because each plane has its own warp), and what intermediate that costs
-  (`3·A` `u16` is about 363 MB at 60 MP). Can it gather straight into the cropped,
-  oriented `dst`?
-- **The developed mix with `N = 3`:** warp each plane and then mix (the DNG order), or mix
-  and warp with one set (DEC-084's order)? Which set does onyx's viewport use on a
-  three-plane file? This is onyx's question, and it decides whether DEC-084 needs an
-  amendment.
-- **An accessor** for the per-plane sets, so onyx's viewport can read them (SPEC-098 only
-  documents the pass-through, and `parse_warp_rectilinear` returns `K1`).
+- **The relative warp:** red at green's geometry is red sampled at `f_r(f_g⁻¹(x))`. How is
+  `f_g⁻¹` inverted (Newton on the radial polynomial, a table), to what tolerance, and what
+  happens if green's polynomial is not monotonic over the image radius?
+- **Identical sets:** how the CA step is skipped exactly (compare sets, or the `N = 1` case)
+  so output stays bit-identical rather than resampled through a numerical identity.
+- **The row-range forms** (`srgb_linear_plane_rows_*`): a resample reads rows outside the
+  requested range. What do they read, and is any output still row-local?
+- **The colour develop:** CA step then green's warp (two resamples, matching the mix), or
+  each plane's own set in one resample (the DNG stage-3 order, one interpolation)? The two
+  differ slightly; which does the oracle bound cover? Where it runs relative to the colour
+  matrix, and what intermediate it costs (`3·A` `u16` is about 363 MB at 60 MP).
+- **The developed mix:** CA step at sensor geometry, mix, then green's warp at `warp_alpha`
+  and `Framing`, as onyx's viewport does. Which DEC-084 and DEC-086 items does it amend?
+- **The accessor:** its name and shape (the consumer's warp plus every set with its
+  `CFAPlaneColor` colour), what it returns for `N = 1` and for a monochrome file, and how it
+  relates to `parse_warp_rectilinear`, which stays unchanged.
+- **Output change at sensor geometry:** the linear and mixed planes of the Q2, Q3 and SL3
+  change from SPEC-098's (unreleased). Does `DEVELOP_VERSION` or `MONO_MIX_VERSION` move?
 - **`develop_color_f32_into` and the threaded forms:** the same warp, bit-identical
   across thread counts?
-- **The oracle:** `dng_validate` stage 3 against the warped camera RGB, within a
-  pre-registered bound (the SDK's resampling kernel may differ from irradiance's
-  bilinear one).
-- **`warp_alpha` and `Framing`:** does the colour develop gain them, or only the defaults?
+- **The oracle:** `dng_validate` stage 3 against the colour develop's warped camera RGB,
+  within a pre-registered bound (the SDK's resampling kernel may differ from irradiance's
+  bilinear one); a synthetic per-plane fixture for the CA step and its identity case.
+- **`warp_alpha` and `Framing` on the colour develop:** gained, or the defaults only?
 - **Optional warps:** `develop_color_into` skips an optional `WarpRectilinear` today (the
   Pixels carry one with `N = 1`). Applying optional ones would change their output, so
-  `DEVELOP_VERSION` must move if it does. The default is to keep skipping them.
-- **Spec size:** M is expected. Split again if the developed mix's answer needs its own
-  decision.
+  `DEVELOP_VERSION` must move if it does. The default is to keep skipping them. Does the CA
+  step run for an optional `N = 3` warp?
+- **Spec size:** onyx's answer adds the sensor-geometry CA step and the accessor to the
+  developed warp, so expect L. SPEC-098 ran 5× its token estimate. Consider a split: the CA
+  step plus the accessor first, then the developed outputs.
 
 ## Non-Goals
 
-- Applying the warp at sensor geometry (onyx's rule 1).
+- Green's lens-distortion warp at sensor geometry: the consumer applies it (onyx's rule 1,
+  as amended).
 - `FixBadPixelsConstant` (SPEC-098).
 - Tangential warp terms (no held file has them; `UnsupportedWarpTangentialTerms` stays).
-- Highlight recovery and filter presets.
+- A per-plane `N` other than 1 or 3, or plane colours other than R, G, B.
+- Highlight recovery above `WhiteLevel` (onyx declined it, 2026-11-28) and filter presets.
 
 ---
 
