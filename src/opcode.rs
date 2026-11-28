@@ -1112,6 +1112,25 @@ pub(crate) fn first_warp_planes(bytes: &[u8]) -> Result<Option<WarpPlanes>, Erro
     Ok(None)
 }
 
+/// Whether the first `WarpRectilinear` in an `OpcodeList` byte stream is
+/// mandatory (flags bit 0 clear), or `None` when the list holds none
+/// (`SPEC-100`, `DEC-088` item 2: the colour develop applies a mandatory one
+/// only). Reads the framing only, not the parameter block, so an optional
+/// malformed warp is still skipped unread. The same first-instance lookup as
+/// [`first_warp_planes`]: an opcode declaring a newer DNG version is not one.
+/// Allocates nothing.
+pub(crate) fn first_warp_is_mandatory(bytes: &[u8]) -> Result<Option<bool>, Error> {
+    let count = read_u32_be(bytes, 0)?;
+    let mut pos: usize = 4;
+    for _ in 0..count {
+        let raw = read_raw_opcode(bytes, &mut pos)?;
+        if raw.known_id() == Some(OPCODE_ID_WARP_RECTILINEAR) {
+            return Ok(Some(!raw.optional()));
+        }
+    }
+    Ok(None)
+}
+
 /// One coefficient set of a file's `WarpRectilinear`, as
 /// [`sensor_geometry_warp`] reports it (`SPEC-099`, `DEC-087` item 1).
 ///
@@ -1311,13 +1330,16 @@ pub enum DevelopPath {
     /// The colour path: [`crate::color::develop_color_into`] and its `f32` /
     /// threaded variants. It applies the first `FixBadPixelsConstant` in
     /// `OpcodeList1` whatever its flags, on the raw CFA from the four nearest
-    /// photosites of the same colour (`SPEC-098`, `DEC-086`), and **every**
-    /// `GainMap` in `OpcodeList2` (`SPEC-059`, `DEC-069`), and nothing else,
-    /// so any other mandatory opcode in any list is refused (a mandatory
-    /// `WarpRectilinear` in `OpcodeList3` included, until `SPEC-099`). It
-    /// refuses a malformed tag of the levels and geometry set, the CFA set or
-    /// the colour set (`DEC-078` §2). A composer asking with this path gets the
-    /// full colour develop's answer.
+    /// photosites of the same colour (`SPEC-098`, `DEC-086`), **every**
+    /// `GainMap` in `OpcodeList2` (`SPEC-059`, `DEC-069`), and the first
+    /// `WarpRectilinear` in `OpcodeList3` (`SPEC-100`, `DEC-088` item 2): the
+    /// develop applies it when it is mandatory, as the CA step of
+    /// [`sensor_geometry_warp`] then green's set on each camera plane before
+    /// the colour matrix, and skips it when it is optional. Its `N` (1 or 3)
+    /// is the develop's own check, after the CFA. Any other mandatory opcode
+    /// in any list is refused. It refuses a malformed tag of the levels and
+    /// geometry set, the CFA set or the colour set (`DEC-078` §2). A composer
+    /// asking with this path gets the full colour develop's answer.
     Colour,
     /// The demosaic stage primitives, [`crate::demosaic::demosaic_into`] and
     /// [`crate::demosaic::demosaic_into_threaded`] (`SPEC-087`, `DEC-078`).
@@ -1334,16 +1356,15 @@ pub enum DevelopPath {
     /// the colour set, the tags the transform reads.
     ColourTransform,
     /// The developed mix (`SPEC-093`, `DEC-084` item 3 as amended by
-    /// `DEC-086`): [`crate::develop::develop_with_into`] with
+    /// `DEC-088` item 3): [`crate::develop::develop_with_into`] with
     /// [`crate::develop::DevelopOptions::mono_mix`], and its scratch form. It
     /// applies the first `FixBadPixelsConstant` in `OpcodeList1` and **every**
     /// `GainMap` in `OpcodeList2`, both inside the mix as
     /// [`DevelopPath::Colour`] applies them, and the first `WarpRectilinear` in
-    /// `OpcodeList3` whatever its flags (as [`DevelopPath::Mono`]) **only when
-    /// its `N` is 1**: one coefficient set over the mixed plane is not the
-    /// per-plane warp DNG specifies for `N` > 1, so a mandatory first warp with
-    /// another `N` is refused (and an optional one skipped) until `SPEC-099`.
-    /// It refuses a malformed tag of the colour path's three sets.
+    /// `OpcodeList3` whatever its flags (as [`DevelopPath::Mono`]): the CA step
+    /// at sensor geometry, then green's set ([`sensor_geometry_warp`]'s
+    /// `consumer()`) over the mixed plane. Its `N` (1 or 3) is the develop's
+    /// own check. It refuses a malformed tag of the colour path's three sets.
     MonoMix,
     /// The sensor-geometry entries (`SPEC-098`, `DEC-086` item 5): the
     /// `SPEC-091` planes ([`crate::color::srgb_linear_plane_into`],
@@ -1407,19 +1428,13 @@ enum Applied {
     /// Every opcode with this ID (`GainMap` in list 2, `DEC-069` §2: a file
     /// carries one map per Bayer phase).
     Every(u32),
-    /// The first opcode with this ID, whatever its flags, only when its first
-    /// parameter word (`WarpRectilinear`'s `N`) is 1 (`DEC-086` item 6). A
-    /// parameter block too short to hold the word counts as applied, so the
-    /// applier's own parse refuses it as malformed.
-    FirstSinglePlane(u32),
 }
 
 impl DevelopPath {
     /// What this path applies from `OpcodeList{list}`: the first
-    /// `FixBadPixelsConstant` in list 1 (every path but the stage
-    /// primitives), the first `WarpRectilinear` in list 3 (mono and sensor
-    /// geometry; the developed mix only when its `N` is 1), and every
-    /// `GainMap` in list 2 (every path).
+    /// `FixBadPixelsConstant` in list 1 and the first `WarpRectilinear` in
+    /// list 3 (every path but the stage primitives), and every `GainMap` in
+    /// list 2 (every path).
     fn applied(self, list: u8) -> Applied {
         match (self, list) {
             (
@@ -1429,10 +1444,17 @@ impl DevelopPath {
                 | DevelopPath::MonoMix,
                 1,
             ) => Applied::First(OPCODE_ID_FIX_BAD_PIXELS_CONSTANT),
-            (DevelopPath::Mono | DevelopPath::SensorGeometry, 3) => {
-                Applied::First(OPCODE_ID_WARP_RECTILINEAR)
-            }
-            (DevelopPath::MonoMix, 3) => Applied::FirstSinglePlane(OPCODE_ID_WARP_RECTILINEAR),
+            // `SPEC-100` (`DEC-088` item 7): the colour develop and the
+            // developed mix apply the first `WarpRectilinear` too. Whether the
+            // colour develop applies an optional one, and which `N` each takes,
+            // is the entry's own check, after the CFA.
+            (
+                DevelopPath::Mono
+                | DevelopPath::Colour
+                | DevelopPath::SensorGeometry
+                | DevelopPath::MonoMix,
+                3,
+            ) => Applied::First(OPCODE_ID_WARP_RECTILINEAR),
             (_, 2) => Applied::Every(OPCODE_ID_GAIN_MAP),
             _ => Applied::Nothing,
         }
@@ -1495,9 +1517,10 @@ impl DevelopPath {
 ///    one `path` applies (each [`DevelopPath`] variant says which): the first
 ///    `FixBadPixelsConstant` in list 1 on every path but the two stage
 ///    primitives (`SPEC-098`, `DEC-086`); the first `WarpRectilinear` in
-///    list 3 on [`DevelopPath::Mono`] and [`DevelopPath::SensorGeometry`]
-///    (which leaves green's set to the consumer, `SPEC-099`), and on
-///    [`DevelopPath::MonoMix`] only when its `N` is 1; and every `GainMap` in
+///    list 3 on [`DevelopPath::Mono`], [`DevelopPath::SensorGeometry`]
+///    (which leaves green's set to the consumer, `SPEC-099`),
+///    [`DevelopPath::Colour`] and [`DevelopPath::MonoMix`] (`SPEC-100`,
+///    `DEC-088` item 7: each develop checks the warp's `N` itself); and every `GainMap` in
 ///    list 2 on every path (`SPEC-059`, `DEC-069`). "First" is the first
 ///    instance with that ID, whatever its own flags. Optional opcodes are
 ///    always skippable.
@@ -1686,8 +1709,7 @@ fn check_unhonoured_tags(sensor: &Sensor) -> Result<(), Error> {
 /// A list flagged unreadable refuses with [`Error::UnreadableOpcodeList`]
 /// before its own scan, so with several defects the lowest list's is reported.
 ///
-/// Parameter blocks are not otherwise interpreted here (the developed mix's
-/// `N` is the one word read, `DEC-086` item 6) — the appliers still parse
+/// Parameter blocks are not interpreted here — the appliers parse
 /// the opcodes they apply and report [`Error::MalformedOpcodeParams`]
 /// themselves. Panic-free on hostile bytes: the shared framing reader is fully
 /// checked, and the declared `count` never pre-allocates (each iteration
@@ -1740,20 +1762,6 @@ fn check_list(bytes: &[u8], list: u8, applied: Applied) -> Result<(), Error> {
                 first
             }
             Applied::Every(applied_id) => applied_id == id,
-            // As `First`, and then only a single-plane warp: `N`, the first
-            // big-endian word, is 1. A block too short to hold `N` is left to
-            // the applier's parse, which refuses it as malformed.
-            Applied::FirstSinglePlane(applied_id) => {
-                let first = applied_id == id && !applied_seen;
-                if applied_id == id {
-                    applied_seen = true;
-                }
-                first
-                    && raw
-                        .params
-                        .get(..4)
-                        .is_none_or(|n| n == 1u32.to_be_bytes().as_slice())
-            }
         };
 
         if is_applied || raw.optional() {
@@ -2237,6 +2245,20 @@ mod tests {
 
     /// A `WarpRectilinear` with `N = 3` (three identity coefficient sets), the
     /// Leica Q2, Q3 and SL3 shape.
+    /// A `WarpRectilinear` with `N = 2` identity sets.
+    fn warp2(flags: u32) -> Vec<u8> {
+        let mut params = 2u32.to_be_bytes().to_vec();
+        for _ in 0..2 {
+            for v in [1.0f64, 0.0, 0.0, 0.0, 0.0, 0.0] {
+                params.extend_from_slice(&v.to_be_bytes());
+            }
+        }
+        for v in [0.5f64, 0.5] {
+            params.extend_from_slice(&v.to_be_bytes());
+        }
+        raw_opcode(OPCODE_ID_WARP_RECTILINEAR, 0x0104_0000, flags, &params)
+    }
+
     fn warp3(flags: u32) -> Vec<u8> {
         let mut params = 3u32.to_be_bytes().to_vec();
         for _ in 0..3 {
@@ -2250,9 +2272,11 @@ mod tests {
         raw_opcode(OPCODE_ID_WARP_RECTILINEAR, 0x0104_0000, flags, &params)
     }
 
-    /// `SPEC-098` (`DEC-086` items 1 and 6): the colour path applies the first
-    /// `FixBadPixelsConstant` in list 1 and every `GainMap` in list 2, and
-    /// nothing else; a mandatory `WarpRectilinear` is refused in every list.
+    /// `SPEC-098` (`DEC-086` item 1) and `SPEC-100` (`DEC-088` item 7): the
+    /// colour path applies the first `FixBadPixelsConstant` in list 1, every
+    /// `GainMap` in list 2 and the first `WarpRectilinear` in list 3 (whatever
+    /// its `N`: the develop checks it), and nothing else; a `WarpRectilinear`
+    /// in lists 1 and 2, and a second mandatory one in list 3, is refused.
     #[test]
     fn colour_applies_the_first_fix_bad_pixels_and_every_gain_map() {
         let path = DevelopPath::Colour;
@@ -2265,6 +2289,8 @@ mod tests {
                 format!("{err:?}"),
                 required(list, OPCODE_ID_FIX_BAD_PIXELS_CONSTANT)
             );
+        }
+        for list in [1, 2] {
             for op in [warp(MANDATORY), warp3(MANDATORY)] {
                 let err = check_one(&opcode_list(&[op]), list, path).unwrap_err();
                 assert_eq!(
@@ -2272,6 +2298,18 @@ mod tests {
                     required(list, OPCODE_ID_WARP_RECTILINEAR)
                 );
             }
+        }
+        for op in [warp(MANDATORY), warp2(MANDATORY), warp3(MANDATORY)] {
+            assert!(check_one(&opcode_list(&[op]), 3, path).is_ok());
+        }
+        for second in [
+            opcode_list(&[warp3(MANDATORY), warp3(MANDATORY)]),
+            opcode_list(&[warp3(OPTIONAL), warp(MANDATORY)]),
+        ] {
+            assert_eq!(
+                format!("{:?}", check_one(&second, 3, path).unwrap_err()),
+                required(3, OPCODE_ID_WARP_RECTILINEAR)
+            );
         }
         for list in [2, 3] {
             let err = check_one(&opcode_list(&[fbpc(MANDATORY)]), list, path).unwrap_err();
@@ -2285,7 +2323,10 @@ mod tests {
             Applied::First(OPCODE_ID_FIX_BAD_PIXELS_CONSTANT)
         );
         assert_eq!(path.applied(2), Applied::Every(OPCODE_ID_GAIN_MAP));
-        assert_eq!(path.applied(3), Applied::Nothing);
+        assert_eq!(path.applied(3), Applied::First(OPCODE_ID_WARP_RECTILINEAR));
+        for stage in [DevelopPath::Demosaic, DevelopPath::ColourTransform] {
+            assert_eq!(stage.applied(3), Applied::Nothing);
+        }
     }
 
     /// `SPEC-098` (`DEC-086` item 5): the sensor-geometry path applies what
@@ -2312,11 +2353,10 @@ mod tests {
         assert_eq!(path.malformed_sets(), DevelopPath::Colour.malformed_sets());
     }
 
-    /// `SPEC-093` AC6 (v), `DEC-084` item 3 as amended by `DEC-086`: the
-    /// developed mix applies the first `FixBadPixelsConstant` in list 1, every
-    /// `GainMap` in list 2 and the first `WarpRectilinear` in list 3, whatever
-    /// its flags, only when its `N` is 1; its malformed sets are the colour
-    /// path's.
+    /// `SPEC-093` AC6 (v), `DEC-084` item 3 as amended by `DEC-088` item 7:
+    /// the developed mix applies the first `FixBadPixelsConstant` in list 1,
+    /// every `GainMap` in list 2 and the first `WarpRectilinear` in list 3,
+    /// whatever its flags and `N`; its malformed sets are the colour path's.
     #[test]
     fn ac6_mono_mix_path_applies_gain_maps_and_the_first_warp() {
         let path = DevelopPath::MonoMix;
@@ -2351,16 +2391,11 @@ mod tests {
             let err = check_one(&opcode_list(&[op]), 2, path).unwrap_err();
             assert_eq!(format!("{err:?}"), required(2, id));
         }
-        // List 3: the first WarpRectilinear only, and only with N = 1.
-        assert!(check_one(&opcode_list(&[warp(MANDATORY)]), 3, path).is_ok());
-        assert_eq!(
-            format!(
-                "{:?}",
-                check_one(&opcode_list(&[warp3(MANDATORY)]), 3, path).unwrap_err()
-            ),
-            required(3, OPCODE_ID_WARP_RECTILINEAR)
-        );
-        // An optional N = 3 first instance is skippable (the develop skips it).
+        // List 3 (`SPEC-100`, `DEC-088` item 7): the first WarpRectilinear,
+        // whatever its N (the N check is the develop's own, after the CFA).
+        for op in [warp(MANDATORY), warp2(MANDATORY), warp3(MANDATORY)] {
+            assert!(check_one(&opcode_list(&[op]), 3, path).is_ok());
+        }
         assert!(check_one(&opcode_list(&[warp3(OPTIONAL)]), 3, path).is_ok());
         // A block too short for N is left to the applier's parse.
         let short = raw_opcode(OPCODE_ID_WARP_RECTILINEAR, 0x0104_0000, MANDATORY, &[0, 0]);
@@ -2387,10 +2422,7 @@ mod tests {
             Applied::First(OPCODE_ID_FIX_BAD_PIXELS_CONSTANT)
         );
         assert_eq!(path.applied(2), Applied::Every(OPCODE_ID_GAIN_MAP));
-        assert_eq!(
-            path.applied(3),
-            Applied::FirstSinglePlane(OPCODE_ID_WARP_RECTILINEAR)
-        );
+        assert_eq!(path.applied(3), Applied::First(OPCODE_ID_WARP_RECTILINEAR));
         assert_eq!(path.malformed_sets(), DevelopPath::Colour.malformed_sets());
     }
 

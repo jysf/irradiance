@@ -368,11 +368,15 @@ pub struct DevelopOptions {
     /// mono develop of [`crate::color::mono_mix_plane_into`]`(sensor, src,
     /// &weights)`'s mixed plane read at black [`crate::color::MONO_MIX_BLACK`]
     /// and white [`crate::color::MONO_MIX_WHITE`], with no further level,
-    /// `GainMap` or `FixBadPixelsConstant` step: then `OpcodeList3`'s first
-    /// `WarpRectilinear`, lerped to [`DevelopOptions::warp_alpha`], over the
-    /// `ActiveArea`, then the framing and the orientation, all exactly as for
-    /// the mono develop (`DEC-059` §3's bounds rule under
-    /// [`Framing::FullActiveArea`] included).
+    /// `GainMap` or `FixBadPixelsConstant` step: then one warp `W`, lerped to
+    /// [`DevelopOptions::warp_alpha`], over the `ActiveArea`, then the framing
+    /// and the orientation, all exactly as for the mono develop (`DEC-059` §3's
+    /// bounds rule under [`Framing::FullActiveArea`] included, read on `W`).
+    /// `W` is [`crate::opcode::sensor_geometry_warp`]`(sensor)`'s `consumer()`:
+    /// green's set for a per-plane warp (`N = 3`), the one set for `N = 1`.
+    /// The mixed plane is already corrected for lateral chromatic aberration
+    /// (`SPEC-099`, `DEC-087`), so `warp_alpha` dials back lens distortion only
+    /// (`SPEC-100`, `DEC-088` item 3): this is the viewport's geometry.
     ///
     /// `weights` are linear-sRGB `[R, G, B]` as [`crate::color::mono_mix_row`]
     /// takes them (`DEC-083` §1): non-negative rationals with positive
@@ -386,10 +390,9 @@ pub struct DevelopOptions {
     ///   them (the fix on the raw CFA from the four nearest photosites of the
     ///   same colour; a malformed first one is
     ///   [`Error::MalformedOpcodeParams`]); the first `WarpRectilinear` in
-    ///   `OpcodeList3` whatever its flags, as the mono develop applies it,
-    ///   **only when its `N` is 1**. A mandatory first warp with another `N`
-    ///   is [`Error::UnsupportedRequiredOpcode`] `{ list: 3, id: 1 }` and an
-    ///   optional one is skipped, until `SPEC-099`.
+    ///   `OpcodeList3` whatever its flags, as `W` above, with `N` 1 or 3
+    ///   (`DEC-088` item 3; [`Error::MalformedOpcodeParams`] `{ id: 1, .. }`
+    ///   otherwise).
     /// - **[`DevelopOptions::black_levels`] is not read**: the mix's levels
     ///   are the colour path's, which already index `BlackLevelRepeatDim`.
     /// - **Errors**, in order: [`Error::InvalidWarpAlpha`],
@@ -397,12 +400,18 @@ pub struct DevelopOptions {
     ///   the geometry, the colour levels, the `GainMap`s and then
     ///   `OpcodeList1`, the `dst` length,
     ///   `OpcodeList3` (parse, and the bounds rule under `FullActiveArea`), the
-    ///   CFA ([`Error::NotAColorFilterArray`] for a mono file), the colour
+    ///   CFA ([`Error::NotAColorFilterArray`] for a mono file), the per-plane
+    ///   warp (when red's or blue's set differs from green's:
+    ///   [`Error::UnsupportedWarpTangentialTerms`] for the first set with a
+    ///   tangential term, then [`Error::UnsupportedWarpFold`]), the colour
     ///   calibration, [`Error::MixRowOutOfRange`], then the scratch length.
+    ///   `W`'s own tangential terms are refused by the applier, as on the mono
+    ///   develop.
     ///   Nothing is written to `dst` or the scratch before every check passes.
     /// - **Sizing:** [`output_dimensions_with`] is unchanged by the mix (it
     ///   checks the weights); [`scratch_len`] is the strip scratch (module
-    ///   docs, "Allocation").
+    ///   docs, "Allocation"), plus the chromatic-aberration ring when red and
+    ///   blue are resampled.
     /// - **Versions:** the output is fixed by ([`crate::DEVELOP_VERSION`],
     ///   [`crate::color::MONO_MIX_VERSION`], options, weights included).
     pub mono_mix: Option<[Rational; 3]>,
@@ -569,19 +578,26 @@ fn non_identity_warp(
         .filter(|w| !crate::warp::is_identity(w)))
 }
 
-/// The warp a develop applies: [`non_identity_warp`], except that under the
-/// developed mix a first `WarpRectilinear` whose `N` is not 1 is dropped
-/// (`SPEC-098`, `DEC-086` item 6). One coefficient set over the mixed plane is
-/// not the per-plane warp DNG specifies; a mandatory one never gets here (the
-/// required-processing check refused it first), so this skips an optional
-/// one. [`scratch_len`] and [`develop_core`] both ask this, so their scratch
-/// sizes agree.
+/// The warp a develop applies: [`non_identity_warp`] (`K1`) for the mono
+/// develop; under the developed mix `W`, the first `WarpRectilinear`'s
+/// consumer warp ([`crate::opcode::sensor_geometry_warp`]: green's set for
+/// `N = 3` on a colour file, the one set for `N = 1`), whatever its flags,
+/// lerped to `alpha` and dropped when the identity (`SPEC-100`, `DEC-088` item
+/// 3). The mix's plane is CA-corrected, so `W` is the one warp left: an `N`
+/// other than 1 or 3 is [`Error::MalformedOpcodeParams`] `{ id: 1, .. }`.
+/// [`scratch_len`] and [`develop_core`] both ask this, so their scratch sizes
+/// agree.
 fn develop_warp(
     sensor: &Sensor,
     alpha: f64,
     mix: bool,
 ) -> Result<Option<crate::opcode::WarpRect>, Error> {
-    Ok(non_identity_warp(sensor, alpha)?.filter(|w| !mix || w.planes == 1))
+    if !mix {
+        return non_identity_warp(sensor, alpha);
+    }
+    Ok(crate::opcode::sensor_geometry_warp(sensor)?
+        .map(|warp| warp.consumer().lerp(alpha))
+        .filter(|w| !crate::warp::is_identity(w)))
 }
 
 /// Map a destination (post-orientation) pixel to its position within the
@@ -1199,6 +1215,42 @@ fn for_each_out_pixel(
     }
 }
 
+/// Every output pixel of `geometry`'s crop and orientation, in
+/// [`for_each_out_pixel`]'s order: `visit(out_index, active_x, active_y)`, the
+/// output sample index and the pixel's position in the `ActiveArea` (crop
+/// origin plus [`crop_source_coords`]), exactly as
+/// [`crop_and_orient_from_active_into`] reads it. The warped colour develop's
+/// gather (`SPEC-100`, `DEC-088` item 2).
+pub(crate) fn for_each_cropped_active_pixel(
+    geometry: &Geometry,
+    out_width: u32,
+    out_height: u32,
+    mut visit: impl FnMut(usize, u32, u32),
+) {
+    for_each_out_pixel(
+        geometry.orientation,
+        out_width,
+        out_height,
+        |out_x, out_y| {
+            let (crop_x, crop_y) = crop_source_coords(
+                geometry.orientation,
+                out_x,
+                out_y,
+                geometry.crop_width,
+                geometry.crop_height,
+            );
+            let active_x = geometry.crop_origin_x.saturating_add(crop_x);
+            let active_y = geometry.crop_origin_y.saturating_add(crop_y);
+            let out_index = u64::from(out_y)
+                .checked_mul(u64::from(out_width))
+                .and_then(|v| v.checked_add(u64::from(out_x)))
+                .and_then(|v| usize::try_from(v).ok())
+                .unwrap_or(usize::MAX);
+            visit(out_index, active_x, active_y);
+        },
+    );
+}
+
 /// The crop+orient+normalize pass — the fast, no-warp path: reads directly
 /// from the raw plane and writes the final oriented+cropped+normalized
 /// image straight into `dst` in one pass. Used when `OpcodeList3` is absent
@@ -1640,9 +1692,15 @@ pub fn develop_with_into(
 ///   [`DevelopOptions::warp_alpha`].
 /// - [`Error::InvalidMixWeights`] for ill-formed [`DevelopOptions::mono_mix`]
 ///   weights. With the mix set, `OpcodeList1` is not parsed, and the length
-///   is the strip scratch (module docs, "Allocation"; `SPEC-093`): it does not
-///   read the CFA, the levels or the calibration, so a mix on a mono file
-///   sizes fine and the develop refuses it.
+///   is the strip scratch (module docs, "Allocation"; `SPEC-093`), plus the
+///   chromatic-aberration ring when red and blue are resampled (`SPEC-100`,
+///   `DEC-088` item 4). It does not read the levels, the CFA pattern or the
+///   calibration, so a mix on a mono file sizes fine and the develop refuses
+///   it; to size the ring it reads the warp's sets
+///   ([`Error::MalformedOpcodeParams`] `{ id: 1, .. }` for an `N` other than
+///   1 or 3) and, for `N = 3` on a CFA sensor, `CFAPlaneColor`
+///   ([`Error::UnsupportedCfaPlaneColor`]) and green's fold
+///   ([`Error::UnsupportedWarpFold`]).
 /// - [`Error::InvalidActiveArea`], [`Error::InvalidDefaultCrop`] or
 ///   [`Error::UnsupportedOrientation`] from the geometry, as
 ///   [`output_dimensions_with`] reports them.
@@ -1656,11 +1714,12 @@ pub fn scratch_len(sensor: &Sensor, options: &DevelopOptions) -> Result<usize, E
     let mix = validate_mix_weights(options)?;
     let geometry = apply_options(resolve_geometry(sensor)?, options);
     if mix.is_some() {
-        // The developed mix (`DEC-084` item 6): `OpcodeList3` only, never
-        // `OpcodeList1` (its fix reads `src` in place and needs no scratch,
-        // `DEC-086` item 7). An optional warp with `N` other than 1 is skipped.
+        // The developed mix (`DEC-084` item 6, `DEC-088` item 4): `OpcodeList3`
+        // only, never `OpcodeList1` (its fix reads `src` in place and needs no
+        // scratch, `DEC-086` item 7): `W`, then the CA halo.
         let warp = develop_warp(sensor, options.warp_alpha, true)?.is_some();
-        return mix_needed_scratch(sensor, &geometry, warp, 0);
+        let halo = crate::color::mix_ca_halo(sensor)?;
+        return mix_needed_scratch(sensor, &geometry, warp, halo, 0);
     }
     let fix_bad_pixels = match &sensor.opcode_list_1 {
         Some(bytes) => crate::opcode::parse_fix_bad_pixels_constant(bytes)?.is_some(),
@@ -1750,18 +1809,39 @@ fn needed_scratch(
     usize::try_from(expected).map_err(|_| Error::DevelopScratchWrongLength { expected, actual })
 }
 
-/// The developed mix's scratch (`SPEC-093` Design §7, `DEC-084` item 6), as a
-/// `usize`: `T` (the strip working memory,
-/// [`crate::demosaic::mix_strip_work_len`]) without a non-identity warp, and
-/// `A + max(A, T)` with one (`A1`, then `T` in `A2`'s place while the strips
-/// run). [`Error::DevelopScratchWrongLength`] carrying `actual` on overflow.
+/// The developed mix's strip work `T_H` and CA ring `R` (`SPEC-100`, `DEC-088`
+/// item 4) for a CA halo `halo` (`None`: the step does not run, `R = 0`), or
+/// `None` on overflow.
+fn mix_strip_and_ring(sensor: &Sensor, halo: Option<usize>) -> Option<(u64, u64)> {
+    let strips =
+        crate::demosaic::mix_strip_work_len(sensor.width, sensor.height, halo.unwrap_or(0))?;
+    let ring = match halo {
+        Some(halo) => u64::try_from(halo)
+            .ok()?
+            .checked_mul(2)?
+            .checked_add(2)?
+            .checked_mul(u64::from(sensor.width))?
+            .checked_mul(3)?,
+        None => 0,
+    };
+    Some((strips, ring))
+}
+
+/// The developed mix's scratch (`SPEC-093` Design §7, `DEC-084` item 6 as
+/// amended by `DEC-088` item 4), as a `usize`: `T_H + R` (the strip working
+/// memory, [`crate::demosaic::mix_strip_work_len`], and the CA ring) without a
+/// non-identity warp, and `A + max(A, T_H + R)` with one (`A1`, then the strips
+/// and the ring in `A2`'s place while they run). With no CA step (`halo`
+/// `None`) both are `SPEC-093`'s numbers. [`Error::DevelopScratchWrongLength`]
+/// carrying `actual` on overflow.
 fn mix_needed_scratch(
     sensor: &Sensor,
     geometry: &Geometry,
     warp: bool,
+    halo: Option<usize>,
     actual: usize,
 ) -> Result<usize, Error> {
-    let strips = crate::demosaic::mix_strip_work_len(sensor.width, sensor.height);
+    let strips = mix_strip_and_ring(sensor, halo).and_then(|(t, r)| t.checked_add(r));
     let active = u64::from(geometry.active_width).checked_mul(u64::from(geometry.active_height));
     let expected = strips
         .zip(active)
@@ -1787,6 +1867,9 @@ enum Stage<'a> {
     Mix {
         stage: crate::color::MixStageTwo<'a>,
         row: [i32; 3],
+        /// SPEC-099's CA step (`SPEC-100`, `DEC-088` item 3), `None` when it
+        /// does not run; resolved once, before any write.
+        shift: Option<crate::warp::ChromaticShift>,
     },
 }
 
@@ -1826,10 +1909,10 @@ struct Plan<'a> {
 /// required processing on [`crate::opcode::DevelopPath::MonoMix`]; the colour
 /// levels, the `GainMap`s and then `OpcodeList1`'s first
 /// `FixBadPixelsConstant` in step 4's place (`DEC-086` item 7; no step 7);
-/// then, after `OpcodeList3` (whose first warp is skipped when its `N` is not
-/// 1, `DEC-086` item 6), the CFA, the colour calibration and the mixer's row,
-/// before the scratch length. The passes are the strip mix (the bad-pixel fix
-/// at its raw reads), then the mono warp and gather.
+/// then, after `OpcodeList3` (`W`, `DEC-088` item 3), the CFA, the per-plane
+/// warp (`DEC-088` item 5), the colour calibration and the mixer's row, before
+/// the scratch length. The passes are the strip mix (the bad-pixel fix at its
+/// raw reads, the CA ring inside each strip), then the mono warp and gather.
 ///
 /// Nothing is written to `dst` or the scratch before step 10.
 fn develop_core(
@@ -1968,10 +2051,10 @@ fn develop_core(
     // `SPEC-093` ranks 9 to 11: the CFA, the colour calibration, the row.
     let levels = match stage {
         PendingStage::Mono(stage) => Stage::Mono(stage),
-        PendingStage::Mix(stage, weights) => Stage::Mix {
-            stage,
-            row: crate::color::developed_mix_row(sensor, weights)?,
-        },
+        PendingStage::Mix(stage, weights) => {
+            let (row, shift) = crate::color::developed_mix_row(sensor, weights)?;
+            Stage::Mix { stage, row, shift }
+        }
     };
 
     let plan = Plan {
@@ -2008,7 +2091,7 @@ fn develop_core(
 /// The scratch `plan` needs: [`needed_scratch`], or the developed mix's
 /// [`mix_needed_scratch`].
 fn plan_scratch(sensor: &Sensor, plan: &Plan<'_>, actual: usize) -> Result<usize, Error> {
-    match plan.levels {
+    match &plan.levels {
         Stage::Mono(_) => needed_scratch(
             sensor,
             &plan.geometry,
@@ -2016,9 +2099,13 @@ fn plan_scratch(sensor: &Sensor, plan: &Plan<'_>, actual: usize) -> Result<usize
             plan.warp.is_some(),
             actual,
         ),
-        Stage::Mix { .. } => {
-            mix_needed_scratch(sensor, &plan.geometry, plan.warp.is_some(), actual)
-        }
+        Stage::Mix { shift, .. } => mix_needed_scratch(
+            sensor,
+            &plan.geometry,
+            plan.warp.is_some(),
+            shift.as_ref().map(crate::warp::ChromaticShift::halo),
+            actual,
+        ),
     }
 }
 
@@ -2094,8 +2181,8 @@ fn run_passes(
     let geometry = &plan.geometry;
     let levels = match &plan.levels {
         Stage::Mono(levels) => levels,
-        Stage::Mix { stage, row } => {
-            return run_mix_passes(sensor, plan, stage, row, src, dst, scratch);
+        Stage::Mix { stage, row, shift } => {
+            return run_mix_passes(sensor, plan, stage, row, shift.as_ref(), src, dst, scratch);
         }
     };
     let active_len = u64::from(geometry.active_width)
@@ -2158,40 +2245,65 @@ fn run_passes(
     Ok(())
 }
 
+/// The strip work (`strips` samples), then the CA ring (`ring`), at the start
+/// of `region` (`DEC-088` item 4).
+fn strips_and_ring(
+    region: &mut [u16],
+    strips: usize,
+    ring: usize,
+) -> Result<(&mut [u16], &mut [u16]), Error> {
+    let (work, rest) = split_scratch(region, strips)?;
+    let (ring, _) = split_scratch(rest, ring)?;
+    Ok((work, ring))
+}
+
 /// The developed mix's passes (`SPEC-093` Design §5, `DEC-084` item 5), over
-/// `scratch` laid out as Design §7 records (`T` the strip working memory, `A`
-/// the active area):
+/// `scratch` laid out as Design §7 records, with `SPEC-100`'s CA ring
+/// (`DEC-088` item 4; `T_H` the strip working memory, `R` the ring, both for
+/// the step's halo, `R = 0` without it; `A` the active area):
 ///
-/// | warp | scratch | `A1` | strips | `A2` |
-/// |---|---|---|---|---|
-/// | no | `T` | | `[0, T)` | |
-/// | yes | `A + max(A, T)` | `[0, A)` | `[A, A + T)` | `[A, 2A)` |
+/// | warp | scratch | `A1` | strips | ring | `A2` |
+/// |---|---|---|---|---|---|
+/// | no | `T_H + R` | | `[0, T_H)` | `[T_H, T_H + R)` | |
+/// | yes | `A + max(A, T_H + R)` | `[0, A)` | `[A, A + T_H)` | `[A + T_H, A + T_H + R)` | `[A, 2A)` |
 ///
 /// Without a non-identity warp the strips mix the framed rows straight into
 /// `dst`. With one they mix the `ActiveArea` into `A1`, and then the mono
 /// develop's own warp (`A1` to `A2`) and gather (`A2` to `dst`) run unchanged,
 /// once the strips are done with the scratch `A2` reuses.
+#[allow(clippy::too_many_arguments)]
 fn run_mix_passes(
     sensor: &Sensor,
     plan: &Plan<'_>,
     stage: &crate::color::MixStageTwo<'_>,
     row: &[i32; 3],
+    shift: Option<&crate::warp::ChromaticShift>,
     src: &[u16],
     dst: &mut [u16],
     scratch: &mut [u16],
 ) -> Result<(), Error> {
     let geometry = &plan.geometry;
+    let (strips_len, ring_len) = mix_strip_and_ring(sensor, shift.map(|s| s.halo()))
+        .and_then(|(t, r)| Some((usize::try_from(t).ok()?, usize::try_from(r).ok()?)))
+        .ok_or(Error::DevelopScratchWrongLength {
+            expected: u64::MAX,
+            actual: scratch.len(),
+        })?;
     match &plan.warp {
-        None => crate::color::developed_mix_strips(
-            sensor,
-            src,
-            stage,
-            row,
-            geometry,
-            crate::color::MixTarget::Framed,
-            dst,
-            scratch,
-        ),
+        None => {
+            let (work, ring) = strips_and_ring(scratch, strips_len, ring_len)?;
+            crate::color::developed_mix_strips(
+                sensor,
+                src,
+                stage,
+                row,
+                geometry,
+                crate::color::MixTarget::Framed,
+                dst,
+                work,
+                shift.map(|shift| (shift, ring)),
+            )
+        }
         Some(warp) => {
             let active_len = u64::from(geometry.active_width)
                 .checked_mul(u64::from(geometry.active_height))
@@ -2201,16 +2313,20 @@ fn run_mix_passes(
                     actual: dst.len(),
                 })?;
             let (active, rest) = split_scratch(scratch, active_len)?;
-            crate::color::developed_mix_strips(
-                sensor,
-                src,
-                stage,
-                row,
-                geometry,
-                crate::color::MixTarget::Active,
-                active,
-                rest,
-            )?;
+            {
+                let (work, ring) = strips_and_ring(rest, strips_len, ring_len)?;
+                crate::color::developed_mix_strips(
+                    sensor,
+                    src,
+                    stage,
+                    row,
+                    geometry,
+                    crate::color::MixTarget::Active,
+                    active,
+                    work,
+                    shift.map(|shift| (shift, ring)),
+                )?;
+            }
             let (warped, _) = split_scratch(rest, active_len)?;
             crate::warp::apply_warp_into(
                 warp,

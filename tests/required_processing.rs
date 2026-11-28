@@ -450,24 +450,14 @@ fn colour_mandatory_opcode_in_list_2_is_rejected_on_every_entry() {
 #[test]
 fn colour_mandatory_opcode_in_list_3_is_rejected_on_every_entry() {
     for entry in COLOUR_ENTRIES {
-        let r = colour(entry, [None, None, list(&[warp(MANDATORY)])]);
-        match entry.path() {
-            // SPEC-093 (`DEC-084` item 3): the developed mix applies the first
-            // WarpRectilinear whatever its flags, as the mono develop does,
-            // and SPEC-098's sensor-geometry entries pass it through.
-            DevelopPath::MonoMix | DevelopPath::SensorGeometry => {
-                r.unwrap_or_else(|e| panic!("{entry:?}: a mandatory warp develops, got {e:?}"))
-            }
-            _ => assert_required(r, 3, ID_WARP),
-        }
-        // SPEC-098 (`DEC-086` items 5 and 6): a mandatory N = 3 warp passes
-        // through at sensor geometry and is refused by the developed outputs.
-        let r = colour(entry, [None, None, list(&[warp_n(3, MANDATORY)])]);
-        match entry.path() {
-            DevelopPath::SensorGeometry => {
-                r.unwrap_or_else(|e| panic!("{entry:?}: an N = 3 warp passes through, got {e:?}"))
-            }
-            _ => assert_required(r, 3, ID_WARP),
+        // SPEC-100 (`DEC-088` items 2, 3 and 7): every colour entry takes the
+        // first WarpRectilinear: the developed colour and the developed mix
+        // apply it (N = 1 or 3), SPEC-098's sensor-geometry entries pass it
+        // through.
+        for n in [1, 3] {
+            colour(entry, [None, None, list(&[warp_n(n, MANDATORY)])]).unwrap_or_else(|e| {
+                panic!("{entry:?}: a mandatory N = {n} warp develops, got {e:?}")
+            });
         }
     }
     // ...but not a second mandatory one, on any entry.
@@ -1287,14 +1277,8 @@ fn ac6_every_path_applies_its_table() {
         (
             "FBPC and an N = 1 warp, mandatory",
             [list(&[fbpc(MANDATORY)]), None, list(&[warp(MANDATORY)])],
-            [
-                ok(),
-                req(3, ID_WARP),
-                ok(),
-                ok(),
-                req(1, ID_FBPC),
-                req(1, ID_FBPC),
-            ],
+            // SPEC-100 (`DEC-088` item 7): the colour develop applies the warp.
+            [ok(), ok(), ok(), ok(), req(1, ID_FBPC), req(1, ID_FBPC)],
         ),
         (
             "a mandatory FBPC",
@@ -1333,26 +1317,14 @@ fn ac6_every_path_applies_its_table() {
         (
             "a mandatory N = 1 warp",
             [None, None, list(&[warp_n(1, MANDATORY)])],
-            [
-                ok(),
-                req(3, ID_WARP),
-                ok(),
-                ok(),
-                req(3, ID_WARP),
-                req(3, ID_WARP),
-            ],
+            [ok(), ok(), ok(), ok(), req(3, ID_WARP), req(3, ID_WARP)],
         ),
         (
             "a mandatory N = 3 warp",
             [None, None, list(&[warp_n(3, MANDATORY)])],
-            [
-                ok(),
-                req(3, ID_WARP),
-                ok(),
-                req(3, ID_WARP),
-                req(3, ID_WARP),
-                req(3, ID_WARP),
-            ],
+            // SPEC-100 (`DEC-088` items 2, 3 and 7): both developed outputs
+            // apply it.
+            [ok(), ok(), ok(), ok(), req(3, ID_WARP), req(3, ID_WARP)],
         ),
         (
             "an optional N = 1 warp",
@@ -1415,8 +1387,9 @@ fn ac6_every_path_applies_its_table() {
         }
     }
 
-    // The developed mix's warp, by output: an optional N = 3 warp is skipped
-    // and an N = 1 one applied, through both develop entries.
+    // The developed mix's warp, by output (`SPEC-100`, `DEC-088` item 3): the
+    // first warp is applied whatever its flags, an N = 3 one with identical
+    // sets as the N = 1 one with that set, through both develop entries.
     let mix = |l3: Option<Vec<u8>>| {
         let (sensor, plane) = fixture(true, [None, None, l3]);
         let mut options = DevelopOptions::default();
@@ -1434,16 +1407,19 @@ fn ac6_every_path_applies_its_table() {
         (allocating, scratch.len())
     };
     let (none, none_scratch) = mix(None);
-    let (optional_n3, optional_n3_scratch) = mix(list(&[warp_n(3, OPTIONAL)]));
-    assert_eq!(
-        optional_n3, none,
-        "an optional N = 3 warp is skipped by the mix"
-    );
-    assert_eq!(optional_n3_scratch, none_scratch, "and sized as no warp");
-    let (n1, _) = mix(list(&[warp_n(1, MANDATORY)]));
+    let (n1, n1_scratch) = mix(list(&[warp_n(1, MANDATORY)]));
     assert_ne!(n1, none, "an N = 1 warp is applied by the mix");
+    assert!(n1_scratch > none_scratch, "and sized as a warp");
     let (optional_n1, _) = mix(list(&[warp_n(1, OPTIONAL)]));
     assert_eq!(optional_n1, n1, "an optional N = 1 warp is applied too");
+    for flags in [MANDATORY, OPTIONAL] {
+        let (n3, n3_scratch) = mix(list(&[warp_n(3, flags)]));
+        assert_eq!(
+            n3, n1,
+            "an N = 3 warp, flags {flags}, is applied by the mix"
+        );
+        assert_eq!(n3_scratch, n1_scratch, "and sized as the N = 1 warp");
+    }
 }
 
 /// `DevelopPath` is `#[non_exhaustive]` downstream: this match needs the

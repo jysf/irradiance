@@ -671,7 +671,7 @@ fn ac10_the_developed_mix_allocates_nothing_with_scratch() {
         assert_eq!((allocations, bytes), (0, 0), "{label}: allocated");
     }
 
-    // One representative refusal of each rank, F0 to F13.
+    // One representative refusal of each rank, F0 to F14.
     for f in 0..developed_mix::FAULTS {
         let c = developed_mix::case(&[f]);
         let (dst_len, scratch_len) = developed_mix::buffer_lengths(&c);
@@ -718,5 +718,81 @@ fn ac10_the_developed_mix_allocates_once_without() {
             (1, 2 * n),
             "{name}: one allocation of scratch_len samples"
         );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-100 AC5: the developed mix with the CA step (`DEC-088` items 3 and 4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The three CA scenes with the differing `N = 3` list, mandatory and
+/// optional, and the tall narrow plane whose halo crosses strip edges.
+fn ca_fixtures() -> Vec<(String, Sensor, Vec<u16>)> {
+    let mut out = Vec::new();
+    for (name, sensor, src, cx, cy) in developed_mix::ca_scenes() {
+        for flags in [0, 1] {
+            let mut s = sensor.clone();
+            developed_mix::set_list(&mut s, 3, Some(developed_mix::ca_list(cx, cy, flags)));
+            out.push((format!("{name} flags {flags}"), s, src.clone()));
+        }
+    }
+    let mut d = developed_mix::colour_description(8, 1100, [0, 0, 1100, 8], [0, 0], [8, 1100]);
+    d.meta.active_area = None;
+    let (mut tall, src) = developed_mix::read(&d);
+    developed_mix::set_list(&mut tall, 3, Some(developed_mix::ca_list(0.5, 0.5, 0)));
+    out.push(("tall narrow".to_string(), tall, src));
+    out
+}
+
+#[test]
+fn ac5_the_ca_mix_allocates_nothing_with_scratch() {
+    let mut calls = Vec::new();
+    for (name, sensor, src) in ca_fixtures() {
+        for framing in [Framing::StandardCrop, Framing::FullActiveArea] {
+            for alpha in [0.0, 0.5, 1.0] {
+                for orientation in [1, 8] {
+                    let mut s = sensor.clone();
+                    s.orientation = Some(orientation);
+                    let options = developed_mix::with_mix(
+                        &opts(framing, alpha, true),
+                        developed_mix::LUMINANCE,
+                    );
+                    calls.push(prepare_mix(
+                        format!("{name} {framing:?} alpha {alpha} orientation {orientation}"),
+                        s,
+                        src.clone(),
+                        options,
+                    ));
+                }
+            }
+        }
+    }
+    for (label, sensor, src, mut dst, mut scratch, options) in calls {
+        let (result, allocations, bytes) =
+            counted(|| develop_with_scratch_into(&sensor, &src, &mut dst, &mut scratch, &options));
+        assert!(result.is_ok(), "{label}: {result:?}");
+        assert_eq!((allocations, bytes), (0, 0), "{label}: allocated");
+    }
+}
+
+#[test]
+fn ac5_the_ca_mix_allocates_once_without() {
+    for (name, sensor, src) in ca_fixtures() {
+        for alpha in [0.0, 1.0] {
+            let options = developed_mix::with_mix(
+                &opts(Framing::StandardCrop, alpha, true),
+                developed_mix::LUMINANCE,
+            );
+            let mut dst = vec![0u16; dst_len(&sensor, &options)];
+            let n = scratch_len(&sensor, &options).unwrap();
+            let (result, allocations, bytes) =
+                counted(|| develop_with_into(&sensor, &src, &mut dst, &options));
+            assert!(result.is_ok(), "{name}: {result:?}");
+            assert_eq!(
+                (allocations, bytes),
+                (1, 2 * n),
+                "{name} alpha {alpha}: one allocation of scratch_len samples"
+            );
+        }
     }
 }

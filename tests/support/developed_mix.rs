@@ -313,6 +313,72 @@ pub fn without_mix(options: &DevelopOptions) -> DevelopOptions {
     o
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SPEC-100 (DEC-088 item 3): the per-plane warp on the developed mix
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// SPEC-099's sets (`tests/plane_warp.rs`): green not the identity, red and
+/// blue with CA in opposite directions. Radial only.
+pub const CA_GREEN: [f64; 4] = [1.0, -0.05, -0.05, 0.0];
+pub const CA_RED: [f64; 4] = [1.08, -0.04, -0.05, 0.01];
+pub const CA_BLUE: [f64; 4] = [0.94, -0.06, -0.04, 0.0];
+
+/// A `WarpRectilinear` list with one entry per `(kr, kt)` set (`N` the count).
+pub fn sets_list(sets: &[([f64; 4], [f64; 2])], cx: f64, cy: f64, flags: u32) -> Vec<u8> {
+    let mut p = (sets.len() as u32).to_be_bytes().to_vec();
+    for (kr, kt) in sets {
+        for v in kr.iter().chain(kt) {
+            p.extend_from_slice(&v.to_be_bytes());
+        }
+    }
+    p.extend_from_slice(&cx.to_be_bytes());
+    p.extend_from_slice(&cy.to_be_bytes());
+    opcode_list(&[raw_opcode(1, 0x0104_0000, flags, &p)])
+}
+
+/// The `N = 3` differing list (red, green, blue) at `(cx, cy)`.
+pub fn ca_list(cx: f64, cy: f64, flags: u32) -> Vec<u8> {
+    let z = [0.0, 0.0];
+    sets_list(&[(CA_RED, z), (CA_GREEN, z), (CA_BLUE, z)], cx, cy, flags)
+}
+
+/// `W` as a mono `OpcodeList3`: one `N = 1` set, green's.
+pub fn w_list(cx: f64, cy: f64) -> Vec<u8> {
+    single_warp_rectilinear_list(CA_GREEN, [0.0, 0.0], cx, cy, 1, 0)
+}
+
+/// AC4's three scene variants, as `(name, sensor, plane, cx, cy)` without
+/// `OpcodeList3`: no `ActiveArea` with a crop, fixture (i) (an `ActiveArea`
+/// and a crop inside it), and (i) with the optical centre at (0.3, 0.6).
+pub fn ca_scenes() -> Vec<(&'static str, Sensor, Vec<u16>, f64, f64)> {
+    let mut plain = colour_description(22, 18, [0, 0, 18, 22], [1, 3], [17, 11]);
+    plain.meta.active_area = None;
+    let (plain, plain_src) = read(&plain);
+    let (odd, odd_src) = odd();
+    vec![
+        ("plain", plain, plain_src, 0.5, 0.5),
+        ("active", odd.clone(), odd_src.clone(), 0.5, 0.5),
+        ("off-centre", odd, odd_src, 0.3, 0.6),
+    ]
+}
+
+/// The §2 oracle with the mono sensor's `OpcodeList3` replaced by `list3`
+/// (`SPEC-100` AC4: `W` as one `N = 1` set over the CA-corrected plane).
+pub fn oracle_with_list3(
+    sensor: &Sensor,
+    mixed: &[u16],
+    options: &DevelopOptions,
+    list3: Option<Vec<u8>>,
+) -> Result<Vec<u16>, Error> {
+    let mut mono = mono_of(sensor);
+    set_list(&mut mono, 3, list3);
+    let o = without_mix(options);
+    let (w, h) = output_dimensions_with(&mono, &o)?;
+    let mut dst = vec![SENTINEL; w as usize * h as usize];
+    develop_with_into(&mono, mixed, &mut dst, &o)?;
+    Ok(dst)
+}
+
 /// The whole mixed plane.
 pub fn mixed_plane(sensor: &Sensor, src: &[u16], weights: &[Rational; 3]) -> Vec<u16> {
     let mut mixed = vec![SENTINEL; src.len()];
@@ -379,8 +445,10 @@ pub fn options(framing: Framing, apply_orientation: bool, warp_alpha: f64) -> De
 // AC8: the ranked faults
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// F0 to F13 of AC8, by rank.
-pub const FAULTS: usize = 14;
+/// F0 to F14 of AC8, by rank (`SPEC-100` inserted F10, the per-plane warp,
+/// after the CFA and before the calibration; the old F10 to F13 are F11 to
+/// F14).
+pub const FAULTS: usize = 15;
 
 /// One input to the four entries: the sensor, the plane and the options, plus
 /// how far `dst` and `scratch` are off their exact lengths.
@@ -394,11 +462,13 @@ pub struct Case {
 
 /// Whether faults `i` and `j` (`i < j`) can coexist on one input, and if not,
 /// why: F7 and F8 need opposite framings and both live in `OpcodeList3`; F8
-/// and F13 both live in `OpcodeList3` (a malformed block cannot be tangential).
+/// and F10 or F14 all live in `OpcodeList3` (a malformed block has no sets,
+/// so no tangential term).
 pub fn skipped_pair(i: usize, j: usize) -> Option<&'static str> {
     match (i, j) {
         (7, 8) => Some("opposite framings, and both are OpcodeList3"),
-        (8, 13) => Some("one OpcodeList3: a malformed block has no tangential term"),
+        (8, 10) => Some("one OpcodeList3: a malformed block has no per-plane sets"),
+        (8, 14) => Some("one OpcodeList3: a malformed block has no tangential term"),
         _ => None,
     }
 }
@@ -451,38 +521,48 @@ pub fn case(set: &[usize]) -> Case {
         sensor.white_level = Some(100);
         sensor.white_levels = vec![100];
     }
-    // F7, F8 and F13 share OpcodeList3.
-    match (has(7), has(8), has(13)) {
-        (true, _, true) => {
+    // F7, F8, F10 and F14 share OpcodeList3. F7 is a green (W) that fails
+    // the bounds rule under FullActiveArea; F10 (`SPEC-100`) is a mandatory
+    // N = 3 list whose sets differ, with a tangential term on blue; F14 is a
+    // tangential term on W itself, which the applier refuses.
+    if has(8) {
+        set_list(&mut sensor, 3, Some(malformed_optional_warp()));
+    } else if has(7) || has(10) || has(14) {
+        if has(7) {
             o.framing = Framing::FullActiveArea;
-            set_list(
-                &mut sensor,
-                3,
-                Some(warp_list([1.0, 0.08, 0.0, 0.0], [0.01, 0.0], 1)),
-            );
         }
-        (true, _, false) => {
-            o.framing = Framing::FullActiveArea;
-            set_list(
-                &mut sensor,
-                3,
-                Some(warp_list([1.0, 0.08, 0.0, 0.0], [0.0, 0.0], 1)),
-            );
-        }
-        (false, true, _) => set_list(&mut sensor, 3, Some(malformed_optional_warp())),
-        (false, false, true) => set_list(&mut sensor, 3, Some(warp_list(RADIAL, [0.01, 0.0], 1))),
-        (false, false, false) => {}
+        let green = match (has(7), has(10)) {
+            (true, _) => [1.0, 0.08, 0.0, 0.0],
+            (false, true) => CA_GREEN,
+            (false, false) => RADIAL,
+        };
+        let green_kt = if has(14) { [0.01, 0.0] } else { [0.0, 0.0] };
+        let list = if has(10) {
+            sets_list(
+                &[
+                    (CA_RED, [0.0, 0.0]),
+                    (green, green_kt),
+                    (CA_BLUE, [0.002, 0.0]),
+                ],
+                0.5,
+                0.5,
+                0,
+            )
+        } else {
+            warp_list(green, green_kt, 1)
+        };
+        set_list(&mut sensor, 3, Some(list));
     }
     if has(9) {
         sensor.color_filter = None;
     }
-    if has(10) {
+    if has(11) {
         // No colour matrix at all: with a ForwardMatrix1 present, removing
         // ColorMatrix1 alone still calibrates.
         sensor.color_matrix_1 = None;
         sensor.forward_matrix_1 = None;
     }
-    if has(11) {
+    if has(12) {
         sensor.as_shot_neutral = Some(vec![r(1, 100_000), r(1, 1), r(1, 1)]);
     }
     Case {
@@ -490,7 +570,7 @@ pub fn case(set: &[usize]) -> Case {
         src,
         options: o,
         dst_delta: if has(6) { 1 } else { 0 },
-        scratch_delta: if has(12) { -1 } else { 0 },
+        scratch_delta: if has(13) { -1 } else { 0 },
     }
 }
 
@@ -507,9 +587,12 @@ pub fn expected_error(f: usize) -> fn(&Error) -> bool {
         7 => |e| matches!(e, Error::UnsupportedWarpedFullActiveArea { .. }),
         8 => |e| matches!(e, Error::MalformedOpcodeParams { id: 1, .. }),
         9 => |e| matches!(e, Error::NotAColorFilterArray),
-        10 => |e| matches!(e, Error::MissingColorCalibration),
-        11 => |e| matches!(e, Error::MixRowOutOfRange { channel: 0 }),
-        12 => |e| matches!(e, Error::DevelopScratchWrongLength { .. }),
+        // F10 and F14 are the same error; F10 (the per-plane check) refuses
+        // before any write, F14 (the applier) after the strips.
+        10 => |e| matches!(e, Error::UnsupportedWarpTangentialTerms { .. }),
+        11 => |e| matches!(e, Error::MissingColorCalibration),
+        12 => |e| matches!(e, Error::MixRowOutOfRange { channel: 0 }),
+        13 => |e| matches!(e, Error::DevelopScratchWrongLength { .. }),
         _ => |e| matches!(e, Error::UnsupportedWarpTangentialTerms { .. }),
     }
 }
