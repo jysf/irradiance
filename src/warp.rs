@@ -1186,8 +1186,7 @@ mod tests {
 
     #[test]
     fn ca_m_is_hypot() {
-        // A geometry where sqrt(mx² + my²) and mx.hypot(my) round apart, so
-        // the step's m is source_coord's own (DEC-087 item 3).
+        // The step's m is source_coord's own `hypot` (DEC-087 item 3).
         let red = warp_with([1.02, 0.0, 0.0, 0.0], 0.07, 0.6);
         let green = warp_with([1.0, 0.0, 0.0, 0.0], 0.07, 0.6);
         let s = ChromaticShift::new(&green, Some(&red), None, (0, 0, 6, 40))
@@ -1197,6 +1196,8 @@ mod tests {
         let mx = f64::abs(cx).max((5.0 - cx).abs());
         let my = f64::abs(cy).max((39.0 - cy).abs());
         assert_eq!(s.m, mx.hypot(my));
-        assert_ne!(s.m, (mx * mx + my * my).sqrt(), "the case has teeth");
+        // On macOS's libm the two forms round apart here, so this test turns a
+        // sqrt mutant red (SPEC-099 build); glibc's hypot rounds them alike, so
+        // the difference is not asserted (it is platform-dependent).
     }
 }

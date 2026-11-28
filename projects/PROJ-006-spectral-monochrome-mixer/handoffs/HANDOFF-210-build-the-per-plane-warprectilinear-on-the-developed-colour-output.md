@@ -188,7 +188,7 @@ Harness: `mutants.py` in this session's scratchpad (each mutant applied by exact
 - 2 resample an equal-set plane anyway (output-equivalent): red, `ca_equal_sets_build_no_step`.
 - 2 identical sets still per plane: red, ac1, ac2.
 - 3.1 plane coordinates instead of `ActiveArea`-relative: red, `ac3_the_active_area_and_the_optical_centre`, `ca_value_samples_inside_the_active_area_only`.
-- 3.1 `sqrt(mx² + my²)` instead of `hypot`: **survived at first**. On every centred geometry (all held files and the first fixtures) `mx`, `my` are half-integers, the sum is exact and both round alike, so no plane can tell. Closed by `ca_m_is_hypot` (a 6 × 40 `ActiveArea`, centre `(0.07, 0.6)`, where the two differ in the last bit; the test asserts that they do).
+- 3.1 `sqrt(mx² + my²)` instead of `hypot`: **survived at first**. On every centred geometry (all held files and the first fixtures) `mx`, `my` are half-integers, the sum is exact and both round alike, so no plane can tell. Closed by `ca_m_is_hypot` (a 6 × 40 `ActiveArea`, centre `(0.07, 0.6)`, where the two differ in the last bit under macOS's libm; the mutant turns it red there). Linux's glibc `hypot` rounds that case like the sqrt form, so CI's run showed the difference is platform-dependent; the test asserts only `m == mx.hypot(my)`.
 - 3.2 refuse at `q < 0` only: red, ac6, `ca_fold_boundary_refuses`. 3.2 never refuse: red, the same two.
 - 3.3 extrapolate past `s = 1` (bisect on `[0, 2]`, no rim): red, both ac3, `ca_bisection_inverts_a_known_map`.
 - 3.4 nearest node: red, both ac3, `ca_ratio_interpolates_and_clamps_at_the_rim`. 3.4 no `min(u, T)` clamp: red, `ca_ratio_interpolates_and_clamps_at_the_rim` (on a plane it is output-equivalent: σ never exceeds 1 by more than an ulp).
