@@ -7,4 +7,7 @@ Cycle prompts live in `prompts/SPEC-100-<cycle>.md`.
 
 ## Instructions
 
-_(Timeline will be populated as the architect writes each cycle's prompt.)_
+- [x] **design** — completed 2026-11-28, side session of the PROJ-006 orchestrator; not split (L), DEC-088 proposed, HANDOFF-212
+- [ ] **build** — prompt: `prompts/SPEC-100-build.md` (HANDOFF-212)
+- [ ] **verify** — prompt: pending (waiting on build)
+- [ ] **ship** — prompt: pending (waiting on verify)

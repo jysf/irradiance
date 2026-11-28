@@ -110,9 +110,9 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
 - [x] SPEC-097 (shipped on 2026-11-27) — [S] accept a lossless-JPEG precision below `BitsPerSample` (the M10 and M11 files) (DEC-085 accepted; design PR 361, build PR 362, verify PR 363)
 - [x] SPEC-098 (shipped on 2026-11-28) — [M, actual L] mandatory `FixBadPixelsConstant` on the CFA on every colour entry (four nearest same-colour photosites), and `WarpRectilinear` passed through at sensor geometry (the Q2, Q3 and SL3 files; DEC-086 accepted; design PR 366, build PR 367, verify PR 368)
 - [x] SPEC-099 (shipped on 2026-11-28) — [M, actual L] the per-plane `WarpRectilinear` at sensor geometry (`N = 3`): red and blue resampled to green's geometry on the six sensor-geometry entries, and `opcode::sensor_geometry_warp` naming the consumer's warp (green's set) and every set with its colour (DEC-087 accepted; split at design, the developed outputs moved to SPEC-100; design PR 372, build PR 373, verify PR 374)
-- [ ] SPEC-100 (frame) — [M] the per-plane warp on the developed colour output and the developed mix (green's warp at `warp_alpha` over the CA-corrected mixed plane, onyx's DEC-114); split out of SPEC-099 at its design; `depends_on: [SPEC-099]`. **Next:** its blocker has shipped, so it is ready for design
+- [~] SPEC-100 (build) — [L] the per-plane warp on the developed colour output and the developed mix: the CA step then green's warp, on the camera triple before the matrix for the colour develop (a mandatory warp only; optional ones still skipped) and over the CA-corrected mixed plane at `warp_alpha` and `Framing` for the developed mix (whatever the flags); DEC-088 proposed, design PR pending, HANDOFF-212. **Next:** build
 
-**Count:** 3 shipped / 0 active / 1 pending
+**Count:** 3 shipped / 1 active / 0 pending
 
 ## Design Notes
 
@@ -180,6 +180,16 @@ Format: `- [status] SPEC-ID (cycle) — one-line summary`
   the Q3's `srgb_linear_plane_into` from 0.96 s to 2.27 s, mostly inherent (SPEC-099/FU-8,
   optional). **The stage stays active** for SPEC-100, the developed colour output and the
   developed mix.
+- **SPEC-100's design (2026-11-28), not split (L).** One rule for both developed outputs:
+  the CA step at sensor geometry (DEC-087), then green's set `W` (`consumer()`). The
+  colour develop warps the camera triple before the matrix (DNG's stage order): warping
+  the clamped `u16` sRGB plane instead moves up to 35,260 codes at clipped edges. It
+  applies a mandatory first warp only, takes no options and keeps skipping optional warps,
+  so the Pixel 3a and 7 Pro are unchanged. The developed mix applies the first warp
+  whatever its flags (onyx's binding), the CA ring inside each strip and in caller
+  scratch. Against `dng_validate -3` in camera RGB red and blue register within 0.042 px
+  of the green-only baseline (at least 0.406 px off without the CA step); the mix within
+  0.056 px. No version moves (the developed mix is unreleased). DEC-088 proposed.
 - **Orchestration cost at this stage's close:** SPEC-097's design transcript
   (`871eb085`) is counted in SPEC-097's own cost, so it must not be counted again here.
   The orchestrator's entry starts after 2026-11-27T06:00Z (STAGE-031 counted up to then),

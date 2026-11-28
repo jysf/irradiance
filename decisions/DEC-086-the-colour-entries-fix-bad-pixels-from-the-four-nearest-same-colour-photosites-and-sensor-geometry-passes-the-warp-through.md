@@ -106,6 +106,11 @@ tags:
    per-plane warp DNG specifies, and which set onyx's viewport uses is `SPEC-099`'s
    question. This is the amendment to `DEC-084` item 3, together with item 1 (the mix now
    applies `OpcodeList1`).
+   **Replaced at SPEC-100's design (2026-11-28), DEC-088 items 2 and 3.** The colour
+   develop applies a mandatory first `WarpRectilinear` (the CA step, then green's set on
+   the camera triple before the matrix) and still skips an optional one. The developed mix
+   applies the first one whatever its flags, `N` 1 or 3, as green's set over the
+   CA-corrected mixed plane. Takes effect when SPEC-100 ships.
 7. **Error order.** Every colour path resolves its stage 2 in one order: the levels, the
    `GainMap`s, then the `OpcodeList1` lookup (`parse_fix_bad_pixels_constant`), all
    before the CFA and before any write. On the developed mix that is `DEC-084` item 7's
