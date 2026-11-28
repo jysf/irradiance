@@ -58,6 +58,10 @@ monochrome image at the mono develop's geometry.
    consumer that draws the mixed plane at sensor geometry and warps, crops and rotates
    it as it does a mono sensor plane (onyx's GPU viewport, its DEC-062 parity check)
    sees the same pixels the develop writes.
+   **Amended at SPEC-100's design (2026-11-28), DEC-088 item 3.** The mixed plane is
+   CA-corrected (DEC-087), and the warp is `W`, `opcode::sensor_geometry_warp(..).consumer()`
+   (green's set on a three-set colour file), lerped to `warp_alpha`; it was the first set,
+   `K1`. Takes effect when SPEC-100 ships.
 2. **The weights** are `DEC-083` §1's (non-negative rationals, positive denominators,
    summing to exactly one) and the arithmetic is `DEC-083`'s row and kernel, unchanged.
 3. **Opcodes: a new `DevelopPath::MonoMix`.** The developed mix applies every `GainMap`
@@ -74,6 +78,11 @@ monochrome image at the mono develop's geometry.
    `WarpRectilinear` only when its `N` is 1; a mandatory one with `N ≠ 1` is
    `UnsupportedRequiredOpcode { list: 3, id: 1 }` and an optional one is skipped, until
    SPEC-099 decides the three-plane rule. Takes effect when SPEC-098 ships.
+   **Amended at SPEC-100's design (2026-11-28), DEC-088 item 3.** The developed mix applies
+   the first `WarpRectilinear` whatever its flags, with `N` 1 or 3
+   (`MalformedOpcodeParams { id: 1, .. }` otherwise): a mandatory `N = 3` warp is applied,
+   not refused, and an optional one is applied, not skipped. Takes effect when SPEC-100
+   ships.
 4. **The other options.** `framing`, `apply_orientation` and `warp_alpha` mean what they
    mean for the mono develop, including `DEC-059` §3's bounds rule under
    `FullActiveArea`. `black_levels` is not read: the mix's levels are the colour path's
@@ -97,6 +106,10 @@ monochrome image at the mono develop's geometry.
    allocates nothing under the mix, as `DEC-060` §2 requires of it, and
    `develop_with_into` makes its one allocation of exactly `scratch_len` samples. The
    layout stays private (`DEC-060` §3).
+   **Amended at SPEC-100's design (2026-11-28), DEC-088 item 4.** When the CA step runs
+   (halo `H`), `T` becomes `T_H = w·(min(h, S + 2H + 7) + 8)` and the CA ring adds
+   `R = 3·(2H + 2)·w`: `T_H + R` without a warp, `A + max(A, T_H + R)` with one. Without
+   the CA step the numbers are unchanged. Takes effect when SPEC-100 ships.
 7. **Refusal order** (nothing written to `dst` or scratch before the passes):
    `InvalidWarpAlpha`, `InvalidMixWeights`, required processing on
    `DevelopPath::MonoMix`, `SourcePlaneWrongLength`, the geometry, the colour levels
@@ -106,6 +119,11 @@ monochrome image at the mono develop's geometry.
    `DevelopScratchWrongLength`. `output_dimensions_with` checks `InvalidWarpAlpha`,
    `InvalidMixWeights`, then the geometry; `scratch_len` adds the `OpcodeList3` parse.
    Neither reads the CFA, the levels or the calibration.
+   **Amended at SPEC-100's design (2026-11-28), DEC-088 item 5.** After the CFA come
+   DEC-087 item 5's per-plane checks, before `MissingColorCalibration`; the bounds rule
+   reads `W`. `scratch_len` also refuses a malformed `N`, and for `N = 3` on a CFA sensor
+   it reads `CFAPlaneColor` and the fold, which `H` needs. Takes effect when SPEC-100
+   ships.
 8. **Versions.** Neither `DEVELOP_VERSION` nor `MONO_MIX_VERSION` changes: no existing
    output moves. The developed mix is fixed by (`DEVELOP_VERSION`, `MONO_MIX_VERSION`,
    options, weights included), so `DEC-058` §5's cache key gains `MONO_MIX_VERSION`

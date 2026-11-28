@@ -119,6 +119,9 @@ tags:
    - `DevelopPath::Colour` still refuses a mandatory `WarpRectilinear`.
    - `DevelopPath::MonoMix` keeps `DEC-086` item 6. Both developed outputs are
      `SPEC-100`'s.
+   - **Amended at SPEC-100's design (2026-11-28), DEC-088.** Both developed outputs now
+     apply this CA step and then `consumer()`'s warp. The rest of this item stands. Takes
+     effect when SPEC-100 ships.
    - Unchanged: the mono develop, `parse_warp_rectilinear`, `apply_warp_into`,
      `demosaic_into` and `to_srgb_linear_into`.
    - No `Error` variant changes. One is added: `UnsupportedWarpFold`.
