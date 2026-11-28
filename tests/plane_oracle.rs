@@ -91,18 +91,23 @@ use irradiance::plane::unpack_into;
 const CANON_BAYER: &str = "CANON-EOS-5D-MARK-III/5G4A9394.DNG";
 const NIKON_BAYER: &str = "NIKON-D300S/_DSC4615.DNG";
 
-/// The six files this oracle decodes and hashes: four monochrome LinearRaw
-/// planes and the two Bayer mosaics. SPEC-025 proved the two mosaics bit-exact
-/// against `dnglab analyze --raw-checksum`; SPEC-027 folds them onto the
+/// `SPEC-098`: the colour Leica Q2 (CC0), one uncompressed 14-bit strip.
+const LEICA_Q2_COLOUR: &str = "LEICA-Q2/L1000750.DNG";
+
+/// The seven uncompressed files this oracle decodes and hashes: four
+/// monochrome LinearRaw planes, the two Bayer mosaics, and (`SPEC-098`) the
+/// colour Leica Q2. SPEC-025 proved the two mosaics bit-exact against
+/// `dnglab analyze --raw-checksum`; SPEC-027 folds them onto the
 /// manifest-driven `plane_md5_matches_the_pinned_raw_checksum` so they are
 /// sourced exactly like the mono entries (no bespoke direct-path test).
-const DECODABLE: [&str; 6] = [
+const DECODABLE: [&str; 7] = [
     "LEICA-Q2-MONO/L1021223.DNG",
     "LEICA-Q2-MONO/L1026016.DNG",
     "LEICA-Q2-MONO/L1026192.DNG",
     "LEICA-M-MONOCHROM/L1000622.DNG",
     CANON_BAYER,
     NIKON_BAYER,
+    LEICA_Q2_COLOUR,
 ];
 
 /// The reference frame for the red-proof: the same file every other spec in
@@ -134,7 +139,16 @@ const PIXEL_TILED: [&str; 3] = [
 /// existing red-proof `ljpeg_decode_fault_turns_compression7_oracle_red`
 /// covers them with no new code.
 const LEICA_COLOUR: [&str; 2] = ["LEICA-M10/f5381888.dng", "LEICA-M11-PB/leica_m11_01.dng"];
-const DECODABLE_COMPRESSED: [&str; 7] = [
+/// `SPEC-098`: the colour Leica Q3 and SL3 (both local only, never
+/// committed). One Compression-7 strip each, SOF-3 P=14 Nf=2 in a
+/// `BitsPerSample` of 14 (not 16, so apart from `LEICA_COLOUR`), and each
+/// carries a mandatory `FixBadPixelsConstant` and `WarpRectilinear`. Both are
+/// `Nf=2`, so `ljpeg_decode_fault_turns_compression7_oracle_red` covers them.
+const LEICA_OPCODE: [&str; 2] = [
+    "LEICA-Q3-PB/leica_q3_01.dng",
+    "LEICA-SL3-PB/leica_sl3_01.dng",
+];
+const DECODABLE_COMPRESSED: [&str; 9] = [
     TYP246_LJPEG,
     K3III_LJPEG,
     PIXEL_TILED[0],
@@ -142,6 +156,8 @@ const DECODABLE_COMPRESSED: [&str; 7] = [
     PIXEL_TILED[2],
     LEICA_COLOUR[0],
     LEICA_COLOUR[1],
+    LEICA_OPCODE[0],
+    LEICA_OPCODE[1],
 ];
 
 /// The corpus files this oracle does NOT decode, and why — named here rather

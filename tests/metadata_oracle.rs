@@ -104,6 +104,13 @@ const CFA_METADATA_NOT_YET_ORACLED: &[&str] = &[
     // metadata belongs to the colour oracle once a spec adds them there.
     "LEICA-M10/f5381888.dng",
     "LEICA-M11-PB/leica_m11_01.dng",
+    // SPEC-098: the colour Leica Q2, Q3 and SL3, for the same reason as the
+    // M10 and M11 (a plane-and-opcode spec; their plane is checked by
+    // `tests/plane_oracle.rs`, their sensor-geometry outputs pinned by
+    // `tests/leica_colour.rs`).
+    "LEICA-Q2/L1000750.DNG",
+    "LEICA-Q3-PB/leica_q3_01.dng",
+    "LEICA-SL3-PB/leica_sl3_01.dng",
 ];
 
 /// Whether the scalar mono oracle skips this Bayer file, by name.

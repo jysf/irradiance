@@ -33,6 +33,7 @@ use irradiance::develop::{
 use irradiance::ifd::{Container, Sensor};
 use irradiance::plane::unpack_into;
 use irradiance::{Error, DEVELOP_VERSION};
+use opcode_support::single_warp_rectilinear_list;
 
 /// Every options set of AC1: Orientation 1 to 8 (set in the sensor) × both
 /// framings × `apply_orientation`, at `warp_alpha` 1; then `warp_alpha` 0 and
@@ -244,11 +245,29 @@ fn ac5_black_levels_is_not_read_under_the_mix() {
     );
 }
 
+/// `SPEC-098` (`DEC-086` item 1): the mix applies the first mandatory
+/// `FixBadPixelsConstant` on the raw CFA (the kernel's values are
+/// `tests/colour_bad_pixels.rs`'s) and refuses a second one.
 #[test]
-fn ac6_the_mix_refuses_a_mandatory_fix_bad_pixels() {
-    let (mut sensor, src) = odd();
+fn ac6_the_mix_applies_the_first_fix_bad_pixels() {
+    let (plain, src) = odd();
+    assert!(
+        !src.contains(&0),
+        "no photosite equals the Constant, so the fix is inert here"
+    );
+    let mut sensor = plain.clone();
     set_list(&mut sensor, 1, Some(mandatory_fix_bad_pixels()));
     let o = with_mix(&DevelopOptions::default(), LUMINANCE);
+    assert_same!(
+        developed(&sensor, &src, LUMINANCE, &o),
+        developed(&plain, &src, LUMINANCE, &o)
+    );
+    assert!(developed(&sensor, &src, LUMINANCE, &o).is_ok());
+    // The fix needs no scratch.
+    assert_same!(scratch_len(&sensor, &o), scratch_len(&plain, &o));
+
+    // A second mandatory one is refused, before any write, on both entries.
+    set_list(&mut sensor, 1, Some(two_mandatory_fix_bad_pixels()));
     let (w, h) = output_dimensions_with(&sensor, &o).unwrap();
     let mut dst = vec![SENTINEL; (w * h) as usize];
     assert_same!(
@@ -261,9 +280,6 @@ fn ac6_the_mix_refuses_a_mandatory_fix_bad_pixels() {
         Err::<(), Error>(Error::UnsupportedRequiredOpcode { list: 1, id: 4 })
     );
     assert!(dst.iter().all(|&v| v == SENTINEL));
-    // The same file developed as mono applies it.
-    let mono = DevelopOptions::default();
-    develop_with_into(&sensor, &src, &mut dst, &mono).expect("the mono develop applies it");
 }
 
 #[test]
@@ -271,12 +287,14 @@ fn ac6_the_mix_applies_a_mandatory_warp() {
     let (optional, src) = odd_warped();
     let mut mandatory = optional.clone();
     set_list(&mut mandatory, 3, Some(radial_warp(0)));
-    // The sensor-geometry plane refuses the mandatory warp...
+    // The sensor-geometry plane passes the mandatory warp through unapplied
+    // (`SPEC-098`, `DEC-086` item 5): the same plane as the optional copy's...
     let mut plane = vec![SENTINEL; src.len()];
-    assert_same!(
-        mono_mix_plane_into(&mandatory, &src, &LUMINANCE, &mut plane),
-        Err::<(), Error>(Error::UnsupportedRequiredOpcode { list: 3, id: 1 })
-    );
+    mono_mix_plane_into(&mandatory, &src, &LUMINANCE, &mut plane)
+        .expect("the plane passes the warp through");
+    let mut unwarped = vec![SENTINEL; src.len()];
+    mono_mix_plane_into(&optional, &src, &LUMINANCE, &mut unwarped).unwrap();
+    assert_eq!(plane, unwarped, "the sensor-geometry plane is not warped");
     // ...the developed mix applies it. The oracle's mixed plane comes from the
     // optional-flag copy (the flag does not touch the plane).
     for o in [
@@ -294,8 +312,12 @@ fn ac6_the_mix_applies_a_mandatory_warp() {
     }
 }
 
+/// `SPEC-098` (`DEC-086` item 7): the mix now parses `OpcodeList1` with its
+/// stage 2, so a malformed optional `FixBadPixelsConstant` is refused by the
+/// develop as by the mono one; `scratch_len` still does not parse it under the
+/// mix (the fix needs no scratch).
 #[test]
-fn ac6_the_mix_never_parses_opcode_list_1() {
+fn ac6_the_mix_refuses_a_malformed_fix_bad_pixels_and_scratch_len_ignores_it() {
     let (mut sensor, src) = odd();
     set_list(&mut sensor, 1, Some(malformed_optional_fix_bad_pixels()));
     let mono = DevelopOptions::default();
@@ -311,13 +333,125 @@ fn ac6_the_mix_never_parses_opcode_list_1() {
         develop_with_into(&sensor, &src, &mut dst, &mono),
         Err(Error::MalformedOpcodeParams { id: 4, .. })
     ));
-    // The mix skips it unparsed, on every entry.
+    // The mix refuses it too, on both entries, before any write...
+    let mut dst = vec![SENTINEL; (w * h) as usize];
+    assert!(matches!(
+        develop_with_into(&sensor, &src, &mut dst, &mix),
+        Err(Error::MalformedOpcodeParams { id: 4, .. })
+    ));
+    let mut scratch = vec![0u16; scratch_len(&sensor, &mix).unwrap()];
+    assert!(matches!(
+        develop_with_scratch_into(&sensor, &src, &mut dst, &mut scratch, &mix),
+        Err(Error::MalformedOpcodeParams { id: 4, .. })
+    ));
+    assert!(dst.iter().all(|&v| v == SENTINEL));
+    // ...and its scratch length does not read it.
     assert_same!(scratch_len(&sensor, &mix), scratch_len(&odd().0, &mix));
-    assert_same!(
-        developed(&sensor, &src, LUMINANCE, &mono),
-        oracle(&sensor, &src, &LUMINANCE, &mono)
-    );
-    assert!(developed(&sensor, &src, LUMINANCE, &mono).is_ok());
+}
+
+/// `SPEC-098` verify: the developed mix's strips (`MIX_STRIP_ROWS`, 512 rows)
+/// see the bad-pixel fix across a strip edge. Fixture (iii) is 1100 rows tall,
+/// so its strips end near rows 512 and 1024 (framed rows from row 8, active
+/// rows from row 3). A column of bad photosites crosses each edge, so every
+/// candidate there reads neighbours one and two rows into the next strip. The
+/// whole-plane `mono_mix_plane_into` inside the oracle has no strips; AC5's
+/// 20-row scene fits in one strip and could not show this.
+#[test]
+fn ac5_the_mix_strips_see_the_fix_across_a_strip_edge() {
+    for fixture in [tall as FixtureFn, tall_warped] {
+        let (plain, mut src) = fixture();
+        assert!(!src.contains(&0), "no photosite equals the Constant yet");
+        let width = plain.width as usize;
+        for y in (505..=530).chain(1015..=1040) {
+            src[y * width + 6] = 0;
+        }
+        let mut sensor = plain.clone();
+        set_list(&mut sensor, 1, Some(mandatory_fix_bad_pixels()));
+        for framing in [Framing::StandardCrop, Framing::FullActiveArea] {
+            let o = options(framing, true, 1.0);
+            let fixed = developed(&sensor, &src, LUMINANCE, &o);
+            assert_same!(fixed, oracle(&sensor, &src, &LUMINANCE, &o));
+            assert_ne!(
+                fixed.unwrap(),
+                developed(&plain, &src, LUMINANCE, &o).unwrap(),
+                "{framing:?}: the fix changed nothing"
+            );
+        }
+    }
+}
+
+/// `SPEC-098` verify, the build's `scratch_len` deviation: under the mix an
+/// optional first warp whose `N` is not 1 is skipped (`DEC-086` item 6), and
+/// `scratch_len` sizes it as skipped, so the scratch form takes exactly that
+/// length and equals the allocating form and the no-warp mix. With `N = 1`
+/// the same coefficients are applied and sized as a warp. Without the mix
+/// (the mono develop) an `N = 3` warp is neither skipped nor resized. A
+/// mandatory `N = 3` warp is refused on both mix entries.
+#[test]
+fn ac6_the_mix_sizes_an_optional_multi_plane_warp_as_it_develops() {
+    let (plain, src) = odd();
+    let warped = |n: u32, flags: u32| {
+        let mut s = plain.clone();
+        let list = single_warp_rectilinear_list(RADIAL, [0.0, 0.0], 0.5, 0.5, n, flags);
+        set_list(&mut s, 3, Some(list));
+        s
+    };
+    for framing in [Framing::StandardCrop, Framing::FullActiveArea] {
+        let mono = options(framing, true, 1.0);
+        let mix = with_mix(&mono, LUMINANCE);
+
+        // The mix: an optional N = 3 warp is skipped, and sized as skipped.
+        let n3 = warped(3, 1);
+        assert_same!(scratch_len(&n3, &mix), scratch_len(&plain, &mix));
+        assert_same!(
+            developed(&n3, &src, LUMINANCE, &mono),
+            developed(&plain, &src, LUMINANCE, &mono)
+        );
+        // The same coefficients with N = 1 are applied, and need more scratch.
+        let n1 = warped(1, 1);
+        assert!(scratch_len(&n1, &mix).unwrap() > scratch_len(&plain, &mix).unwrap());
+        assert_ne!(
+            developed(&n1, &src, LUMINANCE, &mono).unwrap(),
+            developed(&plain, &src, LUMINANCE, &mono).unwrap(),
+            "{framing:?}: the N = 1 warp is applied by the mix"
+        );
+
+        // The mono develop: N = 3 sized as N = 1, applied, scratch form equal.
+        assert_same!(scratch_len(&n3, &mono), scratch_len(&n1, &mono));
+        let (w, h) = output_dimensions_with(&n3, &mono).unwrap();
+        let mut allocating = vec![SENTINEL; (w * h) as usize];
+        develop_with_into(&n3, &src, &mut allocating, &mono).expect("mono develops");
+        let mut scratch = vec![0u16; scratch_len(&n3, &mono).unwrap()];
+        let mut with_scratch = vec![SENTINEL; allocating.len()];
+        develop_with_scratch_into(&n3, &src, &mut with_scratch, &mut scratch, &mono)
+            .expect("mono scratch develops");
+        assert_eq!(with_scratch, allocating, "{framing:?}: mono scratch form");
+        let mut unwarped = vec![SENTINEL; allocating.len()];
+        develop_with_into(&plain, &src, &mut unwarped, &mono).expect("mono develops");
+        assert_ne!(
+            allocating, unwarped,
+            "{framing:?}: the mono develop warps N = 3"
+        );
+
+        // A mandatory N = 3 warp: refused on both mix entries, before any write.
+        let mandatory = warped(3, 0);
+        let mut dst = vec![SENTINEL; output_len(&mandatory, &mix)];
+        assert_same!(
+            develop_with_into(&mandatory, &src, &mut dst, &mix),
+            Err::<(), Error>(Error::UnsupportedRequiredOpcode { list: 3, id: 1 })
+        );
+        let mut scratch = vec![0u16; scratch_len(&mandatory, &mix).unwrap()];
+        assert_same!(
+            develop_with_scratch_into(&mandatory, &src, &mut dst, &mut scratch, &mix),
+            Err::<(), Error>(Error::UnsupportedRequiredOpcode { list: 3, id: 1 })
+        );
+        assert!(dst.iter().all(|&v| v == SENTINEL));
+    }
+}
+
+fn output_len(sensor: &Sensor, options: &DevelopOptions) -> usize {
+    let (w, h) = output_dimensions_with(sensor, options).unwrap();
+    (w * h) as usize
 }
 
 #[test]

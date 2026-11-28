@@ -492,7 +492,10 @@ fn ac10_refusals_in_order_leave_dst_untouched() {
     // An unsupported mandatory opcode in OpcodeList1: the colour path refuses it
     // first of the file checks, but the weights come first of all.
     let mut opcode_file = sensor.clone();
-    opcode_file.opcode_list_1 = Some(opcode_list(&[raw_opcode(4, 0x0103_0000, 0, &[0u8; 8])]));
+    // SPEC-098: the first mandatory FBPC is applied, so the refused list
+    // carries two.
+    let fbpc = || raw_opcode(4, 0x0103_0000, 0, &[0u8; 8]);
+    opcode_file.opcode_list_1 = Some(opcode_list(&[fbpc(), fbpc()]));
     opcode_file.opcode_lists[0] = true;
     for entry in [Entry::Plane, Entry::Rows] {
         for (weights, channel) in invalid {
@@ -638,7 +641,9 @@ fn the_row_range_refusal_comes_after_every_file_check() {
     let mut tiny = sensor.clone();
     tiny.as_shot_neutral = Some(vec![r(1, 100_000), r(1, 1), r(1, 1)]);
     let mut tiny_opcode = tiny.clone();
-    tiny_opcode.opcode_list_1 = Some(opcode_list(&[raw_opcode(4, 0x0103_0000, 0, &[0u8; 8])]));
+    // SPEC-098: two mandatory FBPCs (the first is applied).
+    let fbpc = || raw_opcode(4, 0x0103_0000, 0, &[0u8; 8]);
+    tiny_opcode.opcode_list_1 = Some(opcode_list(&[fbpc(), fbpc()]));
     tiny_opcode.opcode_lists[0] = true;
     let mut tiny_no_cfa = tiny.clone();
     tiny_no_cfa.color_filter = None;

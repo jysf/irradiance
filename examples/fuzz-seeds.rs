@@ -1640,6 +1640,13 @@ fn main() {
     // SPEC-059: the GainMap seeds join the opcode target's corpus.
     let mut opcode_seeds = opcode::fix_bad_pixels_fuzz_seed_corpus();
     opcode_seeds.extend(opcode::gain_map_fuzz_seed_corpus());
+    // SPEC-098: a mandatory three-plane `WarpRectilinear` (the Leica Q2, Q3
+    // and SL3 shape, coefficients synthetic) for the four-path chain: the
+    // sensor-geometry and mono paths accept it, the developed mix refuses it.
+    opcode_seeds.push((
+        "warp-rectilinear-n3",
+        opcode::single_warp_rectilinear_list([1.0, -0.01, 0.001, 0.0], [0.0, 0.0], 0.5, 0.5, 3, 0),
+    ));
     if let Err(e) = write_seeds("opcode", "bin", opcode_seeds) {
         eprintln!("fuzz-seeds: {e}");
         std::process::exit(1);

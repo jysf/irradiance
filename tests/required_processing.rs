@@ -8,8 +8,14 @@
 //!
 //! - mono (`develop_into`): the first `FixBadPixelsConstant` (id 4) in list 1
 //!   and the first `WarpRectilinear` (id 1) in list 3;
-//! - colour (`develop_color_*`): nothing;
-//! - `OpcodeList2`: nothing, on either path.
+//! - colour (`develop_color_*`): the first `FixBadPixelsConstant` in list 1
+//!   (`SPEC-098`, `DEC-086`);
+//! - sensor geometry (the `SPEC-091` planes and `SPEC-092` mixed planes): the
+//!   colour path's, plus the first `WarpRectilinear` in list 3, passed through
+//!   to the consumer unapplied (`SPEC-098`);
+//! - the developed mix: the colour path's, plus the first `WarpRectilinear` in
+//!   list 3 when its `N` is 1;
+//! - `OpcodeList2`: every `GainMap` (`SPEC-059`), on every path.
 //!
 //! A mandatory opcode outside that set is `Error::UnsupportedRequiredOpcode`
 //! (or, for an id this reader does not recognize at all, the existing
@@ -68,6 +74,14 @@ fn fbpc(flags: u32) -> Vec<u8> {
 /// recognizes as a no-op.
 fn warp(flags: u32) -> Vec<u8> {
     let params = warp_rectilinear_params([1.0, 0.0, 0.0, 0.0], [0.0, 0.0], 0.5, 0.5, 1);
+    raw_opcode(ID_WARP, 0x0104_0000, flags, &params)
+}
+
+/// A non-identity `WarpRectilinear` with `N` coefficient sets (`SPEC-098`): `N
+/// = 3` is the Leica Q2, Q3 and SL3 shape. Non-identity so that an applied
+/// warp changes the developed mix's output and a skipped one does not.
+fn warp_n(n: u32, flags: u32) -> Vec<u8> {
+    let params = warp_rectilinear_params([1.0, 0.08, 0.0, 0.0], [0.0, 0.0], 0.5, 0.5, n);
     raw_opcode(ID_WARP, 0x0104_0000, flags, &params)
 }
 
@@ -172,12 +186,24 @@ enum ColourEntry {
 
 impl ColourEntry {
     /// The path the entry asks about: the developed mix applies the first
-    /// `WarpRectilinear` (`DevelopPath::MonoMix`), every other entry nothing
-    /// but the `GainMap`s (`DevelopPath::Colour`).
+    /// single-plane `WarpRectilinear` (`DevelopPath::MonoMix`), the
+    /// sensor-geometry entries pass the first `WarpRectilinear` through
+    /// (`DevelopPath::SensorGeometry`, `SPEC-098`), and the developed colour
+    /// applies the first `FixBadPixelsConstant` and the `GainMap`s only
+    /// (`DevelopPath::Colour`).
     fn path(self) -> DevelopPath {
         match self {
             ColourEntry::DevelopMix | ColourEntry::DevelopMixScratch => DevelopPath::MonoMix,
-            _ => DevelopPath::Colour,
+            ColourEntry::Plane
+            | ColourEntry::PlaneF32
+            | ColourEntry::PlaneRows
+            | ColourEntry::PlaneRowsF32
+            | ColourEntry::Mono
+            | ColourEntry::MonoRows => DevelopPath::SensorGeometry,
+            ColourEntry::U16
+            | ColourEntry::F32
+            | ColourEntry::U16Threaded
+            | ColourEntry::F32Threaded => DevelopPath::Colour,
         }
     }
 }
@@ -386,15 +412,24 @@ fn unsupported_required_opcode_display_names_the_list_and_id() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The colour path — applies nothing, so ANY mandatory opcode is rejected, on
-// every public entry.
+// The colour paths — apply the first FixBadPixelsConstant and every GainMap
+// (SPEC-098: and, at sensor geometry or for a single-plane warp in the mix, the
+// first WarpRectilinear), so any other mandatory opcode is rejected, on every
+// public entry.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// `SPEC-098` (`DEC-086` item 1): the first mandatory `FixBadPixelsConstant`
+/// is applied on every colour entry, so only a second one is refused.
 #[test]
 fn colour_mandatory_opcode_in_list_1_is_rejected_on_every_entry() {
     for entry in COLOUR_ENTRIES {
+        colour(entry, [list(&[fbpc(MANDATORY)]), None, None])
+            .unwrap_or_else(|e| panic!("{entry:?}: the first FBPC is applied, got {e:?}"));
         assert_required(
-            colour(entry, [list(&[fbpc(MANDATORY)]), None, None]),
+            colour(
+                entry,
+                [list(&[fbpc(MANDATORY), fbpc(MANDATORY)]), None, None],
+            ),
             1,
             ID_FBPC,
         );
@@ -418,9 +453,19 @@ fn colour_mandatory_opcode_in_list_3_is_rejected_on_every_entry() {
         let r = colour(entry, [None, None, list(&[warp(MANDATORY)])]);
         match entry.path() {
             // SPEC-093 (`DEC-084` item 3): the developed mix applies the first
-            // WarpRectilinear whatever its flags, as the mono develop does.
-            DevelopPath::MonoMix => {
+            // WarpRectilinear whatever its flags, as the mono develop does,
+            // and SPEC-098's sensor-geometry entries pass it through.
+            DevelopPath::MonoMix | DevelopPath::SensorGeometry => {
                 r.unwrap_or_else(|e| panic!("{entry:?}: a mandatory warp develops, got {e:?}"))
+            }
+            _ => assert_required(r, 3, ID_WARP),
+        }
+        // SPEC-098 (`DEC-086` items 5 and 6): a mandatory N = 3 warp passes
+        // through at sensor geometry and is refused by the developed outputs.
+        let r = colour(entry, [None, None, list(&[warp_n(3, MANDATORY)])]);
+        match entry.path() {
+            DevelopPath::SensorGeometry => {
+                r.unwrap_or_else(|e| panic!("{entry:?}: an N = 3 warp passes through, got {e:?}"))
             }
             _ => assert_required(r, 3, ID_WARP),
         }
@@ -736,10 +781,12 @@ fn required_processing_red_proof() {
         false,
         [list(&[fbpc(MANDATORY), fbpc(MANDATORY)]), None, None],
     );
+    // SPEC-098: the colour entries apply the first mandatory FBPC, so the
+    // refused shape is a second one (the stage primitives refuse either).
     let colour_l1 = write(
         "colour-list-1.dng",
         true,
-        [list(&[fbpc(MANDATORY)]), None, None],
+        [list(&[fbpc(MANDATORY), fbpc(MANDATORY)]), None, None],
     );
 
     // SPEC-056: a present-but-unreadable list (its lost content a mandatory
@@ -1202,6 +1249,201 @@ fn public_check_agrees_with_every_develop_entry() {
         refused >= 10,
         "only {refused} refusals — the agreement test is vacuous"
     );
+}
+
+/// `SPEC-098` AC6 (`DEC-086` items 1, 5 and 6): for each path and each list
+/// shape (the agreement test's, plus a mandatory and an optional
+/// `WarpRectilinear` with `N = 1` and with `N = 3`), the public check gives the
+/// path's row of the design's table, and every entry on that path answers the
+/// same. On the developed mix an optional `N = 3` warp is skipped (equal to
+/// the mix with no list 3) and an `N = 1` one is applied.
+#[test]
+fn ac6_every_path_applies_its_table() {
+    use DevelopPath::{Colour, ColourTransform, Demosaic, Mono, MonoMix, SensorGeometry};
+    const PATHS: [DevelopPath; 6] = [
+        Mono,
+        Colour,
+        SensorGeometry,
+        MonoMix,
+        Demosaic,
+        ColourTransform,
+    ];
+    let ok = || "Ok(())".to_string();
+    let req = |list: u8, id: u32| {
+        format!(
+            "{:?}",
+            Err::<(), _>(Error::UnsupportedRequiredOpcode { list, id })
+        )
+    };
+    let unknown_id = format!(
+        "{:?}",
+        Err::<(), _>(Error::UnsupportedMandatoryOpcode { id: ID_UNKNOWN })
+    );
+    let same = |answer: String| std::array::from_fn::<String, 6, _>(|_| answer.clone());
+    // Columns: Mono, Colour, SensorGeometry, MonoMix, Demosaic, ColourTransform.
+    type Row = (&'static str, [Option<Vec<u8>>; 3], [String; 6]);
+    let table: Vec<Row> = vec![
+        ("no lists", [None, None, None], same(ok())),
+        (
+            "FBPC and an N = 1 warp, mandatory",
+            [list(&[fbpc(MANDATORY)]), None, list(&[warp(MANDATORY)])],
+            [
+                ok(),
+                req(3, ID_WARP),
+                ok(),
+                ok(),
+                req(1, ID_FBPC),
+                req(1, ID_FBPC),
+            ],
+        ),
+        (
+            "a mandatory FBPC",
+            [list(&[fbpc(MANDATORY)]), None, None],
+            [ok(), ok(), ok(), ok(), req(1, ID_FBPC), req(1, ID_FBPC)],
+        ),
+        (
+            "optional opcodes in list 1",
+            [
+                list(&[fbpc(OPTIONAL), warp(OPTIONAL), unknown(OPTIONAL)]),
+                None,
+                None,
+            ],
+            same(ok()),
+        ),
+        (
+            "an FBPC in list 2",
+            [None, list(&[fbpc(MANDATORY)]), None],
+            same(req(2, ID_FBPC)),
+        ),
+        (
+            "two mandatory FBPCs",
+            [list(&[fbpc(MANDATORY), fbpc(MANDATORY)]), None, None],
+            same(req(1, ID_FBPC)),
+        ),
+        (
+            "a mandatory unknown in list 3",
+            [None, None, list(&[unknown(MANDATORY)])],
+            same(unknown_id.clone()),
+        ),
+        (
+            "an FBPC in list 3",
+            [None, None, list(&[fbpc(MANDATORY)])],
+            same(req(3, ID_FBPC)),
+        ),
+        (
+            "a mandatory N = 1 warp",
+            [None, None, list(&[warp_n(1, MANDATORY)])],
+            [
+                ok(),
+                req(3, ID_WARP),
+                ok(),
+                ok(),
+                req(3, ID_WARP),
+                req(3, ID_WARP),
+            ],
+        ),
+        (
+            "a mandatory N = 3 warp",
+            [None, None, list(&[warp_n(3, MANDATORY)])],
+            [
+                ok(),
+                req(3, ID_WARP),
+                ok(),
+                req(3, ID_WARP),
+                req(3, ID_WARP),
+                req(3, ID_WARP),
+            ],
+        ),
+        (
+            "an optional N = 1 warp",
+            [None, None, list(&[warp_n(1, OPTIONAL)])],
+            same(ok()),
+        ),
+        (
+            "an optional N = 3 warp",
+            [None, None, list(&[warp_n(3, OPTIONAL)])],
+            same(ok()),
+        ),
+        (
+            "two mandatory N = 3 warps",
+            [
+                None,
+                None,
+                list(&[warp_n(3, MANDATORY), warp_n(3, MANDATORY)]),
+            ],
+            same(req(3, ID_WARP)),
+        ),
+    ];
+    let column = |path: DevelopPath| PATHS.iter().position(|&p| p == path).unwrap();
+    for (name, lists, want) in &table {
+        let (mono_file, mono_plane) = fixture(false, lists.clone());
+        let (colour_file, colour_plane) = fixture(true, lists.clone());
+        for (path, want) in PATHS.iter().zip(want) {
+            let sensor = if *path == Mono {
+                &mono_file
+            } else {
+                &colour_file
+            };
+            assert_eq!(
+                &format!("{:?}", check_required_processing(sensor, *path)),
+                want,
+                "{name}: the check on {path:?}"
+            );
+        }
+        assert_eq!(
+            &format!("{:?}", mono_sensor(&mono_file, &mono_plane)),
+            &want[column(Mono)],
+            "{name}: develop_into"
+        );
+        for entry in COLOUR_ENTRIES {
+            assert_eq!(
+                &format!("{:?}", colour_sensor(entry, &colour_file, &colour_plane)),
+                &want[column(entry.path())],
+                "{name}: {entry:?}"
+            );
+        }
+        for (p, path) in [
+            (Primitive::Demosaic, Demosaic),
+            (Primitive::DemosaicThreaded, Demosaic),
+            (Primitive::ToSrgbLinear, ColourTransform),
+        ] {
+            assert_eq!(
+                &format!("{:?}", primitive(p, &colour_file, &colour_plane)),
+                &want[column(path)],
+                "{name}: {p:?}"
+            );
+        }
+    }
+
+    // The developed mix's warp, by output: an optional N = 3 warp is skipped
+    // and an N = 1 one applied, through both develop entries.
+    let mix = |l3: Option<Vec<u8>>| {
+        let (sensor, plane) = fixture(true, [None, None, l3]);
+        let mut options = DevelopOptions::default();
+        options.mono_mix = Some(MIX);
+        let mut allocating = vec![0u16; out_len(&sensor, 1)];
+        develop_with_into(&sensor, &plane, &mut allocating, &options).expect("the mix develops");
+        let mut scratch = vec![0u16; scratch_len(&sensor, &options).expect("scratch_len")];
+        let mut with_scratch = vec![0u16; allocating.len()];
+        develop_with_scratch_into(&sensor, &plane, &mut with_scratch, &mut scratch, &options)
+            .expect("the scratch mix develops");
+        assert_eq!(
+            with_scratch, allocating,
+            "the scratch form equals the allocating one"
+        );
+        (allocating, scratch.len())
+    };
+    let (none, none_scratch) = mix(None);
+    let (optional_n3, optional_n3_scratch) = mix(list(&[warp_n(3, OPTIONAL)]));
+    assert_eq!(
+        optional_n3, none,
+        "an optional N = 3 warp is skipped by the mix"
+    );
+    assert_eq!(optional_n3_scratch, none_scratch, "and sized as no warp");
+    let (n1, _) = mix(list(&[warp_n(1, MANDATORY)]));
+    assert_ne!(n1, none, "an N = 1 warp is applied by the mix");
+    let (optional_n1, _) = mix(list(&[warp_n(1, OPTIONAL)]));
+    assert_eq!(optional_n1, n1, "an optional N = 1 warp is applied too");
 }
 
 /// `DevelopPath` is `#[non_exhaustive]` downstream: this match needs the

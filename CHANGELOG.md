@@ -10,6 +10,12 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Added
 
+- **`opcode::DevelopPath::SensorGeometry`** (SPEC-098, STAGE-034, PROJ-006,
+  DEC-086). The path of the sensor-geometry entries (`srgb_linear_plane_*`,
+  `mono_mix_plane_*`): the colour path's opcodes, and the first
+  `WarpRectilinear` in `OpcodeList3` is accepted without being applied, since
+  these planes are at sensor geometry and the consumer applies the file's warp
+  itself. `DevelopPath` is `#[non_exhaustive]`, so this is additive.
 - **The developed mix** (SPEC-093, STAGE-031, PROJ-006, DEC-084, DEC-083). A
   new `DevelopOptions::mono_mix: Option<[Rational; 3]>` field (default `None`,
   today's develop exactly) makes `develop_with_into`, `develop_with_scratch_into`,
@@ -71,6 +77,34 @@ the patch lane files fixes here (`[Unreleased] → Fixed`), and a release spec
 
 ### Changed
 
+- **The colour entries apply a mandatory `FixBadPixelsConstant`** (SPEC-098,
+  STAGE-034, PROJ-006, DEC-086, amending DEC-084 item 3). The colour develop,
+  the sensor-geometry planes and the developed mix apply `OpcodeList1`'s first
+  `FixBadPixelsConstant`, whatever its flags, on the raw CFA before levels,
+  `GainMap`s, white balance and demosaic. Each photosite equal to `Constant`
+  inside the `ActiveArea` takes the mean, rounded half up, of its four nearest
+  photosites of the same colour (green from its diagonals, red and blue from two
+  away on the axes) whose unfixed value is not `Constant`, or stays when none
+  is. The colour comes from `CFAPattern`; `BayerPhase` is read and not used.
+  This departs from the Adobe DNG SDK, which fills red and blue bad photosites
+  from the other colour on files whose `BayerPhase` follows the specification;
+  on the held files every such photosite is outside the default crop. A second
+  mandatory instance is still `UnsupportedRequiredOpcode { list: 1, id: 4 }`,
+  and a malformed first one, optional or not, is now `MalformedOpcodeParams {
+  id: 4, .. }` on these paths. The demosaic and colour-transform primitives
+  still refuse a mandatory one. A file with no CFA that carries one (the Leica
+  Q2 Monochrom) is still refused by these entries, now at the CFA check
+  (`NotAColorFilterArray`) where it was `UnsupportedRequiredOpcode { list: 1,
+  id: 4 }`.
+- **The sensor-geometry planes pass a mandatory `WarpRectilinear` through**
+  (SPEC-098, DEC-086). `srgb_linear_plane_*` and `mono_mix_plane_*` accept the
+  first `WarpRectilinear` in `OpcodeList3`, whatever its `N`, and leave it to the
+  consumer; each says so in its docs. The developed colour still refuses a
+  mandatory one, and the developed mix now refuses a mandatory first warp whose
+  `N` is not 1 (`UnsupportedRequiredOpcode { list: 3, id: 1 }`) and skips an
+  optional one, until SPEC-099. The colour Leica Q2, Q3 and SL3 now give the
+  linear plane and the mixed plane. No file that developed before changes
+  output, and neither `DEVELOP_VERSION` nor `MONO_MIX_VERSION` changes.
 - **A lossless-JPEG precision below `BitsPerSample` now decodes** (SPEC-097,
   STAGE-034, PROJ-006, DEC-085, amending DEC-077 §3). A `Compression = 7` strip
   or tile whose SOF-3 precision `P` is narrower than its `BitsPerSample` (at most

@@ -21,10 +21,13 @@ use std::path::{Path, PathBuf};
 ///
 /// `12 → 14` (SPEC-097): the colour Leica M10 and M11, promoted from
 /// `[[available]]` once a precision below `BitsPerSample` decodes (`DEC-085`).
-const MANIFEST_ENTRIES: usize = 14;
+///
+/// `14 → 17` (SPEC-098): the colour Leica Q2, Q3 and SL3, promoted once the
+/// colour entries apply their mandatory `FixBadPixelsConstant` (`DEC-086`).
+const MANIFEST_ENTRIES: usize = 17;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. the reader exists and reads all 14 manifest entries
+// 1. the reader exists and reads all 17 manifest entries
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -419,7 +422,8 @@ fn corpus_files_match_their_pinned_sha256() {
 /// Every DNG entry carries its exiftool preview pins; the PEF (a vendor
 /// container, not a DNG preview source) carries none. 21 in all — the count
 /// the SPEC-062 probe found — plus SPEC-097's 7 on the colour Leica M10 (3)
-/// and M11 (4): 28.
+/// and M11 (4), plus SPEC-098's 9 on the colour Leica Q2, Q3 and SL3 (3 each):
+/// 37.
 #[test]
 fn manifest_preview_pins_parse() {
     let m = Manifest::load().expect("manifest must parse with [[file.preview]] arrays");
@@ -436,7 +440,7 @@ fn manifest_preview_pins_parse() {
         assert!(!pins.is_empty(), "{}: empty preview pin list", f.path);
         total += pins.len();
     }
-    assert_eq!(total, 28);
+    assert_eq!(total, 37);
 
     // Spot check against the spec's probe table: the Q2M reference frame.
     let q2m = m
