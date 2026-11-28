@@ -146,7 +146,7 @@ existing output.
 Format: `- [status] STAGE-ID — one-line summary`
 
 - [x] STAGE-031 (shipped on 2026-11-27) — Colour to mono: SPEC-091 the white-balanced linear RGB step + working-space DEC (DEC-079), SPEC-092 the mixer at sensor geometry + the fade near clip (DEC-083), SPEC-093 the developed mix on `develop_with_into` (DEC-084)
-- [ ] STAGE-034 (active; framed in PR 357; SPEC-097 shipped 2026-11-27 with DEC-085; SPEC-098 shipped 2026-11-28 with DEC-086; SPEC-099, the per-plane warp at sensor geometry and the accessor, designed 2026-11-28 with DEC-087; SPEC-100, the developed outputs, framed) — Leica colour bodies reach the colour path: SPEC-097 the M10 and M11 lossless-JPEG precision below `BitsPerSample`, then mandatory `FixBadPixelsConstant`/`WarpRectilinear` on the colour entries (the Q2, Q3 and SL3 files). Every onyx target body is refused until both ship
+- [ ] STAGE-034 (active; framed in PR 357; SPEC-097 shipped 2026-11-27 with DEC-085; SPEC-098 shipped 2026-11-28 with DEC-086; SPEC-099, the per-plane warp at sensor geometry and the accessor, shipped 2026-11-28 with DEC-087; SPEC-100, the developed outputs, framed and next) — Leica colour bodies reach the colour path: SPEC-097 the M10 and M11 lossless-JPEG precision below `BitsPerSample`, then mandatory `FixBadPixelsConstant`/`WarpRectilinear` on the colour entries (the Q2, Q3 and SL3 files). Every onyx target body is refused until both ship
 - [ ] (not yet framed) — Filter presets: five named weight sets ledgered as approximations, Q3 and M11 colour fixtures, judged on a colour Leica file
 - [ ] (not yet framed) — The release: publish the mixer to crates.io, additions only, semver clean
 
@@ -241,6 +241,13 @@ viewport at the user's alpha and in the developed mix at the same alpha. `N = 1`
 identical sets stay bit-identical to today. This amends onyx's rule 1. (2) Yes to an
 accessor: the consumer's warp (green's set) and all `N` sets with their plane colours.
 Monochrome files keep `parse_warp_rectilinear`. SPEC-099's outline carries the detail.
+
+**For the maintainer's next message to onyx (FYI from SPEC-099, shipped 2026-11-28;
+SPEC-099/FU-10):** beyond green's image (`ρ > f_g(1)`, reached only at `warp_alpha < 1`)
+the CA ratio is held at its rim value rather than extrapolated from the DNG polynomial,
+which is undefined there (DEC-087 item 3). On the held files the difference is under
+0.2 px at the sensor corner. No answer is needed; onyx may say if it prefers
+extrapolation.
 
 ## Dependencies
 
