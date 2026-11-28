@@ -97,6 +97,20 @@ fn main() -> std::process::ExitCode {
         ),
     }
 
+    // SPEC-099: the optional stage-3 per-plane warp cross-check
+    // (tests/colour_sdk_stage3.rs), on its own variable, never set in CI.
+    const SDK_STAGE3_ENV: &str = "IRRADIANCE_SDK_STAGE3_DIR";
+    match std::env::var_os(SDK_STAGE3_ENV) {
+        Some(dir) if !dir.is_empty() => println!(
+            "sdk-stage3: present  {} — the dng_validate stage-3 cross-check will run",
+            std::path::Path::new(&dir).display()
+        ),
+        _ => println!(
+            "sdk-stage3: SKIP     ${SDK_STAGE3_ENV} unset — the dng_validate stage-3 \
+             cross-check (SPEC-099) will skip. Generate it with scripts/sdk-stage3.sh."
+        ),
+    }
+
     // SPEC-061: the DNG writer's Adobe dng_validate acceptance
     // (tests/dng_write_corpus.rs, oracle 8) runs the binary this variable
     // names. Local only, never set in CI (DEC-069 §6).

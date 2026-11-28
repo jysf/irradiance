@@ -6,7 +6,7 @@
 task:
   id: SPEC-099
   type: story                      # epic | story | task | bug | chore
-  cycle: build  # frame | design | build | verify | ship
+  cycle: verify  # frame | design | build | verify | ship
   blocked: false
   priority: medium                 # critical | high | medium | low
   complexity: M                    # XS | S | M | L | XL | XXL — the EXPECTED size, set at design
@@ -78,10 +78,20 @@ cost:
       duration_minutes: 90
       recorded_at: 2026-11-28
       notes: "Design in a side session started by the PROJ-006 orchestrator: reading, the coefficient and fold probe, dng_validate -3 on the three files and on green-only patched copies, the camera-RGB Lucas-Kanade oracle, the sRGB-space attempt, the pre-registered digests, the split into SPEC-100, DEC-087, this design, HANDOFF-210. A FLOOR measured just before the commit over transcript ddeb3c1e-f355-441d-a270-9ed5a5e56e78.jsonl (77 unique message.ids, all claude-opus-5-5, no subagents): input 154 + cache-creation 291,192 (all 1-hour) + cache-read 17,080,573 + output 112,832, priced at 5 and 25 USD per million, cache reads 0.1x, 1-hour writes 2x. The commit, PR and CI wait come after; re-measure at ship. Counted here, so the STAGE-034 orchestration cost must not count this transcript again."
+    - cycle: build
+      handoff: HANDOFF-210
+      agent: claude-opus-5-5
+      interface: other
+      basis: transcript
+      tokens_total: 45828995
+      estimated_usd: 30.76
+      duration_minutes: 45
+      recorded_at: 2026-11-28
+      notes: "Build in a side session started by the PROJ-006 orchestrator. A FLOOR measured live just before the commit over transcript 111b6c75-4198-4766-9cc9-425a4fe387af.jsonl (134 unique message.ids, all claude-opus-5-5, no subagents): input 271 + cache-creation 417,566 (all 1-hour) + cache-read 45,253,091 + output 158,067. The commit, PR and CI wait come after; re-measure at ship."
   totals:
-    tokens_total: 0
-    estimated_usd: 0
-    session_count: 0
+    tokens_total: 63313746
+    estimated_usd: 45.03
+    session_count: 2
 ---
 
 # SPEC-099: The per-plane WarpRectilinear at sensor geometry: red and blue resampled to green's geometry, and the consumer's warp named
